@@ -50,18 +50,8 @@ pub struct DefResult {
     pub suggestions: Vec<String>,
 }
 
-fn loc_w(flags: FileFlags, all: bool) -> f32 {
-    if all {
-        1.0
-    } else if flags.has(FileFlags::MINIFIED) {
-        0.1
-    } else if flags.has(FileFlags::GENERATED | FileFlags::VENDORED | FileFlags::LOCKFILE) {
-        0.2
-    } else if flags.has(FileFlags::TEST) {
-        0.45
-    } else {
-        1.0
-    }
+fn loc_w(flags: FileFlags, rel: &str, all: bool) -> f32 {
+    crate::loc_weight(flags, rel, all)
 }
 
 fn dir_of(rel: &str) -> &str {
@@ -266,7 +256,7 @@ pub fn def(o: &Options, name: &str, from: &[String], want_kind: Option<DefKind>)
             let rch = reach(idx, &origins, fid);
             let kw = kind_weight(r.kind);
             let exported = if r.flags & SYM_EXPORTED != 0 { 1.0 } else { 0.85 };
-            let score = kw * exported * loc_w(fflags, o.all) * (0.6 + 0.4 * idx.rank(fid)) * rch;
+            let score = kw * exported * loc_w(fflags, &rel, o.all) * (0.6 + 0.4 * idx.rank(fid)) * rch;
             let chain: Vec<(DefKind, String)> = idx.sym_chain(*s).into_iter().map(|(k, n)| (kind_from_code(k), n.to_string())).collect();
             let chain = chain[..chain.len().saturating_sub(1)].to_vec();
             entries.push(DefEntry { rel, line: r.line, kind, name: idx.sym_name(*s).to_string(), chain, signature: String::new(), doc: None, flags: r.flags, file_flags: fflags, supers: idx.sym_supers(*s).iter().map(|s| s.to_string()).collect(), score, reach: rch, start: r.start, end: r.end, file_id: Some(fid) });
@@ -360,12 +350,14 @@ pub fn refs(o: &Options, name: &str, kinds: &[HitKind]) -> Result<RefsResult> {
     so.kinds = kinds.to_vec();
     so.mode = Mode::Content;
     let scan_r = scan(&so)?;
+    // the scan above ran the freshness check; the lookups below reuse its result
     let mut d = o.clone();
     d.ladder = false;
     d.budget = 400;
+    d.fresh = greeg_index::fresh::Mode::None;
     let defs = def(&d, name, &[], None).map(|r| r.entries).unwrap_or_default();
     let (mut resolved, mut classified) = (0usize, 0usize);
-    if let Some(op) = if o.use_index { indexed::open_fresh(o, 1).ok().flatten() } else { None }
+    if let Some(op) = if o.use_index { indexed::open_fresh(&d, 1).ok().flatten() } else { None }
         && op.idx.has_symbols()
     {
         let def_ids: Vec<u32> = defs.iter().filter_map(|e| e.file_id).collect();
@@ -507,7 +499,7 @@ pub fn impls(o: &Options, name: &str) -> Result<ImplsResult> {
             let chain = chain[..chain.len().saturating_sub(1)].to_vec();
             let src = cache.entry(rel.clone()).or_insert_with(|| greeg_lang::read_text(o.root.join(&rel)).unwrap_or_default());
             let (sig, doc) = if (r.start as usize) < src.len() { signature_and_doc(Some((idx, fid)), src, r.start, r.flags, Lang::from_path(Path::new(&rel))) } else { (String::new(), None) };
-            let score = kind_weight(r.kind) * loc_w(fflags, o.all) * (0.6 + 0.4 * idx.rank(fid));
+            let score = kind_weight(r.kind) * loc_w(fflags, &rel, o.all) * (0.6 + 0.4 * idx.rank(fid));
             have.push((rel.clone(), r.line));
             direct.push(DefEntry { rel, line: r.line, kind: kind_from_code(r.kind), name: idx.sym_name(s).to_string(), chain, signature: sig, doc, flags: r.flags, file_flags: fflags, supers: idx.sym_supers(s).iter().map(|x| x.to_string()).collect(), score, reach: 0.6, start: r.start, end: r.end, file_id: Some(fid) });
         }
@@ -689,7 +681,7 @@ pub fn map(o: &Options, dir: &str) -> Result<MapResult> {
         files.push(MapFile { rel: rel.to_string(), rank, symbols: n, by_kind: by_kind.into_iter().map(|(k, c)| (kind_from_code(k), c)).collect(), top: top.into_iter().map(|(_, k, n)| (k, n)).collect(), flags, imported_by });
     }
     let files_total = files.len();
-    files.sort_by(|a, b| (b.rank * loc_w(b.flags, o.all)).partial_cmp(&(a.rank * loc_w(a.flags, o.all))).unwrap_or(std::cmp::Ordering::Equal).then(a.rel.cmp(&b.rel)));
+    files.sort_by(|a, b| (b.rank * loc_w(b.flags, &b.rel, o.all)).partial_cmp(&(a.rank * loc_w(a.flags, &a.rel, o.all))).unwrap_or(std::cmp::Ordering::Equal).then(a.rel.cmp(&b.rel)));
     let mut dirs: Vec<MapDir> = dirs.into_values().collect();
     dirs.sort_by(|a, b| b.rank.partial_cmp(&a.rank).unwrap_or(std::cmp::Ordering::Equal).then(a.rel.cmp(&b.rel)));
     Ok(MapResult { dir, files_total, symbols_total, dirs, files, elapsed_ms: t0.elapsed().as_secs_f64() * 1e3, source: "index" })
@@ -749,6 +741,7 @@ pub fn impact(o: &Options, name: &str) -> Result<ImpactResult> {
     }
     let mut co = o.clone();
     co.ladder = false;
+    co.fresh = greeg_index::fresh::Mode::None; // `refs` already ran the check
     let callers = callers(&co, name, 2)?;
     Ok(ImpactResult { name: name.to_string(), defs: r.defs, will_break: will, may_break: may, review, callers, total_hits: total, elapsed_ms: t0.elapsed().as_secs_f64() * 1e3 })
 }

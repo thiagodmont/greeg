@@ -1,10 +1,11 @@
 name: nightly
-# Full benchmark protocol (PLAN.md M6): every corpus in the small and medium
-# tiers, the SCIP oracle where an indexer is available, a five-hour soak, and
-# the regression gates. Runs on the reference machine when a self-hosted
-# runner labelled `reference` is registered (repository variable
-# REFERENCE_RUNNER=true), otherwise on a hosted runner where the numbers are
-# informative only (no baseline is stored for that host).
+# Full benchmark protocol (PLAN.md M6): the small and medium tiers, the SCIP oracle
+# where an indexer is available, a five-hour soak, and the regression gates. Runs
+# on the reference machine when a self-hosted runner labelled `reference` is
+# registered (repository variable REFERENCE_RUNNER=true); there the gates require
+# a baseline (--require-baseline) and cold-cache rows are measured when
+# passwordless sudo works. On a hosted runner the numbers are informative only:
+# the gates record (--record-only) and cold rows are skipped with a printed reason.
 on:
   schedule:
     - cron: "0 3 * * *"
@@ -13,49 +14,140 @@ on:
       soak_minutes:
         description: soak duration in minutes
         default: "300"
+env:
+  GREEG_BENCH_CACHE: ${{ github.workspace }}/.bench-cache/corpora
+  GATE_MODE: ${{ vars.REFERENCE_RUNNER == 'true' && '--require-baseline' || '--record-only' }}
 jobs:
-  full:
+  build:
     runs-on: ${{ vars.REFERENCE_RUNNER == 'true' && fromJSON('["self-hosted","reference"]') || 'ubuntu-latest' }}
-    timeout-minutes: 350
-    env:
-      GREEG_BENCH_CACHE: ${{ github.workspace }}/.bench-cache/corpora
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release -p greeg
+      - run: cargo test --workspace
+      - uses: actions/upload-artifact@v4
+        with:
+          name: greeg-bin-${{ github.run_id }}
+          path: target/release/greeg
+  kernels:
+    runs-on: ${{ vars.REFERENCE_RUNNER == 'true' && fromJSON('["self-hosted","reference"]') || 'ubuntu-latest' }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo bench -p greeg-index --bench kernels -- --noplot
+      - run: python3 bench/bench.py gate kernels --tolerance 5 $GATE_MODE
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: nightly-kernels-${{ github.run_id }}
+          path: bench/results/
+  speed:
+    needs: build
+    runs-on: ${{ vars.REFERENCE_RUNNER == 'true' && fromJSON('["self-hosted","reference"]') || 'ubuntu-latest' }}
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: greeg-bin-${{ github.run_id }}
+          path: target/release
+      - run: chmod +x target/release/greeg
+      - uses: actions/cache@v4
+        with:
+          path: .bench-cache
+          key: corpora-medium-${{ runner.os }}-${{ hashFiles('bench/corpora.toml') }}
+      - name: tools (hyperfine, ripgrep, GNU time)
+        shell: bash
+        run: |
+          if command -v apt-get >/dev/null; then sudo apt-get update -qq && sudo apt-get install -y -qq hyperfine ripgrep time; fi
+          if command -v brew >/dev/null; then brew install hyperfine ripgrep || true; fi
+          hyperfine --version; rg --version | head -1
+      - run: python3 bench/bench.py fetch tokio ktor django kotlinx-coroutines TypeScript-5.9 TypeScript
+      - name: speed (protocol 2; --cold is honoured only where `sudo -n` works, otherwise skipped with a reason)
+        run: python3 bench/bench.py speed --corpora tokio,ktor,django,kotlinx-coroutines,TypeScript-5.9,TypeScript --cold --no-splice
+      - run: python3 bench/bench.py gate speed --tolerance 10 $GATE_MODE
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: nightly-speed-${{ github.run_id }}
+          path: bench/results/
+  oracle:
+    needs: build
+    runs-on: ${{ vars.REFERENCE_RUNNER == 'true' && fromJSON('["self-hosted","reference"]') || 'ubuntu-latest' }}
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: greeg-bin-${{ github.run_id }}
+          path: target/release
+      - run: chmod +x target/release/greeg
+      - uses: dtolnay/rust-toolchain@stable
         with:
           components: rust-analyzer
-      - uses: Swatinem/rust-cache@v2
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
       - uses: actions/cache@v4
         with:
           path: .bench-cache
-          key: corpora-medium-${{ hashFiles('bench/corpora.toml') }}
-      - name: tools
+          key: corpora-medium-${{ runner.os }}-${{ hashFiles('bench/corpora.toml') }}
+      - name: tools (ripgrep, tiktoken)
         shell: bash
         run: |
-          if command -v apt-get >/dev/null; then sudo apt-get install -y -qq hyperfine ripgrep; fi
-          if command -v brew >/dev/null; then brew install hyperfine ripgrep || true; fi
-          pip3 install --quiet tiktoken || true
-      - run: cargo build --release -p greeg
-      - run: cargo test --workspace
-      - run: python3 bench/bench.py fetch tokio ktor django kotlinx-coroutines TypeScript-5.9 TypeScript
-      - name: kernels
-        run: |
-          cargo bench -p greeg-index --bench kernels -- --noplot
-          python3 bench/bench.py gate kernels --tolerance 5
-      - name: speed
-        run: |
-          python3 bench/bench.py speed --corpora tokio,ktor,django,kotlinx-coroutines,TypeScript-5.9,TypeScript --cold
-          python3 bench/bench.py gate speed --tolerance 10
-      - name: oracle
-        run: python3 bench/bench.py oracle tokio django TypeScript-5.9
-      - name: soak
-        run: python3 bench/soak.py ${{ github.event.inputs.soak_minutes || 300 }} target/release/greeg $GREEG_BENCH_CACHE/tokio $GREEG_BENCH_CACHE/django $GREEG_BENCH_CACHE/ktor
-      - run: python3 bench/bench.py report --out bench/results/BENCH.md
+          if command -v apt-get >/dev/null; then sudo apt-get update -qq && sudo apt-get install -y -qq ripgrep; fi
+          if command -v brew >/dev/null; then brew install ripgrep || true; fi
+          # a failed install is not fatal, but it must be visible: the oracle JSON and the
+          # report record which tokenizer ran (o200k_base or the bytes/3.7 fallback)
+          pip3 install --quiet tiktoken || echo "::warning::tiktoken install failed; token counts use the bytes/3.7 fallback (recorded as `tokenizer` in bench/results/oracle.json)"
+          python3 -c 'import tiktoken; print("tokenizer: o200k_base")' || echo "::warning::tokenizer: bytes/3.7 fallback"
+      - run: python3 bench/bench.py fetch tokio django TypeScript-5.9
+      - run: python3 bench/bench.py oracle tokio django TypeScript-5.9
       - uses: actions/upload-artifact@v4
         if: always()
+        with:
+          name: nightly-oracle-${{ github.run_id }}
+          path: bench/results/
+  soak:
+    needs: build
+    runs-on: ${{ vars.REFERENCE_RUNNER == 'true' && fromJSON('["self-hosted","reference"]') || 'ubuntu-latest' }}
+    timeout-minutes: 330
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: greeg-bin-${{ github.run_id }}
+          path: target/release
+      - run: chmod +x target/release/greeg
+      - uses: actions/cache@v4
+        with:
+          path: .bench-cache
+          key: corpora-small-${{ runner.os }}-${{ hashFiles('bench/corpora.toml') }}
+      - name: tools (ripgrep)
+        shell: bash
+        run: |
+          if command -v apt-get >/dev/null; then sudo apt-get update -qq && sudo apt-get install -y -qq ripgrep; fi
+          if command -v brew >/dev/null; then brew install ripgrep || true; fi
+      - run: python3 bench/bench.py fetch tokio ktor django
+      - run: python3 bench/soak.py ${{ github.event.inputs.soak_minutes || 300 }} target/release/greeg $GREEG_BENCH_CACHE/tokio $GREEG_BENCH_CACHE/django $GREEG_BENCH_CACHE/ktor
+  report:
+    needs: [speed, oracle, soak, kernels]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: nightly-*-${{ github.run_id }}
+          path: bench/results
+          merge-multiple: true
+      - run: python3 bench/bench.py report --out bench/results/BENCH.md
+      - uses: actions/upload-artifact@v4
         with:
           name: nightly-${{ github.run_id }}
           path: bench/results/

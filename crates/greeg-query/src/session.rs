@@ -4,7 +4,7 @@
 //! index directory. Reading the log costs well under a millisecond.
 
 use crate::shape::Report;
-use crate::{Options, ScanResult};
+use crate::{Mode, Options, ScanResult};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fs;
@@ -24,8 +24,23 @@ pub struct Record {
     pub hits: usize,
     /// Files shown (relative paths).
     pub files: Vec<String>,
-    /// (file, line) pairs whose context or block was shown.
+    /// Legacy (file, line) pairs; superseded by `shown`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub ctx: Vec<(String, u32)>,
+    /// Line ranges whose context or block was printed: (file, first, last, mtime).
+    #[serde(default)]
+    pub shown: Vec<(String, u32, u32, u64)>,
+}
+
+/// Session dedup applies only to implicit context: never when the user asked
+/// for `-A/-B/-C`, a block, or `--all` (C12).
+pub fn dedup_applies(o: &Options) -> bool {
+    !o.explicit_context() && o.mode != Mode::Block && !o.all
+}
+
+/// A previously printed range covers the requested one (same file and mtime).
+pub fn covered(shown: &[(String, u32, u32, u64)], file: &str, first: u32, last: u32, mtime: u64) -> bool {
+    shown.iter().any(|(f, a, b, m)| f == file && *m == mtime && *a <= first && *b >= last)
 }
 
 pub struct Session {
@@ -143,23 +158,25 @@ impl Session {
         out
     }
 
-    /// Drop context that was already shown this session and mark the hit.
+    /// Drop implicit context whose range was already printed this session
+    /// (same file, same mtime, covering range) and mark the hit.
     pub fn dedup(&self, r: &ScanResult, rep: &mut Report) {
-        if self.records.is_empty() {
+        if self.records.is_empty() || !dedup_applies(&r.opts) {
             return;
         }
-        let seen: HashSet<(&str, u32)> = self.records.iter().flat_map(|r| r.ctx.iter().map(|(f, l)| (f.as_str(), *l))).collect();
-        if seen.is_empty() {
+        let shown: Vec<(String, u32, u32, u64)> = self.records.iter().flat_map(|r| r.shown.iter().cloned()).collect();
+        if shown.is_empty() {
             return;
         }
         for sf in &mut rep.files {
             let f = &r.files[sf.file];
             for sh in &mut sf.hits {
-                let line = f.hits[sh.hit].line;
-                if (sh.context.is_some() || sh.block.is_some()) && seen.contains(&(f.rel.as_str(), line)) {
-                    sh.context = None;
-                    sh.block = None;
-                    sh.seen_before = true;
+                if let Some((first, lines)) = &sh.context {
+                    let last = first + lines.len().saturating_sub(1) as u32;
+                    if covered(&shown, &f.rel, *first, last, f.mtime) {
+                        sh.context = None;
+                        sh.seen_before = true;
+                    }
                 }
             }
         }
@@ -189,21 +206,23 @@ impl Session {
     /// Append this query's record (best effort; never fails the query).
     pub fn record(&self, o: &Options, r: &ScanResult, rep: &Report) {
         let mut files: Vec<String> = Vec::new();
-        let mut ctx: Vec<(String, u32)> = Vec::new();
+        let mut shown: Vec<(String, u32, u32, u64)> = Vec::new();
         for sf in &rep.files {
             let f = &r.files[sf.file];
             if !files.contains(&f.rel) {
                 files.push(f.rel.clone());
             }
             for sh in &sf.hits {
-                if sh.context.is_some() || sh.block.is_some() {
-                    ctx.push((f.rel.clone(), f.hits[sh.hit].line));
+                for (first, lines) in sh.context.iter().chain(sh.block.iter()) {
+                    if !lines.is_empty() {
+                        shown.push((f.rel.clone(), *first, first + lines.len() as u32 - 1, f.mtime));
+                    }
                 }
             }
         }
         files.truncate(64);
-        ctx.truncate(128);
-        let rec = Record { t: now_secs(), q: normalize(&o.pattern), pat: o.pattern.clone(), hits: r.stats.total_hits, files, ctx };
+        shown.truncate(128);
+        let rec = Record { t: now_secs(), q: normalize(&o.pattern), pat: o.pattern.clone(), hits: r.stats.total_hits, files, ctx: Vec::new(), shown };
         let Ok(line) = serde_json::to_string(&rec) else { return };
         let _ = fs::create_dir_all(self.path.parent().unwrap_or(&self.path));
         let fresh_file = !self.path.exists();
@@ -261,5 +280,37 @@ mod tests {
     #[test]
     fn agent_pid_is_some_process() {
         assert!(agent_pid() > 0);
+    }
+
+    #[test]
+    fn dedup_rules() {
+        let shown = vec![("a.rs".to_string(), 10, 20, 7u64)];
+        // covered only when the earlier range contains the requested one, same mtime
+        assert!(covered(&shown, "a.rs", 12, 18, 7));
+        assert!(covered(&shown, "a.rs", 10, 20, 7));
+        assert!(!covered(&shown, "a.rs", 8, 18, 7), "more context than before is shown again");
+        assert!(!covered(&shown, "a.rs", 12, 25, 7));
+        assert!(!covered(&shown, "a.rs", 12, 18, 8), "edited file (mtime) is shown again");
+        assert!(!covered(&shown, "b.rs", 12, 18, 7));
+        // explicit context, block mode and --all are never deduplicated
+        let mut o = Options::default();
+        assert!(dedup_applies(&o));
+        o.context = Some(2);
+        assert!(!dedup_applies(&o));
+        o = Options { after: 3, ..Default::default() };
+        assert!(!dedup_applies(&o));
+        o = Options { before: 1, ..Default::default() };
+        assert!(!dedup_applies(&o));
+        o = Options { mode: Mode::Block, ..Default::default() };
+        assert!(!dedup_applies(&o));
+        o = Options { all: true, ..Default::default() };
+        assert!(!dedup_applies(&o));
+    }
+
+    #[test]
+    fn old_records_still_parse() {
+        let r: Record = serde_json::from_str(r#"{"t":1,"q":"a","pat":"a","hits":1,"files":[],"ctx":[["a.rs",3]]}"#).unwrap();
+        assert!(r.shown.is_empty());
+        assert_eq!(r.ctx.len(), 1);
     }
 }

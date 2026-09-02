@@ -8,6 +8,7 @@
 //!   FileRec[n_files]   (32 bytes each)
 //!   DirRec[n_dirs]     (16 bytes each)
 //!   arena bytes (paths, relative, '/'-separated), padded to 8
+//!   u32 n_huge, u32 n_hidden, u32 huge[n_huge], u32 hidden[n_hidden]   (segment-local ids, padded to 8)
 //!
 //! grams.<gen>.bin
 //!   u32 n_grams, u32 pad, u64 postings_len
@@ -48,11 +49,15 @@
 //! section and a spans section (same layouts; FileRec ids are absolute:
 //! first_id + local offset; imports in deltas are unresolved), plus a
 //! tombstone bitmap of superseded ids at the end.
+//!
+//! Writers (build publish, delta apply) hold an exclusive `flock` on `LOCK`;
+//! readers never lock (DESIGN.md §2.2).
 
 use anyhow::{Context, Result, bail};
 use bytemuck::{Pod, Zeroable};
 use std::io::Write;
 use std::path::Path;
+use std::sync::atomic::{AtomicU32, Ordering};
 
 pub const MAGIC: &[u8; 5] = b"GREEG";
 pub const HEADER_LEN: usize = 16;
@@ -172,12 +177,23 @@ fn pad8(v: &mut Vec<u8>) {
     }
 }
 
+/// Ignore files are tracked for freshness (an edit re-evaluates the ignore
+/// rules) but, like every hidden file, never searched.
+pub fn is_ignore_file(rel: &str) -> bool {
+    let name = rel.rsplit_once('/').map(|(_, n)| n).unwrap_or(rel);
+    matches!(name, ".gitignore" | ".ignore" | ".rgignore")
+}
+
 /// In-memory file table used while building and when writing deltas.
 #[derive(Clone, Debug, Default)]
 pub struct FileTable {
     pub files: Vec<FileRec>,
     pub dirs: Vec<DirRec>,
     pub arena: Vec<u8>,
+    /// Segment-local ids of files above `MAX_FILE`: no grams, always a candidate.
+    pub huge: Vec<u32>,
+    /// Segment-local ids of tracked-only files (ignore files): never a candidate.
+    pub hidden: Vec<u32>,
 }
 
 impl FileTable {
@@ -186,8 +202,19 @@ impl FileTable {
         self.arena.extend_from_slice(s.as_bytes());
         (off, s.len().min(u16::MAX as usize) as u16)
     }
+    /// Append a file record, classifying it into the huge/hidden lists.
+    pub fn push_file(&mut self, rel: &str, rec: FileRec) {
+        let id = self.files.len() as u32;
+        if greeg_lang::FileFlags(rec.flags).has(greeg_lang::FileFlags::HUGE) {
+            self.huge.push(id);
+        }
+        if is_ignore_file(rel) {
+            self.hidden.push(id);
+        }
+        self.files.push(rec);
+    }
     pub fn serialize(&self) -> Vec<u8> {
-        let mut body = Vec::with_capacity(self.files.len() * 32 + self.dirs.len() * 16 + self.arena.len() + 32);
+        let mut body = Vec::with_capacity(self.files.len() * 32 + self.dirs.len() * 16 + self.arena.len() + 48 + (self.huge.len() + self.hidden.len()) * 4);
         body.extend_from_slice(&(self.files.len() as u32).to_le_bytes());
         body.extend_from_slice(&(self.dirs.len() as u32).to_le_bytes());
         body.extend_from_slice(&(self.arena.len() as u32).to_le_bytes());
@@ -195,6 +222,11 @@ impl FileTable {
         body.extend_from_slice(bytemuck::cast_slice(&self.files));
         body.extend_from_slice(bytemuck::cast_slice(&self.dirs));
         body.extend_from_slice(&self.arena);
+        pad8(&mut body);
+        body.extend_from_slice(&(self.huge.len() as u32).to_le_bytes());
+        body.extend_from_slice(&(self.hidden.len() as u32).to_le_bytes());
+        body.extend_from_slice(bytemuck::cast_slice(&self.huge));
+        body.extend_from_slice(bytemuck::cast_slice(&self.hidden));
         pad8(&mut body);
         body
     }
@@ -205,6 +237,8 @@ pub struct FilesView<'a> {
     pub files: &'a [FileRec],
     pub dirs: &'a [DirRec],
     pub arena: &'a [u8],
+    pub huge: &'a [u32],
+    pub hidden: &'a [u32],
 }
 
 impl<'a> FilesView<'a> {
@@ -221,7 +255,20 @@ impl<'a> FilesView<'a> {
         let db = body.get(off..off + n_dirs * 16).context("dirs table truncated")?;
         off += n_dirs * 16;
         let arena = body.get(off..off + arena_len).context("arena truncated")?;
-        Ok(FilesView { files: bytemuck::cast_slice(fb), dirs: bytemuck::cast_slice(db), arena })
+        off = (off + arena_len + 7) & !7;
+        let counts = body.get(off..off + 8).context("id lists truncated")?;
+        let n_huge = u32::from_le_bytes(counts[0..4].try_into().unwrap()) as usize;
+        let n_hidden = u32::from_le_bytes(counts[4..8].try_into().unwrap()) as usize;
+        off += 8;
+        let hb = body.get(off..off + n_huge * 4).context("huge list truncated")?;
+        off += n_huge * 4;
+        let ib = body.get(off..off + n_hidden * 4).context("hidden list truncated")?;
+        let huge: &[u32] = bytemuck::try_cast_slice(hb).map_err(|_| anyhow::anyhow!("unaligned huge list"))?;
+        let hidden: &[u32] = bytemuck::try_cast_slice(ib).map_err(|_| anyhow::anyhow!("unaligned hidden list"))?;
+        if huge.iter().chain(hidden).any(|&i| i as usize >= n_files) {
+            bail!("id list out of range");
+        }
+        Ok(FilesView { files: bytemuck::cast_slice(fb), dirs: bytemuck::cast_slice(db), arena, huge, hidden })
     }
     pub fn path(&self, f: &FileRec) -> &'a str {
         std::str::from_utf8(&self.arena[f.path_off as usize..f.path_off as usize + f.path_len as usize]).unwrap_or("")
@@ -296,9 +343,18 @@ impl<'a> GramsView<'a> {
     }
 }
 
-/// Write a component file atomically (temp + rename).
+static TMP_COUNTER: AtomicU32 = AtomicU32::new(0);
+
+/// A temp name next to `path`, unique per process and call.
+pub fn tmp_path(path: &Path) -> std::path::PathBuf {
+    let n = TMP_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let name = path.file_name().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+    path.with_file_name(format!("{name}.{}.{n}.tmp", std::process::id()))
+}
+
+/// Write a component file atomically (unique temp + rename).
 pub fn write_atomic(path: &Path, comp: u8, body: &[u8]) -> Result<()> {
-    let tmp = path.with_extension("tmp");
+    let tmp = tmp_path(path);
     {
         let mut f = std::io::BufWriter::with_capacity(1 << 20, std::fs::File::create(&tmp)?);
         write_header(&mut f, comp, body.len() as u64)?;

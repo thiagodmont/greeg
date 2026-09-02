@@ -149,7 +149,7 @@ fn analyze(h: &Hir) -> Info {
             let members = class_members(c);
             match members {
                 Some(ms) if !ms.is_empty() && ms.len() <= 8 => {
-                    let set: Set = ms.into_iter().map(|b| vec![b]).collect();
+                    let set: Set = ms.into_iter().collect();
                     Info { emptyable: false, exact: Some(set.clone()), prefix: set.clone(), suffix: set, q: Q::All }
                 }
                 _ => Info { emptyable: false, exact: None, prefix: empty_str(), suffix: empty_str(), q: Q::All },
@@ -190,13 +190,17 @@ fn analyze(h: &Hir) -> Info {
 
 fn concat(a: Info, b: Info) -> Info {
     let mut q = and(a.q.clone(), b.q.clone());
-    // trigrams spanning the boundary
-    let mid = cross(&a.suffix, &b.prefix);
-    q = and(q, trigrams_of(&mid));
     let exact = match (&a.exact, &b.exact) {
         (Some(x), Some(y)) => Some(cross(x, y)),
         _ => None,
     };
+    // trigrams spanning the boundary; implied by the exact set while one is
+    // still tracked (every exact string contains one of the boundary strings),
+    // and emitting them there would nest an OR per step for multi-member sets
+    if exact.is_none() {
+        let mid = cross(&a.suffix, &b.prefix);
+        q = and(q, trigrams_of(&mid));
+    }
     let prefix = match &a.exact {
         Some(x) => cross(x, &b.prefix),
         None => a.prefix.clone(),
@@ -226,8 +230,12 @@ fn alternate(a: Info, b: Info) -> Info {
     simplify(Info { emptyable: a.emptyable || b.emptyable, exact, prefix: a.prefix.union(&b.prefix).cloned().collect(), suffix: a.suffix.union(&b.suffix).cloned().collect(), q })
 }
 
-/// Bytes matched by a class if it is small and ASCII (case-folded), else None.
-fn class_members(c: &Class) -> Option<Vec<u8>> {
+/// Byte strings matched by a class if it is small, else None. ASCII members
+/// are case-folded; other code points are their UTF-8 bytes, which the index
+/// stores raw. With `-i`, `s` and `k` become classes that also hold U+017F
+/// (ſ) and U+212A (K): keeping those as members preserves the gram chain
+/// through every `s`/`k` while a file spelt with `ſ` stays a candidate.
+fn class_members(c: &Class) -> Option<Vec<Vec<u8>>> {
     let mut out = BTreeSet::new();
     match c {
         Class::Unicode(u) => {
@@ -237,10 +245,11 @@ fn class_members(c: &Class) -> Option<Vec<u8>> {
                     return None;
                 }
                 for cp in s..=e {
-                    if cp >= 0x80 {
-                        return None;
-                    }
-                    out.insert(crate::gram::fold(cp as u8));
+                    match char::from_u32(cp) {
+                        Some(ch) if ch.is_ascii() => out.insert(vec![crate::gram::fold(cp as u8)]),
+                        Some(ch) => out.insert(ch.to_string().into_bytes()),
+                        None => return None,
+                    };
                 }
             }
         }
@@ -254,7 +263,7 @@ fn class_members(c: &Class) -> Option<Vec<u8>> {
                     if x >= 0x80 {
                         return None;
                     }
-                    out.insert(crate::gram::fold(x));
+                    out.insert(vec![crate::gram::fold(x)]);
                 }
             }
         }
@@ -345,5 +354,23 @@ mod tests {
         assert_eq!(plan(r"\w{5}\s+\w{5}", false, false).unwrap(), Q::All);
         let q = plan("def get_queryset", false, true).unwrap();
         assert!(grams(&q) >= 10);
+    }
+    #[test]
+    fn case_insensitive_keeps_grams_through_s_and_k() {
+        // -i turns `s`/`k` into classes holding U+017F/U+212A; the chain must
+        // survive as an OR of the ASCII spelling and the folded spellings
+        let q = plan("getUserSession", false, true).unwrap();
+        assert!(matches!(q, Q::Or(_)), "{q:?}");
+        let Q::Or(alts) = &q else { unreachable!() };
+        assert_eq!(alts.len(), 16, "{q:?}"); // four `s`, each ∈ {s, ſ}
+        assert!(alts.contains(&Q::And(literal_keys(b"getusersession").remove(0).into_iter().map(Q::Gram).collect())), "{q:?}");
+        assert!(alts.contains(&Q::And(literal_keys("getuſerſeſſion".as_bytes()).remove(0).into_iter().map(Q::Gram).collect())), "{q:?}");
+        let q = plan("createSourceFile", false, true).unwrap();
+        assert_eq!(grams(&q), 14 + 15, "{q:?}"); // `createſourcefile` is a byte longer
+        let q = plan("kilo", true, true).unwrap();
+        let Q::Or(alts) = &q else { panic!("{q:?}") };
+        assert!(alts.contains(&Q::And(literal_keys("\u{212A}ilo".as_bytes()).remove(0).into_iter().map(Q::Gram).collect())), "{q:?}");
+        // without -i nothing changes
+        assert!(matches!(plan("getUserSession", false, false).unwrap(), Q::And(_)));
     }
 }

@@ -86,25 +86,29 @@ static PY: LazyLock<LangRes> = LazyLock::new(|| LangRes {
     kinds: vec![("def", DefKind::Function), ("class", DefKind::Class), ("const", DefKind::Constant)],
 });
 static RS: LazyLock<LangRes> = LazyLock::new(|| LangRes {
-    re: build(r#"(?m)^(?P<indent>[ \t]*)(?:pub(?:\([^)]*\))?\s+)?(?:(?:async|const|unsafe|default|extern\s+"[^"]*"|extern)\s+)*(?:(?P<fn>fn)\s+(?P<name>[A-Za-z_]\w*)|(?P<struct>struct)\s+(?P<name2>[A-Za-z_]\w*)|(?P<enum>enum)\s+(?P<name3>[A-Za-z_]\w*)|(?P<trait>trait)\s+(?P<name4>[A-Za-z_]\w*)|(?P<type>type)\s+(?P<name5>[A-Za-z_]\w*)|(?P<mod>mod)\s+(?P<name6>[A-Za-z_]\w*)|(?P<const>const|static)\s+(?:mut\s+)?(?P<name7>[A-Za-z_]\w*)|(?P<macro>macro_rules!)\s+(?P<name8>[A-Za-z_]\w*)|(?P<union>union)\s+(?P<name9>[A-Za-z_]\w*)|(?P<impl>impl)(?:\s*<[^>]*>)?\s+(?:(?P<for_trait>[\w:]+(?:<[^>]*>)?)\s+for\s+)?(?P<name10>[A-Za-z_][\w:]*))"#),
+    re: build(r#"(?m)^(?P<indent>[ \t]*)(?:pub(?:\([^)]*\))?\s+)?(?:(?:async|const|unsafe|default|extern\s+"[^"]*"|extern)\s+)*(?:(?P<fn>fn)\s+(?P<name>[A-Za-z_]\w*)|(?P<struct>struct)\s+(?P<name2>[A-Za-z_]\w*)|(?P<enum>enum)\s+(?P<name3>[A-Za-z_]\w*)|(?P<trait>trait)\s+(?P<name4>[A-Za-z_]\w*)|(?P<type>type)\s+(?P<name5>[A-Za-z_]\w*)|(?P<mod>mod)\s+(?P<name6>[A-Za-z_]\w*)|(?P<const>const|static)\s+(?:mut\s+)?(?P<name7>[A-Za-z_]\w*)|(?P<macro>macro_rules!)\s+(?P<name8>[A-Za-z_]\w*)|(?P<union>union)\s+(?P<name9>[A-Za-z_]\w*)|(?P<impl>impl)(?:\s*<(?:->|[^<>]|<(?:->|[^<>]|<[^<>]*>)*>)*>)?\s+(?:(?P<for_trait>[\w:]+(?:<(?:->|[^<>]|<[^<>]*>)*>)?)\s+for\s+)?(?P<name10>[A-Za-z_][\w:]*))"#),
     kinds: vec![
         ("fn", DefKind::Function), ("struct", DefKind::Struct), ("enum", DefKind::Enum), ("trait", DefKind::Trait), ("type", DefKind::TypeAlias),
         ("mod", DefKind::Module), ("const", DefKind::Constant), ("macro", DefKind::Macro), ("union", DefKind::Struct), ("impl", DefKind::Impl),
     ],
 });
 static JS: LazyLock<LangRes> = LazyLock::new(|| LangRes {
-    re: build(r"(?m)^(?P<indent>[ \t]*)(?:export\s+)?(?:default\s+)?(?:declare\s+)?(?:abstract\s+)?(?:(?:async\s+)?(?P<fn>function\*?)\s+(?P<name>[A-Za-z_$][\w$]*)|(?P<class>class)\s+(?P<name2>[A-Za-z_$][\w$]*)|(?P<iface>interface)\s+(?P<name3>[A-Za-z_$][\w$]*)|(?P<type>type)\s+(?P<name4>[A-Za-z_$][\w$]*)\s*(?:<[^=]*>)?\s*=|(?P<enum>(?:const\s+)?enum)\s+(?P<name5>[A-Za-z_$][\w$]*)|(?P<ns>namespace|module)\s+(?P<name6>[A-Za-z_$][\w$.]*)|(?P<arrow>const|let|var)\s+(?P<name7>[A-Za-z_$][\w$]*)\s*(?::[^=]*)?=\s*(?:async\s+)?(?:\([^)]*\)|[A-Za-z_$][\w$]*)\s*(?::[^=]*)?=>|(?P<var>const|let|var)\s+(?P<name8>[A-Za-z_$][\w$]*)|(?:(?:public|private|protected|static|readonly|async|override|get|set|abstract|declare)\s+)*(?P<method>[A-Za-z_$][\w$]*)\s*(?:<[^>]*>)?\s*\([^)]*\)\s*(?::\s*[^{;=]+)?\s*\{)"),
+    re: build(r#"(?m)^(?P<indent>[ \t]*)(?:export\s+)?(?:default\s+)?(?:declare\s+)?(?:abstract\s+)?(?:(?:async\s+)?(?P<fn>function\*?)\s+(?P<name>[A-Za-z_$][\w$]*)|(?P<class>class)\s+(?P<name2>[A-Za-z_$][\w$]*)|(?P<iface>interface)\s+(?P<name3>[A-Za-z_$][\w$]*)|(?P<type>type)\s+(?P<name4>[A-Za-z_$][\w$]*)\s*(?:<[^=]*>)?\s*=|(?P<enum>(?:const\s+)?enum)\s+(?P<name5>[A-Za-z_$][\w$]*)|(?P<ns>namespace|module)\s+(?P<name6>[A-Za-z_$][\w$.]*|'[^'\n]*'|"[^"\n]*")|(?P<arrow>const|let|var)\s+(?P<name7>[A-Za-z_$][\w$]*)\s*(?::[^=]*)?=\s*(?:async\s+)?(?:\([^)]*\)|[A-Za-z_$][\w$]*)\s*(?::[^=]*)?=>|(?P<var>const|let|var)\s+(?P<name8>[A-Za-z_$][\w$]*)|(?:(?:public|private|protected|static|readonly|async|override|get|set|abstract|declare)\s+)*(?P<method>[A-Za-z_$][\w$]*)\s*(?:<[^>]*>)?\s*\([^)]*\)\s*(?::\s*[^{;=]+)?\s*\{)"#),
     kinds: vec![
         ("fn", DefKind::Function), ("class", DefKind::Class), ("iface", DefKind::Interface), ("type", DefKind::TypeAlias), ("enum", DefKind::Enum),
         ("ns", DefKind::Module), ("arrow", DefKind::Function), ("var", DefKind::Variable), ("method", DefKind::Method),
     ],
 });
 static KT: LazyLock<LangRes> = LazyLock::new(|| LangRes {
-    re: build(r"(?m)^(?P<indent>[ \t]*)(?:(?:public|private|protected|internal|open|abstract|final|sealed|data|enum|annotation|inner|inline|value|suspend|operator|infix|override|external|tailrec|actual|expect|lateinit|const|vararg|crossinline|noinline|context\([^)]*\))\s+)*(?:(?P<fun>fun)(?:\s*<[^>]*>)?\s+(?:[\w.<>?*, ]+?\.)??(?P<name>[A-Za-z_]\w*|`[^`]+`)\s*(?:<|\()|(?P<class>class|interface)\s+(?P<name2>[A-Za-z_]\w*)|(?P<object>object)\s+(?P<name3>[A-Za-z_]\w*)|(?P<companion>companion\s+object)\b\s*(?P<name4>[A-Za-z_]\w*)?|(?P<val>val|var)\s+(?:<[^>]*>\s*)?(?:[\w.<>?]+\.)?(?P<name5>[A-Za-z_]\w*|`[^`]+`)|(?P<typealias>typealias)\s+(?P<name6>[A-Za-z_]\w*))"),
+    // leading annotations (`@Composable fun`, `@Inject constructor`, `@get:Rule val`) are
+    // skipped; one level of parentheses inside annotation arguments is allowed
+    re: build(r"(?m)^(?P<indent>[ \t]*)(?:@[\w.:]+(?:\((?:[^()\n]|\([^()\n]*\))*\))?\s+)*(?:(?:public|private|protected|internal|open|abstract|final|sealed|data|annotation|inner|inline|value|suspend|operator|infix|override|external|tailrec|actual|expect|lateinit|const|vararg|crossinline|noinline|context\([^)]*\))\s+)*(?:(?P<fun>fun)(?:\s*<[^>]*>)?\s+(?:[\w.<>?*, ]+?\.)??(?P<name>[A-Za-z_]\w*|`[^`]+`)\s*(?:<|\()|(?P<iface>(?:fun\s+)?interface)\s+(?P<name11>[A-Za-z_]\w*)|(?P<enum>enum\s+class)\s+(?P<name12>[A-Za-z_]\w*)|(?P<class>class)\s+(?P<name2>[A-Za-z_]\w*)|(?P<object>object)\s+(?P<name3>[A-Za-z_]\w*)|(?P<companion>companion)\s+object\b\s*(?P<name4>[A-Za-z_]\w*)?|(?P<val>val|var)\s+(?:<[^>]*>\s*)?(?:[\w.<>?]+\.)?(?P<name5>[A-Za-z_]\w*|`[^`]+`)|(?P<typealias>typealias)\s+(?P<name6>[A-Za-z_]\w*))"),
     kinds: vec![
-        ("fun", DefKind::Function), ("class", DefKind::Class), ("object", DefKind::Object), ("companion", DefKind::Object), ("val", DefKind::Variable), ("typealias", DefKind::TypeAlias),
+        ("fun", DefKind::Function), ("iface", DefKind::Interface), ("enum", DefKind::Enum), ("class", DefKind::Class), ("object", DefKind::Object), ("companion", DefKind::Object), ("val", DefKind::Variable), ("typealias", DefKind::TypeAlias),
     ],
 });
+
+const NAME_GROUPS: [&str; 12] = ["name", "name2", "name3", "name4", "name5", "name6", "name7", "name8", "name9", "name10", "name11", "name12"];
 
 const JS_KEYWORDS: &[&str] = &["if", "for", "while", "switch", "catch", "function", "return", "else", "do", "try", "with", "new", "typeof", "await", "yield", "constructor_"];
 
@@ -152,6 +156,9 @@ fn is_def_word(lang: Lang, w: &[u8]) -> bool {
 fn may_define(lang: Lang, line: &[u8]) -> bool {
     let t = crate::trim_start(line);
     let mut pos = 0;
+    if lang == Lang::Kotlin {
+        pos = skip_annotations(t);
+    }
     for nth in 0..4 {
         let start = pos;
         while pos < t.len() && (is_word(t[pos]) || (t[pos] == b'!' && nth == 0)) {
@@ -200,6 +207,52 @@ fn may_define(lang: Lang, line: &[u8]) -> bool {
     false
 }
 
+/// Kotlin: byte offset after leading `@Annotation`, `@a.b.C(args)`, `@get:Rule`
+/// prefixes (and the whitespace after them).
+fn skip_annotations(t: &[u8]) -> usize {
+    let mut pos = 0;
+    while pos < t.len() && t[pos] == b'@' {
+        let mut j = pos + 1;
+        while j < t.len() && (is_word(t[j]) || t[j] == b'.' || t[j] == b':') {
+            j += 1;
+        }
+        if j == pos + 1 {
+            break;
+        }
+        if j < t.len() && t[j] == b'(' {
+            let mut depth = 0i32;
+            while j < t.len() {
+                match t[j] {
+                    b'(' => depth += 1,
+                    b')' => {
+                        depth -= 1;
+                        if depth == 0 {
+                            j += 1;
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
+                j += 1;
+            }
+        }
+        let after = j;
+        while j < t.len() && (t[j] == b' ' || t[j] == b'\t') {
+            j += 1;
+        }
+        if j == after {
+            break; // `@Foo` glued to something else: not an annotation prefix
+        }
+        pos = j;
+    }
+    pos
+}
+
+/// Strip the quotes of a quoted name (TS `declare module 'x'`).
+fn unquoted(line: &[u8], s: usize, e: usize) -> (usize, usize) {
+    if e - s >= 2 && (line[s] == b'\'' || line[s] == b'"') && line[e - 1] == line[s] { (s + 1, e - 1) } else { (s, e) }
+}
+
 /// Cheap per-line check: if `line` starts a definition, return the name range
 /// within the line. Used by scan mode before any file-level outline exists.
 pub fn def_name_on_line(lang: Lang, line: &[u8]) -> Option<(usize, usize)> {
@@ -211,7 +264,7 @@ pub fn def_name_on_line(lang: Lang, line: &[u8]) -> Option<(usize, usize)> {
     if caps.get(0)?.start() != 0 {
         return None;
     }
-    let name = ["name", "name2", "name3", "name4", "name5", "name6", "name7", "name8", "name9", "name10"].iter().find_map(|g| caps.name(g));
+    let name = NAME_GROUPS.iter().find_map(|g| caps.name(g));
     let m = match name {
         Some(n) => n,
         None => res.kinds.iter().find_map(|(g, _)| caps.name(g))?,
@@ -222,14 +275,13 @@ pub fn def_name_on_line(lang: Lang, line: &[u8]) -> Option<(usize, usize)> {
             return None;
         }
     }
-    Some((m.start(), m.end()))
+    Some(unquoted(line, m.start(), m.end()))
 }
 
 /// Extract definitions and compute enclosing ranges.
 pub fn outline(lang: Lang, src: &[u8], lexed: &Lexed) -> Outline {
     let Some(res) = res_for(lang) else { return Outline::default() };
     let mut defs: Vec<Def> = Vec::new();
-    let names = ["name", "name2", "name3", "name4", "name5", "name6", "name7", "name8", "name9", "name10"];
     let mut line_no = 0u32;
     let mut pos = 0usize;
     // Per-line matching after a keyword precheck is ~10× faster than
@@ -261,9 +313,9 @@ pub fn outline(lang: Lang, src: &[u8], lexed: &Lexed) -> Outline {
             }
         }
         let Some(kind) = kind else { continue };
-        let name = names.iter().find_map(|g| caps.name(g));
+        let name = NAME_GROUPS.iter().find_map(|g| caps.name(g));
         let (name_start, name_end) = match name {
-            Some(n) => (n.start(), n.end()),
+            Some(n) => unquoted(line, n.start(), n.end()),
             None => {
                 let g = res.kinds.iter().find_map(|(g, _)| caps.name(g)).unwrap();
                 (g.start(), g.end())
@@ -300,13 +352,52 @@ pub fn outline(lang: Lang, src: &[u8], lexed: &Lexed) -> Outline {
         defs[i].parent = stack.last().map(|&p| p as u32);
         stack.push(i);
     }
-    // function inside a container => method
+    // function inside a type => method (inside a `mod`/`namespace` it stays a function)
     for i in 0..defs.len() {
         if defs[i].kind == DefKind::Function
             && let Some(p) = defs[i].parent
-                && defs[p as usize].kind.is_container() {
-                    defs[i].kind = DefKind::Method;
+            && defs[p as usize].kind.is_container()
+            && defs[p as usize].kind != DefKind::Module
+        {
+            defs[i].kind = DefKind::Method;
+        }
+    }
+    // Kotlin: `val`/`var` are symbols only at top level or directly in a class body.
+    // The enclosing construct is known from containment; a member sits at most one
+    // indentation step (4 columns) inside its class, deeper ones are `init {}` locals.
+    if lang == Lang::Kotlin {
+        let keep: Vec<bool> = defs
+            .iter()
+            .map(|d| {
+                d.kind != DefKind::Variable
+                    || match d.parent {
+                        None => true,
+                        Some(p) => {
+                            let p = &defs[p as usize];
+                            p.kind.is_container() && d.indent <= p.indent + 4
+                        }
+                    }
+            })
+            .collect();
+        if keep.iter().any(|k| !k) {
+            let mut remap = vec![u32::MAX; defs.len()];
+            let mut n = 0u32;
+            for (i, &k) in keep.iter().enumerate() {
+                if k {
+                    remap[i] = n;
+                    n += 1;
                 }
+            }
+            let mut i = 0;
+            defs.retain(|_| {
+                let k = keep[i];
+                i += 1;
+                k
+            });
+            for d in &mut defs {
+                d.parent = d.parent.map(|p| remap[p as usize]);
+            }
+        }
     }
     Outline { defs }
 }
@@ -444,7 +535,44 @@ mod tests {
         let src = b"class Svc(val repo: Repo) {\n    suspend fun ApplicationCall.respond(msg: Any?) {\n        val x = 1\n    }\n    fun short() = 1\n    companion object {\n        const val K = 2\n    }\n}\nfun top() {}\n";
         let v = names(Lang::Kotlin, src);
         let n: Vec<_> = v.iter().map(|x| (x.0.as_str(), x.1, x.2)).collect();
-        assert_eq!(n, vec![("Svc", "class", None), ("respond", "method", Some(0)), ("x", "var", Some(1)), ("short", "method", Some(0)), ("companion object", "object", Some(0)), ("K", "var", Some(4)), ("top", "fn", None)]);
+        assert_eq!(n, vec![("Svc", "class", None), ("respond", "method", Some(0)), ("short", "method", Some(0)), ("companion", "object", Some(0)), ("K", "var", Some(3)), ("top", "fn", None)]);
+    }
+
+    #[test]
+    fn kotlin_annotations_and_kinds() {
+        let src = b"@Composable fun Screen() {}\n@Inject constructor(x: Int)\n@Test fun `runs ok`() {}\n@get:Rule val rule = R()\nfun interface Fi {\n    fun run()\n}\nsealed interface SI\nenum class E { A }\nprivate class P\ncompanion object Named {}\n";
+        let v = names(Lang::Kotlin, src);
+        let n: Vec<_> = v.iter().map(|x| (x.0.as_str(), x.1)).collect();
+        assert_eq!(n, vec![("Screen", "fn"), ("`runs ok`", "fn"), ("rule", "var"), ("Fi", "interface"), ("run", "method"), ("SI", "interface"), ("E", "enum"), ("P", "class"), ("Named", "object")]);
+        assert!(def_name_on_line(Lang::Kotlin, b"@Composable fun Screen() {}").is_some());
+        assert!(def_name_on_line(Lang::Kotlin, b"@Suppress(\"x\", y(1)) internal class Z").is_some());
+        assert!(def_name_on_line(Lang::Kotlin, b"@Composable").is_none());
+        assert!(def_name_on_line(Lang::Kotlin, b"@Foo bar()").is_none());
+    }
+
+    #[test]
+    fn kotlin_locals_are_not_symbols() {
+        let src = b"val top = 1\nclass C {\n    val member = 2\n    fun f() {\n        val local = 3\n        run {\n            var deeper = 4\n        }\n    }\n    init {\n        val inInit = 5\n    }\n    object Inner {\n        val z = 6\n    }\n}\nfun g() {\n    val x = 7\n}\n";
+        let v = names(Lang::Kotlin, src);
+        let n: Vec<_> = v.iter().map(|x| (x.0.as_str(), x.1, x.2)).collect();
+        assert_eq!(n, vec![("top", "var", None), ("C", "class", None), ("member", "var", Some(1)), ("f", "method", Some(1)), ("Inner", "object", Some(1)), ("z", "var", Some(4)), ("g", "fn", None)]);
+    }
+
+    #[test]
+    fn rust_impl_generics_and_mod_functions() {
+        let src = b"impl<T: AsRef<str>> Foo<T> {\n    fn m(&self) {}\n}\nimpl<F: Fn() -> u8 + Send> Tr<Vec<F>> for Bar<F> {}\nmod inner {\n    pub fn free() {}\n}\n";
+        let v = names(Lang::Rust, src);
+        let n: Vec<_> = v.iter().map(|x| (x.0.as_str(), x.1, x.2)).collect();
+        assert_eq!(n, vec![("Foo", "impl", None), ("m", "method", Some(0)), ("Bar", "impl", None), ("inner", "mod", None), ("free", "fn", Some(3))]);
+    }
+
+    #[test]
+    fn ts_declare_module() {
+        let src = b"declare module 'my-lib' {\n  export function g(): void;\n}\nnamespace N {\n  function nf() {}\n}\n";
+        let v = names(Lang::TypeScript, src);
+        let n: Vec<_> = v.iter().map(|x| (x.0.as_str(), x.1, x.2)).collect();
+        assert_eq!(n, vec![("my-lib", "mod", None), ("g", "fn", Some(0)), ("N", "mod", None), ("nf", "fn", Some(2))]);
+        assert_eq!(def_name_on_line(Lang::TypeScript, b"declare module \"x/y\" {"), Some((16, 19)));
     }
 }
 

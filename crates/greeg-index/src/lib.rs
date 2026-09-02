@@ -9,6 +9,7 @@ pub mod format;
 pub mod fresh;
 pub mod gram;
 pub mod index;
+pub mod lock;
 pub mod plan;
 pub mod resolve;
 pub mod symtab;
@@ -19,7 +20,7 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
-pub const FORMAT_VERSION: u16 = 2;
+pub const FORMAT_VERSION: u16 = 3;
 
 /// Manifest: JSON, small, rewritten atomically on every publish/check.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -89,8 +90,9 @@ pub fn read_manifest(dir: &Path) -> Option<Manifest> {
     Some(m)
 }
 
+/// Rewrite the manifest atomically. Callers hold the writer lock (`lock::writer`).
 pub fn write_manifest(dir: &Path, m: &Manifest) -> Result<()> {
-    let tmp = dir.join("manifest.tmp");
+    let tmp = format::tmp_path(&dir.join("manifest"));
     std::fs::write(&tmp, serde_json::to_vec_pretty(m)?)?;
     std::fs::rename(&tmp, dir.join("manifest"))?;
     Ok(())

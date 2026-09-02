@@ -5,14 +5,16 @@ use crate::plan::Q;
 use crate::symtab::{GraphView, SpansView, SymbolsView};
 use crate::{Manifest, read_manifest};
 use anyhow::{Context, Result, bail};
-use memmap2::Mmap;
+use memmap2::{Advice, Mmap};
 use roaring::RoaringBitmap;
-use std::sync::OnceLock;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 pub struct Segment {
-    /// Maps backing the views below (self-referential by construction; never moved out).
+    /// Maps backing the views below (self-referential by construction; never
+    /// moved out). The `'static` is internal: every accessor rebinds the view
+    /// to `&self`.
     _maps: Vec<Mmap>,
     files: FilesView<'static>,
     grams: GramsView<'static>,
@@ -20,20 +22,72 @@ pub struct Segment {
     spans: Option<SpansView<'static>>,
     pub first_id: u32,
     pub n_files: u32,
+    /// Absolute ids of files above `MAX_FILE`: no grams, always candidates.
+    huge: RoaringBitmap,
+    /// Absolute ids of tracked-only files (ignore files): never candidates.
+    hidden: RoaringBitmap,
     corrupt: std::sync::atomic::AtomicBool,
 }
 
-fn mmap(path: &Path) -> Result<Mmap> {
+fn mmap(path: &Path, advice: Advice) -> Result<Mmap> {
     let f = fs::File::open(path).with_context(|| format!("open {}", path.display()))?;
     // SAFETY: index files are published atomically and only replaced by rename;
     // a truncation during read would SIGBUS, which the caller guards by not
     // truncating in place (DESIGN.md §12).
-    Ok(unsafe { Mmap::map(&f)? })
+    let m = unsafe { Mmap::map(&f)? };
+    let _ = m.advise(advice);
+    Ok(m)
 }
 
 fn leak<'a>(b: &'a [u8]) -> &'static [u8] {
     // SAFETY: the Mmap is stored alongside and dropped after these views.
     unsafe { std::mem::transmute::<&'a [u8], &'static [u8]>(b) }
+}
+
+fn ids_bitmap(first_id: u32, local: &[u32]) -> RoaringBitmap {
+    let mut b = RoaringBitmap::new();
+    for &i in local {
+        b.insert(first_id + i);
+    }
+    b
+}
+
+/// Parse a delta body: header, four sections, tombstone bitmap. Every slice is
+/// checked so a truncated or corrupt file fails `Index::open` (→ rebuild)
+/// instead of panicking or silently dropping tombstones.
+struct DeltaParts {
+    files: FilesView<'static>,
+    grams: GramsView<'static>,
+    symbols: Option<SymbolsView<'static>>,
+    spans: Option<SpansView<'static>>,
+    first_id: u32,
+    tomb: RoaringBitmap,
+}
+
+fn parse_delta(body: &'static [u8]) -> Result<DeltaParts> {
+    let hb = body.get(..24).context("delta header truncated")?;
+    let h: Vec<usize> = (0..6).map(|i| u32::from_le_bytes(hb[i * 4..i * 4 + 4].try_into().unwrap()) as usize).collect();
+    let first_id = h[0] as u32;
+    let mut off: usize = 24;
+    let mut section = |len: usize, what: &str| -> Result<&'static [u8]> {
+        let b = body.get(off..off.checked_add(len).context("delta section overflow")?).with_context(|| format!("delta {what} section truncated"))?;
+        off += len;
+        Ok(b)
+    };
+    let fb = section(h[2], "files")?;
+    let gb = section(h[3], "grams")?;
+    let sb = section(h[4], "symbols")?;
+    let pb = section(h[5], "spans")?;
+    let tb = body.get(off..).context("delta tombstones truncated")?;
+    let tomb = RoaringBitmap::deserialize_from(tb).context("delta tombstone bitmap corrupt")?;
+    let files = FilesView::parse(fb)?;
+    if files.files.len() != h[1] {
+        bail!("delta file count mismatch");
+    }
+    let grams = GramsView::parse(gb)?;
+    let symbols = if sb.is_empty() { None } else { Some(SymbolsView::parse(sb)?) };
+    let spans = if pb.is_empty() { None } else { Some(SpansView::parse(pb)?) };
+    Ok(DeltaParts { files, grams, symbols, spans, first_id, tomb })
 }
 
 impl Segment {
@@ -43,22 +97,30 @@ impl Segment {
     pub fn grams(&self) -> &GramsView<'_> {
         &self.grams
     }
-    pub fn symbols(&self) -> Option<&SymbolsView<'static>> {
+    pub fn symbols(&self) -> Option<&SymbolsView<'_>> {
         self.symbols.as_ref()
     }
-    pub fn spans(&self) -> Option<&SpansView<'static>> {
+    pub fn spans(&self) -> Option<&SpansView<'_>> {
         self.spans.as_ref()
     }
     pub fn rec(&self, id: u32) -> Option<&FileRec> {
-        self.files.files.get((id - self.first_id) as usize)
+        self.files.files.get(id.checked_sub(self.first_id)? as usize)
     }
     pub fn path(&self, id: u32) -> Option<&str> {
         self.rec(id).map(|r| self.files.path(r))
     }
+    /// Every searchable id of the segment (tracked-only files excluded).
     pub fn all(&self) -> RoaringBitmap {
         let mut b = RoaringBitmap::new();
         b.insert_range(self.first_id..self.first_id + self.n_files);
+        b -= &self.hidden;
         b
+    }
+    pub fn huge(&self) -> &RoaringBitmap {
+        &self.huge
+    }
+    pub fn hidden(&self) -> &RoaringBitmap {
+        &self.hidden
     }
     /// Posting list for a gram; `None` when the gram is absent. A list that
     /// fails to deserialize marks the segment corrupt and reads as "every
@@ -104,20 +166,20 @@ impl Segment {
                         break;
                     }
                     let (_, bm) = self.posting(*key)?;
-                    acc = Some(match acc {
-                        None => bm,
-                        Some(a) => a & bm,
-                    });
+                    match acc.as_mut() {
+                        None => acc = Some(bm),
+                        Some(a) => *a &= bm,
+                    }
                     if acc.as_ref().map(|a| a.is_empty()).unwrap_or(false) {
                         return acc;
                     }
                 }
                 for s in subs {
                     if let Some(bm) = self.eval(s) {
-                        acc = Some(match acc {
-                            None => bm,
-                            Some(a) => a & bm,
-                        });
+                        match acc.as_mut() {
+                            None => acc = Some(bm),
+                            Some(a) => *a &= bm,
+                        }
                     }
                 }
                 acc
@@ -159,8 +221,9 @@ impl Index {
             bail!("index phase 1 not complete");
         }
         let generation = manifest.generation;
-        let fmap = mmap(&dir.join(format!("files.{generation}.bin")))?;
-        let gmap = mmap(&dir.join(format!("grams.{generation}.bin")))?;
+        // the file table is read for every candidate; postings are touched sparsely
+        let fmap = mmap(&dir.join(format!("files.{generation}.bin")), Advice::WillNeed)?;
+        let gmap = mmap(&dir.join(format!("grams.{generation}.bin")), Advice::Random)?;
         let fbody = leak(format::check_header(&fmap, format::COMP_FILES)?);
         let gbody = leak(format::check_header(&gmap, format::COMP_GRAMS)?);
         let files = FilesView::parse(fbody)?;
@@ -169,44 +232,35 @@ impl Index {
         let mut maps = vec![fmap, gmap];
         let (mut symbols, mut spans) = (None, None);
         if manifest.phase2 {
-            let smap = mmap(&dir.join(format!("symbols.{generation}.bin")))?;
-            let pmap = mmap(&dir.join(format!("spans.{generation}.bin")))?;
+            let smap = mmap(&dir.join(format!("symbols.{generation}.bin")), Advice::Random)?;
+            let pmap = mmap(&dir.join(format!("spans.{generation}.bin")), Advice::Random)?;
             symbols = Some(SymbolsView::parse(leak(format::check_header(&smap, format::COMP_SYMBOLS)?))?);
             spans = Some(SpansView::parse(leak(format::check_header(&pmap, format::COMP_SPANS)?))?);
             maps.push(smap);
             maps.push(pmap);
         }
-        let base = Segment { _maps: maps, files, grams, symbols, spans, first_id: 0, n_files: n, corrupt: Default::default() };
-        let mut deltas = Vec::new();
+        let huge = ids_bitmap(0, files.huge);
+        let hidden = ids_bitmap(0, files.hidden);
+        let base = Segment { _maps: maps, files, grams, symbols, spans, first_id: 0, n_files: n, huge, hidden, corrupt: Default::default() };
+        // only the deltas the manifest names, in order; stray files (from a
+        // superseded generation or an interrupted writer) are ignored
+        let mut deltas = Vec::with_capacity(manifest.deltas as usize);
         let mut tomb = RoaringBitmap::new();
-        if let Ok(rd) = fs::read_dir(dir.join("delta")) {
-            let mut names: Vec<PathBuf> = rd.flatten().map(|e| e.path()).filter(|p| p.extension().map(|x| x == "bin").unwrap_or(false)).collect();
-            names.sort();
-            for p in names {
-                let map = mmap(&p)?;
-                let body = leak(format::check_header(&map, format::COMP_DELTA)?);
-                let h: Vec<u32> = (0..6).map(|i| u32::from_le_bytes(body[i * 4..i * 4 + 4].try_into().unwrap())).collect();
-                let (first_id, fl, gl, sl, pl) = (h[0], h[2] as usize, h[3] as usize, h[4] as usize, h[5] as usize);
-                let mut off = 24;
-                let fb = &body[off..off + fl];
-                off += fl;
-                let gb = &body[off..off + gl];
-                off += gl;
-                let sb = &body[off..off + sl];
-                off += sl;
-                let pb = &body[off..off + pl];
-                off += pl;
-                let tb = &body[off..];
-                if let Ok(t) = RoaringBitmap::deserialize_unchecked_from(tb) {
-                    tomb |= t;
-                }
-                let files = FilesView::parse(fb)?;
-                let grams = GramsView::parse(gb)?;
-                let n = files.files.len() as u32;
-                let symbols = if sl > 0 { Some(SymbolsView::parse(sb)?) } else { None };
-                let spans = if pl > 0 { Some(SpansView::parse(pb)?) } else { None };
-                deltas.push(Segment { _maps: vec![map], files, grams, symbols, spans, first_id, n_files: n, corrupt: Default::default() });
+        let mut next = n;
+        for i in 1..=manifest.deltas {
+            let p = dir.join("delta").join(format!("{i:04}.bin"));
+            let map = mmap(&p, Advice::WillNeed)?;
+            let body = leak(format::check_header(&map, format::COMP_DELTA).with_context(|| format!("delta {}", p.display()))?);
+            let DeltaParts { files, grams, symbols, spans, first_id, tomb: t } = parse_delta(body).with_context(|| format!("delta {}", p.display()))?;
+            if first_id != next {
+                bail!("delta {} starts at id {first_id}, expected {next}", p.display());
             }
+            let n = files.files.len() as u32;
+            next = first_id + n;
+            tomb |= t;
+            let huge = ids_bitmap(first_id, files.huge);
+            let hidden = ids_bitmap(first_id, files.hidden);
+            deltas.push(Segment { _maps: vec![map], files, grams, symbols, spans, first_id, n_files: n, huge, hidden, corrupt: Default::default() });
         }
         Ok(Index { dir: dir.to_path_buf(), manifest, base, deltas, tomb, graph: OnceLock::new() })
     }
@@ -254,18 +308,31 @@ impl Index {
     }
 
     /// Live file ids matching the plan: (base ∪ deltas) minus tombstones.
+    /// Huge files have no grams and are always included so verification opens
+    /// them (and counts them when they exceed the query's size limit).
     pub fn candidates(&self, q: &Q) -> RoaringBitmap {
         let mut acc = self.base.eval(q).unwrap_or_else(|| self.base.all());
+        acc |= &self.base.huge;
         for d in &self.deltas {
             acc |= d.eval(q).unwrap_or_else(|| d.all());
+            acc |= &d.huge;
         }
         acc -= &self.tomb;
         acc
     }
 
-    /// All live file ids.
+    /// All live (searchable) file ids.
     pub fn live(&self) -> RoaringBitmap {
         self.candidates(&Q::All)
+    }
+
+    /// Number of live files, without materializing the set.
+    pub fn live_count(&self) -> u64 {
+        let mut dead = self.tomb.clone();
+        for (_, seg) in self.segments() {
+            dead |= &seg.hidden;
+        }
+        self.segments().map(|(_, s)| s.n_files as u64).sum::<u64>() - dead.len()
     }
 
     /// Iterate live (id, rel path, rec) in id order.
@@ -274,6 +341,18 @@ impl Index {
             let seg = self.segment_for(id)?;
             let rec = seg.rec(id)?;
             Some((id, seg.files().path(rec), rec))
+        })
+    }
+
+    /// Iterate every tracked, non-tombstoned file including tracked-only ones
+    /// (ignore files), for the freshness check.
+    pub fn tracked_files(&self) -> impl Iterator<Item = (u32, &str, &FileRec)> + '_ {
+        self.segments().flat_map(move |(_, seg)| {
+            let fv = seg.files();
+            fv.files.iter().enumerate().filter_map(move |(i, rec)| {
+                let id = seg.first_id + i as u32;
+                if self.tomb.contains(id) { None } else { Some((id, fv.path(rec), rec)) }
+            })
         })
     }
 
@@ -446,13 +525,13 @@ impl Index {
 
     // ---------------------------------------------------------------- graph
 
-    pub fn graph(&self) -> Option<&GraphView<'static>> {
+    pub fn graph(&self) -> Option<&GraphView<'_>> {
         self.graph
             .get_or_init(|| {
                 if !self.manifest.phase2 {
                     return None;
                 }
-                let map = mmap(&self.dir.join(format!("graph.{}.bin", self.manifest.generation))).ok()?;
+                let map = mmap(&self.dir.join(format!("graph.{}.bin", self.manifest.generation)), Advice::WillNeed).ok()?;
                 let body = leak(format::check_header(&map, format::COMP_GRAPH).ok()?);
                 let view = GraphView::parse(body).ok()?;
                 Some((map, view))

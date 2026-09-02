@@ -3,19 +3,19 @@
 //! scan mode (returns Ok(None)) when there is no usable index, spawning a
 //! background build so the next query has one.
 
-use crate::{Ctx, DefSummary, FileResult, Hit, HitKind, Mode, Options, Rung, ScanResult, Stats, is_word_byte, kind_by_context, process_file};
+use crate::{Ctx, DefSummary, FileResult, Hit, HitKind, Mode, Options, Rung, ScanResult, Stats, kind_by_context, process_file};
 use anyhow::{Context, Result};
 use greeg_index::format::SymRec;
 use greeg_index::fresh::{self, Mode as Fresh};
 use greeg_index::index::SymId;
 use greeg_index::symtab::kind_from_code;
-use greeg_index::{Index, index_dir_for, plan};
+use greeg_index::{Index, index_dir_for, lock, plan, read_manifest};
 use greeg_lang::{DefKind, FileFlags, Lang};
 use grep_searcher::{BinaryDetection, SearcherBuilder};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicUsize, Ordering::Relaxed};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering::Relaxed};
 use std::time::Instant;
 
 static PENDING_BUILD: Mutex<Option<(PathBuf, PathBuf)>> = Mutex::new(None);
@@ -64,7 +64,16 @@ pub fn spawn_build_now(root: &Path, dir: &Path) {
     let _ = cmd.spawn();
 }
 
+/// Generation + 1 of the index this process last opened through `open_fresh`
+/// (0 = none), so `mark_corrupt` can tell the manifest that failed from one a
+/// rebuild published since.
+static OPENED_GEN: AtomicU64 = AtomicU64::new(0);
+
 /// Drop the manifest so the next query rebuilds, and start that rebuild now.
+/// Runs under the writer lock, and only while the manifest is still the one
+/// this process opened: a generation a concurrent rebuild published since the
+/// failure is left alone (a process that never opened an index deletes
+/// unconditionally, e.g. after a SIGBUS re-exec).
 pub fn mark_corrupt(o: &Options) {
     let dir = match &o.index_dir {
         Some(d) => d.clone(),
@@ -73,16 +82,44 @@ pub fn mark_corrupt(o: &Options) {
             Err(_) => return,
         },
     };
+    let Ok(_lock) = lock::writer(&dir) else { return };
+    let opened = OPENED_GEN.load(Relaxed);
+    if opened != 0
+        && let Some(m) = read_manifest(&dir)
+        && u64::from(m.generation) + 1 != opened
+    {
+        return;
+    }
     let _ = fs::remove_file(dir.join("manifest"));
     let _ = fs::remove_dir_all(dir.join("delta"));
     spawn_build(&o.root, &dir);
 }
 
-fn path_allowed(rel: &str, paths: &[String]) -> bool {
+pub(crate) fn path_allowed(rel: &str, paths: &[String]) -> bool {
     if paths.is_empty() {
         return true;
     }
-    paths.iter().any(|p| p.is_empty() || p == "." || rel == p || rel.starts_with(&format!("{p}/")))
+    paths.iter().any(|p| p.is_empty() || p == "." || rel == p || (rel.len() > p.len() && rel.starts_with(p.as_str()) && rel.as_bytes()[p.len()] == b'/'))
+}
+
+/// A positional path as a root-relative path (C1). Plain relative paths are
+/// normalized textually; absolute paths and paths with `..` are canonicalized
+/// against the root. `None` means the path is outside the root (or cannot be
+/// resolved): the caller answers that query from a scan.
+pub fn rel_of(root: &Path, p: &Path) -> Option<String> {
+    use std::path::Component;
+    let simple = p.is_relative() && !p.components().any(|c| matches!(c, Component::ParentDir | Component::RootDir | Component::Prefix(_)));
+    if simple {
+        let parts: Vec<String> = p.components().filter_map(|c| match c {
+            Component::Normal(s) => Some(s.to_string_lossy().into_owned()),
+            _ => None,
+        }).collect();
+        return Some(parts.join("/"));
+    }
+    let root_c = fs::canonicalize(root).ok()?;
+    let pc = fs::canonicalize(p).ok()?;
+    let rel = pc.strip_prefix(&root_c).ok()?;
+    Some(rel.to_string_lossy().replace('\\', "/"))
 }
 
 /// Result of opening the index for a query.
@@ -98,6 +135,23 @@ pub struct Opened {
 /// `Ok(None)` means no usable index (a background build was spawned when
 /// possible) or that a rebuild is needed for this query.
 pub fn open_fresh(o: &Options, threads: usize) -> Result<Option<Opened>> {
+    open_fresh_with(o, threads, &mut || {})
+}
+
+/// The check to run again after another writer republished: the same mode,
+/// except that `Auto` must not trust the TTL stamp the other writer just wrote
+/// (its walk may predate the change this query saw).
+fn retry_mode(idx: &Index, mode: Fresh) -> Fresh {
+    match mode {
+        Fresh::Auto if cfg!(target_os = "macos") && idx.base.n_files >= 8000 => Fresh::FsEvents,
+        Fresh::Auto => Fresh::Stat,
+        m => m,
+    }
+}
+
+/// `open_fresh` with a hook run between the freshness check and the delta
+/// publish: a no-op in production, a racing writer in tests.
+fn open_fresh_with(o: &Options, threads: usize, before_apply: &mut dyn FnMut()) -> Result<Option<Opened>> {
     let dir = match &o.index_dir {
         Some(d) => d.clone(),
         None => index_dir_for(&o.root)?,
@@ -113,20 +167,32 @@ pub fn open_fresh(o: &Options, threads: usize) -> Result<Option<Opened>> {
     let stat_threads = threads.clamp(1, 4);
     let mut fresh_method = if o.fresh == Fresh::None { "none" } else { "ttl" };
     let mut fresh_changed = 0;
-    if let Some(ch) = fresh::check(&idx, &o.root, o.fresh, stat_threads) {
+    let mut mode = o.fresh;
+    // A delta is published only against the manifest it was computed from
+    // (`fresh::apply` returns 0 when a build or another query republished in
+    // between). The reopened index may then lack the change this query saw,
+    // so check it once more; bounded so two writers cannot ping-pong.
+    for attempt in 0..2 {
+        let Some(ch) = fresh::check(&idx, &o.root, mode, stat_threads) else { break };
         fresh_method = ch.method;
         fresh_changed = ch.count() + ch.deleted.len();
         if fresh::needs_rebuild(&idx, &ch) {
             spawn_build(&o.root, &dir);
             return Ok(None);
         }
-        if !ch.is_empty() {
-            fresh::apply(&idx, &o.root, &ch).context("apply delta")?;
-            idx = Index::open(&dir)?;
-        } else {
+        if ch.is_empty() {
             let _ = fresh::apply(&idx, &o.root, &ch); // refresh TTL and event id
+            break;
         }
+        before_apply();
+        let applied = fresh::apply(&idx, &o.root, &ch).context("apply delta")?;
+        idx = Index::open(&dir)?;
+        if applied > 0 || attempt > 0 {
+            break;
+        }
+        mode = retry_mode(&idx, mode);
     }
+    OPENED_GEN.store(u64::from(idx.manifest.generation) + 1, Relaxed);
     // a phase-1-only index answers gram queries; symbols arrive when the build finishes
     Ok(Some(Opened { idx, dir, fresh_method, fresh_ms: t_fresh.elapsed().as_secs_f64() * 1e3, fresh_changed }))
 }
@@ -150,10 +216,29 @@ pub(crate) fn try_index(cx: &Ctx, threads: usize, t0: Instant) -> Result<Option<
     let q = plan::plan(&o.pattern, o.fixed_strings, o.case_insensitive || (o.smart_case && !o.pattern.chars().any(|c| c.is_uppercase())))?;
     stats.plan = format!("{q:?}");
     let cands = idx.candidates(&q);
-    stats.files_walked = idx.live().len() as usize;
+    stats.files_walked = idx.live_count() as usize;
 
     // filters: paths, globs, types, flag exclusions
-    let paths: Vec<String> = o.paths.iter().map(|p| p.to_string_lossy().trim_start_matches("./").trim_end_matches('/').to_string()).collect();
+    let mut paths: Vec<String> = Vec::with_capacity(o.paths.len());
+    // ripgrep prints paths as given: an absolute (or `..`) positional path is
+    // shown as that prefix plus the remainder, not root-relative
+    let mut display: Vec<Option<String>> = Vec::with_capacity(o.paths.len());
+    for p in &o.paths {
+        match rel_of(&o.root, p) {
+            Some(rel) => {
+                let given = p.to_string_lossy();
+                let given = given.trim_end_matches('/');
+                display.push(if given.trim_start_matches("./") == rel || rel.is_empty() && matches!(given, "." | "") { None } else { Some(given.to_string()) });
+                paths.push(rel);
+            }
+            None => return Ok(None), // outside the index root: scan mode answers this query
+        }
+    }
+    let display_rel = |rel: &str| -> Option<String> {
+        let i = paths.iter().position(|p| path_allowed(rel, std::slice::from_ref(p)))?;
+        let d = display[i].as_ref()?;
+        Some(if rel == paths[i] { d.clone() } else if paths[i].is_empty() { format!("{d}/{rel}") } else { format!("{d}/{}", &rel[paths[i].len() + 1..]) })
+    };
     let overrides = if o.globs.is_empty() {
         None
     } else {
@@ -164,7 +249,7 @@ pub(crate) fn try_index(cx: &Ctx, threads: usize, t0: Instant) -> Result<Option<
         Some(ob.build()?)
     };
     let types = if o.types.is_empty() && o.types_not.is_empty() { None } else { Some(crate::build_types(o)?) };
-    let mut entries: Vec<(u8, u32, String)> = Vec::with_capacity(cands.len() as usize);
+    let mut entries: Vec<(u8, u32, &str)> = Vec::with_capacity(cands.len() as usize);
     'files: for id in cands.iter() {
         let Some(rec) = idx.rec(id) else { continue };
         let rel = idx.path(id).unwrap_or("");
@@ -205,9 +290,9 @@ pub(crate) fn try_index(cx: &Ctx, threads: usize, t0: Instant) -> Result<Option<
         }
         // prior order: source before demoted, then path
         let prio = if flags.has(FileFlags::MINIFIED) { 3 } else if flags.demoted() { 2 } else { 0 };
-        entries.push((prio, id, rel.to_string()));
+        entries.push((prio, id, rel));
     }
-    entries.sort_unstable_by(|a, b| a.0.cmp(&b.0).then(a.2.cmp(&b.2)));
+    entries.sort_unstable_by(|a, b| a.0.cmp(&b.0).then(a.2.cmp(b.2)));
     stats.candidates = entries.len();
 
     // verify candidates with the reader pool; classify from the index when it has symbols
@@ -233,8 +318,11 @@ pub(crate) fn try_index(cx: &Ctx, threads: usize, t0: Instant) -> Result<Option<
                     }
                     let (_, id, rel) = &entries[i];
                     let path: PathBuf = root.join(rel);
-                    if let Some(mut fr) = process_file(cx, &path, rel.clone(), &mut searcher, &mut buf) {
+                    if let Some(mut fr) = process_file(cx, &path, rel.to_string(), &mut searcher, &mut buf) {
                         fr.file_id = Some(*id);
+                        if let Some(d) = display_rel(rel) {
+                            fr.rel = d;
+                        }
                         let t = Instant::now();
                         if use_spans {
                             classify_from_index(idx, *id, &mut fr, o, &buf);
@@ -268,7 +356,7 @@ pub(crate) fn try_index(cx: &Ctx, threads: usize, t0: Instant) -> Result<Option<
         mark_corrupt(o);
     }
     let _ = Mode::Files;
-    Ok(Some(ScanResult { opts: o.clone(), files, stats, rung: Rung::Exact, ignored_only: None }))
+    Ok(Some(ScanResult { opts: o.clone(), files, stats, rung: Rung::Exact, ignored_only: None, ignored_partial: false }))
 }
 
 fn chain_of(idx: &Index, s: SymId) -> Vec<(DefKind, String)> {
@@ -291,7 +379,6 @@ pub fn defs_of(idx: &Index, id: u32) -> Vec<DefSummary> {
 /// chains and definitions, apply `--kind`, and rescore.
 pub(crate) fn classify_from_index(idx: &Index, id: u32, f: &mut FileResult, o: &Options, src: &[u8]) {
     let Some((first, syms)) = idx.symbols_of(id) else { return };
-    let pat = o.pattern.as_bytes();
     let mut kinds = [0u32; 9];
     let mut hits: Vec<Hit> = Vec::with_capacity(f.hits.len());
     for mut h in f.hits.drain(..) {
@@ -303,10 +390,13 @@ pub(crate) fn classify_from_index(idx: &Index, id: u32, f: &mut FileResult, o: &
         h.kind = kind;
         h.def_idx = di;
         h.chain = di.map(|d| chain_of(idx, SymId { seg: first.seg, idx: first.idx + d })).unwrap_or_default();
-        let exact = !o.fixed_strings && !o.case_insensitive && src.get(ms as usize..me as usize) == Some(pat) && (ms == 0 || !is_word_byte(src[ms as usize - 1])) && (me as usize >= src.len() || !is_word_byte(src[me as usize]));
-        h.score = kind.weight() * f.prior * if exact { 1.15 } else { 1.0 };
+        h.score = kind.weight() * f.prior * crate::exact_boost(kind, crate::is_exact(o, src, ms, me));
         kinds[kind.idx()] += 1;
         hits.push(h);
+    }
+    if !o.kinds.is_empty() {
+        // C11: totals describe the filtered set; the unfiltered count stays in total_unfiltered
+        f.total = hits.len();
     }
     f.hits = hits;
     f.kinds = kinds;
@@ -366,5 +456,92 @@ fn classify_hit(idx: &Index, id: u32, first: SymId, syms: &[SymRec], lang: Lang,
     let ls = h.line_start as usize;
     let le = memchr::memchr(b'\n', &src[ls..]).map(|k| ls + k).unwrap_or(src.len());
     let _ = first;
-    (kind_by_context(lang, src, ms as usize, me as usize, ls, &src[ls..le]), enclosing())
+    (kind_by_context(lang, src, ms as usize, (me as usize).min(le), ls, &src[ls..le]), enclosing())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A query whose delta was skipped because another writer republished in
+    /// between must re-check the reopened index instead of answering from it.
+    #[test]
+    fn open_fresh_rechecks_when_apply_skipped() {
+        use greeg_index::build::{BuildOpts, build};
+        let base = std::env::temp_dir().join(format!("greeg-open-fresh-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        let root = base.join("tree");
+        let dir = base.join("index");
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::create_dir_all(root.join(".git")).unwrap();
+        fs::write(root.join("src/main.rs"), "fn main() { helper_alpha(); }\n").unwrap();
+        fs::write(root.join("src/lib.rs"), "pub fn helper_alpha() {}\n").unwrap();
+        // enough files that two edits stay below the inline-apply threshold (`needs_rebuild`)
+        for i in 0..60 {
+            fs::write(root.join(format!("src/f{i}.rs")), format!("pub fn filler_{i}() {{}}\n")).unwrap();
+        }
+        build(&root, &dir, &BuildOpts { reader_threads: 1, quiet: true, phase1_only: true }).unwrap();
+        let o = Options { root: root.clone(), index_dir: Some(dir.clone()), fresh: Fresh::Stat, ..Default::default() };
+
+        // another query opened the index, then saw only the first edit
+        let other = Index::open(&dir).unwrap();
+        fs::write(root.join("src/main.rs"), "fn main() { helper_alpha(); omega_one(); }\n").unwrap();
+        let other_ch = fresh::check(&other, &root, Fresh::Stat, 1).unwrap();
+        assert_eq!(other_ch.modified.len(), 1);
+        fs::write(root.join("src/lib.rs"), "pub fn helper_alpha() {}\npub fn omega_two() {}\n").unwrap();
+
+        // this query sees both edits, but the other one publishes first
+        let mut raced = false;
+        let mut race = || {
+            if !raced {
+                raced = true;
+                assert_eq!(fresh::apply(&other, &root, &other_ch).unwrap(), 1);
+            }
+        };
+        let op = open_fresh_with(&o, 1, &mut race).unwrap().expect("index usable");
+        assert!(raced);
+        let m = read_manifest(&dir).unwrap();
+        assert_eq!(m.deltas, 2, "the skipped delta must be recomputed against the reopened index");
+        assert_eq!(op.idx.manifest.deltas, 2);
+        let hits = |pat: &str| -> Vec<String> {
+            let q = plan::plan(pat, true, false).unwrap();
+            let mut v: Vec<String> = op.idx.candidates(&q).iter().map(|id| op.idx.path(id).unwrap().to_string()).collect();
+            v.sort();
+            v
+        };
+        assert_eq!(hits("omega_one"), ["src/main.rs"]);
+        assert_eq!(hits("omega_two"), ["src/lib.rs"]);
+        assert!(fresh::check(&op.idx, &root, Fresh::Stat, 1).unwrap().is_empty());
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn path_allowed_prefixes() {
+        let p = vec!["tokio/src".to_string()];
+        assert!(path_allowed("tokio/src/lib.rs", &p));
+        assert!(path_allowed("tokio/src", &p));
+        assert!(!path_allowed("tokio/src-old/lib.rs", &p));
+        assert!(!path_allowed("tokio-util/src/lib.rs", &p));
+        assert!(path_allowed("anything", &[]));
+        assert!(path_allowed("anything", &[".".to_string()]));
+        assert!(path_allowed("anything", &[String::new()]));
+    }
+
+    #[test]
+    fn rel_of_handles_absolute_and_dotted_paths() {
+        let dir = std::env::temp_dir().join(format!("greeg-rel-{}", std::process::id()));
+        fs::create_dir_all(dir.join("src/sync")).unwrap();
+        fs::write(dir.join("src/sync/a.rs"), "x").unwrap();
+        assert_eq!(rel_of(&dir, &dir.join("src/sync")).as_deref(), Some("src/sync"));
+        assert_eq!(rel_of(&dir, &dir.join("src/sync/a.rs")).as_deref(), Some("src/sync/a.rs"));
+        assert_eq!(rel_of(&dir, &dir).as_deref(), Some(""));
+        assert_eq!(rel_of(&dir, Path::new("./src/sync/")).as_deref(), Some("src/sync"));
+        assert_eq!(rel_of(&dir, Path::new("src/sync")).as_deref(), Some("src/sync"));
+        assert_eq!(rel_of(&dir, Path::new(".")).as_deref(), Some(""));
+        // outside the root (or nonexistent): scan mode
+        assert_eq!(rel_of(&dir, &std::env::temp_dir()), None);
+        assert_eq!(rel_of(&dir, &dir.join("missing/../nowhere")), None);
+        let abs = rel_of(&dir, &dir.join("src/sync")).unwrap();
+        assert!(path_allowed("src/sync/a.rs", &[abs]));
+    }
 }

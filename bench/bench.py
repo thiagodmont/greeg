@@ -4,7 +4,8 @@
     bench/bench.py fetch  [NAME...]                    shallow-clone pinned corpora into the cache
     bench/bench.py speed  [--corpora a,b] [--cold]     hyperfine protocol vs grep / rg, index build, RSS
     bench/bench.py oracle CORPUS...                    SCIP-based quality protocol (definitions, refs, context)
-    bench/bench.py gate   speed|kernels [--tolerance]  compare with the saved baseline for this host
+    bench/bench.py gate   speed|kernels [--tolerance] [--require-baseline | --record-only | --save]
+                                                       compare with the saved baseline for this host
     bench/bench.py report                              write docs/BENCH.md from bench/results
 
 Corpora and per-corpus queries live in bench/corpora.toml. Results are JSON
@@ -99,10 +100,13 @@ def save_json(path, obj):
 try:
     import tiktoken
     _ENC = tiktoken.get_encoding("o200k_base")
+    TOKENIZER = "o200k_base"
 
     def tokens(s):
         return len(_ENC.encode(s, disallowed_special=()))
 except Exception:  # noqa: BLE001
+    TOKENIZER = "bytes/3.7 fallback"  # tiktoken missing: recorded in every oracle result
+
     def tokens(s):
         return int(len(s.encode("utf8", "replace")) / 3.7)
 
@@ -197,36 +201,63 @@ def fetch(names):
         print(f"{name}: {out_of(['git', 'rev-parse', '--short', 'HEAD'], dst).strip()}")
 
 
+
 # ───────────────────────────── speed ─────────────────────────────
+
+# Protocol 2 (2026-09-02): every timing run is preceded by `sleep 0.15` so the
+# greeg rows pay the index freshness check (the 100 ms TTL no longer hides it),
+# the freshness cost is measured separately, the table reports medians with
+# min–max, and speedups are headlined against `rg -j4` (the best-configured rg on
+# macOS, where rg's default thread count spends most of its time in the kernel).
+PROTOCOL = 2
+PREPARE_SLEEP = "sleep 0.15"
+PURGE_CMD = "sudo -n purge" if MAC else "sudo -n sh -c 'sync; echo 3 > /proc/sys/vm/drop_caches'"
 
 FAMILIES = ["ident", "word", "phrase", "regex"]
 VERBS = ["def", "refs", "callers"]
 FAMILY_FLAGS = {"ident": [], "word": ["-w"], "phrase": ["-F"], "regex": []}
+# printed shape of each column (docs/BENCH.md carries this text)
+TOOL_SHAPE = {
+    "grep": "`path:line:text` for every match (no .gitignore support: its match set can exceed rg's)",
+    "rg": "`path:line:text` for every match, default thread count",
+    "rg-j4": "`path:line:text` for every match, four threads",
+    "greeg-scan": "every match, grouped by file with a kind tag, no index (`--no-index --budget 0`)",
+    "greeg-full": "every match, grouped by file with a kind tag, from the index (`--budget 0`)",
+    "greeg": "the budgeted digest an agent reads (facets, definitions, top hits, ~2k tokens; `--budget 2000`, the default)",
+}
+HUGE_FILE = "1000000000000"  # --max-filesize for the single-file corpus
 
 
-def tool_cmd(tool, greeg, family, pat, corpus_kind):
+def tool_cmd(tool, greeg, family, pat, corpus_kind, target="."):
     fl = FAMILY_FLAGS[family]
+    huge = ["--max-filesize", HUGE_FILE] if corpus_kind == "file" else []
     if tool == "grep":
-        return ["grep", "-rnI", "--exclude-dir=.git", "--exclude-dir=node_modules", *fl, "-e", pat, "."]
+        return ["grep", "-rnI", "--exclude-dir=.git", "--exclude-dir=node_modules", *fl, "-e", pat, target]
     if tool == "grep-E":
-        return ["grep", "-rnIE", "--exclude-dir=.git", "--exclude-dir=node_modules", *fl, "-e", pat, "."]
+        return ["grep", "-rnIE", "--exclude-dir=.git", "--exclude-dir=node_modules", *fl, "-e", pat, target]
     if tool == "rg":
-        return ["rg", "-n", *fl, "-e", pat, "."]
+        return ["rg", "-n", *fl, "-e", pat, target]
     if tool == "rg-j4":
-        return ["rg", "-j4", "-n", *fl, "-e", pat, "."]
+        return ["rg", "-j4", "-n", *fl, "-e", pat, target]
     if tool == "greeg-scan":
-        return [greeg, "--no-index", "--no-session", "--budget", "0", "--no-ladder", "--max-columns", "0", *fl, "-e", pat, "."]
+        return [greeg, "--no-index", "--no-session", "--budget", "0", "--no-ladder", "--max-columns", "0", *huge, *fl, "-e", pat, target]
     if tool == "greeg-full":
-        return [greeg, "--no-session", "--budget", "0", "--no-ladder", "--max-columns", "0", *fl, "-e", pat, "."]
+        return [greeg, "--no-session", "--budget", "0", "--no-ladder", "--max-columns", "0", *fl, "-e", pat, target]
     if tool == "greeg":
-        return [greeg, "--no-session", *fl, "-e", pat, "."]
+        return [greeg, "--no-session", *fl, "-e", pat, target]
+    if tool == "greeg-nofresh":
+        return [greeg, "--no-session", "--fresh", "none", *fl, "-e", pat, target]
     raise KeyError(tool)
 
 
 TOOLS = ["grep", "rg", "rg-j4", "greeg-scan", "greeg-full", "greeg"]
+FILE_TOOLS = ["grep", "rg", "rg-j4", "greeg-scan"]  # a single file is scanned, never indexed
+RSS_TOOLS = ["rg", "greeg-scan", "greeg-full", "greeg"]
 
 
 def hyperfine(cmds, cwd, runs, warmup, prepare=None, timeout=1800):
+    """hyperfine -N (no shell) per command; `prepare` runs before every timing run (also without a
+    shell, so it must be a plain executable invocation such as `sleep 0.15` or `sudo -n purge`)."""
     with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as tf:
         path = tf.name
     args = ["hyperfine", "-N", "--warmup", str(warmup), "--runs", str(runs), "--ignore-failure", "--export-json", path, "--style", "none"]
@@ -240,10 +271,13 @@ def hyperfine(cmds, cwd, runs, warmup, prepare=None, timeout=1800):
     os.unlink(path)
     out = []
     for res in data.get("results", []):
-        out.append({"mean": res["mean"], "median": res["median"], "stddev": res.get("stddev") or 0.0, "min": res["min"], "max": res["max"], "user": res["user"], "system": res["system"]})
+        out.append({"mean": res["mean"], "median": res["median"], "stddev": res.get("stddev") or 0.0, "min": res["min"], "max": res["max"], "user": res["user"], "system": res["system"], "n": len(res.get("times") or [])})
     while len(out) < len(cmds):
         out.append(None)
     return out
+
+
+_RSS_WARNED = [False]
 
 
 def max_rss_mb(cmd, cwd):
@@ -251,10 +285,13 @@ def max_rss_mb(cmd, cwd):
         r = run(["/usr/bin/time", "-l", *cmd], cwd)
         m = re.search(r"(\d+)\s+maximum resident set size", r.stderr.decode("utf8", "replace"))
         return int(m.group(1)) / 1e6 if m else None
-    if shutil.which("/usr/bin/time"):
+    if os.path.exists("/usr/bin/time"):
         r = run(["/usr/bin/time", "-v", *cmd], cwd)
         m = re.search(r"Maximum resident set size \(kbytes\): (\d+)", r.stderr.decode("utf8", "replace"))
         return int(m.group(1)) / 1e3 if m else None
+    if not _RSS_WARNED[0]:
+        print("RSS skipped: /usr/bin/time is not installed (apt-get install time)")
+        _RSS_WARNED[0] = True
     return None
 
 
@@ -276,28 +313,84 @@ def doctor_index(greeg, cwd):
     return {"size": m.group(1) if m else None, "ratio": float(m.group(2)) if m else None, "source": m.group(3) if m else None, "generation": int(g.group(1)) if g else None}
 
 
+FRESH_RE = re.compile(r"^greeg: fresh (\w+) ([\d.]+) ms", re.M)
+
+
+def fresh_cost(greeg, cmd_tail, cwd, samples):
+    """Freshness-check cost of the index as greeg itself reports it (`--stats`: `greeg: fresh <mode> <ms> ms`),
+    sampled `samples` times with the protocol's 0.15 s gap so every sample pays the check."""
+    modes, ms = {}, []
+    for _ in range(samples):
+        time.sleep(0.15)
+        r = run([greeg, "--no-session", "--stats", *cmd_tail], cwd)
+        m = FRESH_RE.search(r.stderr.decode("utf8", "replace"))
+        if m:
+            modes[m.group(1)] = modes.get(m.group(1), 0) + 1
+            ms.append(float(m.group(2)) / 1000.0)
+    if not ms:
+        return None
+    return {"mode": max(modes, key=modes.get), "median": statistics.median(ms), "min": min(ms), "max": max(ms), "n": len(ms)}
+
+
+def cold_available(want):
+    """True when the page-cache purge command works without a password (never prompts: sudo -n)."""
+    if not want:
+        return False
+    if shutil.which("sudo") is None:
+        print("cold runs skipped: sudo is not installed")
+        return False
+    r = run(shlex.split(PURGE_CMD), timeout=300)
+    if r.returncode != 0:
+        print(f"cold runs skipped: `{PURGE_CMD}` failed ({r.stderr.decode('utf8', 'replace').strip()[:120] or 'passwordless sudo is not available'})")
+        return False
+    return True
+
+
+def median_of(r):
+    return r["median"] if r else None
+
+
 def speed(args):
     greeg = os.path.abspath(args.greeg)
     names = args.corpora.split(",") if args.corpora else [n for n, s in CORPORA.items() if s.get("size") == "small"]
-    cold = args.cold and run(["sudo", "-n", "true"]).returncode == 0
-    if args.cold and not cold:
-        print("cold runs skipped: passwordless sudo is not available (sudo -n)")
-    purge = "sudo purge" if MAC else "sync; echo 3 | sudo tee /proc/sys/vm/drop_caches"
-    result = {"host": host_info(), "date": datetime.datetime.now().isoformat(timespec="seconds"), "greeg": version_of([greeg, "--version"]), "rg": version_of(["rg", "--version"]), "grep": version_of(["grep", "--version"]), "runs": args.runs, "corpora": {}}
+    cold = cold_available(args.cold)
+    gver = version_of([greeg, "--version"])
+    result = {"protocol": PROTOCOL, "prepare": PREPARE_SLEEP, "host": host_info(), "date": datetime.datetime.now().isoformat(timespec="seconds"), "greeg": gver, "rg": version_of(["rg", "--version"]), "grep": version_of(["grep", "--version"]), "hyperfine": version_of(["hyperfine", "--version"]), "runs": args.runs, "corpora": {}}
     prev = load_json(os.path.join(RESULTS, f"speed-{host_key()}.json"))
-    if prev and args.corpora:
-        result["corpora"] = prev.get("corpora", {})  # a subset run refreshes only its corpora
+    if prev and args.corpora and not args.no_splice:
+        # a subset run refreshes only its corpora; rows kept from an earlier run are marked when
+        # they were measured with another binary or protocol, so the table never mixes them silently
+        for c, e in prev.get("corpora", {}).items():
+            if c in names:
+                continue
+            stale = []
+            e_ver, e_date, e_proto = e.get("greeg", prev.get("greeg")), e.get("date", prev.get("date")), e.get("protocol", prev.get("protocol", 1))
+            if e_ver != gver:
+                stale.append(f"measured with `{e_ver}` on {e_date}; the other rows use `{gver}`")
+            if e_proto != PROTOCOL:
+                stale.append(f"measured with protocol {e_proto} (no sleep between runs: the TTL hid the freshness check); current protocol is {PROTOCOL}")
+            e["stale"] = "; ".join(stale) or None
+            result["corpora"][c] = e
+            print(f"{c}: kept from {e_date}" + (f"  STALE: {e['stale']}" if e["stale"] else ""))
     for name in names:
         spec = CORPORA[name]
-        cwd = corpus_path(name)
-        if not os.path.isdir(cwd):
-            print(f"{name}: not fetched (bench/bench.py fetch {name}); skipped")
-            continue
-        nfiles, nbytes = corpus_stats(cwd)
-        print(f"\n== {name}: {nfiles} files, {nbytes/1e6:.0f} MB")
-        entry = {"files": nfiles, "bytes": nbytes, "sha": spec.get("sha"), "index": {}, "queries": {}}
-        # index build: fresh dir each run
-        if spec.get("kind") != "file":
+        path = corpus_path(name)
+        is_file = spec.get("kind") == "file"
+        if is_file:
+            if not os.path.isfile(path):
+                print(f"{name}: not fetched (bench/bench.py fetch {name}); skipped")
+                continue
+            cwd, target = os.path.dirname(path), os.path.basename(path)
+            nfiles, nbytes = 1, os.path.getsize(path)
+        else:
+            if not os.path.isdir(path):
+                print(f"{name}: not fetched (bench/bench.py fetch {name}); skipped")
+                continue
+            cwd, target = path, "."
+            nfiles, nbytes = corpus_stats(cwd)
+        print(f"\n== {name}: {nfiles} files, {nbytes/1e6:.0f} MB" + ("  (single file: scan-only rows, no index)" if is_file else ""))
+        entry = {"files": nfiles, "bytes": nbytes, "sha": spec.get("sha"), "kind": spec.get("kind", "repo"), "greeg": gver, "date": result["date"], "protocol": PROTOCOL, "stale": None, "index": {}, "queries": {}}
+        if not is_file:
             idx = tempfile.mkdtemp(prefix="greeg-bench-idx-")
             build = hyperfine([[greeg, "index", "--index-dir", idx, "--root", "."]], cwd, runs=max(2, args.runs // 3), warmup=0, prepare=f"rm -rf {idx}")[0]
             shutil.rmtree(idx, ignore_errors=True)
@@ -305,67 +398,89 @@ def speed(args):
             shutil.rmtree(idx, ignore_errors=True)
             run([greeg, "index", "--root", "."], cwd)  # the default index used by the queries
             info = doctor_index(greeg, cwd)
-            info.update({"build_s": build["mean"] if build else None, "build_stddev": build["stddev"] if build else None, "rss_mb": rss})
+            info.update({"build_s": build["median"] if build else None, "build_mean_s": build["mean"] if build else None, "build_min_s": build["min"] if build else None, "build_max_s": build["max"] if build else None, "build_stddev": build["stddev"] if build else None, "rss_mb": rss})
             entry["index"] = info
-            print(f"   index build {fmt_ms(info['build_s'])} ± {fmt_ms(info.get('build_stddev') or 0)}  size {info['size']} ({info['ratio']}× of source)  RSS {rss and round(rss)} MB")
+            print(f"   index build {fmt_ms(info['build_s'])} median ({fmt_ms(info.get('build_min_s'))}–{fmt_ms(info.get('build_max_s'))})  size {info['size']} ({info['ratio']}× of source)  RSS {rss and round(rss)} MB")
         for fam in FAMILIES:
             pat = spec["queries"].get(fam)
             if not pat:
                 continue
-            tools = [t for t in TOOLS if not (spec.get("kind") == "file" and t in ("greeg-full", "greeg"))]
+            tools = list(FILE_TOOLS if is_file else TOOLS)
+            timed = tools + ([] if is_file else ["greeg-nofresh"])
             if fam == "regex":
-                tools = [("grep-E" if t == "grep" else t) for t in tools]
-            cmds = [tool_cmd(t, greeg, fam, pat, spec.get("kind")) for t in tools]
-            # match-count verification: rg --json vs greeg --json (path, line) sets; grep by text
-            rgj = json_hits(out_of(["rg", "--json", "-n", *FAMILY_FLAGS[fam], "-e", pat, "."], cwd))
-            ggj = json_hits(out_of([greeg, "--json", "--no-session", "--budget", "0", "--no-ladder", "--max-columns", "0", *FAMILY_FLAGS[fam], "-e", pat, "."], cwd)) if spec.get("kind") != "file" else rgj
-            grp = {h for h in text_hits(out_of(cmds[0], cwd)) if h}  # grep has no gitignore support: counts may exceed rg's
-            verified = {"rg": len(rgj), "greeg": len(ggj), "grep": len(grp), "rg_eq_greeg": rgj == ggj, "grep_eq_rg": grp == rgj}
-            states = [("warm", None)] + ([("cold", purge)] if cold else [])
+                timed = [("grep-E" if t == "grep" else t) for t in timed]
+            cmds = [tool_cmd(t, greeg, fam, pat, spec.get("kind"), target) for t in timed]
+            # match-set verification. rg --json is the reference. `greeg-full`: the (path, line) set parsed
+            # from the text the *timed* command prints. `greeg` (budgeted digest) cannot be verified from
+            # its own output: it is checked as `--json --budget 0` with the same query, which is what
+            # `rg_eq_greeg` means. grep is compared by text (no gitignore: its set may exceed rg's).
+            if is_file:
+                rgj = json_hits(out_of(["rg", "--json", "-n", *FAMILY_FLAGS[fam], "-e", pat, target], cwd))
+                ggj = json_hits(out_of([greeg, "--json", "--no-index", "--no-session", "--budget", "0", "--no-ladder", "--max-columns", "0", "--max-filesize", HUGE_FILE, *FAMILY_FLAGS[fam], "-e", pat, target], cwd))
+                full_txt = None
+            else:
+                rgj = json_hits(out_of(["rg", "--json", "-n", *FAMILY_FLAGS[fam], "-e", pat, "."], cwd))
+                ggj = json_hits(out_of([greeg, "--json", "--no-session", "--budget", "0", "--no-ladder", "--max-columns", "0", *FAMILY_FLAGS[fam], "-e", pat, "."], cwd))
+                full_txt = {h for h in greeg_text_hits(out_of(tool_cmd("greeg-full", greeg, fam, pat, None), cwd)) if h}
+            grp = {h for h in text_hits(out_of(cmds[0], cwd)) if h}
+            verified = {"rg": len(rgj), "greeg": len(ggj), "grep": len(grp), "rg_eq_greeg": rgj == ggj, "grep_eq_rg": grp == rgj, "greeg_verified_as": "greeg --json --budget 0 (same query, unbudgeted JSON); the timed budgeted digest is not verifiable from its own output"}
+            if full_txt is not None:
+                verified.update({"greeg_full_text": len(full_txt), "rg_eq_greeg_full_text": full_txt == rgj})
+            states = [("warm", PREPARE_SLEEP)] + ([("cold", PURGE_CMD)] if cold else [])
             fam_entry = {"pattern": pat, "matches": verified, "tools": {}}
             for state, prep in states:
                 res = hyperfine(cmds, cwd, runs=args.runs if state == "warm" else max(3, args.runs // 3), warmup=3 if state == "warm" else 0, prepare=prep)
-                for t, r in zip(tools, res):
+                for t, r in zip(timed, res):
                     key = t.replace("grep-E", "grep")
-                    d = fam_entry["tools"].setdefault(key, {})
-                    d[state] = r
+                    fam_entry["tools"].setdefault(key, {})[state] = r
+            if not is_file:
+                fam_entry["fresh"] = fresh_cost(greeg, [*FAMILY_FLAGS[fam], "-e", pat, "."], cwd, samples=max(3, args.runs))
             for t in tools:
-                key = t.replace("grep-E", "grep")
-                if t in ("rg", "greeg"):
-                    fam_entry["tools"][key]["rss_mb"] = max_rss_mb(tool_cmd(t, greeg, fam, pat, spec.get("kind")), cwd)
+                if t in RSS_TOOLS:
+                    fam_entry["tools"][t]["rss_mb"] = max_rss_mb(tool_cmd(t, greeg, fam, pat, spec.get("kind"), target), cwd)
             entry["queries"][fam] = fam_entry
-            line = "  ".join(f"{t}={fmt_ms(fam_entry['tools'][t.replace('grep-E','grep')]['warm']['mean'] if fam_entry['tools'][t.replace('grep-E','grep')]['warm'] else None)}" for t in tools)
-            print(f"   {fam:6} {pat!r:34} {line}  matches rg={verified['rg']} greeg={verified['greeg']} grep={verified['grep']}{'' if verified['rg_eq_greeg'] else '  MISMATCH rg/greeg'}")
-        if spec.get("kind") != "file":
+            line = "  ".join(f"{t}={fmt_ms(median_of(fam_entry['tools'][t].get('warm')))}" for t in tools)
+            fr = fam_entry.get("fresh")
+            print(f"   {fam:6} {pat!r:34} {line}" + (f"  fresh={fmt_ms(fr['median'])} ({fr['mode']})" if fr else "") + f"  matches rg={verified['rg']} greeg={verified['greeg']} grep={verified['grep']}" + ("" if verified["rg_eq_greeg"] else "  MISMATCH rg/greeg(json)") + ("" if verified.get("rg_eq_greeg_full_text", True) else "  MISMATCH rg/greeg-full(text)"))
+        if not is_file:
             for verb in VERBS:
                 nm = spec["queries"].get(verb)
                 if not nm:
                     continue
                 cmd = [greeg, verb, nm, "--no-session"]
-                r = hyperfine([cmd], cwd, runs=args.runs, warmup=3)[0]
+                r = hyperfine([cmd], cwd, runs=args.runs, warmup=3, prepare=PREPARE_SLEEP)[0]
                 entry["queries"][verb] = {"pattern": nm, "tools": {"greeg": {"warm": r}}}
-                print(f"   {verb:6} {nm!r:34} greeg={fmt_ms(r['mean'] if r else None)}")
+                print(f"   {verb:6} {nm!r:34} greeg={fmt_ms(median_of(r))}")
         result["corpora"][name] = entry
-    # geometric-mean speedups vs rg per family (warm)
-    gm = {}
-    for fam in FAMILIES:
-        for tool in TOOLS:
-            ratios = []
-            for e in result["corpora"].values():
-                q = e["queries"].get(fam)
-                if not q or tool not in q["tools"] or "rg" not in q["tools"]:
-                    continue
-                a, b = q["tools"]["rg"].get("warm"), q["tools"][tool].get("warm")
-                if a and b:
-                    ratios.append(a["mean"] / b["mean"])
-            if ratios:
-                gm.setdefault(fam, {})[tool] = geomean(ratios)
-    result["geomean_vs_rg"] = gm
-    print("\ngeometric-mean speed vs rg (>1 = faster than rg):")
-    for fam, d in gm.items():
-        print(f"   {fam:6} " + "  ".join(f"{t}={v:.2f}×" for t, v in d.items()))
+    result["geomean"] = geomeans(result["corpora"])
+    result["geomean_vs_rg"] = result["geomean"].get("rg", {})
+    for base in ("rg-j4", "rg"):
+        print(f"\ngeometric-mean speed vs {base} (medians, > 1 = faster than {base}):")
+        for fam, d in result["geomean"].get(base, {}).items():
+            print(f"   {fam:6} " + "  ".join(f"{t}={v:.2f}×" for t, v in d.items()))
     save_json(os.path.join(RESULTS, f"speed-{host_key()}.json"), result)
     save_json(os.path.join(RESULTS, "speed.json"), result)
+
+
+def geomeans(corpora):
+    """{base: {family: {tool: geometric mean of base_median / tool_median over corpora}}}, warm runs, current rows only."""
+    gm = {}
+    for base in ("rg-j4", "rg"):
+        for fam in FAMILIES:
+            for tool in TOOLS + ["greeg-nofresh"]:
+                ratios = []
+                for e in corpora.values():
+                    if e.get("stale"):
+                        continue
+                    q = e["queries"].get(fam)
+                    if not q or tool not in q["tools"] or base not in q["tools"]:
+                        continue
+                    a, b = q["tools"][base].get("warm"), q["tools"][tool].get("warm")
+                    if a and b:
+                        ratios.append(a["median"] / b["median"])
+                if ratios:
+                    gm.setdefault(base, {}).setdefault(fam, {})[tool] = geomean(ratios)
+    return gm
 
 
 # ───────────────────────────── SCIP oracle ─────────────────────────────
@@ -434,13 +549,23 @@ def scip_name(symbol):
 
 
 def read_scip(path):
-    """{name: {"kind": kind, "defs": {(path, line)}, "refs": {(path, line)}}} plus per-line occurrence map."""
+    """{name: {"kind": kind, "defs": {(path, line)}, "refs": {(path, line)}}}, per-line occurrence map, documents, indexer ToolInfo."""
     with open(path, "rb") as fh:
         data = fh.read()
     names = {}
     lines = {}  # (path, line) -> set of (name, is_def)
     docs = set()
+    meta = {}
     for f, v in pb_fields(data):
+        if f == 1 and isinstance(v, bytes):
+            for mf, mv in pb_fields(v):
+                if mf == 2 and isinstance(mv, bytes):
+                    for tf, tv in pb_fields(mv):
+                        if tf == 1:
+                            meta["tool"] = tv.decode("utf8", "replace")
+                        elif tf == 2:
+                            meta["version"] = tv.decode("utf8", "replace")
+            continue
         if f != 2:
             continue
         rel, occs = None, []
@@ -474,7 +599,7 @@ def read_scip(path):
             e["symbols"].add(sym)
             (e["defs"] if is_def else e["refs"]).add(loc)
             lines.setdefault(loc, set()).add((name, is_def))
-    return names, lines, docs
+    return names, lines, docs, meta
 
 
 def scip_index_for(name, cwd, scip_dir):
@@ -503,36 +628,116 @@ def scip_index_for(name, cwd, scip_dir):
     return out
 
 
-def sample_names(names, per_bucket, seed):
+
+def wsample(items, k, weight, rnd):
+    """Weighted sampling without replacement (deterministic for a given seed; items are sorted first)."""
+    items = sorted(items)
+    weights = [weight(n) for n in items]
+    picked = []
+    while items and len(picked) < k:
+        i = rnd.choices(range(len(items)), weights)[0]
+        picked.append(items.pop(i))
+        weights.pop(i)
+    return picked
+
+
+MIN_REFS = 3
+ZERO_REF_BUCKET = "0ref"
+
+
+def sample_names(names, per_bucket, seed, zero_ref=10):
+    """Names stratified by ambiguity (1 / 2–5 / 6+ definitions); within a bucket sampled without
+    replacement with probability ∝ log(1 + reference count), so the sample leans toward names an
+    agent actually asks about. Names need ≥ MIN_REFS references; a separate small bucket of
+    zero-reference names is drawn uniformly and reported on its own."""
     rnd = random.Random(seed)
     buckets = {"1": [], "2-5": [], "6+": []}
+    zero = []
     for n, e in names.items():
         # `meta` descriptors are locals and object-literal properties, `namespace`
         # ones are files and modules whose SCIP definition is line 1 of the file:
         # neither is a definition an agent asks `def NAME` about.
         if len(n) < 3 or not e["defs"] or not re.match(r"^[A-Za-z_]\w*$", n) or e["kind"] in ("meta", "namespace"):
             continue
-        d = len(e["defs"])
-        buckets["1" if d == 1 else "2-5" if d <= 5 else "6+"].append(n)
+        d, r = len(e["defs"]), len(e["refs"])
+        if r == 0:
+            zero.append(n)
+        elif r >= MIN_REFS:
+            buckets["1" if d == 1 else "2-5" if d <= 5 else "6+"].append(n)
     out = []
     for b, lst in buckets.items():
-        lst.sort()
-        rnd.shuffle(lst)
-        # keep the kind mix: types, methods/functions, terms in rotation
-        by_kind = {}
-        for n in lst:
-            by_kind.setdefault(names[n]["kind"], []).append(n)
-        picked = []
-        while len(picked) < per_bucket and any(by_kind.values()):
-            for k in list(by_kind):
-                if by_kind[k] and len(picked) < per_bucket:
-                    picked.append(by_kind[k].pop())
-        out += [(n, b) for n in picked]
+        out += [(n, b) for n in wsample(lst, per_bucket, lambda n: math.log1p(len(names[n]["refs"])), rnd)]
+    zero.sort()
+    out += [(n, ZERO_REF_BUCKET) for n in rnd.sample(zero, min(zero_ref, len(zero)))]
     return out
 
 
 def acc_at(shown, truth, k):
     return any(h in truth for h in shown[:k])
+
+
+# what an agent types when it wants the definition with rg: a per-language definition regex
+DEF_REGEX = {
+    "rust": r"(fn|struct|enum|trait|type|mod|const|static|union|impl(<[^>]*>)?( \w+ for)?) {n}\b",
+    "python": r"(def|class) {n}\b",
+    "typescript": r"(function|class|interface|type|enum|const|let|var|namespace) {n}\b",
+    "javascript": r"(function|class|const|let|var) {n}\b",
+    "kotlin": r"(fun|class|interface|object|val|var|typealias|enum class|data class) {n}\b",
+}
+
+
+def rg_def_cmd(lang, nm):
+    return ["rg", "-n", "--sort", "path", "-e", DEF_REGEX.get(lang, DEF_REGEX["typescript"]).format(n=re.escape(nm)), "."]
+
+
+# greeg text lines that summarise rather than locate: neutral in the context metric
+NEUTRAL_RE = re.compile(r"^(?:by (?:kind|area|lang|flag)\b|definitions \(|top hits\b|next:|\s*\+\d[\d,]* more\b|[\d,]+ of [\d,]+ hits\b|\S.*  [\d,]+ matches · |see also\b|hint:)")
+
+
+def greeg_line_classes(text):
+    """[(location or None, neutral)] per emitted line of greeg's text output. Neutral lines are the
+    header, facet lines, section titles, file headers, `+N more`, the footer and blank lines: they
+    aggregate rather than locate, so they leave the denominator of the useful-line ratio. Context
+    lines (no kind tag) stay in the denominator: they cost tokens without naming a true location."""
+    out = []
+    for line, loc in zip(text.splitlines(), greeg_text_hits(text)):
+        neutral = loc is None and (not line.strip() or bool(NEUTRAL_RE.match(line)) or bool(GREEG_FILE_RE.match(line)))
+        out.append((loc, neutral))
+    return out
+
+
+def plain_line_classes(text):
+    return [(loc, loc is None and (not line.strip() or line == "--")) for line, loc in zip(text.splitlines(), text_hits(text))]
+
+
+def context_metrics(emitted, classes, truth_all, truth_def):
+    """Context@500 for one tool: distinct true locations, coverage, tokens, tokens until the first
+    and until every true definition has been printed (None when not reached within the window)."""
+    seen, useful_lines = set(), 0
+    first_def_tokens = all_defs_tokens = None
+    covered_defs = set()
+    for k, (loc, _) in enumerate(classes):
+        if loc and loc in truth_all:
+            useful_lines += 1
+            seen.add(loc)
+        if loc and loc in truth_def:
+            covered_defs.add(loc)
+            if first_def_tokens is None:
+                first_def_tokens = tokens("\n".join(emitted[:k + 1]))
+            if all_defs_tokens is None and covered_defs >= truth_def:
+                all_defs_tokens = tokens("\n".join(emitted[:k + 1]))
+    tk = tokens("\n".join(emitted))
+    neutral = sum(1 for _, n in classes if n)
+    denom = max(1, len(classes) - neutral)
+    return {"lines": len(classes), "neutral": neutral, "useful": len(seen), "useful_lines": useful_lines, "useful_ratio": len(seen) / denom, "coverage": len(seen) / max(1, len(truth_all)), "tokens": tk, "useful_per_ktok": len(seen) / max(1, tk) * 1000, "tokens_to_def": first_def_tokens, "tokens_to_all_defs": all_defs_tokens, "defs_covered": len(covered_defs) / max(1, len(truth_def))}
+
+
+def scip_tool_version(name, lang):
+    if lang == "rust":
+        return version_of(["rust-analyzer", "--version"])
+    if lang == "kotlin":
+        return version_of(["scip-java", "--version"])
+    return None  # scip-typescript / scip-python: taken from the index's metadata (ToolInfo)
 
 
 def oracle(args):
@@ -547,24 +752,28 @@ def oracle(args):
         idx = scip_index_for(name, cwd, scip_dir)
         if not idx:
             continue
+        lang = CORPORA[name]["lang"]
         t0 = time.time()
-        names, lines, docs = read_scip(idx)
-        print(f"\n== {name}: SCIP {os.path.getsize(idx)/1e6:.0f} MB, {len(docs)} documents, {len(names)} names with occurrences, {sum(1 for e in names.values() if e['defs'])} defined in-repo ({time.time()-t0:.1f} s to decode)")
+        names, lines, docs, meta = read_scip(idx)
+        print(f"\n== {name}: SCIP {os.path.getsize(idx)/1e6:.0f} MB by {meta.get('tool') or '?'} {meta.get('version') or ''}, {len(docs)} documents, {len(names)} names with occurrences, {sum(1 for e in names.values() if e['defs'])} defined in-repo ({time.time()-t0:.1f} s to decode); tokenizer {TOKENIZER}")
         run([greeg, "index", "--root", "."], cwd)
-        samples = sample_names(names, args.per_bucket, args.seed)
+        samples = sample_names(names, args.per_bucket, args.seed, args.zero_ref)
         rows = []
         for i, (nm, bucket) in enumerate(samples):
             e = names[nm]
             truth_def, truth_ref = e["defs"], e["refs"]
             truth_all = truth_def | truth_ref
             row = {"name": nm, "bucket": bucket, "kind": e["kind"], "defs": len(truth_def), "refs": len(truth_ref)}
-            # definitions: greeg def (JSON), rg -w and grep -w first lines
+            # definitions: greeg def (JSON); rg -nw and grep -rnw first lines (thread order, what an
+            # agent sees); rg with the language's definition regex, --sort path (deterministic)
             gd = [(j["path"], j["line"]) for j in map(json.loads, (l for l in out_of([greeg, "def", nm, "--json", "--no-session"], cwd).splitlines() if l.startswith("{"))) if j.get("type") == "def"]
             rgd = [h for h in text_hits(out_of(["rg", "-n", "-w", "-e", nm, "."], cwd)) if h]
+            rgdef = [h for h in text_hits(out_of(rg_def_cmd(lang, nm), cwd)) if h]
             grd = [h for h in text_hits(out_of(["grep", "-rnwI", "--exclude-dir=.git", "--exclude-dir=node_modules", "-e", nm, "."], cwd)) if h]
-            for tool, shown in (("greeg", gd), ("rg", rgd), ("grep", grd)):
+            for tool, shown in (("greeg", gd), ("rg", rgd), ("rgdef", rgdef), ("grep", grd)):
                 row[f"{tool}_acc"] = [acc_at(shown, truth_def, k) for k in (1, 5, 10)]
             row["greeg_def_shown"] = len(gd)
+            row["rgdef_shown"] = len(rgdef)
             # references: greeg refs (JSON, unbudgeted) recall; classification vs roles
             refs_out = out_of([greeg, "refs", nm, "--json", "--budget", "0", "--no-session"], cwd)
             found = set()
@@ -614,44 +823,70 @@ def oracle(args):
             for tool, cmd in (("greeg", [greeg, nm, "--no-session"]), ("greeg6k", [greeg, nm, "--no-session", "--budget", "6000"]), ("rg", ["rg", "-n", "-w", "-e", nm, "."]), ("grep", ["grep", "-rnwI", "--exclude-dir=.git", "--exclude-dir=node_modules", "-e", nm, "."])):
                 text = out_of(cmd, cwd)
                 emitted = text.splitlines()[:500]
-                hs = (greeg_text_hits if tool.startswith("greeg") else text_hits)("\n".join(emitted))
-                useful = [h for h in hs if h and h in truth_all]
-                first_def_tokens = None
-                for k, h in enumerate(hs):
-                    if h and h in truth_def:
-                        first_def_tokens = tokens("\n".join(emitted[:k + 1]))
-                        break
-                tk = tokens("\n".join(emitted))
-                row[f"ctx_{tool}"] = {"lines": len(emitted), "useful": len(useful), "coverage": len(set(useful)) / max(1, len(truth_all)), "tokens": tk, "useful_per_ktok": len(set(useful)) / max(1, tk) * 1000, "tokens_to_def": first_def_tokens}
+                classes = (greeg_line_classes if tool.startswith("greeg") else plain_line_classes)("\n".join(emitted))
+                row[f"ctx_{tool}"] = context_metrics(emitted, classes, truth_all, truth_def)
             rows.append(row)
             if (i + 1) % 15 == 0:
                 print(f"   … {i+1}/{len(samples)}")
-        summary = summarize_oracle(rows)
+        main_rows = [r for r in rows if r["bucket"] != ZERO_REF_BUCKET]
+        zero_rows = [r for r in rows if r["bucket"] == ZERO_REF_BUCKET]
+        summary = summarize_oracle(main_rows, args.seed)
+        zero_summary = summarize_oracle(zero_rows, args.seed, light=True) if zero_rows else None
         misses = [{"name": r["name"], "kind": r["kind"], "bucket": r["bucket"], "scip_defs": sorted(names[r["name"]]["defs"])[:3], "greeg_shown": r["greeg_def_shown"]} for r in rows if not r["greeg_acc"][2]]
-        all_results[name] = {"date": datetime.datetime.now().isoformat(timespec="seconds"), "scip": os.path.basename(os.path.dirname(idx)), "names": len(names), "sampled": len(rows), "summary": summary, "misses": misses, "rows": rows}
-        print_oracle(name, summary)
+        all_results[name] = {"date": datetime.datetime.now().isoformat(timespec="seconds"), "scip": os.path.basename(os.path.dirname(idx)), "scip_tool": meta, "scip_tool_cli": scip_tool_version(name, lang), "tokenizer": TOKENIZER, "greeg": version_of([greeg, "--version"]), "sampling": f"stratified by ambiguity 1 / 2-5 / 6+, {args.per_bucket} per bucket, weighted by log(1 + references), references >= {MIN_REFS}; plus {len(zero_rows)} zero-reference names reported separately", "seed": args.seed, "rg_def_regex": DEF_REGEX.get(lang, DEF_REGEX["typescript"]), "names": len(names), "sampled": len(main_rows), "sampled_zero_ref": len(zero_rows), "summary": summary, "summary_zero_ref": zero_summary, "misses": misses, "rows": rows}
+        print_oracle(name, summary, zero_summary)
         for m in misses:
             print(f"   miss@10 {m['name']} ({m['kind']}, ambiguity {m['bucket']}): SCIP {', '.join(f'{p}:{l}' for p, l in m['scip_defs'])}; greeg def showed {m['greeg_shown']}")
         save_json(os.path.join(RESULTS, "oracle.json"), all_results)
 
 
-def summarize_oracle(rows):
-    s = {}
+def mean(xs):
+    xs = [x for x in xs if x is not None]
+    return (sum(xs) / len(xs)) if xs else None
 
-    def mean(xs):
-        xs = [x for x in xs if x is not None]
-        return (sum(xs) / len(xs)) if xs else None
 
-    for tool in ("greeg", "rg", "grep"):
-        s[f"{tool}_acc"] = [mean([r[f"{tool}_acc"][i] for r in rows]) for i in range(3)]
-    for tool in ("greeg", "greeg6k", "rg", "grep"):
-        s[f"{tool}_ctx_useful_per_ktok"] = mean([r[f"ctx_{tool}"]["useful_per_ktok"] for r in rows])
-        s[f"{tool}_ctx_useful_ratio"] = mean([r[f"ctx_{tool}"]["useful"] / r[f"ctx_{tool}"]["lines"] for r in rows if r[f"ctx_{tool}"]["lines"]])
-        s[f"{tool}_ctx_coverage"] = mean([r[f"ctx_{tool}"]["coverage"] for r in rows])
-        s[f"{tool}_tokens"] = mean([r[f"ctx_{tool}"]["tokens"] for r in rows])
-        tdef = [r[f"ctx_{tool}"]["tokens_to_def"] for r in rows]
-        s[f"{tool}_tokens_to_def"] = statistics.median([t for t in tdef if t is not None]) if any(t is not None for t in tdef) else None
-        s[f"{tool}_def_reached"] = mean([t is not None for t in tdef])
+def median(xs):
+    xs = [x for x in xs if x is not None]
+    return statistics.median(xs) if xs else None
+
+
+def bootstrap_ci(xs, stat=mean, n=2000, seed=0):
+    """95 % percentile bootstrap interval of `stat` over xs (None entries dropped)."""
+    xs = [x for x in xs if x is not None]
+    if len(xs) < 2:
+        return None
+    rnd = random.Random(seed)
+    k = len(xs)
+    vals = sorted(stat([xs[rnd.randrange(k)] for _ in range(k)]) for _ in range(n))
+    return [vals[int(0.025 * n)], vals[min(n - 1, int(0.975 * n))]]
+
+
+ACC_TOOLS = ("greeg", "rg", "rgdef", "grep")
+CTX_TOOLS = ("greeg", "greeg6k", "rg", "grep")
+
+
+def summarize_oracle(rows, seed=0, light=False):
+    s = {"n": len(rows)}
+    for tool in ACC_TOOLS:
+        if rows and f"{tool}_acc" in rows[0]:
+            s[f"{tool}_acc"] = [mean([r[f"{tool}_acc"][i] for r in rows]) for i in range(3)]
+            s[f"{tool}_acc1_ci"] = bootstrap_ci([float(r[f"{tool}_acc"][0]) for r in rows], seed=seed)
+    if light:
+        return s
+    for tool in CTX_TOOLS:
+        c = [r[f"ctx_{tool}"] for r in rows]
+        s[f"{tool}_ctx_useful_per_ktok"] = mean([x["useful_per_ktok"] for x in c])
+        s[f"{tool}_ctx_useful_ratio"] = mean([x["useful_ratio"] for x in c])
+        s[f"{tool}_ctx_neutral_ratio"] = mean([x["neutral"] / x["lines"] for x in c if x["lines"]])
+        s[f"{tool}_ctx_coverage"] = mean([x["coverage"] for x in c])
+        s[f"{tool}_tokens"] = mean([x["tokens"] for x in c])
+        s[f"{tool}_tokens_median"] = median([x["tokens"] for x in c])
+        s[f"{tool}_tokens_median_ci"] = bootstrap_ci([x["tokens"] for x in c], stat=statistics.median, seed=seed)
+        s[f"{tool}_tokens_to_def"] = median([x["tokens_to_def"] for x in c])
+        s[f"{tool}_def_reached"] = mean([x["tokens_to_def"] is not None for x in c])
+        s[f"{tool}_tokens_to_all_defs"] = median([x["tokens_to_all_defs"] for x in c])
+        s[f"{tool}_all_defs_reached"] = mean([x["tokens_to_all_defs"] is not None for x in c])
+        s[f"{tool}_defs_covered"] = mean([x["defs_covered"] for x in c])
     for b in ("1", "2-5", "6+"):
         br = [r for r in rows if r["bucket"] == b]
         if br:
@@ -676,17 +911,31 @@ def pct(x):
     return "–" if x is None else f"{100*x:.0f} %"
 
 
-def print_oracle(name, s):
-    print(f"\n{name}: definitions Acc@1/5/10  greeg {'/'.join(pct(x) for x in s['greeg_acc'])}   rg {'/'.join(pct(x) for x in s['rg_acc'])}   grep {'/'.join(pct(x) for x in s['grep_acc'])}")
+def ci_pp(ci):
+    return "" if not ci else f" [{100*ci[0]:.0f}–{100*ci[1]:.0f}]"
+
+
+def ci_n(ci):
+    return "" if not ci else f" [{round(ci[0]):,}–{round(ci[1]):,}]"
+
+
+def accs(s, tool):
+    return "/".join(pct(x) for x in s[f"{tool}_acc"]) + ci_pp(s.get(f"{tool}_acc1_ci")) if f"{tool}_acc" in s else "–"
+
+
+def print_oracle(name, s, zero=None):
+    print(f"\n{name}: definitions Acc@1/5/10 [95 % CI of Acc@1], n={s['n']}  greeg {accs(s, 'greeg')}   rg -nw {accs(s, 'rg')}   rg-def {accs(s, 'rgdef')}   grep {accs(s, 'grep')}")
     for b in ("1", "2-5", "6+"):
         if f"greeg_acc_bucket_{b}" in s:
             print(f"   ambiguity {b:4} (n={s[f'n_bucket_{b}']:2}): greeg Acc@1/5/10 {'/'.join(pct(x) for x in s[f'greeg_acc_bucket_{b}'])}")
+    if zero:
+        print(f"   zero-reference names (n={zero['n']}): greeg {accs(zero, 'greeg')}  rg -nw {accs(zero, 'rg')}  rg-def {accs(zero, 'rgdef')}")
     print(f"   reference recall (greeg refs vs SCIP) {pct(s['ref_recall'])}; definition recall {pct(s['def_recall'])}")
     for key in ("spans", "precise"):
         c = s[f"cls_{key}"]
         print(f"   classification [{key}]: def precision {pct(c['def_precision'])} ({pct(c['def_precision_with_impl'])} counting {c['impl_headers']} impl headers as errors) recall {pct(c['def_recall'])}; code hits on a SCIP occurrence {pct(c['code_on_scip'])}; noncode precision {pct(c['noncode_precision'])} ({c['noncode_hits']} noncode / {c['code_hits']} code hits)")
-    for tool in ("greeg", "greeg6k", "rg", "grep"):
-        print(f"   context@500 {tool:7}: useful lines {pct(s[f'{tool}_ctx_useful_ratio'])}  coverage {pct(s[f'{tool}_ctx_coverage'])}  tokens {s[f'{tool}_tokens'] and round(s[f'{tool}_tokens'])}  useful/ktok {s[f'{tool}_ctx_useful_per_ktok']:.1f}  tokens-to-first-def median {s[f'{tool}_tokens_to_def'] and round(s[f'{tool}_tokens_to_def'])} (reached {pct(s[f'{tool}_def_reached'])})")
+    for tool in CTX_TOOLS:
+        print(f"   context@500 {tool:7}: useful lines {pct(s[f'{tool}_ctx_useful_ratio'])} (neutral {pct(s.get(f'{tool}_ctx_neutral_ratio'))})  coverage {pct(s[f'{tool}_ctx_coverage'])}  tokens mean {round(s[f'{tool}_tokens'] or 0):,} median {round(s.get(f'{tool}_tokens_median') or 0):,}{ci_n(s.get(f'{tool}_tokens_median_ci'))}  distinct true/ktok {s[f'{tool}_ctx_useful_per_ktok']:.1f}  tokens→first def {s[f'{tool}_tokens_to_def'] and round(s[f'{tool}_tokens_to_def'])} (reached {pct(s[f'{tool}_def_reached'])})  tokens→all defs {s.get(f'{tool}_tokens_to_all_defs') and round(s[f'{tool}_tokens_to_all_defs'])} (reached {pct(s.get(f'{tool}_all_defs_reached'))})")
 
 
 # ───────────────────────────── gate ─────────────────────────────
@@ -700,14 +949,30 @@ def gate(args):
         base = load_json(base_path)
         if not cur:
             sys.exit("no current speed results for this host; run bench/bench.py speed first")
-        if args.save or not base:
-            save_json(base_path, cur)
-            print(f"baseline {'saved' if args.save else 'created'} for {key}; nothing to compare")
+        if args.record_only:
+            print(f"speed results recorded for {key} (protocol {cur.get('protocol', 1)}, {cur.get('greeg')}); no baseline comparison on this host")
+            for c, e in cur["corpora"].items():
+                for fam, q in e["queries"].items():
+                    r = q["tools"].get("greeg", {}).get("warm")
+                    if r:
+                        print(f"   {c:20} {fam:8} greeg {fmt_ms(r['median'])} median  rg-j4 {fmt_ms(median_of(q['tools'].get('rg-j4', {}).get('warm')))}" + ("  (stale row)" if e.get("stale") else ""))
             return
+        if args.save:
+            save_json(base_path, cur)
+            print(f"baseline saved for {key}")
+            return
+        if not base:
+            if args.require_baseline:
+                sys.exit(f"GATE FAIL: no speed baseline for host {key} under bench/baselines/ and --require-baseline was passed (record one on the reference machine with `bench/bench.py gate speed --save`)")
+            save_json(base_path, cur)
+            print(f"baseline created for {key}; nothing to compare (pass --require-baseline to make this an error)")
+            return
+        if base.get("protocol", 1) != cur.get("protocol", 1):
+            sys.exit(f"GATE FAIL: baseline for {key} was recorded with protocol {base.get('protocol', 1)} and the current results with protocol {cur.get('protocol', 1)}; the numbers are not comparable. Re-record the baseline with `bench/bench.py gate speed --save`.")
         worst = []
         for c, e in cur["corpora"].items():
             be = base["corpora"].get(c)
-            if not be:
+            if not be or e.get("stale"):
                 continue
             for fam, q in e["queries"].items():
                 bq = be["queries"].get(fam)
@@ -716,9 +981,9 @@ def gate(args):
                 for tool in ("greeg", "greeg-full", "greeg-scan"):
                     a = q["tools"].get(tool, {}).get("warm")
                     b = bq["tools"].get(tool, {}).get("warm")
-                    if a and b and b["mean"] > 0:
-                        d = a["mean"] / b["mean"] - 1
-                        worst.append((d, f"{c} {fam} {tool}: {fmt_ms(b['mean'])} → {fmt_ms(a['mean'])} ({d:+.0%})"))
+                    if a and b and b["median"] > 0:
+                        d = a["median"] / b["median"] - 1
+                        worst.append((d, f"{c} {fam} {tool}: {fmt_ms(b['median'])} → {fmt_ms(a['median'])} median ({d:+.0%})"))
             if e["index"].get("build_s") and be["index"].get("build_s"):
                 d = e["index"]["build_s"] / be["index"]["build_s"] - 1
                 worst.append((d, f"{c} index build: {fmt_ms(be['index']['build_s'])} → {fmt_ms(e['index']['build_s'])} ({d:+.0%})"))
@@ -726,7 +991,7 @@ def gate(args):
         for d, line in worst[:8]:
             print(("SLOWER  " if d > tol else "ok      ") + line)
         bad = [w for w in worst if w[0] > tol]
-        print(f"speed gate ({args.tolerance:.0f} %): {'FAIL' if bad else 'PASS'} ({len(worst)} comparisons, {len(bad)} regressions)")
+        print(f"speed gate ({args.tolerance:.0f} %, medians): {'FAIL' if bad else 'PASS'} ({len(worst)} comparisons, {len(bad)} regressions)")
         sys.exit(1 if bad else 0)
     # kernels: criterion estimates under target/criterion/<group>/<bench>/new/estimates.json
     crit = os.path.join(ROOT, "target", "criterion")
@@ -741,9 +1006,21 @@ def gate(args):
         sys.exit("no criterion results under target/criterion; run `cargo bench -p greeg-index --bench kernels` first")
     base_path = os.path.join(BASELINES, f"kernels-{key}.json")
     base = load_json(base_path)
-    if args.save or not base:
+    if args.record_only:
+        save_json(os.path.join(RESULTS, f"kernels-{key}.json"), {"host": host_info(), "ns": cur})
+        for k, v in sorted(cur.items()):
+            print(f"   {k}: {v/1e3:.1f} µs")
+        print(f"kernel results recorded for {key}; no baseline comparison on this host")
+        return
+    if args.save:
         save_json(base_path, {"host": host_info(), "ns": cur})
-        print(f"kernel baseline {'saved' if args.save else 'created'} for {key}; nothing to compare")
+        print(f"kernel baseline saved for {key}")
+        return
+    if not base:
+        if args.require_baseline:
+            sys.exit(f"GATE FAIL: no kernel baseline for host {key} under bench/baselines/ and --require-baseline was passed")
+        save_json(base_path, {"host": host_info(), "ns": cur})
+        print(f"kernel baseline created for {key}; nothing to compare (pass --require-baseline to make this an error)")
         return
     bad = []
     for k, v in sorted(cur.items()):
@@ -761,67 +1038,104 @@ def gate(args):
 
 # ───────────────────────────── report ─────────────────────────────
 
+def cell(r):
+    return "–" if not r else f"{fmt_ms(r['median'])} ({fmt_ms(r['min'])}–{fmt_ms(r['max'])})"
+
+
+def mb(x):
+    return "n/a" if x is None else f"{round(x)} MB"
+
+
 def report(args):
     speed_res = load_json(os.path.join(RESULTS, "speed.json"))
-    oracle_res = load_json(os.path.join(RESULTS, "oracle.json"), {})
-    out = ["# Benchmarks", "", "Generated by `bench/bench.py report` from `bench/results/`. Protocol: PLAN.md M6, DESIGN.md §13.", ""]
+    oracle_res = load_json(os.path.join(RESULTS, "oracle.json"), {}) or {}
+    out = ["# Benchmarks", "", "Generated by `bench/bench.py report` from `bench/results/`. Protocol: PLAN.md M6, DESIGN.md §13; the honesty fixes of REVIEW.md §3 are protocol 2 (2026-09-02).", ""]
     if speed_res:
         h = speed_res["host"]
-        out += [f"## Speed", "", f"Host `{h['key']}` ({h['cpus']} CPUs), {speed_res['date']}. `{speed_res['greeg']}`, `{speed_res['rg']}`, `{speed_res['grep'][:40]}`. hyperfine `-N --warmup 3 --runs {speed_res['runs']}`, warm page cache, means. All tools print `path:line:text` for every match; `greeg` (default) is the budgeted answer an agent reads, `greeg-full` the unbudgeted indexed search, `greeg-scan` the same without an index. Match sets verified equal between rg and greeg for every row unless marked.", ""]
-        out += ["### Index build", "", "| corpus | files | source | build | index | ratio | build RSS |", "|---|---:|---:|---:|---:|---:|---:|"]
-        for c, e in speed_res["corpora"].items():
+        corpora = speed_res["corpora"]
+        old = {c for c, e in corpora.items() if e.get("protocol", speed_res.get("protocol", 1)) != PROTOCOL}
+        stale = {c: e["stale"] for c, e in corpora.items() if e.get("stale")}
+        marks = {c: (" ⚠" if c in old or c in stale else "") for c in corpora}
+        if old or stale:
+            out += ["> **Protocol changed on 2026-09-02** (sleep between runs so every greeg run pays the freshness check, medians, `fresh` column, speedups vs `rg -j4`). Rows marked ⚠ were measured with the old protocol or another binary and are stale: rerun pending (`bench/bench.py speed`). Their greeg columns are flattered by the 100 ms TTL (the freshness check was skipped, no `fresh` column) and they are excluded from the geometric means.", ""]
+        out += ["## Speed", "", f"Host `{h['key']}` ({h['cpus']} CPUs), {speed_res['date']}. `{speed_res['greeg']}`, `{speed_res['rg']}`, `{speed_res['grep'][:40]}`, {speed_res.get('hyperfine', 'hyperfine')}. hyperfine `-N --warmup 3 --runs {speed_res['runs']}` with `--prepare '{speed_res.get('prepare', PREPARE_SLEEP)}'` before every timing run, warm page cache. Cells are **medians** with min–max in parentheses.", ""]
+        out += ["What each column prints:", ""]
+        out += [f"* `{t}`: {TOOL_SHAPE[t]}" for t in TOOLS]
+        out += ["* `fresh`: the index freshness check every `greeg`/`greeg-full` run pays under this protocol (median of `--stats` samples, mode in parentheses: `fsevents` or `stat` walk); `--fresh none` skips it (JSON column `greeg-nofresh`).", "", "Match sets: `rg --json` is the reference. `greeg-full` is verified from the text the timed command prints; the budgeted `greeg` digest cannot be verified from its own output, so it is checked as `--json --budget 0` with the same query. Rows marked ⚠ in the matches column failed one of these checks. grep has no `.gitignore` support, so its count can exceed rg's.", ""]
+        out += ["### Index build", "", "| corpus | files | source | build (median) | index | ratio | build RSS |", "|---|---:|---:|---:|---:|---:|---:|"]
+        for c, e in corpora.items():
             ix = e["index"]
             if ix.get("build_s"):
-                out.append(f"| {c} | {e['files']:,} | {e['bytes']/1e6:.0f} MB | {fmt_ms(ix['build_s'])} | {ix.get('size') or '–'} | {ix.get('ratio') or '–'}× | {ix.get('rss_mb') and round(ix['rss_mb'])} MB |")
+                out.append(f"| {c}{marks[c]} | {e['files']:,} | {e['bytes']/1e6:.0f} MB | {fmt_ms(ix['build_s'])} | {ix.get('size') or '–'} | {ix.get('ratio') or '–'}× | {mb(ix.get('rss_mb'))} |")
         out += ["", "### Search latency (warm)", ""]
-        tools = ["grep", "rg", "rg-j4", "greeg-scan", "greeg-full", "greeg"]
-        out += ["| corpus | family | pattern | " + " | ".join(tools) + " | matches |", "|---|---|---|" + "---:|" * len(tools) + "---:|"]
-        for c, e in speed_res["corpora"].items():
+        out += ["| corpus | family | pattern | " + " | ".join(TOOLS) + " | fresh | matches |", "|---|---|---|" + "---:|" * (len(TOOLS) + 1) + "---:|"]
+        for c, e in corpora.items():
             for fam in FAMILIES:
                 q = e["queries"].get(fam)
                 if not q:
                     continue
-                cells = []
-                for t in tools:
-                    r = q["tools"].get(t, {}).get("warm")
-                    cells.append(fmt_ms(r["mean"]) if r else "–")
+                cells = [cell(q["tools"].get(t, {}).get("warm")) for t in TOOLS]
+                fr = q.get("fresh")
                 m = q["matches"]
-                out.append(f"| {c} | {fam} | `{q['pattern']}` | " + " | ".join(cells) + f" | {m['rg']:,}{'' if m['rg_eq_greeg'] else ' ⚠'} |")
-        cold_rows = [(c, fam, q) for c, e in speed_res["corpora"].items() for fam, q in e["queries"].items() if fam in FAMILIES and any("cold" in q["tools"].get(t, {}) for t in tools)]
+                ok = m.get("rg_eq_greeg", True) and m.get("rg_eq_greeg_full_text", True)
+                out.append(f"| {c}{marks[c]} | {fam} | `{q['pattern']}` | " + " | ".join(cells) + f" | {(fmt_ms(fr['median']) + ' (' + fr['mode'] + ')') if fr else '–'} | {m['rg']:,}{'' if ok else ' ⚠'} |")
+        file_rows = [c for c, e in corpora.items() if e.get("kind") == "file"]
+        if file_rows:
+            out += ["", f"`{', '.join(file_rows)}` is a single file, not a repository: only the scan tools are timed (greeg does not index it), and `greeg-full`/`greeg`/`fresh` are `–`."]
+        cold_rows = [(c, fam, q) for c, e in corpora.items() for fam, q in e["queries"].items() if fam in FAMILIES and any("cold" in q["tools"].get(t, {}) for t in TOOLS)]
         if cold_rows:
-            out += ["", "### Search latency (cold page cache)", "", "| corpus | family | " + " | ".join(tools) + " |", "|---|---|" + "---:|" * len(tools)]
+            out += ["", "### Search latency (cold page cache)", "", f"Prepare: `{PURGE_CMD}` before every run.", "", "| corpus | family | " + " | ".join(TOOLS) + " |", "|---|---|" + "---:|" * len(TOOLS)]
             for c, fam, q in cold_rows:
-                out.append(f"| {c} | {fam} | " + " | ".join(fmt_ms(q["tools"][t]["cold"]["mean"]) if q["tools"].get(t, {}).get("cold") else "–" for t in tools) + " |")
-        out += ["", "### Verbs", "", "| corpus | verb | name | greeg |", "|---|---|---|---:|"]
-        for c, e in speed_res["corpora"].items():
+                out.append(f"| {c}{marks[c]} | {fam} | " + " | ".join(cell(q["tools"].get(t, {}).get("cold")) for t in TOOLS) + " |")
+        out += ["", "### Verbs", "", "| corpus | verb | name | greeg (median) |", "|---|---|---|---:|"]
+        for c, e in corpora.items():
             for v in VERBS:
                 q = e["queries"].get(v)
                 if q and q["tools"]["greeg"]["warm"]:
-                    out.append(f"| {c} | {v} | `{q['pattern']}` | {fmt_ms(q['tools']['greeg']['warm']['mean'])} |")
-        out += ["", "### Geometric-mean speed relative to rg (> 1 = faster)", "", "| family | " + " | ".join(tools) + " |", "|---|" + "---:|" * len(tools)]
-        for fam, d in speed_res.get("geomean_vs_rg", {}).items():
-            out.append(f"| {fam} | " + " | ".join(f"{d[t]:.2f}×" if t in d else "–" for t in tools) + " |")
-        out += ["", "### Peak RSS", "", "| corpus | rg (ident) | greeg (ident) |", "|---|---:|---:|"]
-        for c, e in speed_res["corpora"].items():
+                    out.append(f"| {c}{marks[c]} | {v} | `{q['pattern']}` | {cell(q['tools']['greeg']['warm'])} |")
+        gm = speed_res.get("geomean") or {"rg": speed_res.get("geomean_vs_rg", {})}
+        current = [c for c in corpora if c not in old and c not in stale]
+        out += ["", "### Geometric-mean speed relative to `rg -j4` (headline; > 1 = faster)", "", f"Medians, over the {len(current)} current-protocol corp{'us' if len(current) == 1 else 'ora'} ({', '.join(current) or 'none'}). `rg -j4` is the best-configured rg on macOS, where rg's default thread count spends most of each run in the kernel; on Linux the two rg columns are close.", ""]
+        out += ["| family | " + " | ".join(TOOLS) + " | greeg-nofresh |", "|---|" + "---:|" * (len(TOOLS) + 1)]
+        for fam, d in gm.get("rg-j4", {}).items():
+            out.append(f"| {fam} | " + " | ".join(f"{d[t]:.2f}×" if t in d else "–" for t in TOOLS + ["greeg-nofresh"]) + " |")
+        if not gm.get("rg-j4"):
+            out.append("| – | " + " | ".join("–" for _ in TOOLS + ["greeg-nofresh"]) + " |")
+        out += ["", "### Geometric-mean speed relative to default `rg` (secondary)", "", "| family | " + " | ".join(TOOLS) + " |", "|---|" + "---:|" * len(TOOLS)]
+        for fam, d in gm.get("rg", {}).items():
+            out.append(f"| {fam} | " + " | ".join(f"{d[t]:.2f}×" if t in d else "–" for t in TOOLS) + " |")
+        out += ["", "### Peak RSS (ident query)", "", "| corpus | rg | greeg-scan | greeg-full | greeg |", "|---|---:|---:|---:|---:|"]
+        for c, e in corpora.items():
             q = e["queries"].get("ident")
             if q:
-                out.append(f"| {c} | {q['tools'].get('rg', {}).get('rss_mb') and round(q['tools']['rg']['rss_mb'])} MB | {q['tools'].get('greeg', {}).get('rss_mb') and round(q['tools']['greeg']['rss_mb'])} MB |")
+                out.append(f"| {c}{marks[c]} | " + " | ".join(mb(q["tools"].get(t, {}).get("rss_mb")) for t in ("rg", "greeg-scan", "greeg-full", "greeg")) + " |")
+        if stale:
+            out += ["", "Stale rows:", ""] + [f"* {c}: {why}" for c, why in stale.items()]
         out.append("")
     if oracle_res:
-        out += ["## Quality (SCIP oracle)", "", "Ground truth: SCIP occurrences from `rust-analyzer scip`, `scip-python`, `scip-typescript`. Names are sampled from symbols defined in the repository, stratified by ambiguity (number of definitions with that name) and kind. Acc@k: a true definition is among the first k locations the tool prints for the bare name (`greeg def NAME`, `rg -nw NAME`, `grep -rnw NAME`). Reference recall: SCIP reference occurrences found by `greeg refs NAME --budget 0`. Classification: `greeg -w NAME --json` hit kinds vs SCIP roles on the same line, from stored spans and with `--precise`. Context@500: the first 500 lines of each tool's output for the bare name; useful = lines that carry a SCIP occurrence of the name; tokens are o200k_base counts.", ""]
-        out += ["| corpus | n | greeg Acc@1/5/10 | rg Acc@1/5/10 | grep Acc@1/5/10 | ref recall | def precision (spans / precise) | noncode precision |", "|---|---:|---|---|---|---:|---|---:|"]
+        toks = {r.get("tokenizer", "unknown (results predate the tokenizer record)") for r in oracle_res.values()}
+        out += ["## Quality (SCIP oracle)", "", f"Ground truth: SCIP occurrences from `rust-analyzer scip`, `scip-python`, `scip-typescript` (indexer name and version recorded per corpus below). Names are sampled from symbols defined in the repository, stratified by ambiguity (number of definitions with that name); within a bucket names are drawn with probability ∝ log(1 + reference count) and need at least {MIN_REFS} references, so the sample leans toward names an agent asks about. A separate bucket of zero-reference names is reported on its own. Acc@k: a true definition is among the first k locations the tool prints. Columns: `greeg def NAME`; `rg -nw NAME` (thread order, first lines); `rg-def` = `rg -n --sort path` with the language's definition regex for NAME (what an agent types when it wants the definition); `grep -rnw NAME`. Brackets are 95 % bootstrap intervals of Acc@1 (n ≈ 75 → ±10 pp). Reference recall: SCIP reference occurrences found by `greeg refs NAME --budget 0`. Classification: `greeg -w NAME --json` hit kinds vs SCIP roles on the same line, from stored spans and with `--precise`. Context@500: the first 500 lines of each tool's output for the bare name; useful = distinct lines that carry a SCIP occurrence of the name, over the lines that name a location (summary lines — header, facets, file headers, `+N more`, footer — are neutral and leave the denominator); tokens are {' / '.join(sorted(toks))} counts.", ""]
+        out += ["| corpus | indexer | n | greeg Acc@1/5/10 | rg -nw Acc@1/5/10 | rg-def Acc@1/5/10 | grep Acc@1/5/10 | ref recall | def precision (spans / precise) | noncode precision |", "|---|---|---:|---|---|---|---|---:|---|---:|"]
         for c, r in oracle_res.items():
             s = r["summary"]
-            out.append(f"| {c} | {r['sampled']} | {'/'.join(pct(x) for x in s['greeg_acc'])} | {'/'.join(pct(x) for x in s['rg_acc'])} | {'/'.join(pct(x) for x in s['grep_acc'])} | {pct(s['ref_recall'])} | {pct(s['cls_spans']['def_precision'])} / {pct(s['cls_precise']['def_precision'])} | {pct(s['cls_spans']['noncode_precision'])} |")
-        out += ["", "| corpus | ambiguity 1 | ambiguity 2–5 | ambiguity 6+ |", "|---|---|---|---|"]
+            ti = r.get("scip_tool") or {}
+            indexer = f"{ti.get('tool') or r.get('scip', '?')} {ti.get('version') or ''}".strip() if ti else (r.get("scip_tool_cli") or r.get("scip", "?"))
+            out.append(f"| {c} | {indexer} | {r['sampled']} | {accs(s, 'greeg')} | {accs(s, 'rg')} | {accs(s, 'rgdef')} | {accs(s, 'grep')} | {pct(s['ref_recall'])} | {pct(s['cls_spans']['def_precision'])} / {pct(s['cls_precise']['def_precision'])} | {pct(s['cls_spans']['noncode_precision'])} |")
+        out += ["", "| corpus | ambiguity 1 | ambiguity 2–5 | ambiguity 6+ | zero-reference names: greeg / rg -nw / rg-def Acc@1/5/10 |", "|---|---|---|---|---|"]
         for c, r in oracle_res.items():
             s = r["summary"]
-            out.append(f"| {c} | " + " | ".join(f"{'/'.join(pct(x) for x in s[f'greeg_acc_bucket_{b}'])} (n={s[f'n_bucket_{b}']})" if f"greeg_acc_bucket_{b}" in s else "–" for b in ("1", "2-5", "6+")) + " |")
-        out += ["", "| corpus | tool | useful lines | coverage | tokens/query | useful locations per 1k tokens | tokens to first def (median) | def reached |", "|---|---|---:|---:|---:|---:|---:|---:|"]
+            z = r.get("summary_zero_ref")
+            out.append(f"| {c} | " + " | ".join(f"{'/'.join(pct(x) for x in s[f'greeg_acc_bucket_{b}'])} (n={s[f'n_bucket_{b}']})" if f"greeg_acc_bucket_{b}" in s else "–" for b in ("1", "2-5", "6+")) + f" | {(accs(z, 'greeg') + ' / ' + accs(z, 'rg') + ' / ' + accs(z, 'rgdef') + f' (n={z['n']})') if z else '–'} |")
+        out += ["", "| corpus | tool | useful lines | neutral lines | coverage | tokens/query mean | tokens/query median [95 % CI] | distinct true locations per 1k tokens | tokens to first def (median) | def reached | tokens until all defs covered (median) | all defs reached |", "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|"]
         for c, r in oracle_res.items():
             s = r["summary"]
-            for t in ("greeg", "greeg6k", "rg", "grep"):
-                out.append(f"| {c} | {t} | {pct(s[f'{t}_ctx_useful_ratio'])} | {pct(s[f'{t}_ctx_coverage'])} | {round(s[f'{t}_tokens'] or 0):,} | {s[f'{t}_ctx_useful_per_ktok']:.1f} | {round(s[f'{t}_tokens_to_def']) if s[f'{t}_tokens_to_def'] else '–'} | {pct(s[f'{t}_def_reached'])} |")
+            for t in CTX_TOOLS:
+                if f"{t}_tokens" not in s:
+                    continue
+                out.append(f"| {c} | {t} | {pct(s[f'{t}_ctx_useful_ratio'])} | {pct(s.get(f'{t}_ctx_neutral_ratio'))} | {pct(s[f'{t}_ctx_coverage'])} | {round(s[f'{t}_tokens'] or 0):,} | {round(s[f'{t}_tokens_median']) if s.get(f'{t}_tokens_median') else '–'}{ci_n(s.get(f'{t}_tokens_median_ci'))} | {s[f'{t}_ctx_useful_per_ktok']:.1f} | {round(s[f'{t}_tokens_to_def']) if s[f'{t}_tokens_to_def'] else '–'} | {pct(s[f'{t}_def_reached'])} | {round(s[f'{t}_tokens_to_all_defs']) if s.get(f'{t}_tokens_to_all_defs') else '–'} | {pct(s.get(f'{t}_all_defs_reached'))} |")
+        older = [c for c, r in oracle_res.items() if "tokenizer" not in r]
+        if older:
+            out += ["", f"⚠ {', '.join(older)}: measured before protocol 2 (uniform sampling over definitions including zero-reference names, useful-line ratio with layout lines in the denominator and duplicate locations counted, no rg-def column, no intervals); rerun pending (`bench/bench.py oracle {' '.join(older)}`)."]
         out.append("")
     path = args.out or os.path.join(ROOT, "docs", "BENCH.md")
     with open(path, "w") as fh:
@@ -841,17 +1155,21 @@ def main():
     s.add_argument("--greeg", default=os.path.join(ROOT, "target", "release", "greeg"))
     s.add_argument("--corpora", help="comma-separated; default: the small tier")
     s.add_argument("--runs", type=int, default=10)
-    s.add_argument("--cold", action="store_true", help="also measure with a purged page cache (needs passwordless sudo)")
+    s.add_argument("--cold", action="store_true", help="also measure with a purged page cache (needs passwordless sudo; skipped with a printed reason otherwise)")
+    s.add_argument("--no-splice", action="store_true", help="with --corpora: drop rows of other corpora from the results instead of keeping (and marking) them")
     o = sub.add_parser("oracle")
     o.add_argument("corpora", nargs="+")
     o.add_argument("--greeg", default=os.path.join(ROOT, "target", "release", "greeg"))
     o.add_argument("--scip", help="directory holding <corpus>/index.scip (default: sibling `scip` of the corpus cache)")
     o.add_argument("--per-bucket", type=int, default=25)
+    o.add_argument("--zero-ref", type=int, default=10, help="size of the separately reported zero-reference bucket")
     o.add_argument("--seed", type=int, default=42)
     g = sub.add_parser("gate")
     g.add_argument("what", choices=["speed", "kernels"])
     g.add_argument("--tolerance", type=float, default=10.0, help="percent slower than the baseline that fails")
     g.add_argument("--save", action="store_true", help="overwrite the baseline for this host")
+    g.add_argument("--require-baseline", action="store_true", help="fail when no baseline exists for this host (reference machine)")
+    g.add_argument("--record-only", action="store_true", help="print the current numbers and exit 0 without comparing or creating a baseline (hosted runners)")
     r = sub.add_parser("report")
     r.add_argument("--out")
     a = p.parse_args()

@@ -296,16 +296,10 @@ fn extract_raw(lang: Lang, tsx: bool, src: &[u8], depth: u8) -> Extract {
                 }
                 if lang == Lang::Kotlin {
                     if kind == DefKind::Class {
-                        let head = &src[node.start_byte()..name.map(|n| n.start_byte()).unwrap_or(node.end_byte())];
-                        if memchr::memmem::find(head, b"interface").is_some() {
-                            kind = DefKind::Interface;
-                        } else if memchr::memmem::find(head, b"enum ").is_some() {
-                            kind = DefKind::Enum;
-                        }
+                        kind = kotlin_class_kind(node, src);
                     }
                     if node.kind() == "companion_object" && name.is_none() {
-                        let mut c = node.walk();
-                        name = node.children(&mut c).find(|ch| ch.kind() == "type_identifier");
+                        name = (0..node.child_count()).filter_map(|i| node.child(i)).find(|ch| ch.kind() == "type_identifier");
                     }
                 }
                 let (ns, ne) = match name {
@@ -315,11 +309,15 @@ fn extract_raw(lang: Lang, tsx: bool, src: &[u8], depth: u8) -> Extract {
                 if ne <= ns {
                     continue;
                 }
+                let name_bytes = &src[ns as usize..ne as usize];
+                if lang == Lang::Python && kind == DefKind::Variable && is_const_name(name_bytes) {
+                    kind = DefKind::Constant;
+                }
                 let mut flags = 0u8;
-                if exported(lang, node, name) {
+                if exported(lang, node, name, src, name_bytes) {
                     flags |= SYM_EXPORTED;
                 }
-                if is_test(lang, node, src, &src[ns as usize..ne as usize]) {
+                if is_test(lang, node, src, name_bytes) {
                     flags |= SYM_TEST;
                 }
                 // line = the name's line (annotations, decorators and modifiers may precede the
@@ -407,6 +405,10 @@ fn narrow_name(src: &[u8], s: u32, e: u32) -> (u32, u32) {
     let t = &src[s as usize..e as usize];
     if t.first() == Some(&b'`') {
         return (s, e);
+    }
+    // quoted module names: TS `declare module 'x'` → `x`
+    if t.len() >= 2 && (t[0] == b'\'' || t[0] == b'"') && t[t.len() - 1] == t[0] {
+        return (s + 1, e - 1);
     }
     let cut = t.iter().position(|&b| b == b'<' || b == b'(' || b == b'[').unwrap_or(t.len());
     let head = &t[..cut];
@@ -503,19 +505,72 @@ fn super_names(t: &[u8], base: u32, out: &mut Vec<(u32, u32)>) {
     flush(elem_start, t.len(), out);
 }
 
-fn exported(lang: Lang, node: Node, name: Option<Node>) -> bool {
+/// Python module-level constant: `MAX`, `_CACHE_SIZE` (`[A-Z_][A-Z0-9_]{2,}`,
+/// the same rule as the regex extractor).
+fn is_const_name(name: &[u8]) -> bool {
+    name.len() >= 3 && (name[0].is_ascii_uppercase() || name[0] == b'_') && name.iter().all(|&b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'_')
+}
+
+/// Python visibility from the name: `_private` is not exported, dunder names
+/// (`__init__`, `__all__`) are.
+pub fn python_name_exported(name: &[u8]) -> bool {
+    !name.starts_with(b"_") || (name.starts_with(b"__") && name.ends_with(b"__") && name.len() > 4)
+}
+
+/// Kotlin `class_declaration` kind from its keyword children: `interface`
+/// (also `fun interface`, `sealed interface`) and `enum class`. Annotation
+/// text is never consulted.
+fn kotlin_class_kind(node: Node, src: &[u8]) -> DefKind {
+    for i in 0..node.child_count() {
+        let Some(ch) = node.child(i) else { break };
+        if ch.kind() == "type_identifier" {
+            break;
+        }
+        if !ch.is_named() {
+            match ch.kind() {
+                "interface" => return DefKind::Interface,
+                "enum" => return DefKind::Enum,
+                _ => {}
+            }
+        } else if ch.kind() == "modifiers" {
+            // older grammars spell `enum` as a class_modifier
+            for j in 0..ch.child_count() {
+                let Some(m) = ch.child(j) else { break };
+                if m.kind() == "class_modifier" && &src[m.byte_range()] == b"enum" {
+                    return DefKind::Enum;
+                }
+            }
+        }
+    }
+    DefKind::Class
+}
+
+/// Kotlin: does the declaration's `modifiers` node carry `private` or `internal`?
+fn kotlin_hidden(node: Node, src: &[u8]) -> bool {
+    let Some(mods) = node.child(0).filter(|c| c.kind() == "modifiers") else { return false };
+    for i in 0..mods.child_count() {
+        let Some(m) = mods.child(i) else { break };
+        if m.kind() == "visibility_modifier" && matches!(&src[m.byte_range()], b"private" | b"internal") {
+            return true;
+        }
+    }
+    false
+}
+
+fn exported(lang: Lang, node: Node, name: Option<Node>, src: &[u8], name_bytes: &[u8]) -> bool {
     match lang {
         Lang::Rust => {
-            let mut c = node.walk();
-            node.children(&mut c).take(2).any(|ch| ch.kind() == "visibility_modifier")
+            // plain `pub` only: `pub(crate)`, `pub(super)`, `pub(in path)` have a named child
+            (0..2).filter_map(|i| node.child(i)).any(|ch| ch.kind() == "visibility_modifier" && ch.named_child_count() == 0)
         }
-        Lang::Python => name.map(|n| n.start_byte()).map(|_| true).unwrap_or(false),
+        Lang::Python => python_name_exported(name_bytes),
         Lang::JavaScript | Lang::TypeScript => {
             if name.map(|n| n.kind() == "private_property_identifier").unwrap_or(false) {
                 return false;
             }
+            // declarator → declaration → (ambient_declaration) → export_statement
             let mut p = Some(node);
-            for _ in 0..3 {
+            for _ in 0..4 {
                 match p {
                     Some(n) if n.kind() == "export_statement" => return true,
                     Some(n) => p = n.parent(),
@@ -524,7 +579,28 @@ fn exported(lang: Lang, node: Node, name: Option<Node>) -> bool {
             }
             matches!(node.kind(), "method_definition" | "method_signature" | "abstract_method_signature" | "public_field_definition" | "field_definition" | "property_signature")
         }
-        Lang::Kotlin => true,
+        Lang::Kotlin => !kotlin_hidden(node, src),
+        _ => false,
+    }
+}
+
+/// Rust: is `attr` (an `attribute_item`) a test attribute for `item`?
+/// `#[test]`, `#[<path>::test]`, `#[rstest…]`, `#[tokio::test…]`,
+/// `#[async_std::test]`, `#[wasm_bindgen_test]`, and `#[cfg(test)]` on a
+/// `mod`. `#[cfg(not(test))]` and `#[cfg_attr(test, …)]` are not.
+fn rust_test_attribute(attr: Node, item: Node, src: &[u8]) -> bool {
+    let Some(a) = attr.named_child(0).filter(|a| a.kind() == "attribute") else { return false };
+    let Some(path) = a.named_child(0) else { return false };
+    let path = &src[path.byte_range()];
+    let last = path.rsplit(|&b| b == b':').next().unwrap_or(path);
+    match last {
+        b"test" => true,
+        b"wasm_bindgen_test" => true,
+        _ if last.starts_with(b"rstest") => true,
+        b"cfg" if item.kind() == "mod_item" => {
+            let args = a.child_by_field_name("arguments").map(|n| &src[n.byte_range()]).unwrap_or(b"");
+            args.trim_ascii() == b"(test)"
+        }
         _ => false,
     }
 }
@@ -536,13 +612,13 @@ fn is_test(lang: Lang, node: Node, src: &[u8], name: &[u8]) -> bool {
             if name.starts_with(b"test") {
                 return true;
             }
-            // `#[test]`, `#[tokio::test]`, `#[rstest]` … the attribute is the previous sibling
+            // the attributes are the previous siblings
             let mut prev = node.prev_named_sibling();
             while let Some(p) = prev {
                 if p.kind() != "attribute_item" {
                     return false;
                 }
-                if memchr::memmem::find(&src[p.byte_range()], b"test").is_some() {
+                if rust_test_attribute(p, node, src) {
                     return true;
                 }
                 prev = p.prev_named_sibling();
@@ -589,13 +665,19 @@ fn finish(ex: &mut Extract, lang: Lang, src: &[u8]) {
         if let Some(&top) = stack.last() {
             ex.symbols[i].parent = Some(top);
             let pk = ex.symbols[top as usize].kind;
+            let pflags = ex.symbols[top as usize].flags;
             let k = ex.symbols[i].kind;
-            if pk.is_container() {
+            // functions inside a type are methods; inside a `mod`/`namespace` they stay functions
+            if pk.is_container() && pk != DefKind::Module {
                 if k == DefKind::Function {
                     ex.symbols[i].kind = DefKind::Method;
                 } else if k == DefKind::Variable && lang == Lang::Kotlin {
                     ex.symbols[i].kind = DefKind::Field;
                 }
+            }
+            // Rust: everything inside a `#[cfg(test)] mod` is test code
+            if lang == Lang::Rust && pk == DefKind::Module && pflags & SYM_TEST != 0 {
+                ex.symbols[i].flags |= SYM_TEST;
             }
         }
         let _ = e;
@@ -629,7 +711,7 @@ fn finish(ex: &mut Extract, lang: Lang, src: &[u8]) {
         let mut has = false;
         if before > 0 {
             let n = &ex.noncode[before - 1];
-            if (n.kind == SpanKind::Docstring || n.kind == SpanKind::Comment) && src[n.end as usize..s.start as usize].iter().all(|b| b.is_ascii_whitespace() || *b == b'#' || *b == b'@' || *b == b'[' || *b == b']' || is_word(*b) || *b == b'(' || *b == b')' || *b == b'.' || *b == b'=' || *b == b'"' || *b == b',') && s.start - n.end < 200 {
+            if s.start - n.end < 200 && (n.kind == SpanKind::Docstring || n.kind == SpanKind::Comment) && src[n.end as usize..s.start as usize].iter().all(|b| b.is_ascii_whitespace() || *b == b'#' || *b == b'@' || *b == b'[' || *b == b']' || is_word(*b) || *b == b'(' || *b == b')' || *b == b'.' || *b == b'=' || *b == b'"' || *b == b',') {
                 has = true;
             }
         }
@@ -646,11 +728,10 @@ fn finish(ex: &mut Extract, lang: Lang, src: &[u8]) {
             s.flags |= SYM_HAS_DOC;
         }
         if lang == Lang::Python {
-            let nm = &src[s.name_start as usize..s.name_end as usize];
-            if nm.starts_with(b"_") && !nm.starts_with(b"__") {
-                s.flags &= !SYM_EXPORTED;
-            } else {
+            if python_name_exported(&src[s.name_start as usize..s.name_end as usize]) {
                 s.flags |= SYM_EXPORTED;
+            } else {
+                s.flags &= !SYM_EXPORTED;
             }
         }
     }
@@ -666,6 +747,13 @@ pub fn regex_extract(lang: Lang, src: &[u8]) -> Extract {
     let lexed = lexer::lex(lang, src);
     let outline = defs::outline(lang, src, &lexed);
     for d in &outline.defs {
+        // visibility from the modifiers before the name (Python is fixed up in `finish`)
+        let head = crate::trim_start(&src[d.start as usize..d.name_start as usize]);
+        let exported = match lang {
+            Lang::Rust => head.starts_with(b"pub ") || head.starts_with(b"pub\t"),
+            Lang::Kotlin => !head.split(|b| b.is_ascii_whitespace()).any(|w| w == b"private" || w == b"internal"),
+            _ => true,
+        };
         ex.symbols.push(Symbol {
             name_start: d.name_start,
             name_end: d.name_end,
@@ -674,7 +762,7 @@ pub fn regex_extract(lang: Lang, src: &[u8]) -> Extract {
             line: d.line,
             kind: d.kind,
             parent: None,
-            flags: SYM_EXPORTED,
+            flags: if exported { SYM_EXPORTED } else { 0 },
             supers: Vec::new(),
         });
     }
@@ -995,7 +1083,7 @@ mod tests {
         assert!(ex.tree_sitter);
         let n = names(&ex, src);
         assert_eq!(n, vec![
-            ("MAX".into(), "var", None),
+            ("MAX".into(), "const", None),
             ("A".into(), "class", None),
             ("x".into(), "field", Some("A".into())),
             ("m".into(), "method", Some("A".into())),
@@ -1042,7 +1130,7 @@ mod tests {
             ("r", "var", None), ("K", "class", None), ("p", "field", Some("K")), ("s", "method", Some("K")), ("m", "method", Some("K")),
             ("I", "interface", None), ("f", "field", Some("I")), ("g", "method", Some("I")), ("Al", "type", None), ("En", "enum", None),
             ("A", "variant", Some("En")), ("B", "variant", Some("En")), ("arrow", "fn", None), ("v", "var", None), ("f", "fn", None),
-            ("NS", "mod", None), ("g", "method", Some("NS")),
+            ("NS", "mod", None), ("g", "fn", Some("NS")),
         ];
         assert_eq!(n.iter().map(|(a, b, c)| (a.as_str(), *b, c.as_deref())).collect::<Vec<_>>(), want);
         let sup = |i: usize| ex.symbols[i].supers.iter().map(|&(s, e)| std::str::from_utf8(&src[s as usize..e as usize]).unwrap()).collect::<Vec<_>>();
@@ -1105,6 +1193,97 @@ mod tests {
         assert!(ex.symbols[0].flags & SYM_EXPORTED != 0);
     }
 
+    fn flags_of<'a>(ex: &Extract, src: &'a [u8]) -> Vec<(&'a str, u8)> {
+        ex.symbols.iter().map(|s| (ex.name(s, src), s.flags & (SYM_EXPORTED | SYM_TEST))).collect()
+    }
+
+    #[test]
+    fn rust_visibility_is_pub_only() {
+        let src = b"pub struct A;\npub(crate) struct B;\npub(super) struct C;\npub(in crate::x) struct D;\nstruct E;\npub fn f() {}\npub(crate) fn g() {}\n";
+        let ex = extract(Lang::Rust, false, src);
+        assert!(ex.tree_sitter);
+        let v: Vec<(&str, bool)> = flags_of(&ex, src).iter().map(|(n, f)| (*n, f & SYM_EXPORTED != 0)).collect();
+        assert_eq!(v, vec![("A", true), ("B", false), ("C", false), ("D", false), ("E", false), ("f", true), ("g", false)]);
+        // regex fallback agrees
+        let ex = regex_extract(Lang::Rust, src);
+        let v: Vec<(&str, bool)> = flags_of(&ex, src).iter().map(|(n, f)| (*n, f & SYM_EXPORTED != 0)).collect();
+        assert_eq!(v, vec![("A", true), ("B", false), ("C", false), ("D", false), ("E", false), ("f", true), ("g", false)]);
+    }
+
+    #[test]
+    fn rust_test_attributes() {
+        let src = b"#[cfg(not(test))]\nfn a() {}\n#[cfg_attr(test, derive(Debug))]\nstruct B;\n#[test]\nfn c() {}\n#[tokio::test(flavor = \"multi_thread\")]\nasync fn d() {}\n#[rstest]\n#[case(1)]\nfn e() {}\n#[wasm_bindgen_test]\nfn w() {}\n#[async_std::test]\nfn s() {}\n#[cfg(test)]\nmod tests {\n    fn helper() {}\n    struct Fx;\n}\n#[cfg(test)]\nfn not_a_mod() {}\nmod plain {\n    fn p() {}\n}\n";
+        let ex = extract(Lang::Rust, false, src);
+        assert!(ex.tree_sitter, "{ex:?}");
+        let v: Vec<(&str, bool)> = flags_of(&ex, src).iter().map(|(n, f)| (*n, f & SYM_TEST != 0)).collect();
+        assert_eq!(
+            v,
+            vec![("a", false), ("B", false), ("c", true), ("d", true), ("e", true), ("w", true), ("s", true), ("tests", true), ("helper", true), ("Fx", true), ("not_a_mod", false), ("plain", false), ("p", false)]
+        );
+    }
+
+    #[test]
+    fn mod_functions_stay_functions() {
+        let src = b"mod x {\n    fn f() {}\n    struct S;\n    impl S {\n        fn m(&self) {}\n    }\n}\n";
+        let ex = extract(Lang::Rust, false, src);
+        let n = names(&ex, src);
+        assert_eq!(n.iter().map(|(a, b, c)| (a.as_str(), *b, c.as_deref())).collect::<Vec<_>>(), vec![("x", "mod", None), ("f", "fn", Some("x")), ("S", "struct", Some("x")), ("S", "impl", Some("x")), ("m", "method", Some("S"))]);
+        let src = b"namespace N {\n  function f() {}\n  export class C {\n    m() {}\n  }\n}\n";
+        let ex = extract(Lang::TypeScript, false, src);
+        let n = names(&ex, src);
+        assert_eq!(n.iter().map(|(a, b, c)| (a.as_str(), *b, c.as_deref())).collect::<Vec<_>>(), vec![("N", "mod", None), ("f", "fn", Some("N")), ("C", "class", Some("N")), ("m", "method", Some("C"))]);
+    }
+
+    #[test]
+    fn python_visibility_and_constants() {
+        let src = b"MAX = 3\n_CACHE = {}\nlower = 1\n__all__ = []\ndef _private(): pass\ndef __init__(self): pass\ndef __mangled(): pass\nclass _Hidden: pass\n";
+        let ex = extract(Lang::Python, false, src);
+        assert!(ex.tree_sitter);
+        let n = names(&ex, src);
+        assert_eq!(n.iter().map(|(a, b, _)| (a.as_str(), *b)).collect::<Vec<_>>(), vec![("MAX", "const"), ("_CACHE", "const"), ("lower", "var"), ("__all__", "var"), ("_private", "fn"), ("__init__", "fn"), ("__mangled", "fn"), ("_Hidden", "class")]);
+        let v: Vec<(&str, bool)> = flags_of(&ex, src).iter().map(|(n, f)| (*n, f & SYM_EXPORTED != 0)).collect();
+        assert_eq!(v, vec![("MAX", true), ("_CACHE", false), ("lower", true), ("__all__", true), ("_private", false), ("__init__", true), ("__mangled", false), ("_Hidden", false)]);
+        // regex path: same kind for MAX and same visibility
+        let ex = regex_extract(Lang::Python, src);
+        let n = names(&ex, src);
+        assert_eq!(n[0], ("MAX".to_string(), "const", None));
+        assert!(ex.symbols.iter().zip(flags_of(&ex, src)).all(|(s, (nm, f))| (f & SYM_EXPORTED != 0) == python_name_exported(nm.as_bytes()) || s.kind == DefKind::Constant));
+    }
+
+    #[test]
+    fn kotlin_visibility_kinds_and_locals() {
+        let src = b"private class P\ninternal fun h() {}\nprotected class Q\nclass R {\n    private val secret = 1\n    val open = 2\n    fun m() {\n        val local = 3\n        listOf(1).map { val inLambda = it }\n    }\n    init {\n        val inInit = 4\n    }\n    companion object Named {}\n}\nfun interface Fi {\n    fun run()\n}\nsealed interface SI\n@Serializable\nenum class E { A }\n@Suppress(\"interface\")\nclass NotAnInterface\nannotation class An\n";
+        let ex = extract(Lang::Kotlin, false, src);
+        assert!(ex.tree_sitter, "{ex:?}");
+        let n = names(&ex, src);
+        let got: Vec<(&str, &str)> = n.iter().map(|(a, b, _)| (a.as_str(), *b)).collect();
+        assert_eq!(
+            got,
+            vec![("P", "class"), ("h", "fn"), ("Q", "class"), ("R", "class"), ("secret", "field"), ("open", "field"), ("m", "method"), ("Named", "object"), ("Fi", "interface"), ("run", "method"), ("SI", "interface"), ("E", "enum"), ("A", "variant"), ("NotAnInterface", "class"), ("An", "class")]
+        );
+        let v: Vec<(&str, bool)> = flags_of(&ex, src).iter().take(6).map(|(n, f)| (*n, f & SYM_EXPORTED != 0)).collect();
+        assert_eq!(v, vec![("P", false), ("h", false), ("Q", true), ("R", true), ("secret", false), ("open", true)]);
+        let ex = regex_extract(Lang::Kotlin, src);
+        let v: Vec<(&str, bool)> = flags_of(&ex, src).iter().take(3).map(|(n, f)| (*n, f & SYM_EXPORTED != 0)).collect();
+        assert_eq!(v, vec![("P", false), ("h", false), ("Q", true)]);
+    }
+
+    #[test]
+    fn ts_ambient_declarations() {
+        let src = b"declare const X: number;\ndeclare var Y: string;\ndeclare function df(): void;\ndeclare class DC {}\ndeclare module 'my-lib' {\n  export function g(): void;\n}\nexport declare const EX: string;\nexport declare function ef(): void;\n";
+        let ex = extract(Lang::TypeScript, false, src);
+        assert!(ex.tree_sitter, "{ex:?}");
+        let n = names(&ex, src);
+        assert_eq!(
+            n.iter().map(|(a, b, c)| (a.as_str(), *b, c.as_deref())).collect::<Vec<_>>(),
+            vec![("X", "var", None), ("Y", "var", None), ("df", "fn", None), ("DC", "class", None), ("my-lib", "mod", None), ("g", "fn", Some("my-lib")), ("EX", "var", None), ("ef", "fn", None)]
+        );
+        let v: Vec<(&str, bool)> = flags_of(&ex, src).iter().map(|(n, f)| (*n, f & SYM_EXPORTED != 0)).collect();
+        assert_eq!(v[0], ("X", false));
+        assert_eq!(v[6], ("EX", true));
+        assert_eq!(v[7], ("ef", true));
+    }
+
     #[test]
     fn fallback_on_garbage() {
         let src = b"fn ok() {}\n)))))) {{{{ ((((( fn broken( {{{{{{{{{{{{{{{{{{{{{{{{{{ )))))))))))))))))))) ]]]]]]]]]]]]]]]]\n";
@@ -1126,14 +1305,38 @@ mod tests {
 
 #[cfg(test)]
 mod dump {
+    /// `GREEG_DUMP=path cargo test -p greeg-lang dump -- --ignored --nocapture` prints the tree.
     #[test]
     #[ignore]
-    fn kotlin_tree() {
-        let src = std::fs::read(std::env::var("GREEG_DUMP").unwrap()).unwrap();
-        let lang: tree_sitter::Language = tree_sitter_kotlin_sg::LANGUAGE.into();
+    fn tree() {
+        let path = std::env::var("GREEG_DUMP").unwrap();
+        let src = std::fs::read(&path).unwrap();
+        let lang = crate::Lang::from_path(std::path::Path::new(&path));
+        let lq = super::lang_q(lang, super::is_tsx(&path)).expect("grammar");
         let mut p = tree_sitter::Parser::new();
-        p.set_language(&lang).unwrap();
+        p.set_language(&lq.lang).unwrap();
         let t = p.parse(&src, None).unwrap();
-        println!("{}", t.root_node().to_sexp());
+        fn walk(n: tree_sitter::Node, depth: usize, out: &mut String) {
+            let field = n.parent().and_then(|p| {
+                let mut c = p.walk();
+                c.goto_first_child();
+                loop {
+                    if c.node().id() == n.id() {
+                        break c.field_name();
+                    }
+                    if !c.goto_next_sibling() {
+                        break None;
+                    }
+                }
+            });
+            out.push_str(&format!("{}{}{}{}\n", "  ".repeat(depth), field.map(|f| format!("{f}: ")).unwrap_or_default(), if n.is_named() { n.kind().to_string() } else { format!("{:?}", n.kind()) }, if n.child_count() == 0 { format!(" @{}", n.start_position().row + 1) } else { String::new() }));
+            let mut c = n.walk();
+            for ch in n.children(&mut c) {
+                walk(ch, depth + 1, out);
+            }
+        }
+        let mut out = String::new();
+        walk(t.root_node(), 0, &mut out);
+        println!("{out}");
     }
 }

@@ -1,6 +1,6 @@
 # greeg — Implementation Plan
 
-Status: v1.5, 2026-09-01. M0–M6 done (status blocks under each milestone). Companion to `DESIGN.md` (referenced as D§n).
+Status: v1.6, 2026-09-02. M0–M7 done (status blocks under each milestone). Companion to `DESIGN.md` (referenced as D§n).
 Performance is the primary requirement; every milestone has a measured gate
 and nothing merges that regresses a gate.
 
@@ -556,6 +556,67 @@ OpenSubtitles) are pinned and fetchable but were not run on the reference
 machine in this session; the agent protocol was not run (API cost, manual by
 design); the Kotlin oracle waits for `scip-java`; the Linux x86_64 gate run
 in the definition of done waits for the CI runner.
+
+### M7 · Review fixes, v0.2 (1 week)
+
+Source: `docs/REVIEW.md` (2026-09-02), executed in its §7 order.
+
+**Status: done 2026-09-02.** Shipped on branch `v0.2-review-fixes`:
+
+* *Parity blockers*: absolute and `..` path arguments are canonicalised
+  against the index root (outside → scan); glob-looking positionals become
+  `-g`; `-U` multiline hits carry their own line numbers; one JSON `match`
+  record per line with every submatch; `-l` prints bare paths and `-c`
+  `path:count` with the footer on stderr and no budget truncation; stdin is
+  searched when it is a readable pipe or file; exit 1 whenever the user's
+  pattern itself had no hits (ladder substitutions included); rg's cosmetic
+  flags are accepted; `-e` takes several patterns and leading-dash values;
+  `--json` emits rg-exact `lines.text`/`submatches`, `context`, `begin`/`end`
+  and `summary` records. `bench/parity.py` gained a 14-row matrix covering
+  every one of these plus `.gitignore` edits, BOM files and exit codes.
+* *Hook*: positional arguments and `--` are never dropped; combined short
+  flags with attached values expand correctly; unspaced pipes and operators
+  are tokenised; grep basic regexps are translated to ERE or left alone;
+  unsupported semantics stay untouched (13 unit tests).
+* *Index safety*: `.gitignore`/`.ignore`/`.rgignore` are tracked (format v3)
+  and an edit forces a rebuild with a scan-mode answer meanwhile; writers
+  take an exclusive `LOCK`, publish the manifest last and re-check it before
+  applying a delta; `Index::open` loads only the deltas the manifest names;
+  delta parsing is bounds-checked; `HUGE` files stay candidates; FSEvents
+  re-stats every known file below a reported directory; `fsevents_id` is
+  captured before the check; the `-i` planner keeps grams through `s`/`k`
+  (`-i assessSkip` on TypeScript: 836 → 58 ms). Six integration tests.
+* *Symbols and flags*: `exported` means `pub`/non-`_`/non-`private|internal`
+  per language; `#[cfg(not(test))]` is not a test; functions in modules stay
+  `fn`; Kotlin locals are no longer symbols; mock/stub/fake paths are
+  demoted; over-broad `build|out|gen|deps|external|spec` rules removed;
+  DESIGN §8 lists exactly what the code does. Agreement: Python 100 %,
+  Rust 99.2 %, TypeScript 99.1 %, Kotlin 98.6 %.
+* *Ranking and output contract v2* (`docs/OUTPUT.md`): calls above imports,
+  exact-name definitions first, recency dropped, per-file cap scales with
+  the file count; every layout groups by file with the path printed once,
+  last container only (`--chain` for the full chain), demoted definitions
+  collapsed to a count, imports collapsed to one line, two-line facets
+  header with definitions above it, flags-only hints, no size/age/ms.
+  o200k tokens on the standard queries: django `get_queryset` 1,378 → 899,
+  TypeScript `-w node` 1,410 → 531, `refs Semaphore` 2,769 → 1,966,
+  `callers spawn_blocking` 1,870 → 1,350; estimator within 0.98–1.06 of
+  o200k.
+* *Benchmark honesty* (protocol 2): every greeg run is preceded by
+  `sleep 0.15` so the freshness check is paid, a `fresh` column is
+  reported, medians replace means, the headline speedup is against
+  `rg -j4`, the oracle samples usage-weighted names with an rg
+  definition-regex baseline and bootstrap intervals, summary lines are
+  neutral in the context metric, CI runs the parity matrix and `edits.py`
+  on macOS and Linux and records (not gates) speed off the reference
+  machine.
+* Perf: shown files are read once; top-k selection; ladder rung 5 bounded
+  to 50 ms and never walks `.git/`; `refs`/`impact` run one freshness check;
+  `madvise` on the maps; phase-1 accumulators per thread.
+
+Not done: the agent A/B/C protocol run (manual, API cost), the 24 h soak,
+the Kotlin SCIP oracle, the eight large corpora, `--sort` kinds other than
+`path`, `--count-matches`.
 
 ## 4. Testing strategy
 

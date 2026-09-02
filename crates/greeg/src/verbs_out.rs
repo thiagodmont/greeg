@@ -1,6 +1,8 @@
 //! Text and JSON rendering for the symbol verbs (DESIGN.md §7.3–§7.4, OUTPUT.md).
+//! Every text layout groups entries by file: the path once as a header, then
+//! `  <line> <kind> <text>` rows beneath it.
 
-use crate::{Common, chain_str, fmt_n, hit_chain};
+use crate::{Common, chain_str, container_of, fmt_n};
 use anyhow::Result;
 use greeg_lang::sym::{SYM_EXPORTED, SYM_HAS_DOC, SYM_TEST};
 use greeg_lang::{DefKind, FileFlags};
@@ -11,6 +13,11 @@ use std::io::{BufWriter, Write};
 
 fn out() -> BufWriter<std::io::StdoutLock<'static>> {
     BufWriter::with_capacity(64 * 1024, std::io::stdout().lock())
+}
+
+/// ` · N ms` only with `--stats`.
+fn ms(c: &Common, elapsed: f64) -> String {
+    if c.stats { format!(" · {elapsed:.0} ms") } else { String::new() }
 }
 
 fn parse_def_kind(s: &str) -> Result<DefKind> {
@@ -52,6 +59,15 @@ fn sym_flags(flags: u8, file_flags: FileFlags) -> Vec<&'static str> {
     v
 }
 
+fn file_flag_suffix(rel: &str, flags: FileFlags) -> String {
+    let mut names = flags.names();
+    names.retain(|x| *x != "huge");
+    if names.is_empty() && greeg_query::is_mock_path(rel) {
+        names.push("mock");
+    }
+    if names.is_empty() { String::new() } else { format!("  [{}]", names.join(",")) }
+}
+
 fn def_json(e: &DefEntry) -> serde_json::Value {
     json!({
         "path": e.rel, "line": e.line, "kind": e.kind.name(), "name": e.name, "container": chain_str(&e.chain),
@@ -60,31 +76,59 @@ fn def_json(e: &DefEntry) -> serde_json::Value {
     })
 }
 
-fn write_def_entry(w: &mut impl Write, e: &DefEntry, show_name: bool) -> Result<()> {
-    let ch = chain_str(&e.chain);
-    let sig = if e.signature.is_empty() { e.name.clone() } else { e.signature.clone() };
-    let mut ann: Vec<String> = Vec::new();
-    let fl = sym_flags(e.flags, e.file_flags);
-    if !fl.is_empty() {
-        ann.push(format!("[{}]", fl.join(",")));
+fn digits(n: u32) -> usize {
+    n.max(1).ilog10() as usize + 1
+}
+
+/// Definition entries grouped by file in order of first appearance:
+/// `  <line> <kind>  [name  ]container › signature   [flags] : supers [reach]`.
+fn write_def_groups(w: &mut impl Write, entries: &[&DefEntry], show_name: bool, show_reach: bool, full_chain: bool) -> Result<()> {
+    let mut order: Vec<&str> = Vec::new();
+    for e in entries {
+        if !order.contains(&e.rel.as_str()) {
+            order.push(&e.rel);
+        }
     }
-    if !e.supers.is_empty() {
-        ann.push(format!(": {}", e.supers.join(", ")));
-    }
-    if e.reach >= 0.8 {
-        ann.push(format!("reach {:.1}", e.reach));
-    }
-    let ann = if ann.is_empty() { String::new() } else { format!("   {}", ann.join(" ")) };
-    let name = if show_name { format!("{}  ", e.name) } else { String::new() };
-    writeln!(w, "  {:<9} {}:{}  {}{}{}{}{}", e.kind.name(), e.rel, e.line, name, ch, if ch.is_empty() { "" } else { " › " }, sig, ann)?;
-    if let Some(d) = &e.doc {
-        writeln!(w, "            \"{d}\"")?;
+    for rel in order {
+        let group: Vec<&DefEntry> = entries.iter().filter(|e| e.rel == rel).copied().collect();
+        writeln!(w, "{}{}", rel, file_flag_suffix(rel, group[0].file_flags))?;
+        let lw = group.iter().map(|e| digits(e.line)).max().unwrap_or(1);
+        let kw = group.iter().map(|e| e.kind.name().len()).max().unwrap_or(0);
+        let file_test = group[0].file_flags.has(FileFlags::TEST);
+        for e in group {
+            let ch = container_of(&e.chain, false, full_chain);
+            let sig = if e.signature.is_empty() { e.name.clone() } else { e.signature.clone() };
+            let mut ann: Vec<String> = Vec::new();
+            let mut fl: Vec<&str> = Vec::new();
+            if e.flags & SYM_EXPORTED != 0 {
+                fl.push("exported");
+            }
+            if e.flags & SYM_TEST != 0 && !file_test {
+                fl.push("test");
+            }
+            if !fl.is_empty() {
+                ann.push(format!("[{}]", fl.join(",")));
+            }
+            if !e.supers.is_empty() {
+                ann.push(format!(": {}", e.supers.join(", ")));
+            }
+            if show_reach && e.reach >= 0.8 {
+                ann.push(format!("reach {:.1}", e.reach));
+            }
+            let ann = if ann.is_empty() { String::new() } else { format!("  {}", ann.join(" ")) };
+            let name = if show_name { format!("{}  ", e.name) } else { String::new() };
+            writeln!(w, "  {:>lw$} {:<kw$}  {}{}{}{}{}", e.line, e.kind.name(), name, ch, if ch.is_empty() { "" } else { " › " }, sig, ann)?;
+            if let Some(d) = &e.doc {
+                writeln!(w, "  {:lw$} {:kw$}  \"{d}\"", "", "")?;
+            }
+        }
     }
     Ok(())
 }
 
 pub fn run_def(c: &Common, o: &Options, name: &str, from: &[String], def_kind: Option<&str>) -> Result<()> {
     let want = def_kind.map(parse_def_kind).transpose()?;
+    let explicit_from = !from.is_empty();
     let mut from: Vec<String> = from.to_vec();
     if from.is_empty()
         && !c.no_session
@@ -111,23 +155,22 @@ pub fn run_def(c: &Common, o: &Options, name: &str, from: &[String], def_kind: O
         if !r.suggestions.is_empty() {
             writeln!(w, "closest names: {}", r.suggestions.join(", "))?;
         } else {
-            writeln!(w, "next: greeg {name} --kind def  |  greeg -i {name}")?;
+            writeln!(w, "next: greeg {name} --kind def | greeg -i {name}")?;
         }
         w.flush()?;
         greeg_query::indexed::flush_pending_build();
         std::process::exit(1);
     }
     let rung = if r.rung != greeg_query::Rung::Exact { format!(" · matched {}", r.rung.describe()) } else { String::new() };
-    writeln!(w, "def {}  {} of {} definitions{} · {} · {:.0} ms", r.name, r.entries.len(), r.total, rung, r.source, r.elapsed_ms)?;
+    writeln!(w, "def {}  {} of {} definitions{} · {}{}", r.name, r.entries.len(), r.total, rung, r.source, ms(c, r.elapsed_ms))?;
     let multi_name = r.entries.iter().any(|e| e.name != r.name);
-    for e in &r.entries {
-        write_def_entry(&mut w, e, multi_name)?;
-    }
+    let entries: Vec<&DefEntry> = r.entries.iter().collect();
+    write_def_groups(&mut w, &entries, multi_name, explicit_from, c.chain)?;
     if r.total > r.entries.len() {
         writeln!(w, "  +{} more (raise --budget)", r.total - r.entries.len())?;
     }
     if let Some(top) = r.entries.first() {
-        writeln!(w, "next: greeg refs {}  |  greeg callers {}  |  greeg outline {}", r.name, r.name, top.rel)?;
+        writeln!(w, "next: refs {} | callers {} | outline {}", r.name, r.name, top.rel)?;
     }
     w.flush()?;
     Ok(())
@@ -148,10 +191,13 @@ pub fn run_refs(c: &Common, o: &Options, name: &str) -> Result<()> {
     for (_, v) in by_kind.iter_mut() {
         v.sort_by(|a, b| s.files[b.0].hits[b.1].score.partial_cmp(&s.files[a.0].hits[a.1].score).unwrap_or(std::cmp::Ordering::Equal).then(s.files[a.0].rel.cmp(&s.files[b.0].rel)).then(s.files[a.0].hits[a.1].line.cmp(&s.files[b.0].hits[b.1].line)));
     }
-    let total_lines: usize = if o.budget == 0 { usize::MAX } else { (o.budget / 22).max(6) };
-    let nonempty: Vec<&(HitKind, Vec<(usize, usize)>)> = by_kind.iter().filter(|(_, v)| !v.is_empty()).collect();
+    let total_lines: usize = if o.budget == 0 { usize::MAX } else { (o.budget / 26).max(6) };
+    // imports collapse to one line in text mode; other kinds share the budget by √count
+    let collapse_imports = !c.json && o.kinds.is_empty();
+    let nonempty: Vec<&(HitKind, Vec<(usize, usize)>)> = by_kind.iter().filter(|(k, v)| !(v.is_empty() || collapse_imports && *k == HitKind::Import)).collect();
     let weight_sum: f64 = nonempty.iter().map(|(_, v)| (v.len() as f64).sqrt()).sum();
-    let resolved = if r.classified > 0 { format!(" · {}% resolved to a definition", r.resolved * 100 / r.classified) } else { String::new() };
+    let share_of = |n: usize| -> usize { if total_lines == usize::MAX { n } else { ((total_lines as f64 * (n as f64).sqrt() / weight_sum.max(1.0)).round() as usize).clamp(2, n) } };
+    let resolved = if r.classified > 0 { format!(" · {}% resolved", r.resolved * 100 / r.classified) } else { String::new() };
     if c.json {
         for e in &r.defs {
             let mut v = def_json(e);
@@ -160,8 +206,7 @@ pub fn run_refs(c: &Common, o: &Options, name: &str) -> Result<()> {
             writeln!(w)?;
         }
         for (k, v) in &nonempty {
-            let share = if total_lines == usize::MAX { v.len() } else { ((total_lines as f64 * (v.len() as f64).sqrt() / weight_sum.max(1.0)).round() as usize).clamp(2, v.len()) };
-            for &(fi, hi) in v.iter().take(share) {
+            for &(fi, hi) in v.iter().take(share_of(v.len())) {
                 let f = &s.files[fi];
                 let h = &f.hits[hi];
                 serde_json::to_writer(&mut w, &json!({"type":"ref","data":{"kind":k.name(),"path":f.rel,"line":h.line,"text":String::from_utf8_lossy(&h.text),"symbol":chain_str(&h.chain),"file_flags":f.flags.names(),"score":h.score}}))?;
@@ -180,38 +225,47 @@ pub fn run_refs(c: &Common, o: &Options, name: &str) -> Result<()> {
         std::process::exit(1);
     }
     let rung = if s.rung != greeg_query::Rung::Exact { format!(" · matched {}", s.rung.describe()) } else { String::new() };
-    writeln!(w, "refs {}  {} hits · {} files{}{} · {} · {:.0} ms", name, fmt_n(s.stats.total_hits), fmt_n(s.stats.files_matched), resolved, rung, s.stats.source, s.stats.elapsed_ms)?;
+    writeln!(w, "refs {}  {} hits · {} files{}{} · {}{}", name, fmt_n(s.stats.total_hits), fmt_n(s.stats.files_matched), resolved, rung, s.stats.source, ms(c, s.stats.elapsed_ms))?;
     if !r.defs.is_empty() {
         let d: Vec<String> = r.defs.iter().take(3).map(|e| format!("{}:{} ({})", e.rel, e.line, e.kind.name())).collect();
         writeln!(w, "defined at  {}", d.join("  "))?;
     }
+    if collapse_imports && !by_kind[HitKind::Import.idx()].1.is_empty() {
+        let mut files: Vec<usize> = Vec::new();
+        for &(fi, _) in &by_kind[HitKind::Import.idx()].1 {
+            if !files.contains(&fi) {
+                files.push(fi);
+            }
+        }
+        let names = crate::short_names(files.iter().take(6).map(|&fi| s.files[fi].rel.as_str()));
+        let more = files.len().saturating_sub(6);
+        writeln!(w, "imported by {} file{}: {}{}", files.len(), if files.len() == 1 { "" } else { "s" }, names.join(", "), if more > 0 { format!(" (+{more})") } else { String::new() })?;
+    }
     let mut shown = 0usize;
+    let fmt = crate::Fmt { chain: c.chain, stats: c.stats, line_numbers: false, stdin: false };
     for (k, v) in &nonempty {
-        let share = if total_lines == usize::MAX { v.len() } else { ((total_lines as f64 * (v.len() as f64).sqrt() / weight_sum.max(1.0)).round() as usize).clamp(2, v.len()) };
+        let share = share_of(v.len());
         writeln!(w, "\n{} ({})", k.name(), fmt_n(v.len()))?;
         let mut seen_lines: Vec<(usize, u32)> = Vec::new();
-        let mut taken = 0usize;
+        let mut taken: Vec<(usize, usize)> = Vec::new();
         for &(fi, hi) in v.iter() {
-            if taken >= share {
+            if taken.len() >= share {
                 break;
             }
-            let f = &s.files[fi];
-            let h = &f.hits[hi];
-            if seen_lines.contains(&(fi, h.line)) {
+            let line = s.files[fi].hits[hi].line;
+            if seen_lines.contains(&(fi, line)) {
                 continue;
             }
-            seen_lines.push((fi, h.line));
-            taken += 1;
-            let ch = hit_chain(h);
-            let flag = if f.flags.demoted() { format!(" [{}]", f.flags.names().join(",")) } else { String::new() };
-            writeln!(w, "  {}:{}{}  {}{}{}", f.rel, h.line, flag, ch, if ch.is_empty() { "" } else { " › " }, String::from_utf8_lossy(&h.text).trim())?;
-            shown += 1;
+            seen_lines.push((fi, line));
+            taken.push((fi, hi));
         }
-        if v.len() > taken {
-            writeln!(w, "  +{} more", v.len() - taken)?;
+        shown += taken.len();
+        crate::write_groups(&mut w, s, &taken, fmt, false)?;
+        if v.len() > taken.len() {
+            writeln!(w, "  +{} more", v.len() - taken.len())?;
         }
     }
-    writeln!(w, "\n{} of {} hits shown · next: greeg callers {name}  |  greeg impact {name}  |  greeg refs {name} --kind call", shown, fmt_n(s.stats.total_hits))?;
+    writeln!(w, "\n{}/{} hits · next: callers {name} | impact {name} | refs {name} --kind call", shown, fmt_n(s.stats.total_hits))?;
     w.flush()?;
     Ok(())
 }
@@ -219,7 +273,7 @@ pub fn run_refs(c: &Common, o: &Options, name: &str) -> Result<()> {
 pub fn run_callers(c: &Common, o: &Options, name: &str, depth: usize) -> Result<()> {
     let r = verbs::callers(o, name, depth)?;
     let mut w = out();
-    let limit = if o.budget == 0 { usize::MAX } else { (o.budget / 30).max(5) };
+    let limit = if o.budget == 0 { usize::MAX } else { (o.budget / 22).max(5) };
     if c.json {
         for cl in r.callers.iter().take(limit) {
             serde_json::to_writer(&mut w, &json!({"type":"caller","data":{"path":cl.rel,"symbol":chain_str(&cl.chain),"kind":cl.chain.last().map(|(k,_)| k.name()),"def_line":cl.def_line,"count":cl.count,"lines":cl.lines,"file_flags":cl.file_flags.names(),"called_by":cl.called_by}}))?;
@@ -236,15 +290,27 @@ pub fn run_callers(c: &Common, o: &Options, name: &str, depth: usize) -> Result<
         greeg_query::indexed::flush_pending_build();
         std::process::exit(1);
     }
-    writeln!(w, "callers {}  {} call sites in {} functions · {} files · {} · {:.0} ms", r.name, fmt_n(r.total_hits), fmt_n(r.callers.len()), fmt_n(r.files), r.source, r.elapsed_ms)?;
-    for cl in r.callers.iter().take(limit) {
-        let sym = if cl.chain.is_empty() { "(top level)".to_string() } else { chain_str(&cl.chain) };
-        let kind = cl.chain.last().map(|(k, _)| k.name()).unwrap_or("");
-        let lines: Vec<String> = cl.lines.iter().map(|l| l.to_string()).collect();
-        let flag = if cl.file_flags.demoted() { format!(" [{}]", cl.file_flags.names().join(",")) } else { String::new() };
-        writeln!(w, "  {:<7} {}:{}{}  {}  ×{}  (lines {})", kind, cl.rel, cl.def_line, flag, sym, cl.count, lines.join(", "))?;
-        if !cl.called_by.is_empty() {
-            writeln!(w, "          ← called by {}", cl.called_by.join(", "))?;
+    writeln!(w, "callers {}  {} call sites in {} functions · {} files · {}{}", r.name, fmt_n(r.total_hits), fmt_n(r.callers.len()), fmt_n(r.files), r.source, ms(c, r.elapsed_ms))?;
+    let shown: Vec<&verbs::Caller> = r.callers.iter().take(limit).collect();
+    let mut order: Vec<&str> = Vec::new();
+    for cl in &shown {
+        if !order.contains(&cl.rel.as_str()) {
+            order.push(&cl.rel);
+        }
+    }
+    for rel in order {
+        let group: Vec<&verbs::Caller> = shown.iter().filter(|cl| cl.rel == rel).copied().collect();
+        writeln!(w, "{}{}", rel, file_flag_suffix(rel, group[0].file_flags))?;
+        let lw = group.iter().map(|cl| digits(cl.def_line)).max().unwrap_or(1);
+        let kw = group.iter().map(|cl| cl.chain.last().map(|(k, _)| k.name().len()).unwrap_or(0)).max().unwrap_or(0);
+        for cl in group {
+            let sym = if cl.chain.is_empty() { "(top level)".to_string() } else { container_of(&cl.chain, false, c.chain) };
+            let kind = cl.chain.last().map(|(k, _)| k.name()).unwrap_or("");
+            let lines: Vec<String> = cl.lines.iter().map(|l| l.to_string()).collect();
+            writeln!(w, "  {:>lw$} {:<kw$}  {} ×{} (lines {})", cl.def_line, kind, sym, cl.count, lines.join(", "))?;
+            if !cl.called_by.is_empty() {
+                writeln!(w, "  {:lw$} {:kw$}  ← called by {}", "", "", cl.called_by.join(", "))?;
+            }
         }
     }
     if r.callers.len() > limit {
@@ -284,24 +350,22 @@ pub fn run_impls(c: &Common, o: &Options, name: &str) -> Result<()> {
         greeg_query::indexed::flush_pending_build();
         std::process::exit(1);
     }
-    writeln!(w, "impls {}  {} implementations{} · {} · {:.0} ms", r.name, r.direct.len(), if r.extras.is_empty() { String::new() } else { format!(" + {} low-confidence", r.extras.len()) }, r.source, r.elapsed_ms)?;
-    for e in r.direct.iter().take(limit) {
-        write_def_entry(&mut w, e, true)?;
-    }
+    writeln!(w, "impls {}  {} implementations{} · {}{}", r.name, r.direct.len(), if r.extras.is_empty() { String::new() } else { format!(" + {} low-confidence", r.extras.len()) }, r.source, ms(c, r.elapsed_ms))?;
+    let direct: Vec<&DefEntry> = r.direct.iter().take(limit).collect();
+    write_def_groups(&mut w, &direct, true, false, c.chain)?;
     if r.direct.len() > limit {
         writeln!(w, "  +{} more", r.direct.len() - limit)?;
     }
     if !r.extras.is_empty() {
         writeln!(w, "low confidence ({} in type position on definition lines)", r.name)?;
-        for e in r.extras.iter().take(limit / 2 + 1) {
-            write_def_entry(&mut w, e, true)?;
-        }
+        let extras: Vec<&DefEntry> = r.extras.iter().take(limit / 2 + 1).collect();
+        write_def_groups(&mut w, &extras, true, false, c.chain)?;
     }
     w.flush()?;
     Ok(())
 }
 
-pub fn run_outline(c: &Common, o: &Options, file: &str) -> Result<()> {
+pub fn run_outline(c: &Common, o: &Options, file: &str, imports: bool) -> Result<()> {
     let r = verbs::outline(o, file)?;
     let mut w = out();
     if c.json {
@@ -314,22 +378,21 @@ pub fn run_outline(c: &Common, o: &Options, file: &str) -> Result<()> {
         w.flush()?;
         return Ok(());
     }
-    writeln!(w, "outline {}  {} symbols · {} imports · {} · {} · {:.0} ms", r.rel, r.defs.len(), r.imports.len(), r.lang.name(), r.source, r.elapsed_ms)?;
+    writeln!(w, "outline {}  {} symbols · {} imports · {} · {}{}", r.rel, r.defs.len(), r.imports.len(), r.lang.name(), r.source, ms(c, r.elapsed_ms))?;
     if r.parse_errors {
         writeln!(w, "  (file has parse errors; some definitions may come from the regex fallback)")?;
     }
-    if !r.imports.is_empty() {
-        let imps: Vec<&str> = r.imports.iter().map(|s| s.as_str()).take(12).collect();
-        writeln!(w, "  imports  {}{}", imps.join(", "), if r.imports.len() > 12 { format!(" +{}", r.imports.len() - 12) } else { String::new() })?;
+    if !r.imports.is_empty() && (imports || r.imports.len() <= 3) {
+        let imps: Vec<&str> = r.imports.iter().map(|s| s.as_str()).take(40).collect();
+        writeln!(w, "  imports  {}{}", imps.join(", "), if r.imports.len() > 40 { format!(" +{}", r.imports.len() - 40) } else { String::new() })?;
     }
     // budget: collapse depth when the tree is large
-    let max_lines = if o.budget == 0 { usize::MAX } else { (o.budget / 14).max(10) };
+    let max_lines = if o.budget == 0 { usize::MAX } else { (o.budget / 12).max(10) };
     let mut max_depth = 8usize;
     while max_depth > 0 && r.defs.iter().filter(|d| d.chain.len() <= max_depth + 1).count() > max_lines {
         max_depth -= 1;
     }
     let mut printed = 0usize;
-    let mut hidden_under: Option<(usize, usize)> = None; // (index of parent line, hidden count)
     let mut hidden_counts: Vec<usize> = vec![0; r.defs.len()];
     for (i, d) in r.defs.iter().enumerate() {
         let depth = d.chain.len().saturating_sub(1);
@@ -347,7 +410,6 @@ pub fn run_outline(c: &Common, o: &Options, file: &str) -> Result<()> {
         }
         printed += 1;
     }
-    let _ = &mut hidden_under;
     let mut n = 0usize;
     for (i, d) in r.defs.iter().enumerate() {
         let depth = d.chain.len().saturating_sub(1);
@@ -371,7 +433,7 @@ pub fn run_outline(c: &Common, o: &Options, file: &str) -> Result<()> {
         }
         let ann = if ann.is_empty() { String::new() } else { format!("  [{}]", ann.join(",")) };
         let more = if hidden_counts[i] > 0 { format!("  (+{} nested)", hidden_counts[i]) } else { String::new() };
-        writeln!(w, "  {}{:<8} {}  :{}{}{}", "  ".repeat(depth), d.kind.name(), d.name, d.line, ann, more)?;
+        writeln!(w, "  {}{} {}  :{}{}{}", "  ".repeat(depth), d.kind.name(), d.name, d.line, ann, more)?;
     }
     w.flush()?;
     Ok(())
@@ -396,7 +458,7 @@ pub fn run_map(c: &Common, o: &Options, dir: &str) -> Result<()> {
         w.flush()?;
         return Ok(());
     }
-    writeln!(w, "map {}  {} files · {} symbols · {} subdirectories · {} · {:.0} ms", if r.dir.is_empty() { "." } else { &r.dir }, fmt_n(r.files_total), fmt_n(r.symbols_total), r.dirs.len(), r.source, r.elapsed_ms)?;
+    writeln!(w, "map {}  {} files · {} symbols · {} subdirectories · {}{}", if r.dir.is_empty() { "." } else { &r.dir }, fmt_n(r.files_total), fmt_n(r.symbols_total), r.dirs.len(), r.source, ms(c, r.elapsed_ms))?;
     if !r.dirs.is_empty() {
         writeln!(w, "\ndirectories (by best file rank)")?;
         for d in r.dirs.iter().take(dir_limit) {
@@ -410,8 +472,7 @@ pub fn run_map(c: &Common, o: &Options, dir: &str) -> Result<()> {
     for f in r.files.iter().take(file_limit) {
         let kinds: Vec<String> = f.by_kind.iter().map(|(k, n)| format!("{} {}", n, k.name())).collect();
         let top: Vec<String> = f.top.iter().map(|(k, n)| format!("{} {}", k.name(), n)).collect();
-        let flag = if f.flags.demoted() { format!(" [{}]", f.flags.names().join(",")) } else { String::new() };
-        writeln!(w, "  {}{}  rank {:.2} · ←{} · {}", f.rel, flag, f.rank, f.imported_by, kinds.join(", "))?;
+        writeln!(w, "  {}{}  rank {:.2} · ←{} · {}", f.rel, file_flag_suffix(&f.rel, f.flags), f.rank, f.imported_by, kinds.join(", "))?;
         if !top.is_empty() {
             writeln!(w, "      {}", top.join(", "))?;
         }
@@ -420,7 +481,7 @@ pub fn run_map(c: &Common, o: &Options, dir: &str) -> Result<()> {
         writeln!(w, "  +{} more files (raise --budget or narrow the directory)", r.files.len() - file_limit)?;
     }
     if let Some(d) = r.dirs.first() {
-        writeln!(w, "next: greeg map {}  |  greeg outline {}", d.rel, r.files.first().map(|f| f.rel.as_str()).unwrap_or(""))?;
+        writeln!(w, "next: map {} | outline {}", d.rel, r.files.first().map(|f| f.rel.as_str()).unwrap_or(""))?;
     }
     w.flush()?;
     Ok(())
@@ -429,7 +490,7 @@ pub fn run_map(c: &Common, o: &Options, dir: &str) -> Result<()> {
 pub fn run_impact(c: &Common, o: &Options, name: &str) -> Result<()> {
     let r = verbs::impact(o, name)?;
     let mut w = out();
-    let per_group = if o.budget == 0 { usize::MAX } else { (o.budget / 90).clamp(3, 30) };
+    let per_group = if o.budget == 0 { usize::MAX } else { (o.budget / 130).clamp(3, 30) };
     let write_group = |w: &mut dyn Write, title: &str, why: &str, files: &[verbs::ImpactFile]| -> Result<()> {
         if files.is_empty() {
             return Ok(());
@@ -438,9 +499,10 @@ pub fn run_impact(c: &Common, o: &Options, name: &str) -> Result<()> {
         writeln!(w, "\n{} ({} files, {} hits) — {}", title, files.len(), fmt_n(hits), why)?;
         for f in files.iter().take(per_group) {
             let kinds: Vec<String> = f.kinds.iter().map(|(k, n)| format!("{} {}", k.name(), n)).collect();
-            writeln!(w, "  {}  {}", f.rel, kinds.join(", "))?;
+            writeln!(w, "{}{}  {}", f.rel, file_flag_suffix(&f.rel, f.flags), kinds.join(", "))?;
+            let lw = f.sample.iter().take(2).map(|(l, _)| digits(*l)).max().unwrap_or(1);
             for (l, t) in f.sample.iter().take(2) {
-                writeln!(w, "      {:>5}  {}", l, t.trim())?;
+                writeln!(w, "  {:>lw$}  {}", l, t.trim())?;
             }
         }
         if files.len() > per_group {
@@ -463,18 +525,27 @@ pub fn run_impact(c: &Common, o: &Options, name: &str) -> Result<()> {
         greeg_query::indexed::flush_pending_build();
         std::process::exit(1);
     }
-    writeln!(w, "impact {}  {} hits · {} files · {} definitions · {:.0} ms", r.name, fmt_n(r.total_hits), r.will_break.len() + r.may_break.len() + r.review.len(), r.defs.len(), r.elapsed_ms)?;
-    for e in r.defs.iter().take(3) {
-        write_def_entry(&mut w, e, false)?;
-    }
+    writeln!(w, "impact {}  {} hits · {} files · {} definitions{}", r.name, fmt_n(r.total_hits), r.will_break.len() + r.may_break.len() + r.review.len(), r.defs.len(), ms(c, r.elapsed_ms))?;
+    let defs: Vec<&DefEntry> = r.defs.iter().take(3).collect();
+    write_def_groups(&mut w, &defs, false, false, c.chain)?;
     write_group(&mut w, "WILL BREAK", "calls, type uses or imports in source", &r.will_break)?;
     write_group(&mut w, "MAY BREAK", "member or bare identifier uses", &r.may_break)?;
     write_group(&mut w, "REVIEW", "tests, comments, strings, demoted files", &r.review)?;
     if !r.callers.callers.is_empty() {
         writeln!(w, "\ncallers ({} functions, depth 2)", r.callers.callers.len())?;
-        for cl in r.callers.callers.iter().take(per_group) {
-            let sym = if cl.chain.is_empty() { "(top level)".to_string() } else { chain_str(&cl.chain) };
-            writeln!(w, "  {}:{}  {}  ×{}{}", cl.rel, cl.def_line, sym, cl.count, if cl.called_by.is_empty() { String::new() } else { format!("  ← {}", cl.called_by.join(", ")) })?;
+        let shown: Vec<&verbs::Caller> = r.callers.callers.iter().take(per_group).collect();
+        let mut order: Vec<&str> = Vec::new();
+        for cl in &shown {
+            if !order.contains(&cl.rel.as_str()) {
+                order.push(&cl.rel);
+            }
+        }
+        for rel in order {
+            writeln!(w, "{rel}")?;
+            for cl in shown.iter().filter(|cl| cl.rel == rel) {
+                let sym = if cl.chain.is_empty() { "(top level)".to_string() } else { container_of(&cl.chain, false, c.chain) };
+                writeln!(w, "  {}  {} ×{}{}", cl.def_line, sym, cl.count, if cl.called_by.is_empty() { String::new() } else { format!("  ← {}", cl.called_by.join(", ")) })?;
+            }
         }
     }
     w.flush()?;

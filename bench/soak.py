@@ -31,7 +31,7 @@ def rg_lines(pattern, flags, cwd):
         except ValueError:
             continue
         if j.get("type") == "match":
-            out.add((j["data"]["path"]["text"].lstrip("./"), j["data"]["line_number"]))
+            out.add((j["data"]["path"]["text"].removeprefix("./"), j["data"]["line_number"]))
     return out, r.returncode
 
 def greeg_lines(pattern, flags, cwd):
@@ -43,7 +43,7 @@ def greeg_lines(pattern, flags, cwd):
         except ValueError:
             continue
         if j.get("type") == "match":
-            out.add((j["data"]["path"]["text"].lstrip("./"), j["data"]["line_number"]))
+            out.add((j["data"]["path"]["text"].removeprefix("./"), j["data"]["line_number"]))
     return out, r.returncode, r.stderr.decode("utf8", "replace")
 
 def names_of(cwd):

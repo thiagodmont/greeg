@@ -141,16 +141,23 @@ impl FileFlags {
     }
 }
 
+/// Path-segment rules (DESIGN.md §8). Every list here is mirrored in that
+/// table; keep them in sync. Segments are matched case-insensitively against
+/// each directory component of the relative path.
 const TEST_SEGMENTS: &[&str] = &[
-    "test", "tests", "__tests__", "spec", "specs", "testing", "testdata", "test_data", "fixtures", "snapshots", "__snapshots__", "e2e", "integration-tests",
+    "test", "tests", "__tests__", "specs", "testing", "testdata", "test_data", "fixtures", "snapshots", "__snapshots__", "e2e", "integration-tests", "mock", "mocks", "__mocks__", "stub", "stubs", "fake", "fakes",
 ];
-const VENDOR_SEGMENTS: &[&str] = &[
-    "vendor", "vendored", "third_party", "thirdparty", "third-party", "node_modules", "external", "externals", "deps", ".yarn", "bower_components", "site-packages", "_vendor",
-];
-const GENERATED_SEGMENTS: &[&str] = &["generated", "__generated__", "gen", "_gen", "autogen", "compiled", "dist", "build", "out", ".next", "target"];
+const VENDOR_SEGMENTS: &[&str] = &["vendor", "vendored", "third_party", "thirdparty", "third-party", "node_modules", ".yarn", "bower_components", "site-packages", "_vendor"];
+const GENERATED_SEGMENTS: &[&str] = &["generated", "__generated__", "_gen", "autogen", "compiled", "dist", ".next", "target"];
 const LOCKFILES: &[&str] = &[
     "package-lock.json", "yarn.lock", "pnpm-lock.yaml", "Cargo.lock", "poetry.lock", "uv.lock", "Pipfile.lock", "gradle.lockfile", "pixi.lock", "composer.lock", "Gemfile.lock", "bun.lockb", "bun.lock", "flake.lock",
 ];
+
+/// `*Test.kt` / `*Tests.kt` with an uppercase `T` boundary: `FooTest.kt` and
+/// `FooTests.kt` are tests, `Latest.kt` is not.
+fn is_kotlin_test_name(name: &str) -> bool {
+    name.ends_with("Test.kt") || name.ends_with("Tests.kt")
+}
 
 /// Flags derivable from the relative path alone.
 pub fn path_flags(rel: &str) -> FileFlags {
@@ -159,10 +166,14 @@ pub fn path_flags(rel: &str) -> FileFlags {
         Some(i) => (&rel[..i], &rel[i + 1..]),
         None => ("", rel),
     };
+    let mut spec_dir = false;
     for seg in dir.split('/') {
         let s = seg.to_ascii_lowercase();
         if TEST_SEGMENTS.contains(&s.as_str()) {
             f.set(FileFlags::TEST);
+        }
+        if s == "spec" {
+            spec_dir = true;
         }
         if VENDOR_SEGMENTS.contains(&s.as_str()) {
             f.set(FileFlags::VENDORED);
@@ -175,14 +186,14 @@ pub fn path_flags(rel: &str) -> FileFlags {
     if LOCKFILES.iter().any(|l| l.eq_ignore_ascii_case(name)) {
         f.set(FileFlags::LOCKFILE);
     }
+    // `spec/` alone is not a signal (API specs, RFCs); it is one when combined
+    // with a `*_spec.*` file name (RSpec, ExUnit).
     if lname.starts_with("test_")
-        || lname.ends_with("_test.py")
-        || lname.ends_with("_test.rs")
-        || lname.ends_with("_test.kt")
-        || lname.ends_with("test.kt")
-        || lname.ends_with("tests.kt")
+        || lname.contains("_test.")
         || lname.contains(".test.")
         || lname.contains(".spec.")
+        || (spec_dir && lname.contains("_spec."))
+        || is_kotlin_test_name(name)
         || lname == "conftest.py"
     {
         f.set(FileFlags::TEST);
@@ -190,7 +201,15 @@ pub fn path_flags(rel: &str) -> FileFlags {
     if lname.contains(".min.") || lname.ends_with(".bundle.js") {
         f.set(FileFlags::MINIFIED);
     }
-    if lname.ends_with("_pb2.py") || lname.ends_with(".pb.go") || lname.contains(".g.") || lname.ends_with(".designer.cs") || lname.ends_with(".generated.ts") || lname.ends_with(".d.ts") && dir.contains("generated") {
+    if lname.ends_with("_pb2.py")
+        || lname.ends_with(".pb.go")
+        || lname.ends_with(".g.dart")
+        || lname.ends_with(".g.cs")
+        || lname.ends_with(".g.ts")
+        || lname.ends_with(".designer.cs")
+        || lname.ends_with(".generated.ts")
+        || lname.ends_with(".d.ts") && dir.contains("generated")
+    {
         f.set(FileFlags::GENERATED);
     }
     f
@@ -220,6 +239,10 @@ pub fn content_flags(head: &[u8], total_len: u64) -> FileFlags {
     max_line = max_line.max(tail_len);
     let avg = if lines > 0 { head.len() / lines } else { head.len() };
     if (max_line > 1000 && avg > 200) || (lines == 0 && head.len() > 2000) {
+        f.set(FileFlags::MINIFIED);
+    }
+    // bundler output: a `//# sourceMappingURL=` directive with long lines
+    if avg > 120 && memchr::memmem::find(head, b"sourceMappingURL=").is_some() {
         f.set(FileFlags::MINIFIED);
     }
     let first2k = &head[..head.len().min(2048)];
@@ -351,6 +374,62 @@ pub fn read_text(path: impl AsRef<std::path::Path>) -> std::io::Result<Vec<u8>> 
     let mut v = std::fs::read(path)?;
     transcode_utf16(&mut v);
     Ok(v)
+}
+
+#[cfg(test)]
+mod flag_tests {
+    use super::*;
+
+    fn has(rel: &str, bit: u16) -> bool {
+        path_flags(rel).has(bit)
+    }
+
+    #[test]
+    fn test_segments_and_names() {
+        for p in ["src/__mocks__/fs.ts", "a/mocks/x.py", "a/mock/x.rs", "lib/stubs/s.kt", "lib/stub/s.kt", "x/fakes/f.go", "x/fake/f.go", "tests/a.rs", "src/testing/util.go", "pkg/fixtures/a.json", "e2e/login.ts", "testdata/x.txt"] {
+            assert!(has(p, FileFlags::TEST), "{p}");
+        }
+        for p in ["src/a_test.go", "src/a_test.c", "src/foo_test.py", "src/x.test.ts", "src/x.spec.ts", "spec/models/user_spec.rb", "src/FooTest.kt", "src/FooTests.kt", "src/test_util.py", "conftest.py"] {
+            assert!(has(p, FileFlags::TEST), "{p}");
+        }
+        for p in ["src/Latest.kt", "src/latest.kt", "spec/openapi.yaml", "spec/rfc.md", "src/attest.rs", "src/contest.py", "specification/x.rs"] {
+            assert!(!has(p, FileFlags::TEST), "{p}");
+        }
+    }
+
+    #[test]
+    fn vendored_and_generated_segments() {
+        for p in ["vendor/x.go", "node_modules/a/i.js", "third_party/x.c", "site-packages/a.py", "x/_vendor/y.py"] {
+            assert!(has(p, FileFlags::VENDORED), "{p}");
+        }
+        for p in ["src/external/x.rs", "pkg/deps/y.go", "externals/z.js"] {
+            assert!(!has(p, FileFlags::VENDORED), "{p}");
+        }
+        for p in ["generated/a.rs", "src/__generated__/b.ts", "dist/c.js", "target/d.rs", "x/autogen/e.py", "a.g.dart", "a.g.cs", "a.g.ts", "a_pb2.py", "a.pb.go", "Form.Designer.cs", "api.generated.ts"] {
+            assert!(has(p, FileFlags::GENERATED), "{p}");
+        }
+        for p in ["pkg/build/x.go", "src/out/y.rs", "gen/z.py", "a.g.rs", "config.g.yaml", "src/build.rs"] {
+            assert!(!has(p, FileFlags::GENERATED), "{p}");
+        }
+    }
+
+    #[test]
+    fn minified_from_content() {
+        let long = "x".repeat(1500);
+        let mut bundle = String::new();
+        for _ in 0..3 {
+            bundle.push_str(&long);
+            bundle.push('\n');
+        }
+        bundle.push_str("//# sourceMappingURL=app.js.map\n");
+        assert!(content_flags(bundle.as_bytes(), bundle.len() as u64).has(FileFlags::MINIFIED));
+        let mut short = String::new();
+        for i in 0..200 {
+            short.push_str(&format!("const v{i} = {i};\n"));
+        }
+        short.push_str("//# sourceMappingURL=app.js.map\n");
+        assert!(!content_flags(short.as_bytes(), short.len() as u64).has(FileFlags::MINIFIED));
+    }
 }
 
 #[cfg(test)]
