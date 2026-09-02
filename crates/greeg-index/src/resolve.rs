@@ -94,7 +94,7 @@ impl<'a> Resolver<'a> {
             }
         }
         py_roots.sort_by_key(|b| std::cmp::Reverse(b.len()));
-        rust_crates.sort_by(|a, b| b.0.len().cmp(&a.0.len()));
+        rust_crates.sort_by_key(|c| std::cmp::Reverse(c.0.len()));
         let rust_by_name = rust_crates
             .iter()
             .enumerate()

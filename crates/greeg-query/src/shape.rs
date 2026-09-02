@@ -257,12 +257,12 @@ fn facets(r: &ScanResult, ranked: &[Ranked]) -> (Facets, usize) {
         .into_iter()
         .filter(|(_, n)| n * 20 >= total)
         .collect();
-    by_lang.sort_by(|a, b| b.1.cmp(&a.1));
+    by_lang.sort_by_key(|x| std::cmp::Reverse(x.1));
     if by_lang.len() < 2 {
         by_lang.clear();
     }
     let mut by_flag: Vec<_> = by_flag.into_iter().collect();
-    by_flag.sort_by(|a, b| b.1.cmp(&a.1));
+    by_flag.sort_by_key(|x| std::cmp::Reverse(x.1));
     let mut defs: Vec<Ranked> = ranked
         .iter()
         .filter(|(fi, hi, _)| r.files[*fi].hits[*hi].kind == HitKind::Def)

@@ -285,8 +285,8 @@ pub fn run_refs(c: &Common, o: &Options, name: &str) -> Result<()> {
                 .clamp(2, n)
         }
     };
-    let resolved = if r.classified > 0 {
-        format!(" · {}% resolved", r.resolved * 100 / r.classified)
+    let resolved = if let Some(pct) = (r.resolved * 100).checked_div(r.classified) {
+        format!(" · {pct}% resolved")
     } else {
         String::new()
     };

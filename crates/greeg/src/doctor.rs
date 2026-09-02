@@ -181,7 +181,7 @@ pub fn run(c: &Common) -> Result<()> {
                     }
                 }
                 let mut v: Vec<_> = per.into_iter().collect();
-                v.sort_by(|a, b| b.1.0.cmp(&a.1.0));
+                v.sort_by_key(|x| std::cmp::Reverse(x.1.0));
                 let parts: Vec<String> = v
                     .iter()
                     .map(|(n, (files, errs, gram))| {

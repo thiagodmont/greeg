@@ -209,10 +209,7 @@ impl Segment {
             Q::Or(v) => {
                 let mut acc = RoaringBitmap::new();
                 for x in v {
-                    match self.eval(x) {
-                        None => return None,
-                        Some(bm) => acc |= bm,
-                    }
+                    acc |= self.eval(x)?;
                 }
                 Some(acc)
             }

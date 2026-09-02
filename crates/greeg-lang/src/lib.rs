@@ -290,11 +290,7 @@ pub fn content_flags(head: &[u8], total_len: u64) -> FileFlags {
     }
     let tail_len = head.len() - last;
     max_line = max_line.max(tail_len);
-    let avg = if lines > 0 {
-        head.len() / lines
-    } else {
-        head.len()
-    };
+    let avg = head.len().checked_div(lines).unwrap_or(head.len());
     if (max_line > 1000 && avg > 200) || (lines == 0 && head.len() > 2000) {
         f.set(FileFlags::MINIFIED);
     }
@@ -438,11 +434,11 @@ pub fn transcode_utf16(buf: &mut Vec<u8>) -> bool {
     if !(le || be) {
         return false;
     }
-    let units = buf[2..].chunks_exact(2).map(|c| {
+    let units = buf[2..].as_chunks::<2>().0.iter().map(|c| {
         if le {
-            u16::from_le_bytes([c[0], c[1]])
+            u16::from_le_bytes(*c)
         } else {
-            u16::from_be_bytes([c[0], c[1]])
+            u16::from_be_bytes(*c)
         }
     });
     let mut out = String::with_capacity(buf.len());
