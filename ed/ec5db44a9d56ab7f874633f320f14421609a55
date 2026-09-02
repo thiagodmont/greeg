@@ -1,0 +1,29 @@
+crates/greeg/src/verbs_out.rs
+  s_9b7c1735a1250e::t_e8bc80423fc5b3 288-289
+crates/greeg-index/src/resolve.rs
+  s_9b7c1735a1250e::t_25e5e4b0a63e84 97
+crates/greeg/src/doctor.rs
+  s_9b7c1735a1250e::t_e8bc80423fc5b3 184
+crates/greeg-lang/src/lib.rs
+  s_9b7c1735a1250e::t_82589a66e9e596 293,437,439,441
+crates/greeg-query/src/shape.rs
+  s_9b7c1735a1250e::t_f56faf90ea8479 260,265
+crates/greeg-index/src/index.rs
+  s_9b7c1735a1250e::t_25e5e4b0a63e84 212
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "edec5db44a9d56ab7f874633f320f14421609a55",
+  "prompts": {},
+  "sessions": {
+    "s_9b7c1735a1250e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e56b20a8-6686-4cba-b823-bddea6d1adfe",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
