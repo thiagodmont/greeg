@@ -66,7 +66,11 @@ impl Changes {
 /// Skip the check when the index was verified this recently. Kept short:
 /// an agent never edits and searches within 100 ms, but scripts can.
 pub const TTL_MS: u64 = 100;
-pub const FSEVENTS_CUTOFF: Duration = Duration::from_millis(150);
+/// FSEvents normally reports a 60–75k-file tree in 9–15 ms, but the daemon is intermittently slow
+/// (135 ms+ in roughly 1 run in 10–30 on the reference machine, cause unknown); past this cutoff
+/// the check falls through to the stat pass (≈ 41 ms on 66k files), bounding the worst case at
+/// about 80 ms instead of 150 ms plus a stat pass.
+pub const FSEVENTS_CUTOFF: Duration = Duration::from_millis(40);
 /// A check that found nothing rewrites `verified_unix_ms` at most this often.
 pub const VERIFY_WRITE_MS: u64 = 1000;
 

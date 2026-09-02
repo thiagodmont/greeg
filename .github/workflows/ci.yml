@@ -17,6 +17,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --release --workspace
       - run: cargo test --workspace
+      - run: cargo fmt --all --check
       - run: cargo clippy --all-targets -- -D warnings
       - name: binary size gate (< 25 MB)
         shell: bash

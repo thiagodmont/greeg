@@ -359,8 +359,8 @@ Modes (`--fresh=auto|watch|stat|none`):
    re-scanned (`readdir` + `lstat`). Measured 12–14 ms for a 200-file,
    76-directory change set including `HistoryDone` (S2). FSEvents never
    signals an unknown or purged id, it simply never completes, so the drain
-   has a 150 ms cutoff; on cutoff, drop or wrap flags the check falls through
-   to stat mode. The stored id is refreshed on every successful check.
+   has a 40 ms cutoff (150 ms until v0.2); on cutoff, drop or wrap flags the
+   check falls through to stat mode. The stored id is refreshed on every successful check.
 3. **stat (Linux default, macOS fallback)**: parallel `lstat` of every known
    file (4 threads) comparing `(size, mtime_ns, inode)`, then `lstat` of every
    known directory comparing `mtime_ns` (APFS and ext4 update it on entry add,
@@ -977,3 +977,4 @@ Results and the rendered `docs/BENCH.md` are in the repository.
 | Text layout | group by file, path once, last container, demoted definitions collapsed, definitions above facets | `path:line` per hit with full chain and size/age header | paths and chains were 48 % of a default answer and test definitions 32 %; same hits at 35–60 % fewer tokens |
 | Speed protocol | `--prepare "sleep 0.15"`, medians, headline vs `rg -j4`, `fresh` column | back-to-back hyperfine means vs default `rg` | the 100 ms TTL hid the freshness check and default `rg` is 3.7× slower than `rg -j4` on macOS |
 | Oracle sample | usage-weighted names with ≥ 3 references, rg definition-regex baseline, intervals | uniform over SCIP definitions, `rg -nw` first lines | `return5`/`mInt`-style names never exercise the budget; nobody searches for a definition with `-nw` |
+| FSEvents cutoff | 40 ms, then the stat pass | 150 ms | the daemon intermittently takes 135 ms+ to replay a `sinceWhen` stream (≈ 1 run in 10–30 on the reference machine); a 74k-file stat pass is 41 ms, so the bounded worst case is ≈ 80 ms instead of 150–210 ms |

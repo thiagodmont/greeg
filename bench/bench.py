@@ -111,7 +111,7 @@ except Exception:  # noqa: BLE001
         return int(len(s.encode("utf8", "replace")) / 3.7)
 
 
-HIT_RE = re.compile(r"^\s*(?:[a-z]+\s+)?(\.?/?[^\s:]+?):(\d+)(?=[:\s])")
+HIT_RE = re.compile(r"^(\.?/?[^\s:][^:]*?):(\d+)(?=[:\s])")  # path may contain spaces; hit lines in grouped layouts start with whitespace
 
 
 def text_hits(text):
@@ -123,8 +123,8 @@ def text_hits(text):
     return out
 
 
-GREEG_FILE_RE = re.compile(r"^([^\s:]+/[^\s:]+|[^\s:]+\.\w+)  ")
-GREEG_LINE_RE = re.compile(r"^\s+(\d+) (?:def|import|call|type|member|ident|doc|comment|string)\b")
+GREEG_FILE_RE = re.compile(r"^([^\s]+(?:/[^\s]+|\.\w+))(?:  \[[\w,]+\])?$")  # `path` or `path  [test]` (output contract v2)
+GREEG_LINE_RE = re.compile(r"^\s+(\d+)\s")  # `<line> [kind] <text>`: hits (kind omitted for ident and in the definitions block) and context lines
 
 
 def greeg_text_hits(text):
@@ -691,7 +691,7 @@ def rg_def_cmd(lang, nm):
 
 
 # greeg text lines that summarise rather than locate: neutral in the context metric
-NEUTRAL_RE = re.compile(r"^(?:by (?:kind|area|lang|flag)\b|definitions \(|top hits\b|next:|\s*\+\d[\d,]* more\b|[\d,]+ of [\d,]+ hits\b|\S.*  [\d,]+ matches · |see also\b|hint:)")
+NEUTRAL_RE = re.compile(r"^(?:by (?:kind|area|lang|flag)\b|areas  |langs  |definitions \(|top hits\b|imported by \d|next:|\s*\+\d[\d,]* (?:more|test|vendored|generated|demoted|mock)\b|[\d,]+ of [\d,]+ hits\b|[\d,]+/[\d,]+ hits\b|\S.*  [\d,]+ (?:matches|hits) · |see also\b|hint:|matched \w|defined at\b|\w+ \(\d+\)$|\s*\.\.\.$|\S.*  \d+ of \d+ definitions\b|(?:WILL|MAY) BREAK\b|REVIEW\b|refs \S+  |callers \S+  |impact \S+  |def \S+  )")
 
 
 def greeg_line_classes(text):

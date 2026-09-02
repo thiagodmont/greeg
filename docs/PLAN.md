@@ -71,7 +71,8 @@ Two gates were revised on evidence: index ratio applies above 50 MB of source
 (0.15–0.23 × measured on the large corpora; small corpora sit at 0.37–0.41 ×
 because of fixed per-gram overhead), and FSEvents latency is 12–14 ms rather
 than 5 ms. Two design changes: directory change detection by directory mtime
-instead of listing hashes, and a 150 ms FSEvents cutoff with stat fallback.
+instead of listing hashes, and a 150 ms FSEvents cutoff with stat fallback
+(40 ms since v0.2, see DESIGN §15).
 One Kotlin grammar gap (named context parameters) is documented and routed
 to the regex fallback extractor.
 
