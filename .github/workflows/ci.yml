@@ -79,9 +79,9 @@ jobs:
       - run: cargo build --release -p greeg
       - run: python3 bench/bench.py fetch tokio ktor django
       - name: parity vs rg (sets on fetched corpora + behaviour matrix)
-        run: python3 bench/parity.py "$GREEG_BENCH_CACHE" target/release/greeg --corpora tokio,ktor,django
+        run: python3 bench/parity.py "$GREEG_BENCH_CACHE" "$PWD/target/release/greeg" --corpora tokio,ktor,django
       - name: edit burst
-        run: python3 bench/edits.py "$GREEG_BENCH_CACHE/tokio" target/release/greeg
+        run: python3 bench/edits.py "$GREEG_BENCH_CACHE/tokio" "$PWD/target/release/greeg"
       - name: speed (protocol 2, 5 runs)
         run: python3 bench/bench.py speed --corpora tokio,ktor,django --runs 5 --no-splice
       - run: python3 bench/bench.py gate speed --record-only

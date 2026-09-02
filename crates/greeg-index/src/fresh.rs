@@ -306,6 +306,13 @@ fn relist_dirs(root: &Path, k: &Known, changed_dirs: &[(String, i64)], ch: &mut 
 }
 
 /// FSEvents-scoped check (macOS). Returns None when the log is unusable.
+#[cfg(not(target_os = "macos"))]
+pub fn check_fsevents(_idx: &Index, _root: &Path, _threads: usize) -> Option<Changes> {
+    None
+}
+
+/// FSEvents-scoped check (macOS). Returns None when the log is unusable.
+#[cfg(target_os = "macos")]
 pub fn check_fsevents(idx: &Index, root: &Path, threads: usize) -> Option<Changes> {
     if idx.manifest.fsevents_id == 0 {
         return None;
