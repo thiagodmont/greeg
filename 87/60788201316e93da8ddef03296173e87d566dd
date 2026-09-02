@@ -1,0 +1,21 @@
+.github/workflows/ci.yml
+  s_9b7c1735a1250e::t_2da2be584ce998 82,84
+crates/greeg-index/src/fresh.rs
+  s_9b7c1735a1250e::t_5afd06e5407d90 309-315
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "8760788201316e93da8ddef03296173e87d566dd",
+  "prompts": {},
+  "sessions": {
+    "s_9b7c1735a1250e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e56b20a8-6686-4cba-b823-bddea6d1adfe",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
