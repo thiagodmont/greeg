@@ -59,5 +59,24 @@ jobs:
         with:
           files: dist/*
           generate_release_notes: true
-      # To publish the tap: copy dist/greeg.rb to <owner>/homebrew-greeg/Formula/greeg.rb
-      # (a TAP_TOKEN secret and a checkout of the tap repo can automate this step).
+      - name: publish the Homebrew tap
+        # Needs a TAP_TOKEN repository secret: a fine-grained PAT with "Contents: read and write"
+        # on thiagodmont/homebrew-greeg. Without it the step prints a reminder and succeeds.
+        env:
+          TAP_TOKEN: ${{ secrets.TAP_TOKEN }}
+        shell: bash
+        run: |
+          if [ -z "$TAP_TOKEN" ]; then
+            echo "TAP_TOKEN not set: copy dist/greeg.rb to thiagodmont/homebrew-greeg/Formula/greeg.rb by hand"
+            exit 0
+          fi
+          v=${GITHUB_REF_NAME#v}
+          git clone --depth 1 "https://x-access-token:${TAP_TOKEN}@github.com/thiagodmont/homebrew-greeg.git" tap
+          mkdir -p tap/Formula
+          cp dist/greeg.rb tap/Formula/greeg.rb
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/greeg.rb
+          git commit -m "greeg $v" || { echo "formula unchanged"; exit 0; }
+          git push
