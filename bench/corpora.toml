@@ -1,0 +1,224 @@
+# Pinned benchmark corpora (PLAN.md M6). `bench/bench.py fetch` shallow-clones
+# each repository at its SHA into the bench cache ($GREEG_BENCH_CACHE, default
+# ~/.cache/greeg-bench/corpora). `size` is the tier used by CI: `small` runs on
+# every pull request, everything runs nightly on the reference machine.
+#
+# Each corpus carries one query per family for the speed protocol. Families:
+#   ident   a common identifier (the default, budgeted greeg answer)
+#   word    an identifier with -w
+#   phrase  a fixed string with -F
+#   regex   a pattern with a literal core
+#   def / refs / callers   greeg verbs (no rg equivalent; timed for the table)
+
+[tokio]
+url = "https://github.com/tokio-rs/tokio"
+sha = "ea91b33"
+lang = "rust"
+size = "small"
+[tokio.queries]
+ident = "spawn_blocking"
+word = "Waker"
+phrase = "Pin<&mut Self>"
+regex = "\\bpoll_\\w+\\("
+def = "JoinHandle"
+refs = "Semaphore"
+callers = "spawn_blocking"
+
+[ktor]
+url = "https://github.com/ktorio/ktor"
+sha = "f92fad0"
+lang = "kotlin"
+size = "small"
+[ktor.queries]
+ident = "respond"
+word = "ApplicationCall"
+phrase = "fun respond"
+regex = "fun \\w+Call\\("
+def = "ApplicationCall"
+refs = "ContentNegotiation"
+callers = "respond"
+
+[django]
+url = "https://github.com/django/django"
+sha = "5babd2e"
+lang = "python"
+size = "small"
+[django.queries]
+ident = "get_queryset"
+word = "request"
+phrase = "def get_queryset"
+regex = "def test_\\w+"
+def = "HttpResponseRedirect"
+refs = "ModelAdmin"
+callers = "get_queryset"
+
+[kotlinx-coroutines]
+url = "https://github.com/Kotlin/kotlinx.coroutines"
+sha = "f63a04b"
+lang = "kotlin"
+size = "small"
+dir = "kotlinx.coroutines"
+[kotlinx-coroutines.queries]
+ident = "CoroutineScope"
+word = "Job"
+phrase = "suspend fun"
+regex = "fun \\w+Async\\("
+def = "CoroutineScope"
+refs = "Dispatchers"
+callers = "launch"
+
+["TypeScript-5.9"]
+url = "https://github.com/microsoft/TypeScript"
+sha = "v5.9.2"
+lang = "typescript"
+size = "medium"
+note = "pre-Go layout; SCIP oracle target"
+["TypeScript-5.9".queries]
+ident = "createSourceFile"
+word = "node"
+phrase = "function createSourceFile("
+regex = "\\bcreate\\w+Node\\("
+def = "createSourceFile"
+refs = "SyntaxKind"
+callers = "createSourceFile"
+
+[TypeScript]
+url = "https://github.com/microsoft/TypeScript"
+sha = "13e158b"
+lang = "typescript"
+size = "medium"
+note = "main; many-files case"
+[TypeScript.queries]
+ident = "createSourceFile"
+word = "node"
+phrase = "function createSourceFile("
+regex = "\\bcreate\\w+Node\\("
+def = "createSourceFile"
+refs = "SyntaxKind"
+callers = "createSourceFile"
+
+[rust]
+url = "https://github.com/rust-lang/rust"
+sha = "a433023"
+lang = "rust"
+size = "large"
+[rust.queries]
+ident = "mir_borrowck"
+word = "HirId"
+phrase = "fn visit_expr"
+regex = "fn \\w+_borrowck"
+def = "TyCtxt"
+refs = "DefId"
+callers = "mir_borrowck"
+
+[cpython]
+url = "https://github.com/python/cpython"
+sha = "42de93a"
+lang = "python"
+size = "large"
+[cpython.queries]
+ident = "PyObject_Call"
+word = "self"
+phrase = "def test_"
+regex = "PyErr_\\w+\\("
+def = "PyObject_Call"
+refs = "PyLongObject"
+callers = "PyObject_Call"
+
+[home-assistant]
+url = "https://github.com/home-assistant/core"
+sha = "f945b3d"
+lang = "python"
+size = "large"
+[home-assistant.queries]
+ident = "async_setup_entry"
+word = "hass"
+phrase = "async def async_setup_entry"
+regex = "async def async_\\w+_entry"
+def = "ConfigEntry"
+refs = "HomeAssistant"
+callers = "async_setup_entry"
+
+[kotlin]
+url = "https://github.com/JetBrains/kotlin"
+sha = "9a22fe7"
+lang = "kotlin"
+size = "large"
+[kotlin.queries]
+ident = "IrFunction"
+word = "descriptor"
+phrase = "override fun visitCall"
+regex = "fun visit\\w+Expression\\("
+def = "IrFunction"
+refs = "FirSession"
+callers = "visitCall"
+
+[deno]
+url = "https://github.com/denoland/deno"
+sha = "62a0d5d"
+lang = "rust"
+size = "medium"
+[deno.queries]
+ident = "op_sync"
+word = "OpState"
+phrase = "fn op_"
+regex = "fn op_\\w+\\("
+def = "OpState"
+refs = "JsRuntime"
+callers = "op_sync"
+
+[node]
+url = "https://github.com/nodejs/node"
+sha = "5c447f6"
+lang = "javascript"
+size = "large"
+[node.queries]
+ident = "emitWarning"
+word = "process"
+phrase = "function emitWarning("
+regex = "function \\w+Sync\\("
+def = "emitWarning"
+refs = "EventEmitter"
+callers = "emitWarning"
+
+[vscode]
+url = "https://github.com/microsoft/vscode"
+sha = "c89cda6"
+lang = "typescript"
+size = "large"
+[vscode.queries]
+ident = "registerCommand"
+word = "Disposable"
+phrase = "class Disposable"
+regex = "register\\w+Command\\("
+def = "Disposable"
+refs = "IInstantiationService"
+callers = "registerCommand"
+
+[next-js]
+url = "https://github.com/vercel/next.js"
+sha = "52cd5b9"
+lang = "typescript"
+size = "large"
+dir = "next.js"
+[next-js.queries]
+ident = "getServerSideProps"
+word = "router"
+phrase = "export default function"
+regex = "use\\w+Router\\("
+def = "NextRequest"
+refs = "NextResponse"
+callers = "getServerSideProps"
+
+# ripgrep's single-file benchmark subject: one 9.3 GB text file (uncompressed).
+# Not a repository; `fetch` downloads and gunzips it. Exercises scan mode only
+# (greeg indexes files up to the HUGE cap; this one is searched, not indexed).
+[opensubtitles]
+url = "https://object.pouta.csc.fi/OPUS-OpenSubtitles/v2018/mono/en.txt.gz"
+kind = "file"
+size = "large"
+[opensubtitles.queries]
+ident = "Sherlock Holmes"
+word = "Sherlock"
+phrase = "Sherlock Holmes"
+regex = "\\w+nn\\w+ Holmes"

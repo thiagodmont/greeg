@@ -1,0 +1,36 @@
+class Greeg < Formula
+  desc "A grep for coding agents: indexed, syntax-aware, budgeted"
+  homepage "https://github.com/thiagodmont/greeg"
+  version "@VERSION@"
+  license "MIT OR Apache-2.0"
+
+  on_macos do
+    on_arm do
+      url "https://github.com/thiagodmont/greeg/releases/download/v#{version}/greeg-#{version}-aarch64-apple-darwin.tar.gz"
+      sha256 "@SHA_ARM_MAC@"
+    end
+    on_intel do
+      url "https://github.com/thiagodmont/greeg/releases/download/v#{version}/greeg-#{version}-x86_64-apple-darwin.tar.gz"
+      sha256 "@SHA_X86_MAC@"
+    end
+  end
+  on_linux do
+    on_arm do
+      url "https://github.com/thiagodmont/greeg/releases/download/v#{version}/greeg-#{version}-aarch64-unknown-linux-gnu.tar.gz"
+      sha256 "@SHA_ARM_LINUX@"
+    end
+    on_intel do
+      url "https://github.com/thiagodmont/greeg/releases/download/v#{version}/greeg-#{version}-x86_64-unknown-linux-gnu.tar.gz"
+      sha256 "@SHA_X86_LINUX@"
+    end
+  end
+
+  def install
+    bin.install "greeg"
+    man1.install "greeg.1" if File.exist?("greeg.1")
+  end
+
+  test do
+    system "#{bin}/greeg", "--version"
+  end
+end

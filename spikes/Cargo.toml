@@ -1,0 +1,13 @@
+[workspace]
+resolver = "3"
+members = ["s1-grams", "s2-fresh", "s3-kotlin"]
+
+[workspace.package]
+edition = "2024"
+publish = false
+
+[profile.release]
+opt-level = 3
+debug = 1
+lto = "thin"
+codegen-units = 4

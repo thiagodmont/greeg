@@ -1,0 +1,67 @@
+# Agent-protocol tasks (PLAN.md M6 step 4). Each task is a realistic coding-agent
+# request on a pinned corpus with a mechanical success check run in the corpus
+# after the agent finishes. Arms:
+#   A  rg only:     --disallowedTools Grep, no greeg on PATH
+#   B  greeg hook:  `greeg hook claude` installed (rg/grep calls rewritten)
+#   C  greeg skill: hook + the greeg skill file the hook installs, prompt mentions greeg
+# Three paired runs per (task, arm); see README.md for the commands.
+
+[[task]]
+id = "tokio-joinhandle-abort"
+corpus = "tokio"
+prompt = "Find where JoinHandle::abort is implemented and list every public API that can cancel a spawned task. Answer with file:line for each."
+check = "grep -q 'tokio/src/runtime/task/join.rs' answer.txt && grep -qi 'abort_handle\\|AbortHandle' answer.txt"
+
+[[task]]
+id = "tokio-semaphore-permits"
+corpus = "tokio"
+prompt = "Which struct owns the permit count behind tokio::sync::Semaphore, and which method releases permits back? Give file:line for the struct and the method."
+check = "grep -q 'batch_semaphore.rs' answer.txt && grep -q 'release' answer.txt"
+
+[[task]]
+id = "django-queryset-ordering"
+corpus = "django"
+prompt = "Where does ModelAdmin decide the ordering of its changelist queryset? Name the method and the file:line, and say which other method it calls to get the ordering."
+check = "grep -q 'django/contrib/admin/options.py' answer.txt && grep -q 'get_ordering' answer.txt"
+
+[[task]]
+id = "django-csrf-token"
+corpus = "django"
+prompt = "Trace how the csrf_token template tag obtains its value: list the functions involved from the template tag down to the function that reads the cookie, with file:line each."
+check = "grep -q 'get_token' answer.txt && grep -q 'django/middleware/csrf.py' answer.txt"
+
+[[task]]
+id = "ktor-content-negotiation"
+corpus = "ktor"
+prompt = "Find the plugin that installs ContentNegotiation on the server side and list the converters it registers by default. Give file:line."
+check = "grep -qi 'ContentNegotiation' answer.txt && grep -q 'ktor-server' answer.txt"
+
+[[task]]
+id = "ktor-respond-text"
+corpus = "ktor"
+prompt = "Which function implements ApplicationCall.respondText, and what ContentType does it default to? file:line please."
+check = "grep -q 'respondText' answer.txt && grep -qi 'text/plain\\|Text.Plain' answer.txt"
+
+[[task]]
+id = "typescript-create-source-file"
+corpus = "TypeScript-5.9"
+prompt = "Where is createSourceFile defined in the compiler, and which function does it delegate parsing to? Give file:line for both."
+check = "grep -q 'src/compiler/parser.ts' answer.txt && grep -q 'parseSourceFile' answer.txt"
+
+[[task]]
+id = "typescript-checker-entry"
+corpus = "TypeScript-5.9"
+prompt = "Which function is the entry point for type-checking a whole source file in the checker, and which function calls it? file:line for both."
+check = "grep -q 'src/compiler/checker.ts' answer.txt && grep -q 'checkSourceFile' answer.txt"
+
+[[task]]
+id = "coroutines-dispatchers-default"
+corpus = "kotlinx-coroutines"
+prompt = "How is Dispatchers.Default implemented on the JVM: which class backs it and where is the thread count decided? file:line each."
+check = "grep -q 'DefaultScheduler\\|CoroutineScheduler' answer.txt && grep -q 'kotlinx-coroutines-core/jvm' answer.txt"
+
+[[task]]
+id = "coroutines-launch"
+corpus = "kotlinx-coroutines"
+prompt = "Find the definition of CoroutineScope.launch and the coroutine class it instantiates. file:line for both."
+check = "grep -q 'Builders.common.kt' answer.txt && grep -q 'StandaloneCoroutine\\|LazyStandaloneCoroutine' answer.txt"

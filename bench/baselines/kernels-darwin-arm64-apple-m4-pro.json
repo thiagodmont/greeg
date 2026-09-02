@@ -1,0 +1,26 @@
+{
+ "host": {
+  "cpus": 12,
+  "key": "darwin-arm64-apple-m4-pro",
+  "os": "macOS-26.5-arm64-arm-64bit-Mach-O",
+  "python": "3.13.6"
+ },
+ "ns": {
+  "extract/python_64KiB": 4516228.300833332,
+  "extract/rust_64KiB": 4351879.481666664,
+  "gram/extract_1MiB": 762542.5191292604,
+  "gram/literal_keys": 117.20021087841633,
+  "lexer/python_1MiB": 463616.14186455234,
+  "lexer/rust_1MiB": 472143.4741238146,
+  "plan/(get_set)_queryset": 4598.105566713764,
+  "plan/Pin_&mut Self_": 1353.1875764898682,
+  "plan/TODO_FIXME_XXX": 2891.797100645952,
+  "plan/[a-z]+": 590.3595944941011,
+  "plan/_bpoll__w+_(": 3344.1017027956964,
+  "plan/createSourceFile": 1376.6248074385062,
+  "plan/fn _w+_borrowck": 3392.1497550935774,
+  "plan/impl_[__]+_ _w+ for _w+": 6160.516453561331,
+  "postings/and3_60k_40k_20k": 5068.3709589992795,
+  "postings/deserialize_60k": 821.4936673650046
+ }
+}

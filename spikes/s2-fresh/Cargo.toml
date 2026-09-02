@@ -1,0 +1,15 @@
+[package]
+name = "s2-fresh"
+version = "0.0.0"
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+ignore = "0.4"
+rayon = "1"
+anyhow = "1"
+xxhash-rust = { version = "0.8", features = ["xxh3"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+fsevent-sys = "4"
+core-foundation = "0.10"

@@ -1,0 +1,22 @@
+[package]
+name = "greeg-query"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Scan, classify, rank and shape search results for greeg"
+
+[dependencies]
+greeg-lang = { path = "../greeg-lang" }
+greeg-index = { path = "../greeg-index" }
+anyhow.workspace = true
+bstr.workspace = true
+globset.workspace = true
+grep-matcher.workspace = true
+grep-regex.workspace = true
+grep-searcher.workspace = true
+ignore.workspace = true
+memchr.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+libc.workspace = true

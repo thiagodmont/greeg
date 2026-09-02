@@ -1,0 +1,349 @@
+//! Regex → trigram query (DESIGN.md §5.2), after Russ Cox's analysis.
+//!
+//! Each HIR node yields (emptyable, exact set, prefix set, suffix set, query).
+//! Sets are bounded; when a set grows past its limit its trigrams are folded
+//! into the query and the set degrades to "unknown".
+
+use crate::gram::literal_keys;
+use anyhow::Result;
+use regex_syntax::hir::{Class, Hir, HirKind};
+use std::collections::BTreeSet;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Q {
+    All,
+    None,
+    Gram(u32),
+    And(Vec<Q>),
+    Or(Vec<Q>),
+}
+
+const MAX_SET: usize = 32;
+const MAX_STR: usize = 24;
+
+type Set = BTreeSet<Vec<u8>>;
+
+#[derive(Clone, Debug)]
+struct Info {
+    emptyable: bool,
+    exact: Option<Set>,
+    prefix: Set,
+    suffix: Set,
+    q: Q,
+}
+
+fn one(s: &[u8]) -> Set {
+    let mut v = BTreeSet::new();
+    v.insert(s.to_vec());
+    v
+}
+
+fn empty_str() -> Set {
+    one(b"")
+}
+
+/// AND of trigram groups of every string in the set (OR across strings).
+fn trigrams_of(set: &Set) -> Q {
+    let mut alts = Vec::new();
+    for s in set {
+        let groups = literal_keys(s);
+        if groups.is_empty() {
+            return Q::All; // some string too short to constrain
+        }
+        let mut ands: Vec<Q> = groups.into_iter().flat_map(|g| g.into_iter().map(Q::Gram)).collect();
+        ands.dedup();
+        alts.push(if ands.len() == 1 { ands.pop().unwrap() } else { Q::And(ands) });
+    }
+    if alts.is_empty() {
+        Q::All
+    } else if alts.len() == 1 {
+        alts.pop().unwrap()
+    } else {
+        Q::Or(alts)
+    }
+}
+
+fn and(a: Q, b: Q) -> Q {
+    match (a, b) {
+        (Q::All, x) | (x, Q::All) => x,
+        (Q::None, _) | (_, Q::None) => Q::None,
+        (Q::And(mut x), Q::And(mut y)) => {
+            x.append(&mut y);
+            Q::And(x)
+        }
+        (Q::And(mut x), y) | (y, Q::And(mut x)) => {
+            x.push(y);
+            Q::And(x)
+        }
+        (x, y) => Q::And(vec![x, y]),
+    }
+}
+
+fn or(a: Q, b: Q) -> Q {
+    match (a, b) {
+        (Q::All, _) | (_, Q::All) => Q::All,
+        (Q::None, x) | (x, Q::None) => x,
+        (Q::Or(mut x), Q::Or(mut y)) => {
+            x.append(&mut y);
+            Q::Or(x)
+        }
+        (Q::Or(mut x), y) | (y, Q::Or(mut x)) => {
+            x.push(y);
+            Q::Or(x)
+        }
+        (x, y) => Q::Or(vec![x, y]),
+    }
+}
+
+fn cross(a: &Set, b: &Set) -> Set {
+    let mut out = BTreeSet::new();
+    for x in a {
+        for y in b {
+            let mut s = x.clone();
+            s.extend_from_slice(y);
+            out.insert(s);
+        }
+    }
+    out
+}
+
+fn trim_prefixes(set: &Set) -> Set {
+    set.iter().map(|s| s[..s.len().min(MAX_STR)].to_vec()).collect()
+}
+fn trim_suffixes(set: &Set) -> Set {
+    set.iter().map(|s| s[s.len().saturating_sub(MAX_STR)..].to_vec()).collect()
+}
+
+/// Fold an oversized exact set into the query (Cox's simplification).
+fn simplify(mut i: Info) -> Info {
+    if let Some(ex) = &i.exact
+        && (ex.len() > MAX_SET || ex.iter().any(|s| s.len() > MAX_STR)) {
+            i.q = and(i.q.clone(), trigrams_of(ex));
+            i.prefix = trim_prefixes(ex).into_iter().map(|s| s[..s.len().min(3)].to_vec()).collect();
+            i.suffix = trim_suffixes(ex).into_iter().map(|s| s[s.len().saturating_sub(3)..].to_vec()).collect();
+            i.exact = None;
+        }
+    if i.prefix.len() > MAX_SET {
+        i.prefix = i.prefix.iter().map(|s| s[..s.len().min(2)].to_vec()).collect();
+        if i.prefix.len() > MAX_SET {
+            i.prefix = empty_str();
+        }
+    }
+    if i.suffix.len() > MAX_SET {
+        i.suffix = i.suffix.iter().map(|s| s[s.len().saturating_sub(2)..].to_vec()).collect();
+        if i.suffix.len() > MAX_SET {
+            i.suffix = empty_str();
+        }
+    }
+    i
+}
+
+fn analyze(h: &Hir) -> Info {
+    let info = match h.kind() {
+        HirKind::Empty | HirKind::Look(_) => Info { emptyable: true, exact: Some(empty_str()), prefix: empty_str(), suffix: empty_str(), q: Q::All },
+        HirKind::Literal(l) => {
+            let b: Vec<u8> = l.0.iter().map(|&c| crate::gram::fold(c)).collect();
+            Info { emptyable: b.is_empty(), exact: Some(one(&b)), prefix: one(&b), suffix: one(&b), q: Q::All }
+        }
+        HirKind::Class(c) => {
+            let members = class_members(c);
+            match members {
+                Some(ms) if !ms.is_empty() && ms.len() <= 8 => {
+                    let set: Set = ms.into_iter().map(|b| vec![b]).collect();
+                    Info { emptyable: false, exact: Some(set.clone()), prefix: set.clone(), suffix: set, q: Q::All }
+                }
+                _ => Info { emptyable: false, exact: None, prefix: empty_str(), suffix: empty_str(), q: Q::All },
+            }
+        }
+        HirKind::Repetition(r) => {
+            let sub = analyze(&r.sub);
+            if r.min == 0 {
+                Info { emptyable: true, exact: None, prefix: empty_str(), suffix: empty_str(), q: Q::All }
+            } else if r.min == 1 && r.max == Some(1) {
+                sub
+            } else {
+                // e{n,m} with n>=1: at least one copy; prefix/suffix of e; query of e
+                Info { emptyable: sub.emptyable, exact: None, prefix: sub.prefix, suffix: sub.suffix, q: sub.q }
+            }
+        }
+        HirKind::Capture(c) => analyze(&c.sub),
+        HirKind::Concat(parts) => {
+            let mut acc = Info { emptyable: true, exact: Some(empty_str()), prefix: empty_str(), suffix: empty_str(), q: Q::All };
+            for p in parts {
+                let b = analyze(p);
+                acc = concat(acc, b);
+            }
+            acc
+        }
+        HirKind::Alternation(alts) => {
+            let mut it = alts.iter();
+            let mut acc = analyze(it.next().unwrap());
+            for a in it {
+                let b = analyze(a);
+                acc = alternate(acc, b);
+            }
+            acc
+        }
+    };
+    simplify(info)
+}
+
+fn concat(a: Info, b: Info) -> Info {
+    let mut q = and(a.q.clone(), b.q.clone());
+    // trigrams spanning the boundary
+    let mid = cross(&a.suffix, &b.prefix);
+    q = and(q, trigrams_of(&mid));
+    let exact = match (&a.exact, &b.exact) {
+        (Some(x), Some(y)) => Some(cross(x, y)),
+        _ => None,
+    };
+    let prefix = match &a.exact {
+        Some(x) => cross(x, &b.prefix),
+        None => a.prefix.clone(),
+    };
+    let suffix = match &b.exact {
+        Some(y) => cross(&a.suffix, y),
+        None => b.suffix.clone(),
+    };
+    let mut out = Info { emptyable: a.emptyable && b.emptyable, exact, prefix, suffix, q };
+    if let Some(ex) = &out.exact
+        && ex.len() > MAX_SET {
+            out = simplify(out);
+        }
+    simplify(out)
+}
+
+fn alternate(a: Info, b: Info) -> Info {
+    let exact = match (&a.exact, &b.exact) {
+        (Some(x), Some(y)) => Some(x.union(y).cloned().collect()),
+        _ => None,
+    };
+    let with_exact = |i: &Info| and(i.q.clone(), i.exact.as_ref().map(trigrams_of).unwrap_or(Q::All));
+    let q = match (&a.exact, &b.exact) {
+        (Some(_), Some(_)) => Q::All, // handled through exact when finalized
+        _ => or(with_exact(&a), with_exact(&b)),
+    };
+    simplify(Info { emptyable: a.emptyable || b.emptyable, exact, prefix: a.prefix.union(&b.prefix).cloned().collect(), suffix: a.suffix.union(&b.suffix).cloned().collect(), q })
+}
+
+/// Bytes matched by a class if it is small and ASCII (case-folded), else None.
+fn class_members(c: &Class) -> Option<Vec<u8>> {
+    let mut out = BTreeSet::new();
+    match c {
+        Class::Unicode(u) => {
+            for r in u.iter() {
+                let (s, e) = (r.start() as u32, r.end() as u32);
+                if e - s > 16 {
+                    return None;
+                }
+                for cp in s..=e {
+                    if cp >= 0x80 {
+                        return None;
+                    }
+                    out.insert(crate::gram::fold(cp as u8));
+                }
+            }
+        }
+        Class::Bytes(b) => {
+            for r in b.iter() {
+                let (s, e) = (r.start(), r.end());
+                if e - s > 16 {
+                    return None;
+                }
+                for x in s..=e {
+                    if x >= 0x80 {
+                        return None;
+                    }
+                    out.insert(crate::gram::fold(x));
+                }
+            }
+        }
+    }
+    Some(out.into_iter().collect())
+}
+
+/// Remove redundant structure; keep at most `k` grams per AND (the evaluator
+/// sorts by document count so the rarest survive).
+pub fn flatten(q: Q) -> Q {
+    match q {
+        Q::And(v) => {
+            let mut out = Vec::new();
+            for x in v {
+                match flatten(x) {
+                    Q::All => {}
+                    Q::None => return Q::None,
+                    Q::And(mut inner) => out.append(&mut inner),
+                    other => out.push(other),
+                }
+            }
+            out.sort_by_key(|x| match x { Q::Gram(g) => *g as u64, _ => u64::MAX });
+            out.dedup();
+            match out.len() {
+                0 => Q::All,
+                1 => out.pop().unwrap(),
+                _ => Q::And(out),
+            }
+        }
+        Q::Or(v) => {
+            let mut out = Vec::new();
+            for x in v {
+                match flatten(x) {
+                    Q::All => return Q::All,
+                    Q::None => {}
+                    Q::Or(mut inner) => out.append(&mut inner),
+                    other => out.push(other),
+                }
+            }
+            match out.len() {
+                0 => Q::None,
+                1 => out.pop().unwrap(),
+                _ => Q::Or(out),
+            }
+        }
+        other => other,
+    }
+}
+
+/// Plan a gram query for a pattern. `fixed` = literal string, `casei` = -i.
+pub fn plan(pattern: &str, fixed: bool, casei: bool) -> Result<Q> {
+    let pat = if fixed { regex_syntax::escape(pattern) } else { pattern.to_string() };
+    let hir = regex_syntax::ParserBuilder::new().case_insensitive(casei).build().parse(&pat)?;
+    let info = analyze(&hir);
+    let mut q = info.q;
+    if let Some(ex) = &info.exact {
+        q = and(q, trigrams_of(ex));
+    }
+    Ok(flatten(q))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn grams(q: &Q) -> usize {
+        match q {
+            Q::Gram(_) => 1,
+            Q::And(v) | Q::Or(v) => v.iter().map(grams).sum(),
+            _ => 0,
+        }
+    }
+    #[test]
+    fn literal() {
+        let q = plan("createSourceFile", false, false).unwrap();
+        assert_eq!(grams(&q), 14);
+    }
+    #[test]
+    fn fixed_and_short() {
+        assert_eq!(plan("ab", true, false).unwrap(), Q::All);
+        assert!(matches!(plan("a.b", true, false).unwrap(), Q::Gram(_)));
+    }
+    #[test]
+    fn alternation_and_classes() {
+        let q = plan("(foo|bar)baz", false, false).unwrap();
+        assert!(matches!(q, Q::Or(_)) || matches!(q, Q::And(_)), "{q:?}");
+        let q = plan("get_[a-z]+set", false, false).unwrap();
+        assert_eq!(grams(&q), 3, "{q:?}"); // get, et_, set
+        assert_eq!(plan(r"\w{5}\s+\w{5}", false, false).unwrap(), Q::All);
+        let q = plan("def get_queryset", false, true).unwrap();
+        assert!(grams(&q) >= 10);
+    }
+}

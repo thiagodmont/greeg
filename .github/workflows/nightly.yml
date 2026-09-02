@@ -1,0 +1,61 @@
+name: nightly
+# Full benchmark protocol (PLAN.md M6): every corpus in the small and medium
+# tiers, the SCIP oracle where an indexer is available, a five-hour soak, and
+# the regression gates. Runs on the reference machine when a self-hosted
+# runner labelled `reference` is registered (repository variable
+# REFERENCE_RUNNER=true), otherwise on a hosted runner where the numbers are
+# informative only (no baseline is stored for that host).
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+    inputs:
+      soak_minutes:
+        description: soak duration in minutes
+        default: "300"
+jobs:
+  full:
+    runs-on: ${{ vars.REFERENCE_RUNNER == 'true' && fromJSON('["self-hosted","reference"]') || 'ubuntu-latest' }}
+    timeout-minutes: 350
+    env:
+      GREEG_BENCH_CACHE: ${{ github.workspace }}/.bench-cache/corpora
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rust-analyzer
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: actions/cache@v4
+        with:
+          path: .bench-cache
+          key: corpora-medium-${{ hashFiles('bench/corpora.toml') }}
+      - name: tools
+        shell: bash
+        run: |
+          if command -v apt-get >/dev/null; then sudo apt-get install -y -qq hyperfine ripgrep; fi
+          if command -v brew >/dev/null; then brew install hyperfine ripgrep || true; fi
+          pip3 install --quiet tiktoken || true
+      - run: cargo build --release -p greeg
+      - run: cargo test --workspace
+      - run: python3 bench/bench.py fetch tokio ktor django kotlinx-coroutines TypeScript-5.9 TypeScript
+      - name: kernels
+        run: |
+          cargo bench -p greeg-index --bench kernels -- --noplot
+          python3 bench/bench.py gate kernels --tolerance 5
+      - name: speed
+        run: |
+          python3 bench/bench.py speed --corpora tokio,ktor,django,kotlinx-coroutines,TypeScript-5.9,TypeScript --cold
+          python3 bench/bench.py gate speed --tolerance 10
+      - name: oracle
+        run: python3 bench/bench.py oracle tokio django TypeScript-5.9
+      - name: soak
+        run: python3 bench/soak.py ${{ github.event.inputs.soak_minutes || 300 }} target/release/greeg $GREEG_BENCH_CACHE/tokio $GREEG_BENCH_CACHE/django $GREEG_BENCH_CACHE/ktor
+      - run: python3 bench/bench.py report --out bench/results/BENCH.md
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: nightly-${{ github.run_id }}
+          path: bench/results/
