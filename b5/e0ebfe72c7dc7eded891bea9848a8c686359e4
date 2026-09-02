@@ -1,0 +1,19 @@
+.github/workflows/release.yml
+  s_9b7c1735a1250e::t_a956d77fa5503d 62-82
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "b5e0ebfe72c7dc7eded891bea9848a8c686359e4",
+  "prompts": {},
+  "sessions": {
+    "s_9b7c1735a1250e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e56b20a8-6686-4cba-b823-bddea6d1adfe",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
