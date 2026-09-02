@@ -16,13 +16,26 @@ pub fn apply(r: &mut ScanResult, rep: &Report) {
         if !f.lang.has_grammar() {
             continue;
         }
-        if !f.hits.iter().any(|h| matches!(h.kind, HitKind::Call | HitKind::Type | HitKind::Member | HitKind::Ident)) {
+        if !f.hits.iter().any(|h| {
+            matches!(
+                h.kind,
+                HitKind::Call | HitKind::Type | HitKind::Member | HitKind::Ident
+            )
+        }) {
             continue;
         }
-        let Some(src) = f.source().map(|s| s.bytes.clone()) else { continue };
-        let Some(parsed) = sym::parse(f.lang, sym::is_tsx(&f.rel), &src) else { continue };
+        let Some(src) = f.source().map(|s| s.bytes.clone()) else {
+            continue;
+        };
+        let Some(parsed) = sym::parse(f.lang, sym::is_tsx(&f.rel), &src) else {
+            continue;
+        };
         for h in &mut f.hits {
-            if !matches!(h.kind, HitKind::Call | HitKind::Type | HitKind::Member | HitKind::Ident) || h.match_end as usize > src.len() {
+            if !matches!(
+                h.kind,
+                HitKind::Call | HitKind::Type | HitKind::Member | HitKind::Ident
+            ) || h.match_end as usize > src.len()
+            {
                 continue;
             }
             let old = h.kind;

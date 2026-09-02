@@ -73,7 +73,17 @@ fn hook_entry() -> Value {
 }
 
 fn is_ours(v: &Value) -> bool {
-    v.get("hooks").and_then(|h| h.as_array()).map(|a| a.iter().any(|h| h.get("command").and_then(|c| c.as_str()).map(|c| c.starts_with("greeg hook")).unwrap_or(false))).unwrap_or(false)
+    v.get("hooks")
+        .and_then(|h| h.as_array())
+        .map(|a| {
+            a.iter().any(|h| {
+                h.get("command")
+                    .and_then(|c| c.as_str())
+                    .map(|c| c.starts_with("greeg hook"))
+                    .unwrap_or(false)
+            })
+        })
+        .unwrap_or(false)
 }
 
 pub fn install_claude(uninstall: bool, dry_run: bool) -> Result<()> {
@@ -83,9 +93,15 @@ pub fn install_claude(uninstall: bool, dry_run: bool) -> Result<()> {
         Ok(s) => serde_json::from_str(&s).with_context(|| format!("parse {}", sp.display()))?,
         Err(_) => json!({}),
     };
-    let obj = settings.as_object_mut().context("settings.json is not an object")?;
+    let obj = settings
+        .as_object_mut()
+        .context("settings.json is not an object")?;
     let hooks = obj.entry("hooks").or_insert_with(|| json!({}));
-    let pre = hooks.as_object_mut().context("hooks is not an object")?.entry("PreToolUse").or_insert_with(|| json!([]));
+    let pre = hooks
+        .as_object_mut()
+        .context("hooks is not an object")?
+        .entry("PreToolUse")
+        .or_insert_with(|| json!([]));
     let arr = pre.as_array_mut().context("PreToolUse is not an array")?;
     let had = arr.iter().any(is_ours);
     if uninstall {
@@ -96,8 +112,30 @@ pub fn install_claude(uninstall: bool, dry_run: bool) -> Result<()> {
     }
     let out = serde_json::to_string_pretty(&settings)?;
     if dry_run {
-        println!("{}: {}", sp.display(), if uninstall { if had { "would remove the greeg hook" } else { "no greeg hook present" } } else if had { "hook already installed" } else { "would add PreToolUse hook `greeg hook run` (matcher Bash)" });
-        println!("{}: {}", kp.display(), if uninstall { "would remove" } else { "would write the greeg skill" });
+        println!(
+            "{}: {}",
+            sp.display(),
+            if uninstall {
+                if had {
+                    "would remove the greeg hook"
+                } else {
+                    "no greeg hook present"
+                }
+            } else if had {
+                "hook already installed"
+            } else {
+                "would add PreToolUse hook `greeg hook run` (matcher Bash)"
+            }
+        );
+        println!(
+            "{}: {}",
+            kp.display(),
+            if uninstall {
+                "would remove"
+            } else {
+                "would write the greeg skill"
+            }
+        );
         return Ok(());
     }
     if let Some(p) = sp.parent() {
@@ -106,13 +144,26 @@ pub fn install_claude(uninstall: bool, dry_run: bool) -> Result<()> {
     std::fs::write(&sp, out)?;
     if uninstall {
         let _ = std::fs::remove_file(&kp);
-        println!("removed the greeg hook from {} and {}", sp.display(), kp.display());
+        println!(
+            "removed the greeg hook from {} and {}",
+            sp.display(),
+            kp.display()
+        );
     } else {
         if let Some(p) = kp.parent() {
             std::fs::create_dir_all(p)?;
         }
         std::fs::write(&kp, SKILL)?;
-        println!("{}: {}\n{}: skill written\nrestart Claude Code (or /hooks) to pick up the hook; test with: echo '{{\"tool_name\":\"Bash\",\"tool_input\":{{\"command\":\"rg -n foo src\"}}}}' | greeg hook run\nnote: PreToolUse hooks run in parallel (last updatedInput wins); pair Bash(rg:*) allow rules with Bash(greeg:*)", sp.display(), if had { "hook already installed" } else { "PreToolUse hook `greeg hook run` added" }, kp.display());
+        println!(
+            "{}: {}\n{}: skill written\nrestart Claude Code (or /hooks) to pick up the hook; test with: echo '{{\"tool_name\":\"Bash\",\"tool_input\":{{\"command\":\"rg -n foo src\"}}}}' | greeg hook run\nnote: PreToolUse hooks run in parallel (last updatedInput wins); pair Bash(rg:*) allow rules with Bash(greeg:*)",
+            sp.display(),
+            if had {
+                "hook already installed"
+            } else {
+                "PreToolUse hook `greeg hook run` added"
+            },
+            kp.display()
+        );
     }
     Ok(())
 }
@@ -138,7 +189,14 @@ fn scan_ops(cmd: &str) -> Option<Vec<OpAt>> {
     let mut i = 0;
     let next = |i: usize| b.get(i + 1).copied();
     while i < b.len() {
-        let mut push = |text: &'static str, len: usize, redirect: bool| ops.push(OpAt { start: i, end: i + len, text, redirect });
+        let mut push = |text: &'static str, len: usize, redirect: bool| {
+            ops.push(OpAt {
+                start: i,
+                end: i + len,
+                text,
+                redirect,
+            })
+        };
         match b[i] {
             b'\'' => {
                 i += 1;
@@ -250,7 +308,10 @@ fn shell_words(s: &str) -> Option<Vec<String>> {
 }
 
 fn quote(w: &str) -> String {
-    if !w.is_empty() && w.bytes().all(|b| b.is_ascii_alphanumeric() || b"-_./:=,@+".contains(&b)) {
+    if !w.is_empty()
+        && w.bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"-_./:=,@+".contains(&b))
+    {
         w.to_string()
     } else {
         format!("'{}'", w.replace('\'', "'\\''"))
@@ -276,7 +337,9 @@ enum Flag {
     /// cosmetic: drop
     Drop,
     /// cosmetic with a value: drop both (`optional` = value only via `=`)
-    DropValue { optional: bool },
+    DropValue {
+        optional: bool,
+    },
     /// takes a value; emitted as `name value`
     Value,
     Fixed,
@@ -309,22 +372,45 @@ fn short_flag(c: char, prog: Prog) -> Flag {
 fn long_flag(name: &str, prog: Prog) -> Flag {
     use Flag::*;
     match (name, prog) {
-        ("--ignore-case" | "--word-regexp" | "--line-regexp" | "--files-with-matches" | "--count", _) => Keep,
-        ("--smart-case" | "--case-sensitive" | "--multiline" | "--no-ignore" | "--hidden" | "--json" | "--stats", Prog::Rg) => Keep,
+        (
+            "--ignore-case"
+            | "--word-regexp"
+            | "--line-regexp"
+            | "--files-with-matches"
+            | "--count",
+            _,
+        ) => Keep,
+        (
+            "--smart-case" | "--case-sensitive" | "--multiline" | "--no-ignore" | "--hidden"
+            | "--json" | "--stats",
+            Prog::Rg,
+        ) => Keep,
         ("--fixed-strings", _) => Fixed,
         ("--unrestricted", Prog::Rg) => Unrestricted,
         ("--extended-regexp", Prog::Grep) => Ere,
         ("--basic-regexp", Prog::Grep) => Bre,
         ("--recursive" | "--dereference-recursive", Prog::Grep) => Recursive,
-        ("--line-number" | "--with-filename" | "--no-filename" | "--no-messages" | "--line-buffered", _) => Drop,
-        ("--no-line-number" | "--heading" | "--no-heading" | "--column" | "--no-column" | "--pretty" | "--trim" | "--block-buffered" | "--vimgrep" | "--no-config" | "--mmap" | "--no-mmap", Prog::Rg) => Drop,
+        (
+            "--line-number" | "--with-filename" | "--no-filename" | "--no-messages"
+            | "--line-buffered",
+            _,
+        ) => Drop,
+        (
+            "--no-line-number" | "--heading" | "--no-heading" | "--column" | "--no-column"
+            | "--pretty" | "--trim" | "--block-buffered" | "--vimgrep" | "--no-config" | "--mmap"
+            | "--no-mmap",
+            Prog::Rg,
+        ) => Drop,
         ("--initial-tab", Prog::Grep) => Drop,
         ("--color" | "--colour", Prog::Rg) => DropValue { optional: false },
         ("--colors" | "--sort" | "--sortr", Prog::Rg) => DropValue { optional: false },
         ("--color" | "--colour", Prog::Grep) => DropValue { optional: true },
         ("--binary-files", Prog::Grep) => DropValue { optional: false },
         ("--after-context" | "--before-context" | "--context" | "--regexp", _) => Value,
-        ("--glob" | "--type" | "--type-not" | "--threads" | "--max-columns" | "--max-filesize", Prog::Rg) => Value,
+        (
+            "--glob" | "--type" | "--type-not" | "--threads" | "--max-columns" | "--max-filesize",
+            Prog::Rg,
+        ) => Value,
         ("--include" | "--exclude" | "--exclude-dir", Prog::Grep) => Value,
         _ => Unsupported,
     }
@@ -365,7 +451,8 @@ impl Parsed {
                 let v = value?;
                 match name {
                     "-e" | "--regexp" => self.patterns.push(v),
-                    "-A" | "-B" | "-C" | "-j" | "--after-context" | "--before-context" | "--context" | "--threads" | "--max-columns" | "--max-filesize" => {
+                    "-A" | "-B" | "-C" | "-j" | "--after-context" | "--before-context"
+                    | "--context" | "--threads" | "--max-columns" | "--max-filesize" => {
                         v.parse::<u64>().ok()?;
                         self.flags.push(name.to_string());
                         self.flags.push(v);
@@ -399,7 +486,10 @@ impl Parsed {
     }
 }
 
-const VERBS: &[&str] = &["def", "refs", "callers", "impls", "outline", "map", "impact", "index", "doctor", "man", "hook", "lang"];
+const VERBS: &[&str] = &[
+    "def", "refs", "callers", "impls", "outline", "map", "impact", "index", "doctor", "man",
+    "hook", "lang",
+];
 
 fn parse(words: &[String], prog: Prog) -> Option<Parsed> {
     let mut p = Parsed::default();
@@ -442,7 +532,11 @@ fn parse(words: &[String], prog: Prog) -> Option<Parsed> {
             continue;
         }
         for (k, c) in body.char_indices() {
-            let c = if prog == Prog::Grep && c == 'y' { 'i' } else { c };
+            let c = if prog == Prog::Grep && c == 'y' {
+                'i'
+            } else {
+                c
+            };
             let kind = short_flag(c, prog);
             let name = format!("-{c}");
             if kind == Flag::Value {
@@ -567,10 +661,16 @@ pub fn rewrite_segment(seg: &str) -> Option<String> {
     };
     let paths = std::mem::take(&mut p.positional);
     // stdin readers become tree searches: leave them alone
-    if paths.iter().any(|(w, _)| w == "-") || (prog == Prog::Grep && !p.recursive && paths.is_empty()) {
+    if paths.iter().any(|(w, _)| w == "-")
+        || (prog == Prog::Grep && !p.recursive && paths.is_empty())
+    {
         return None;
     }
-    let pattern = if prog == Prog::Grep && !p.ere && !p.fixed { bre_to_ere(&pattern)? } else { pattern };
+    let pattern = if prog == Prog::Grep && !p.ere && !p.fixed {
+        bre_to_ere(&pattern)?
+    } else {
+        pattern
+    };
 
     let mut out: Vec<String> = vec!["greeg".into()];
     out.extend(p.flags);
@@ -619,7 +719,10 @@ pub fn rewrite_command(cmd: &str) -> Option<String> {
     }
     let (seg, tail) = match ops.get(idx) {
         Some(op) if op.redirect => return None,
-        Some(op) => (&cmd[seg_start..op.start], Some((op.text, cmd[op.end..].trim_start()))),
+        Some(op) => (
+            &cmd[seg_start..op.start],
+            Some((op.text, cmd[op.end..].trim_start())),
+        ),
         None => (&cmd[seg_start..], None),
     };
     let new = rewrite_segment(seg)?;
@@ -640,7 +743,13 @@ pub fn run() -> Result<()> {
     if v.get("tool_name").and_then(|t| t.as_str()) != Some("Bash") {
         return Ok(());
     }
-    let Some(cmd) = v.get("tool_input").and_then(|t| t.get("command")).and_then(|c| c.as_str()) else { return Ok(()) };
+    let Some(cmd) = v
+        .get("tool_input")
+        .and_then(|t| t.get("command"))
+        .and_then(|c| c.as_str())
+    else {
+        return Ok(());
+    };
     if let Some(new) = rewrite_command(cmd)
         && new != cmd
     {
@@ -673,9 +782,18 @@ mod tests {
     #[test]
     fn basics() {
         same("rg -n foo src", "greeg foo src");
-        same("rg -in 'get queryset' --type py", "greeg -i --type py 'get queryset'");
-        same("grep -rn \"TODO\" . --include=*.rs", "greeg -g '*.rs' TODO .");
-        same("grep -rnw foo src/ | head -20", "greeg -w foo src/ | head -20");
+        same(
+            "rg -in 'get queryset' --type py",
+            "greeg -i --type py 'get queryset'",
+        );
+        same(
+            "grep -rn \"TODO\" . --include=*.rs",
+            "greeg -g '*.rs' TODO .",
+        );
+        same(
+            "grep -rnw foo src/ | head -20",
+            "greeg -w foo src/ | head -20",
+        );
         same("cd /tmp/x && rg foo", "cd /tmp/x && greeg foo");
         same("rg def --type rs", "greeg --type rs -e def");
         same("rg -C 3 'fn main' crates", "greeg -C 3 'fn main' crates");
@@ -739,8 +857,14 @@ mod tests {
 
     #[test]
     fn pipe_safe_list_and_count() {
-        same("rg -l foo | xargs sed -i 's/a/b/'", "greeg -l foo | xargs sed -i 's/a/b/'");
-        same("rg -c foo src | sort -t: -k2 -n", "greeg -c foo src | sort -t: -k2 -n");
+        same(
+            "rg -l foo | xargs sed -i 's/a/b/'",
+            "greeg -l foo | xargs sed -i 's/a/b/'",
+        );
+        same(
+            "rg -c foo src | sort -t: -k2 -n",
+            "greeg -c foo src | sort -t: -k2 -n",
+        );
         same("rg -l foo|xargs wc -l", "greeg -l foo | xargs wc -l");
         untouched("vim $(rg -l foo)");
         untouched("vim `rg -l foo`");
@@ -772,8 +896,14 @@ mod tests {
         same("grep -r foo", "greeg foo");
         same("grep foo file.rs", "greeg foo file.rs");
         same("grep -rn --color=always foo src", "greeg foo src");
-        same("grep -r --exclude-dir=node_modules foo .", "greeg -g '!node_modules/**' foo .");
-        same("grep -r --exclude '*.min.js' foo .", "greeg -g '!*.min.js' foo .");
+        same(
+            "grep -r --exclude-dir=node_modules foo .",
+            "greeg -g '!node_modules/**' foo .",
+        );
+        same(
+            "grep -r --exclude '*.min.js' foo .",
+            "greeg -g '!*.min.js' foo .",
+        );
         same("grep -r -3 foo src", "greeg -C 3 foo src");
         same("grep -ry foo src", "greeg -i foo src");
         untouched("grep -rv foo src");
@@ -870,7 +1000,10 @@ mod tests {
         assert_eq!(bre_to_ere("a\\|b").as_deref(), Some("a|b"));
         assert_eq!(bre_to_ere("a|b").as_deref(), Some("a\\|b"));
         assert_eq!(bre_to_ere("\\(a\\)\\+").as_deref(), Some("(a)+"));
-        assert_eq!(bre_to_ere("[[:alpha:]]+").as_deref(), Some("[[:alpha:]]\\+"));
+        assert_eq!(
+            bre_to_ere("[[:alpha:]]+").as_deref(),
+            Some("[[:alpha:]]\\+")
+        );
         assert_eq!(bre_to_ere("[]a]+").as_deref(), Some("[]a]\\+"));
         assert_eq!(bre_to_ere("^*a\\|b"), None);
         assert_eq!(bre_to_ere("[a\\|b"), None);

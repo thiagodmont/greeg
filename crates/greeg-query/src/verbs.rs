@@ -108,11 +108,26 @@ pub fn origin_ids(idx: &Index, from: &[String]) -> Vec<u32> {
 }
 
 /// Signature line and doc first line for a definition at `start` in `src`.
-fn signature_and_doc(idx: Option<(&Index, u32)>, src: &[u8], start: u32, flags: u8, lang: Lang) -> (String, Option<String>) {
+fn signature_and_doc(
+    idx: Option<(&Index, u32)>,
+    src: &[u8],
+    start: u32,
+    flags: u8,
+    lang: Lang,
+) -> (String, Option<String>) {
     let s = start as usize;
-    let le = memchr::memchr(b'\n', &src[s.min(src.len())..]).map(|k| s + k).unwrap_or(src.len());
+    let le = memchr::memchr(b'\n', &src[s.min(src.len())..])
+        .map(|k| s + k)
+        .unwrap_or(src.len());
     let sig = String::from_utf8_lossy(src[s..le].trim_ascii()).to_string();
-    let sig = if sig.len() > 200 { format!("{}…", &sig[..sig.char_indices().nth(197).map(|(i, _)| i).unwrap_or(197)]) } else { sig };
+    let sig = if sig.len() > 200 {
+        format!(
+            "{}…",
+            &sig[..sig.char_indices().nth(197).map(|(i, _)| i).unwrap_or(197)]
+        )
+    } else {
+        sig
+    };
     if flags & SYM_HAS_DOC == 0 {
         return (sig, None);
     }
@@ -134,7 +149,14 @@ fn signature_and_doc(idx: Option<(&Index, u32)>, src: &[u8], start: u32, flags: 
                             continue;
                         }
                         match idx.noncode_at(id, q) {
-                            Some((k2, a2, _)) if (k2 == 0 || k2 == 2) && src[q as usize..p as usize].iter().filter(|&&x| x == b'\n').count() <= 1 => {
+                            Some((k2, a2, _))
+                                if (k2 == 0 || k2 == 2)
+                                    && src[q as usize..p as usize]
+                                        .iter()
+                                        .filter(|&&x| x == b'\n')
+                                        .count()
+                                        <= 1 =>
+                            {
                                 fa = a2;
                                 p = a2;
                             }
@@ -146,7 +168,20 @@ fn signature_and_doc(idx: Option<(&Index, u32)>, src: &[u8], start: u32, flags: 
                 break;
             }
             let c = src[probe as usize];
-            if !(c.is_ascii_whitespace() || c == b'#' || c == b'@' || c == b'[' || c == b']' || c.is_ascii_alphanumeric() || c == b'_' || c == b'(' || c == b')' || c == b'.' || c == b'=' || c == b'"' || c == b',') {
+            if !(c.is_ascii_whitespace()
+                || c == b'#'
+                || c == b'@'
+                || c == b'['
+                || c == b']'
+                || c.is_ascii_alphanumeric()
+                || c == b'_'
+                || c == b'('
+                || c == b')'
+                || c == b'.'
+                || c == b'='
+                || c == b'"'
+                || c == b',')
+            {
                 break;
             }
             probe -= 1;
@@ -154,7 +189,9 @@ fn signature_and_doc(idx: Option<(&Index, u32)>, src: &[u8], start: u32, flags: 
         }
         if lang == Lang::Python {
             let body = &src[s..src.len().min(s + 4096)];
-            if let Some(q) = memchr::memmem::find(body, b"\"\"\"").or_else(|| memchr::memmem::find(body, b"'''")) {
+            if let Some(q) =
+                memchr::memmem::find(body, b"\"\"\"").or_else(|| memchr::memmem::find(body, b"'''"))
+            {
                 let a = s + q;
                 if let Some((2, x, y)) = idx.noncode_at(id, a as u32) {
                     return Some((x, y));
@@ -170,7 +207,23 @@ fn signature_and_doc(idx: Option<(&Index, u32)>, src: &[u8], start: u32, flags: 
 fn doc_first_line(t: &[u8]) -> String {
     for line in t.split(|&b| b == b'\n') {
         let l = String::from_utf8_lossy(line);
-        let l = l.trim().trim_start_matches("/**").trim_start_matches("/*!").trim_start_matches("///").trim_start_matches("//!").trim_start_matches("/*").trim_start_matches('*').trim_start_matches('#').trim_start_matches("\"\"\"").trim_start_matches("'''").trim_start_matches("r\"\"\"").trim().trim_end_matches("*/").trim_end_matches("\"\"\"").trim_end_matches("'''").trim();
+        let l = l
+            .trim()
+            .trim_start_matches("/**")
+            .trim_start_matches("/*!")
+            .trim_start_matches("///")
+            .trim_start_matches("//!")
+            .trim_start_matches("/*")
+            .trim_start_matches('*')
+            .trim_start_matches('#')
+            .trim_start_matches("\"\"\"")
+            .trim_start_matches("'''")
+            .trim_start_matches("r\"\"\"")
+            .trim()
+            .trim_end_matches("*/")
+            .trim_end_matches("\"\"\"")
+            .trim_end_matches("'''")
+            .trim();
         if !l.is_empty() {
             return l.chars().take(120).collect();
         }
@@ -183,10 +236,22 @@ fn kind_filter_ok(kinds: &[HitKind], _k: DefKind) -> bool {
 }
 
 /// `greeg def NAME`.
-pub fn def(o: &Options, name: &str, from: &[String], want_kind: Option<DefKind>) -> Result<DefResult> {
+pub fn def(
+    o: &Options,
+    name: &str,
+    from: &[String],
+    want_kind: Option<DefKind>,
+) -> Result<DefResult> {
     let t0 = Instant::now();
-    let threads = if o.threads == 0 { crate::default_threads() } else { o.threads };
-    let mut res = DefResult { name: name.to_string(), ..Default::default() };
+    let threads = if o.threads == 0 {
+        crate::default_threads()
+    } else {
+        o.threads
+    };
+    let mut res = DefResult {
+        name: name.to_string(),
+        ..Default::default()
+    };
     if o.use_index
         && let Some(op) = indexed::open_fresh(o, threads)?
         && op.idx.has_symbols()
@@ -203,11 +268,17 @@ pub fn def(o: &Options, name: &str, from: &[String], want_kind: Option<DefKind>)
             for (_, seg) in idx.segments() {
                 if let Some(sv) = seg.symbols() {
                     // case-insensitive: scan the prefix range of the first char in both cases
-                    for first in [lower.chars().next().unwrap_or('a').to_ascii_lowercase(), lower.chars().next().unwrap_or('a').to_ascii_uppercase()] {
+                    for first in [
+                        lower.chars().next().unwrap_or('a').to_ascii_lowercase(),
+                        lower.chars().next().unwrap_or('a').to_ascii_uppercase(),
+                    ] {
                         let r = sv.prefix_range(&first.to_string());
                         for nid in r {
                             let n = sv.name(nid);
-                            if n.len() == name.len() && n.eq_ignore_ascii_case(name) && !alts.contains(&n.to_string()) {
+                            if n.len() == name.len()
+                                && n.eq_ignore_ascii_case(name)
+                                && !alts.contains(&n.to_string())
+                            {
                                 alts.push(n.to_string());
                             }
                         }
@@ -226,7 +297,11 @@ pub fn def(o: &Options, name: &str, from: &[String], want_kind: Option<DefKind>)
                 }
                 if alts.is_empty() {
                     let d = if name.len() < 8 { 1 } else { 2 };
-                    alts = idx.fuzzy_names(name, d, 8).into_iter().map(|(n, _)| n).collect();
+                    alts = idx
+                        .fuzzy_names(name, d, 8)
+                        .into_iter()
+                        .map(|(n, _)| n)
+                        .collect();
                     if !alts.is_empty() {
                         rung = Rung::Fuzzy(alts.clone());
                     }
@@ -255,13 +330,44 @@ pub fn def(o: &Options, name: &str, from: &[String], want_kind: Option<DefKind>)
             let rel = idx.path(fid).unwrap_or("").to_string();
             let rch = reach(idx, &origins, fid);
             let kw = kind_weight(r.kind);
-            let exported = if r.flags & SYM_EXPORTED != 0 { 1.0 } else { 0.85 };
-            let score = kw * exported * loc_w(fflags, &rel, o.all) * (0.6 + 0.4 * idx.rank(fid)) * rch;
-            let chain: Vec<(DefKind, String)> = idx.sym_chain(*s).into_iter().map(|(k, n)| (kind_from_code(k), n.to_string())).collect();
+            let exported = if r.flags & SYM_EXPORTED != 0 {
+                1.0
+            } else {
+                0.85
+            };
+            let score =
+                kw * exported * loc_w(fflags, &rel, o.all) * (0.6 + 0.4 * idx.rank(fid)) * rch;
+            let chain: Vec<(DefKind, String)> = idx
+                .sym_chain(*s)
+                .into_iter()
+                .map(|(k, n)| (kind_from_code(k), n.to_string()))
+                .collect();
             let chain = chain[..chain.len().saturating_sub(1)].to_vec();
-            entries.push(DefEntry { rel, line: r.line, kind, name: idx.sym_name(*s).to_string(), chain, signature: String::new(), doc: None, flags: r.flags, file_flags: fflags, supers: idx.sym_supers(*s).iter().map(|s| s.to_string()).collect(), score, reach: rch, start: r.start, end: r.end, file_id: Some(fid) });
+            entries.push(DefEntry {
+                rel,
+                line: r.line,
+                kind,
+                name: idx.sym_name(*s).to_string(),
+                chain,
+                signature: String::new(),
+                doc: None,
+                flags: r.flags,
+                file_flags: fflags,
+                supers: idx.sym_supers(*s).iter().map(|s| s.to_string()).collect(),
+                score,
+                reach: rch,
+                start: r.start,
+                end: r.end,
+                file_id: Some(fid),
+            });
         }
-        entries.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal).then(a.rel.cmp(&b.rel)).then(a.line.cmp(&b.line)));
+        entries.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then(a.rel.cmp(&b.rel))
+                .then(a.line.cmp(&b.line))
+        });
         // impl blocks are secondary: keep at most three unless they are all there is
         if entries.iter().any(|e| e.kind != DefKind::Impl) {
             let mut n_impl = 0;
@@ -275,14 +381,26 @@ pub fn def(o: &Options, name: &str, from: &[String], want_kind: Option<DefKind>)
             });
         }
         // signatures and docs for the entries that will be shown (bounded)
-        let show = if o.budget == 0 { entries.len() } else { (o.budget / 40).clamp(3, 40) };
+        let show = if o.budget == 0 {
+            entries.len()
+        } else {
+            (o.budget / 40).clamp(3, 40)
+        };
         let mut cache: BTreeMap<String, Vec<u8>> = BTreeMap::new();
         for e in entries.iter_mut().take(show) {
-            let src = cache.entry(e.rel.clone()).or_insert_with(|| greeg_lang::read_text(o.root.join(&e.rel)).unwrap_or_default());
+            let src = cache
+                .entry(e.rel.clone())
+                .or_insert_with(|| greeg_lang::read_text(o.root.join(&e.rel)).unwrap_or_default());
             if src.is_empty() || e.start as usize >= src.len() {
                 continue;
             }
-            let (sig, doc) = signature_and_doc(e.file_id.map(|id| (idx, id)), src, e.start, e.flags, Lang::from_path(Path::new(&e.rel)));
+            let (sig, doc) = signature_and_doc(
+                e.file_id.map(|id| (idx, id)),
+                src,
+                e.start,
+                e.flags,
+                Lang::from_path(Path::new(&e.rel)),
+            );
             e.signature = sig;
             e.doc = doc;
         }
@@ -302,7 +420,11 @@ pub fn def(o: &Options, name: &str, from: &[String], want_kind: Option<DefKind>)
     let mut r = scan(&so)?;
     let idxs: Vec<usize> = (0..r.files.len().min(200)).collect();
     crate::refine(&mut r, &idxs);
-    res.source = if r.stats.source == "index" { "index (phase 1)" } else { "scan" };
+    res.source = if r.stats.source == "index" {
+        "index (phase 1)"
+    } else {
+        "scan"
+    };
     res.rung = r.rung.clone();
     let mut entries = Vec::new();
     for f in &r.files {
@@ -311,8 +433,18 @@ pub fn def(o: &Options, name: &str, from: &[String], want_kind: Option<DefKind>)
                 continue;
             }
             let (kind, chain, dstart, dend) = match h.def_idx.map(|d| &f.defs[d as usize]) {
-                Some(d) => (d.kind, h.chain[..h.chain.len().saturating_sub(1)].to_vec(), d.start, d.end),
-                None => (DefKind::Function, h.chain.clone(), h.line_start, h.match_end),
+                Some(d) => (
+                    d.kind,
+                    h.chain[..h.chain.len().saturating_sub(1)].to_vec(),
+                    d.start,
+                    d.end,
+                ),
+                None => (
+                    DefKind::Function,
+                    h.chain.clone(),
+                    h.line_start,
+                    h.match_end,
+                ),
             };
             if let Some(wk) = want_kind
                 && wk != kind
@@ -320,12 +452,37 @@ pub fn def(o: &Options, name: &str, from: &[String], want_kind: Option<DefKind>)
                 continue;
             }
             let _ = kind_filter_ok(&so.kinds, kind);
-            entries.push(DefEntry { rel: f.rel.clone(), line: h.line, kind, name: name.to_string(), chain, signature: String::from_utf8_lossy(&h.text).to_string(), doc: None, flags: 0, file_flags: f.flags, supers: vec![], score: h.score, reach: 0.6, start: dstart, end: dend, file_id: None });
+            entries.push(DefEntry {
+                rel: f.rel.clone(),
+                line: h.line,
+                kind,
+                name: name.to_string(),
+                chain,
+                signature: String::from_utf8_lossy(&h.text).to_string(),
+                doc: None,
+                flags: 0,
+                file_flags: f.flags,
+                supers: vec![],
+                score: h.score,
+                reach: 0.6,
+                start: dstart,
+                end: dend,
+                file_id: None,
+            });
         }
     }
     res.total = entries.len();
-    entries.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal).then(a.rel.cmp(&b.rel)));
-    let show = if o.budget == 0 { entries.len() } else { (o.budget / 40).clamp(3, 40) };
+    entries.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then(a.rel.cmp(&b.rel))
+    });
+    let show = if o.budget == 0 {
+        entries.len()
+    } else {
+        (o.budget / 40).clamp(3, 40)
+    };
     entries.truncate(show.max(1));
     res.entries = entries;
     res.elapsed_ms = t0.elapsed().as_secs_f64() * 1e3;
@@ -355,10 +512,15 @@ pub fn refs(o: &Options, name: &str, kinds: &[HitKind]) -> Result<RefsResult> {
     d.ladder = false;
     d.budget = 400;
     d.fresh = greeg_index::fresh::Mode::None;
-    let defs = def(&d, name, &[], None).map(|r| r.entries).unwrap_or_default();
+    let defs = def(&d, name, &[], None)
+        .map(|r| r.entries)
+        .unwrap_or_default();
     let (mut resolved, mut classified) = (0usize, 0usize);
-    if let Some(op) = if o.use_index { indexed::open_fresh(&d, 1).ok().flatten() } else { None }
-        && op.idx.has_symbols()
+    if let Some(op) = if o.use_index {
+        indexed::open_fresh(&d, 1).ok().flatten()
+    } else {
+        None
+    } && op.idx.has_symbols()
     {
         let def_ids: Vec<u32> = defs.iter().filter_map(|e| e.file_id).collect();
         for f in &scan_r.files {
@@ -369,7 +531,12 @@ pub fn refs(o: &Options, name: &str, kinds: &[HitKind]) -> Result<RefsResult> {
             }
         }
     }
-    Ok(RefsResult { scan: scan_r, defs, resolved, classified })
+    Ok(RefsResult {
+        scan: scan_r,
+        defs,
+        resolved,
+        classified,
+    })
 }
 
 /// One calling function (DESIGN.md §7.4 `callers`).
@@ -421,10 +588,28 @@ pub fn callers(o: &Options, name: &str, depth: usize) -> Result<CallersResult> {
             total += 1;
             // key by the enclosing *function-like* symbol (walk out of nested blocks is implicit: chains end at the innermost def)
             let (chain, def_line) = match h.def_idx.map(|d| &f.defs[d as usize]) {
-                Some(d) => (if d.chain.is_empty() { h.chain.clone() } else { d.chain.clone() }, d.line),
+                Some(d) => (
+                    if d.chain.is_empty() {
+                        h.chain.clone()
+                    } else {
+                        d.chain.clone()
+                    },
+                    d.line,
+                ),
                 None => (Vec::new(), h.line),
             };
-            let e = map.entry((f.rel.clone(), h.def_idx)).or_insert_with(|| Caller { rel: f.rel.clone(), chain, def_line, count: 0, lines: Vec::new(), file_flags: f.flags, score: f.prior, called_by: Vec::new() });
+            let e = map
+                .entry((f.rel.clone(), h.def_idx))
+                .or_insert_with(|| Caller {
+                    rel: f.rel.clone(),
+                    chain,
+                    def_line,
+                    count: 0,
+                    lines: Vec::new(),
+                    file_flags: f.flags,
+                    score: f.prior,
+                    called_by: Vec::new(),
+                });
             e.count += 1;
             if e.lines.len() < 8 {
                 e.lines.push(h.line);
@@ -432,11 +617,18 @@ pub fn callers(o: &Options, name: &str, depth: usize) -> Result<CallersResult> {
         }
     }
     let mut callers: Vec<Caller> = map.into_values().collect();
-    callers.sort_by(|a, b| (b.score * (1.0 + (b.count as f32).ln())).partial_cmp(&(a.score * (1.0 + (a.count as f32).ln()))).unwrap_or(std::cmp::Ordering::Equal).then(a.rel.cmp(&b.rel)));
+    callers.sort_by(|a, b| {
+        (b.score * (1.0 + (b.count as f32).ln()))
+            .partial_cmp(&(a.score * (1.0 + (a.count as f32).ln())))
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then(a.rel.cmp(&b.rel))
+    });
     if depth >= 2 {
         let mut seen: Vec<String> = Vec::new();
         for c in callers.iter_mut().take(12) {
-            let Some((_, cname)) = c.chain.last() else { continue };
+            let Some((_, cname)) = c.chain.last() else {
+                continue;
+            };
             if cname == name || seen.contains(cname) {
                 continue;
             }
@@ -464,7 +656,15 @@ pub fn callers(o: &Options, name: &str, depth: usize) -> Result<CallersResult> {
             }
         }
     }
-    Ok(CallersResult { name: name.to_string(), files: r.files.len(), callers, total_hits: total, source: r.stats.source, elapsed_ms: t0.elapsed().as_secs_f64() * 1e3, rung: r.rung.clone() })
+    Ok(CallersResult {
+        name: name.to_string(),
+        files: r.files.len(),
+        callers,
+        total_hits: total,
+        source: r.stats.source,
+        elapsed_ms: t0.elapsed().as_secs_f64() * 1e3,
+        rung: r.rung.clone(),
+    })
 }
 
 pub struct ImplsResult {
@@ -479,7 +679,11 @@ pub struct ImplsResult {
 
 pub fn impls(o: &Options, name: &str) -> Result<ImplsResult> {
     let t0 = Instant::now();
-    let threads = if o.threads == 0 { crate::default_threads() } else { o.threads };
+    let threads = if o.threads == 0 {
+        crate::default_threads()
+    } else {
+        o.threads
+    };
     let mut direct = Vec::new();
     let mut source = "scan";
     let mut have: Vec<(String, u32)> = Vec::new();
@@ -495,15 +699,53 @@ pub fn impls(o: &Options, name: &str) -> Result<ImplsResult> {
             let fid = idx.sym_file(s);
             let rel = idx.path(fid).unwrap_or("").to_string();
             let fflags = FileFlags(idx.rec(fid).map(|r| r.flags).unwrap_or(0));
-            let chain: Vec<(DefKind, String)> = idx.sym_chain(s).into_iter().map(|(k, n)| (kind_from_code(k), n.to_string())).collect();
+            let chain: Vec<(DefKind, String)> = idx
+                .sym_chain(s)
+                .into_iter()
+                .map(|(k, n)| (kind_from_code(k), n.to_string()))
+                .collect();
             let chain = chain[..chain.len().saturating_sub(1)].to_vec();
-            let src = cache.entry(rel.clone()).or_insert_with(|| greeg_lang::read_text(o.root.join(&rel)).unwrap_or_default());
-            let (sig, doc) = if (r.start as usize) < src.len() { signature_and_doc(Some((idx, fid)), src, r.start, r.flags, Lang::from_path(Path::new(&rel))) } else { (String::new(), None) };
-            let score = kind_weight(r.kind) * loc_w(fflags, &rel, o.all) * (0.6 + 0.4 * idx.rank(fid));
+            let src = cache
+                .entry(rel.clone())
+                .or_insert_with(|| greeg_lang::read_text(o.root.join(&rel)).unwrap_or_default());
+            let (sig, doc) = if (r.start as usize) < src.len() {
+                signature_and_doc(
+                    Some((idx, fid)),
+                    src,
+                    r.start,
+                    r.flags,
+                    Lang::from_path(Path::new(&rel)),
+                )
+            } else {
+                (String::new(), None)
+            };
+            let score =
+                kind_weight(r.kind) * loc_w(fflags, &rel, o.all) * (0.6 + 0.4 * idx.rank(fid));
             have.push((rel.clone(), r.line));
-            direct.push(DefEntry { rel, line: r.line, kind: kind_from_code(r.kind), name: idx.sym_name(s).to_string(), chain, signature: sig, doc, flags: r.flags, file_flags: fflags, supers: idx.sym_supers(s).iter().map(|x| x.to_string()).collect(), score, reach: 0.6, start: r.start, end: r.end, file_id: Some(fid) });
+            direct.push(DefEntry {
+                rel,
+                line: r.line,
+                kind: kind_from_code(r.kind),
+                name: idx.sym_name(s).to_string(),
+                chain,
+                signature: sig,
+                doc,
+                flags: r.flags,
+                file_flags: fflags,
+                supers: idx.sym_supers(s).iter().map(|x| x.to_string()).collect(),
+                score,
+                reach: 0.6,
+                start: r.start,
+                end: r.end,
+                file_id: Some(fid),
+            });
         }
-        direct.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal).then(a.rel.cmp(&b.rel)));
+        direct.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then(a.rel.cmp(&b.rel))
+        });
     }
     // extras: type-position hits on definition lines
     let mut so = o.clone();
@@ -525,22 +767,54 @@ pub fn impls(o: &Options, name: &str) -> Result<ImplsResult> {
                 }
                 let lang = f.lang;
                 let line = &h.text;
-                let Some((ns, ne)) = greeg_lang::defs::def_name_on_line(lang, line) else { continue };
+                let Some((ns, ne)) = greeg_lang::defs::def_name_on_line(lang, line) else {
+                    continue;
+                };
                 let dname = String::from_utf8_lossy(&line[ns..ne]).to_string();
                 if dname == name || have.contains(&(f.rel.clone(), h.line)) {
                     continue;
                 }
-                let kind = h.def_idx.map(|d| f.defs[d as usize].kind).unwrap_or(DefKind::Class);
+                let kind = h
+                    .def_idx
+                    .map(|d| f.defs[d as usize].kind)
+                    .unwrap_or(DefKind::Class);
                 if !kind.is_container() && kind != DefKind::TypeAlias {
                     continue;
                 }
-                extras.push(DefEntry { rel: f.rel.clone(), line: h.line, kind, name: dname, chain: h.chain[..h.chain.len().saturating_sub(1)].to_vec(), signature: String::from_utf8_lossy(line).to_string(), doc: None, flags: 0, file_flags: f.flags, supers: vec![name.to_string()], score: h.score, reach: 0.6, start: h.line_start, end: h.match_end, file_id: f.file_id });
+                extras.push(DefEntry {
+                    rel: f.rel.clone(),
+                    line: h.line,
+                    kind,
+                    name: dname,
+                    chain: h.chain[..h.chain.len().saturating_sub(1)].to_vec(),
+                    signature: String::from_utf8_lossy(line).to_string(),
+                    doc: None,
+                    flags: 0,
+                    file_flags: f.flags,
+                    supers: vec![name.to_string()],
+                    score: h.score,
+                    reach: 0.6,
+                    start: h.line_start,
+                    end: h.match_end,
+                    file_id: f.file_id,
+                });
             }
         }
-        extras.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal).then(a.rel.cmp(&b.rel)));
+        extras.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then(a.rel.cmp(&b.rel))
+        });
         extras.truncate(40);
     }
-    Ok(ImplsResult { name: name.to_string(), direct, extras, source, elapsed_ms: t0.elapsed().as_secs_f64() * 1e3 })
+    Ok(ImplsResult {
+        name: name.to_string(),
+        direct,
+        extras,
+        source,
+        elapsed_ms: t0.elapsed().as_secs_f64() * 1e3,
+    })
 }
 
 pub struct OutlineResult {
@@ -559,7 +833,11 @@ pub fn outline(o: &Options, file: &str) -> Result<OutlineResult> {
     let rel = file.trim_start_matches("./").to_string();
     let path = o.root.join(&rel);
     let lang = Lang::from_path(&path);
-    let threads = if o.threads == 0 { crate::default_threads() } else { o.threads };
+    let threads = if o.threads == 0 {
+        crate::default_threads()
+    } else {
+        o.threads
+    };
     if o.use_index
         && let Some(op) = indexed::open_fresh(o, threads)?
         && op.idx.has_symbols()
@@ -567,8 +845,20 @@ pub fn outline(o: &Options, file: &str) -> Result<OutlineResult> {
         let idx = &op.idx;
         if let Some((id, _, rec)) = idx.live_files().find(|(_, r, _)| *r == rel) {
             let defs = defs_of(idx, id);
-            let imports: Vec<String> = idx.imports_of(id).iter().map(|i| idx.import_raw(id, i).to_string()).collect();
-            return Ok(OutlineResult { rel, defs, imports, source: "index", lang, elapsed_ms: t0.elapsed().as_secs_f64() * 1e3, parse_errors: FileFlags(rec.flags).has(FileFlags::PARSE_ERRORS) });
+            let imports: Vec<String> = idx
+                .imports_of(id)
+                .iter()
+                .map(|i| idx.import_raw(id, i).to_string())
+                .collect();
+            return Ok(OutlineResult {
+                rel,
+                defs,
+                imports,
+                source: "index",
+                lang,
+                elapsed_ms: t0.elapsed().as_secs_f64() * 1e3,
+                parse_errors: FileFlags(rec.flags).has(FileFlags::PARSE_ERRORS),
+            });
         }
     }
     let src = greeg_lang::read_text(&path).with_context(|| format!("read {}", path.display()))?;
@@ -586,10 +876,26 @@ pub fn outline(o: &Options, file: &str) -> Result<OutlineResult> {
             cur = cs.parent;
         }
         chain.reverse();
-        defs.push(DefSummary { name: ex.name(s, &src).to_string(), kind: s.kind, line: s.line, start: s.start, end: s.end, chain, flags: s.flags });
+        defs.push(DefSummary {
+            name: ex.name(s, &src).to_string(),
+            kind: s.kind,
+            line: s.line,
+            start: s.start,
+            end: s.end,
+            chain,
+            flags: s.flags,
+        });
     }
     let imports = ex.imports.iter().map(|i| i.module.clone()).collect();
-    Ok(OutlineResult { rel, defs, imports, source: if ex.tree_sitter { "parse" } else { "regex" }, lang, elapsed_ms: t0.elapsed().as_secs_f64() * 1e3, parse_errors: ex.parse_errors })
+    Ok(OutlineResult {
+        rel,
+        defs,
+        imports,
+        source: if ex.tree_sitter { "parse" } else { "regex" },
+        lang,
+        elapsed_ms: t0.elapsed().as_secs_f64() * 1e3,
+        parse_errors: ex.parse_errors,
+    })
 }
 
 /// One file in a `map`.
@@ -627,16 +933,33 @@ pub struct MapResult {
 /// `greeg map [DIR]`: the most important files and subdirectories by PageRank.
 pub fn map(o: &Options, dir: &str) -> Result<MapResult> {
     let t0 = Instant::now();
-    let threads = if o.threads == 0 { crate::default_threads() } else { o.threads };
-    let dir = dir.trim_start_matches("./").trim_end_matches('/').to_string();
-    let Some(op) = (if o.use_index { indexed::open_fresh(o, threads)? } else { None }) else {
-        bail!("`map` needs the index (it is being built in the background; retry in a moment, or run `greeg index`)");
+    let threads = if o.threads == 0 {
+        crate::default_threads()
+    } else {
+        o.threads
+    };
+    let dir = dir
+        .trim_start_matches("./")
+        .trim_end_matches('/')
+        .to_string();
+    let Some(op) = (if o.use_index {
+        indexed::open_fresh(o, threads)?
+    } else {
+        None
+    }) else {
+        bail!(
+            "`map` needs the index (it is being built in the background; retry in a moment, or run `greeg index`)"
+        );
     };
     let idx = &op.idx;
     if !idx.has_symbols() {
         bail!("`map` needs the symbol table; the index build is still in phase 1");
     }
-    let prefix = if dir.is_empty() { String::new() } else { format!("{dir}/") };
+    let prefix = if dir.is_empty() {
+        String::new()
+    } else {
+        format!("{dir}/")
+    };
     let mut files: Vec<MapFile> = Vec::new();
     let mut dirs: BTreeMap<String, MapDir> = BTreeMap::new();
     let mut symbols_total = 0usize;
@@ -645,14 +968,24 @@ pub fn map(o: &Options, dir: &str) -> Result<MapResult> {
             continue;
         }
         let flags = FileFlags(rec.flags);
-        let (first, syms) = idx.symbols_of(id).unwrap_or((SymId { seg: 0, idx: 0 }, &[]));
+        let (first, syms) = idx
+            .symbols_of(id)
+            .unwrap_or((SymId { seg: 0, idx: 0 }, &[]));
         let n = syms.len();
         symbols_total += n;
         let rank = idx.rank(id);
         // immediate subdirectory under `dir`
         let rest = &rel[prefix.len()..];
         if let Some((sub, _)) = rest.split_once('/') {
-            let d = dirs.entry(format!("{prefix}{sub}")).or_insert_with(|| MapDir { rel: format!("{prefix}{sub}"), files: 0, symbols: 0, rank: 0.0, top_files: Vec::new() });
+            let d = dirs
+                .entry(format!("{prefix}{sub}"))
+                .or_insert_with(|| MapDir {
+                    rel: format!("{prefix}{sub}"),
+                    files: 0,
+                    symbols: 0,
+                    rank: 0.0,
+                    top_files: Vec::new(),
+                });
             d.files += 1;
             d.symbols += n;
             d.rank = d.rank.max(rank);
@@ -660,7 +993,10 @@ pub fn map(o: &Options, dir: &str) -> Result<MapResult> {
                 d.top_files.push(rel.to_string());
             }
         }
-        if n == 0 && !flags.has(FileFlags::PARSE_ERRORS) && !Lang::from_path(Path::new(rel)).has_grammar() {
+        if n == 0
+            && !flags.has(FileFlags::PARSE_ERRORS)
+            && !Lang::from_path(Path::new(rel)).has_grammar()
+        {
             continue;
         }
         let mut by_kind: BTreeMap<u8, usize> = BTreeMap::new();
@@ -668,23 +1004,69 @@ pub fn map(o: &Options, dir: &str) -> Result<MapResult> {
         for (i, s) in syms.iter().enumerate() {
             *by_kind.entry(s.kind).or_default() += 1;
             if s.parent == greeg_index::format::NONE && s.flags & SYM_TEST == 0 {
-                let w = kind_weight(s.kind) * if s.flags & SYM_EXPORTED != 0 { 1.0 } else { 0.7 };
-                let name = idx.sym_name(SymId { seg: first.seg, idx: first.idx + i as u32 }).to_string();
-                if !top.iter().any(|(_, k, n)| *k == kind_from_code(s.kind) && *n == name) {
+                let w = kind_weight(s.kind)
+                    * if s.flags & SYM_EXPORTED != 0 {
+                        1.0
+                    } else {
+                        0.7
+                    };
+                let name = idx
+                    .sym_name(SymId {
+                        seg: first.seg,
+                        idx: first.idx + i as u32,
+                    })
+                    .to_string();
+                if !top
+                    .iter()
+                    .any(|(_, k, n)| *k == kind_from_code(s.kind) && *n == name)
+                {
                     top.push((w, kind_from_code(s.kind), name));
                 }
             }
         }
-        top.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal).then(a.2.cmp(&b.2)));
+        top.sort_by(|a, b| {
+            b.0.partial_cmp(&a.0)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then(a.2.cmp(&b.2))
+        });
         top.truncate(5);
         let imported_by = idx.graph().map(|g| g.incoming(id).len()).unwrap_or(0);
-        files.push(MapFile { rel: rel.to_string(), rank, symbols: n, by_kind: by_kind.into_iter().map(|(k, c)| (kind_from_code(k), c)).collect(), top: top.into_iter().map(|(_, k, n)| (k, n)).collect(), flags, imported_by });
+        files.push(MapFile {
+            rel: rel.to_string(),
+            rank,
+            symbols: n,
+            by_kind: by_kind
+                .into_iter()
+                .map(|(k, c)| (kind_from_code(k), c))
+                .collect(),
+            top: top.into_iter().map(|(_, k, n)| (k, n)).collect(),
+            flags,
+            imported_by,
+        });
     }
     let files_total = files.len();
-    files.sort_by(|a, b| (b.rank * loc_w(b.flags, &b.rel, o.all)).partial_cmp(&(a.rank * loc_w(a.flags, &a.rel, o.all))).unwrap_or(std::cmp::Ordering::Equal).then(a.rel.cmp(&b.rel)));
+    files.sort_by(|a, b| {
+        (b.rank * loc_w(b.flags, &b.rel, o.all))
+            .partial_cmp(&(a.rank * loc_w(a.flags, &a.rel, o.all)))
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then(a.rel.cmp(&b.rel))
+    });
     let mut dirs: Vec<MapDir> = dirs.into_values().collect();
-    dirs.sort_by(|a, b| b.rank.partial_cmp(&a.rank).unwrap_or(std::cmp::Ordering::Equal).then(a.rel.cmp(&b.rel)));
-    Ok(MapResult { dir, files_total, symbols_total, dirs, files, elapsed_ms: t0.elapsed().as_secs_f64() * 1e3, source: "index" })
+    dirs.sort_by(|a, b| {
+        b.rank
+            .partial_cmp(&a.rank)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then(a.rel.cmp(&b.rel))
+    });
+    Ok(MapResult {
+        dir,
+        files_total,
+        symbols_total,
+        dirs,
+        files,
+        elapsed_ms: t0.elapsed().as_secs_f64() * 1e3,
+        source: "index",
+    })
 }
 
 /// `greeg impact NAME`: what would break if NAME changed.
@@ -722,13 +1104,32 @@ pub fn impact(o: &Options, name: &str) -> Result<ImpactResult> {
         }
         total += f.total;
         let is_test = f.flags.has(FileFlags::TEST);
-        let strong = kinds.contains_key(&HitKind::Call) || kinds.contains_key(&HitKind::Type) || kinds.contains_key(&HitKind::Import);
+        let strong = kinds.contains_key(&HitKind::Call)
+            || kinds.contains_key(&HitKind::Type)
+            || kinds.contains_key(&HitKind::Import);
         let weak = kinds.contains_key(&HitKind::Member) || kinds.contains_key(&HitKind::Ident);
-        let mut sample: Vec<(u32, String)> = f.hits.iter().filter(|h| !matches!(h.kind, HitKind::Comment | HitKind::Str | HitKind::Docstring)).take(3).map(|h| (h.line, String::from_utf8_lossy(&h.text).to_string())).collect();
+        let mut sample: Vec<(u32, String)> = f
+            .hits
+            .iter()
+            .filter(|h| !matches!(h.kind, HitKind::Comment | HitKind::Str | HitKind::Docstring))
+            .take(3)
+            .map(|h| (h.line, String::from_utf8_lossy(&h.text).to_string()))
+            .collect();
         if sample.is_empty() {
-            sample = f.hits.iter().take(2).map(|h| (h.line, String::from_utf8_lossy(&h.text).to_string())).collect();
+            sample = f
+                .hits
+                .iter()
+                .take(2)
+                .map(|h| (h.line, String::from_utf8_lossy(&h.text).to_string()))
+                .collect();
         }
-        let entry = ImpactFile { rel: f.rel.clone(), kinds: kinds.into_iter().collect(), flags: f.flags, hits: f.total, sample };
+        let entry = ImpactFile {
+            rel: f.rel.clone(),
+            kinds: kinds.into_iter().collect(),
+            flags: f.flags,
+            hits: f.total,
+            sample,
+        };
         if is_test || f.flags.demoted() || !f.lang.has_grammar() {
             review.push(entry);
         } else if strong {
@@ -743,5 +1144,14 @@ pub fn impact(o: &Options, name: &str) -> Result<ImpactResult> {
     co.ladder = false;
     co.fresh = greeg_index::fresh::Mode::None; // `refs` already ran the check
     let callers = callers(&co, name, 2)?;
-    Ok(ImpactResult { name: name.to_string(), defs: r.defs, will_break: will, may_break: may, review, callers, total_hits: total, elapsed_ms: t0.elapsed().as_secs_f64() * 1e3 })
+    Ok(ImpactResult {
+        name: name.to_string(),
+        defs: r.defs,
+        will_break: will,
+        may_break: may,
+        review,
+        callers,
+        total_hits: total,
+        elapsed_ms: t0.elapsed().as_secs_f64() * 1e3,
+    })
 }

@@ -16,7 +16,8 @@ mod imp {
     type CFRef = *const c_void;
     type CFIndex = isize;
     type StreamRef = *mut c_void;
-    type Callback = extern "C" fn(StreamRef, *mut c_void, usize, *mut c_void, *const u32, *const u64);
+    type Callback =
+        extern "C" fn(StreamRef, *mut c_void, usize, *mut c_void, *const u32, *const u64);
 
     #[repr(C)]
     struct Context {
@@ -37,7 +38,8 @@ mod imp {
 
     #[allow(non_snake_case)]
     struct Api {
-        CFStringCreateWithFileSystemRepresentation: unsafe extern "C" fn(CFRef, *const c_char) -> CFRef,
+        CFStringCreateWithFileSystemRepresentation:
+            unsafe extern "C" fn(CFRef, *const c_char) -> CFRef,
         CFArrayCreateMutable: unsafe extern "C" fn(CFRef, CFIndex, *const c_void) -> CFRef,
         CFArrayAppendValue: unsafe extern "C" fn(CFRef, CFRef),
         CFRunLoopGetCurrent: unsafe extern "C" fn() -> CFRef,
@@ -46,7 +48,15 @@ mod imp {
         kCFTypeArrayCallBacks: *const c_void,
         kCFRunLoopDefaultMode: CFRef,
         FSEventsGetCurrentEventId: unsafe extern "C" fn() -> u64,
-        FSEventStreamCreate: unsafe extern "C" fn(CFRef, Callback, *const Context, CFRef, u64, f64, u32) -> StreamRef,
+        FSEventStreamCreate: unsafe extern "C" fn(
+            CFRef,
+            Callback,
+            *const Context,
+            CFRef,
+            u64,
+            f64,
+            u32,
+        ) -> StreamRef,
         FSEventStreamScheduleWithRunLoop: unsafe extern "C" fn(StreamRef, CFRef, CFRef),
         FSEventStreamStart: unsafe extern "C" fn(StreamRef) -> u8,
         FSEventStreamStop: unsafe extern "C" fn(StreamRef),
@@ -66,8 +76,14 @@ mod imp {
     #[allow(clippy::missing_transmute_annotations)]
     fn load() -> Option<Api> {
         unsafe {
-            let cf = libc::dlopen(c"/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation".as_ptr(), libc::RTLD_LAZY | libc::RTLD_GLOBAL);
-            let cs = libc::dlopen(c"/System/Library/Frameworks/CoreServices.framework/CoreServices".as_ptr(), libc::RTLD_LAZY | libc::RTLD_GLOBAL);
+            let cf = libc::dlopen(
+                c"/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation".as_ptr(),
+                libc::RTLD_LAZY | libc::RTLD_GLOBAL,
+            );
+            let cs = libc::dlopen(
+                c"/System/Library/Frameworks/CoreServices.framework/CoreServices".as_ptr(),
+                libc::RTLD_LAZY | libc::RTLD_GLOBAL,
+            );
             if cf.is_null() || cs.is_null() {
                 return None;
             }
@@ -80,7 +96,10 @@ mod imp {
             let callbacks = sym(cf, "kCFTypeArrayCallBacks")?;
             let mode = *(sym(cf, "kCFRunLoopDefaultMode")? as *const CFRef);
             Some(Api {
-                CFStringCreateWithFileSystemRepresentation: f!(cf, "CFStringCreateWithFileSystemRepresentation"),
+                CFStringCreateWithFileSystemRepresentation: f!(
+                    cf,
+                    "CFStringCreateWithFileSystemRepresentation"
+                ),
                 CFArrayCreateMutable: f!(cf, "CFArrayCreateMutable"),
                 CFArrayAppendValue: f!(cf, "CFArrayAppendValue"),
                 CFRunLoopGetCurrent: f!(cf, "CFRunLoopGetCurrent"),
@@ -110,7 +129,14 @@ mod imp {
         unreliable: bool,
     }
 
-    extern "C" fn cb(_s: StreamRef, info: *mut c_void, n: usize, paths: *mut c_void, flags: *const u32, _ids: *const u64) {
+    extern "C" fn cb(
+        _s: StreamRef,
+        info: *mut c_void,
+        n: usize,
+        paths: *mut c_void,
+        flags: *const u32,
+        _ids: *const u64,
+    ) {
         let st = unsafe { &mut *(info as *mut State) };
         let paths = paths as *const *const c_char;
         for i in 0..n {
@@ -119,10 +145,19 @@ mod imp {
                 st.done = true;
                 continue;
             }
-            if fl & (FLAG_KERNEL_DROPPED | FLAG_USER_DROPPED | FLAG_IDS_WRAPPED | FLAG_MUST_SCAN_SUBDIRS | FLAG_ROOT_CHANGED) != 0 {
+            if fl
+                & (FLAG_KERNEL_DROPPED
+                    | FLAG_USER_DROPPED
+                    | FLAG_IDS_WRAPPED
+                    | FLAG_MUST_SCAN_SUBDIRS
+                    | FLAG_ROOT_CHANGED)
+                != 0
+            {
                 st.unreliable = true;
             }
-            let p = unsafe { CStr::from_ptr(*paths.add(i)) }.to_string_lossy().into_owned();
+            let p = unsafe { CStr::from_ptr(*paths.add(i)) }
+                .to_string_lossy()
+                .into_owned();
             st.dirs.push(p);
         }
     }
@@ -139,23 +174,39 @@ mod imp {
     /// `None` when the log could not be read reliably within `cutoff`.
     pub fn changed_dirs_since(id: u64, root: &str, cutoff: Duration) -> Option<Vec<String>> {
         let a = api()?;
-        let mut st = State { dirs: Vec::new(), done: false, unreliable: false };
+        let mut st = State {
+            dirs: Vec::new(),
+            done: false,
+            unreliable: false,
+        };
         let croot = CString::new(root).ok()?;
         unsafe {
-            let cfpath = (a.CFStringCreateWithFileSystemRepresentation)(std::ptr::null(), croot.as_ptr());
+            let cfpath =
+                (a.CFStringCreateWithFileSystemRepresentation)(std::ptr::null(), croot.as_ptr());
             if cfpath.is_null() {
                 return None;
             }
             let arr = (a.CFArrayCreateMutable)(std::ptr::null(), 0, a.kCFTypeArrayCallBacks);
             (a.CFArrayAppendValue)(arr, cfpath);
-            let ctx = Context { version: 0, info: &mut st as *mut State as *mut c_void, retain: std::ptr::null(), release: std::ptr::null(), copy_description: std::ptr::null() };
-            let stream = (a.FSEventStreamCreate)(std::ptr::null(), cb, &ctx, arr, id, 0.0, CREATE_NO_DEFER);
+            let ctx = Context {
+                version: 0,
+                info: &mut st as *mut State as *mut c_void,
+                retain: std::ptr::null(),
+                release: std::ptr::null(),
+                copy_description: std::ptr::null(),
+            };
+            let stream =
+                (a.FSEventStreamCreate)(std::ptr::null(), cb, &ctx, arr, id, 0.0, CREATE_NO_DEFER);
             if stream.is_null() {
                 (a.CFRelease)(arr);
                 (a.CFRelease)(cfpath);
                 return None;
             }
-            (a.FSEventStreamScheduleWithRunLoop)(stream, (a.CFRunLoopGetCurrent)(), a.kCFRunLoopDefaultMode);
+            (a.FSEventStreamScheduleWithRunLoop)(
+                stream,
+                (a.CFRunLoopGetCurrent)(),
+                a.kCFRunLoopDefaultMode,
+            );
             (a.FSEventStreamStart)(stream);
             let deadline = Instant::now() + cutoff;
             while !st.done && Instant::now() < deadline {
@@ -185,6 +236,10 @@ pub fn current_id() -> u64 {
     0
 }
 #[cfg(not(target_os = "macos"))]
-pub fn changed_dirs_since(_id: u64, _root: &str, _cutoff: std::time::Duration) -> Option<Vec<String>> {
+pub fn changed_dirs_since(
+    _id: u64,
+    _root: &str,
+    _cutoff: std::time::Duration,
+) -> Option<Vec<String>> {
     None
 }

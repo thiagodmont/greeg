@@ -11,7 +11,17 @@
 
 /// Estimated o200k tokens of a rendered text.
 pub fn estimate(b: &[u8]) -> usize {
-    let (mut lo_short, mut lo_mid, mut lo_long, mut up, mut digits, mut punct, mut pruns, mut nonascii, mut under) = (0f64, 0f64, 0f64, 0f64, 0f64, 0f64, 0f64, 0f64, 0f64);
+    let (
+        mut lo_short,
+        mut lo_mid,
+        mut lo_long,
+        mut up,
+        mut digits,
+        mut punct,
+        mut pruns,
+        mut nonascii,
+        mut under,
+    ) = (0f64, 0f64, 0f64, 0f64, 0f64, 0f64, 0f64, 0f64, 0f64);
     let n = b.len();
     let mut i = 0;
     let mut in_punct = false;
@@ -86,7 +96,15 @@ pub fn estimate(b: &[u8]) -> usize {
             i += 1;
         }
     }
-    let t = 1.822 * lo_short + 0.717 * lo_mid + 4.489 * lo_long + 1.009 * up + 1.797 * digits + 0.203 * punct + 0.515 * pruns + 3.354 * nonascii - 0.449 * under;
+    let t = 1.822 * lo_short
+        + 0.717 * lo_mid
+        + 4.489 * lo_long
+        + 1.009 * up
+        + 1.797 * digits
+        + 0.203 * punct
+        + 0.515 * pruns
+        + 3.354 * nonascii
+        - 0.449 * under;
     t.ceil().max(0.0) as usize
 }
 

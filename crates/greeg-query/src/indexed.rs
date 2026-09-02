@@ -3,7 +3,10 @@
 //! scan mode (returns Ok(None)) when there is no usable index, spawning a
 //! background build so the next query has one.
 
-use crate::{Ctx, DefSummary, FileResult, Hit, HitKind, Mode, Options, Rung, ScanResult, Stats, kind_by_context, process_file};
+use crate::{
+    Ctx, DefSummary, FileResult, Hit, HitKind, Mode, Options, Rung, ScanResult, Stats,
+    kind_by_context, process_file,
+};
 use anyhow::{Context, Result};
 use greeg_index::format::SymRec;
 use greeg_index::fresh::{self, Mode as Fresh};
@@ -43,19 +46,31 @@ pub fn spawn_build_now(root: &Path, dir: &Path) {
     let _ = fs::create_dir_all(dir);
     let marker = dir.join("BUILDING");
     if let Ok(md) = fs::metadata(&marker) {
-        if md.modified().ok().and_then(|m| m.elapsed().ok()).map(|e| e.as_secs() < 600).unwrap_or(true) {
+        if md
+            .modified()
+            .ok()
+            .and_then(|m| m.elapsed().ok())
+            .map(|e| e.as_secs() < 600)
+            .unwrap_or(true)
+        {
             return;
         }
         let _ = fs::remove_file(&marker);
     }
-    let Ok(exe) = std::env::current_exe() else { return };
-    let Ok(root_abs) = fs::canonicalize(root) else { return };
+    let Ok(exe) = std::env::current_exe() else {
+        return;
+    };
+    let Ok(root_abs) = fs::canonicalize(root) else {
+        return;
+    };
     let mut cmd = std::process::Command::new(exe);
     cmd.arg("index").arg("--root").arg(&root_abs).arg("--quiet");
     if let Some(d) = std::env::var_os("GREEG_INDEX_DIR") {
         cmd.env("GREEG_INDEX_DIR", d);
     }
-    cmd.stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
+    cmd.stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
@@ -82,7 +97,9 @@ pub fn mark_corrupt(o: &Options) {
             Err(_) => return,
         },
     };
-    let Ok(_lock) = lock::writer(&dir) else { return };
+    let Ok(_lock) = lock::writer(&dir) else {
+        return;
+    };
     let opened = OPENED_GEN.load(Relaxed);
     if opened != 0
         && let Some(m) = read_manifest(&dir)
@@ -99,7 +116,14 @@ pub(crate) fn path_allowed(rel: &str, paths: &[String]) -> bool {
     if paths.is_empty() {
         return true;
     }
-    paths.iter().any(|p| p.is_empty() || p == "." || rel == p || (rel.len() > p.len() && rel.starts_with(p.as_str()) && rel.as_bytes()[p.len()] == b'/'))
+    paths.iter().any(|p| {
+        p.is_empty()
+            || p == "."
+            || rel == p
+            || (rel.len() > p.len()
+                && rel.starts_with(p.as_str())
+                && rel.as_bytes()[p.len()] == b'/')
+    })
 }
 
 /// A positional path as a root-relative path (C1). Plain relative paths are
@@ -108,12 +132,21 @@ pub(crate) fn path_allowed(rel: &str, paths: &[String]) -> bool {
 /// resolved): the caller answers that query from a scan.
 pub fn rel_of(root: &Path, p: &Path) -> Option<String> {
     use std::path::Component;
-    let simple = p.is_relative() && !p.components().any(|c| matches!(c, Component::ParentDir | Component::RootDir | Component::Prefix(_)));
+    let simple = p.is_relative()
+        && !p.components().any(|c| {
+            matches!(
+                c,
+                Component::ParentDir | Component::RootDir | Component::Prefix(_)
+            )
+        });
     if simple {
-        let parts: Vec<String> = p.components().filter_map(|c| match c {
-            Component::Normal(s) => Some(s.to_string_lossy().into_owned()),
-            _ => None,
-        }).collect();
+        let parts: Vec<String> = p
+            .components()
+            .filter_map(|c| match c {
+                Component::Normal(s) => Some(s.to_string_lossy().into_owned()),
+                _ => None,
+            })
+            .collect();
         return Some(parts.join("/"));
     }
     let root_c = fs::canonicalize(root).ok()?;
@@ -151,7 +184,11 @@ fn retry_mode(idx: &Index, mode: Fresh) -> Fresh {
 
 /// `open_fresh` with a hook run between the freshness check and the delta
 /// publish: a no-op in production, a racing writer in tests.
-fn open_fresh_with(o: &Options, threads: usize, before_apply: &mut dyn FnMut()) -> Result<Option<Opened>> {
+fn open_fresh_with(
+    o: &Options,
+    threads: usize,
+    before_apply: &mut dyn FnMut(),
+) -> Result<Option<Opened>> {
     let dir = match &o.index_dir {
         Some(d) => d.clone(),
         None => index_dir_for(&o.root)?,
@@ -165,7 +202,11 @@ fn open_fresh_with(o: &Options, threads: usize, before_apply: &mut dyn FnMut()) 
     };
     let t_fresh = Instant::now();
     let stat_threads = threads.clamp(1, 4);
-    let mut fresh_method = if o.fresh == Fresh::None { "none" } else { "ttl" };
+    let mut fresh_method = if o.fresh == Fresh::None {
+        "none"
+    } else {
+        "ttl"
+    };
     let mut fresh_changed = 0;
     let mut mode = o.fresh;
     // A delta is published only against the manifest it was computed from
@@ -173,7 +214,9 @@ fn open_fresh_with(o: &Options, threads: usize, before_apply: &mut dyn FnMut()) 
     // between). The reopened index may then lack the change this query saw,
     // so check it once more; bounded so two writers cannot ping-pong.
     for attempt in 0..2 {
-        let Some(ch) = fresh::check(&idx, &o.root, mode, stat_threads) else { break };
+        let Some(ch) = fresh::check(&idx, &o.root, mode, stat_threads) else {
+            break;
+        };
         fresh_method = ch.method;
         fresh_changed = ch.count() + ch.deleted.len();
         if fresh::needs_rebuild(&idx, &ch) {
@@ -194,13 +237,21 @@ fn open_fresh_with(o: &Options, threads: usize, before_apply: &mut dyn FnMut()) 
     }
     OPENED_GEN.store(u64::from(idx.manifest.generation) + 1, Relaxed);
     // a phase-1-only index answers gram queries; symbols arrive when the build finishes
-    Ok(Some(Opened { idx, dir, fresh_method, fresh_ms: t_fresh.elapsed().as_secs_f64() * 1e3, fresh_changed }))
+    Ok(Some(Opened {
+        idx,
+        dir,
+        fresh_method,
+        fresh_ms: t_fresh.elapsed().as_secs_f64() * 1e3,
+        fresh_changed,
+    }))
 }
 
 /// Try to answer from the index. Ok(None) means "use scan mode".
 pub(crate) fn try_index(cx: &Ctx, threads: usize, t0: Instant) -> Result<Option<ScanResult>> {
     let o = cx.o;
-    let Some(op) = open_fresh(o, threads)? else { return Ok(None) };
+    let Some(op) = open_fresh(o, threads)? else {
+        return Ok(None);
+    };
     let idx = &op.idx;
     // fault injection for the M5 robustness tests
     if std::env::var_os("GREEG_DEBUG_PANIC").is_some() {
@@ -210,10 +261,21 @@ pub(crate) fn try_index(cx: &Ctx, threads: usize, t0: Instant) -> Result<Option<
     if std::env::var_os("GREEG_DEBUG_SIGBUS").is_some() {
         unsafe { libc::raise(libc::SIGBUS) };
     }
-    let mut stats = Stats { threads, source: "index", fresh_method: op.fresh_method, fresh_ms: op.fresh_ms, fresh_changed: op.fresh_changed, ..Default::default() };
+    let mut stats = Stats {
+        threads,
+        source: "index",
+        fresh_method: op.fresh_method,
+        fresh_ms: op.fresh_ms,
+        fresh_changed: op.fresh_changed,
+        ..Default::default()
+    };
 
     // plan
-    let q = plan::plan(&o.pattern, o.fixed_strings, o.case_insensitive || (o.smart_case && !o.pattern.chars().any(|c| c.is_uppercase())))?;
+    let q = plan::plan(
+        &o.pattern,
+        o.fixed_strings,
+        o.case_insensitive || (o.smart_case && !o.pattern.chars().any(|c| c.is_uppercase())),
+    )?;
     stats.plan = format!("{q:?}");
     let cands = idx.candidates(&q);
     stats.files_walked = idx.live_count() as usize;
@@ -228,16 +290,32 @@ pub(crate) fn try_index(cx: &Ctx, threads: usize, t0: Instant) -> Result<Option<
             Some(rel) => {
                 let given = p.to_string_lossy();
                 let given = given.trim_end_matches('/');
-                display.push(if given.trim_start_matches("./") == rel || rel.is_empty() && matches!(given, "." | "") { None } else { Some(given.to_string()) });
+                display.push(
+                    if given.trim_start_matches("./") == rel
+                        || rel.is_empty() && matches!(given, "." | "")
+                    {
+                        None
+                    } else {
+                        Some(given.to_string())
+                    },
+                );
                 paths.push(rel);
             }
             None => return Ok(None), // outside the index root: scan mode answers this query
         }
     }
     let display_rel = |rel: &str| -> Option<String> {
-        let i = paths.iter().position(|p| path_allowed(rel, std::slice::from_ref(p)))?;
+        let i = paths
+            .iter()
+            .position(|p| path_allowed(rel, std::slice::from_ref(p)))?;
         let d = display[i].as_ref()?;
-        Some(if rel == paths[i] { d.clone() } else if paths[i].is_empty() { format!("{d}/{rel}") } else { format!("{d}/{}", &rel[paths[i].len() + 1..]) })
+        Some(if rel == paths[i] {
+            d.clone()
+        } else if paths[i].is_empty() {
+            format!("{d}/{rel}")
+        } else {
+            format!("{d}/{}", &rel[paths[i].len() + 1..])
+        })
     };
     let overrides = if o.globs.is_empty() {
         None
@@ -248,7 +326,11 @@ pub(crate) fn try_index(cx: &Ctx, threads: usize, t0: Instant) -> Result<Option<
         }
         Some(ob.build()?)
     };
-    let types = if o.types.is_empty() && o.types_not.is_empty() { None } else { Some(crate::build_types(o)?) };
+    let types = if o.types.is_empty() && o.types_not.is_empty() {
+        None
+    } else {
+        Some(crate::build_types(o)?)
+    };
     let mut entries: Vec<(u8, u32, &str)> = Vec::with_capacity(cands.len() as usize);
     'files: for id in cands.iter() {
         let Some(rec) = idx.rec(id) else { continue };
@@ -285,11 +367,22 @@ pub(crate) fn try_index(cx: &Ctx, threads: usize, t0: Instant) -> Result<Option<
         if flags.has(FileFlags::BINARY) {
             continue;
         }
-        if !o.all && (o.no_tests && flags.has(FileFlags::TEST) || o.no_vendored && flags.has(FileFlags::VENDORED) || o.no_generated && flags.has(FileFlags::GENERATED | FileFlags::MINIFIED | FileFlags::LOCKFILE)) {
+        if !o.all
+            && (o.no_tests && flags.has(FileFlags::TEST)
+                || o.no_vendored && flags.has(FileFlags::VENDORED)
+                || o.no_generated
+                    && flags.has(FileFlags::GENERATED | FileFlags::MINIFIED | FileFlags::LOCKFILE))
+        {
             continue;
         }
         // prior order: source before demoted, then path
-        let prio = if flags.has(FileFlags::MINIFIED) { 3 } else if flags.demoted() { 2 } else { 0 };
+        let prio = if flags.has(FileFlags::MINIFIED) {
+            3
+        } else if flags.demoted() {
+            2
+        } else {
+            0
+        };
         entries.push((prio, id, rel));
     }
     entries.sort_unstable_by(|a, b| a.0.cmp(&b.0).then(a.2.cmp(b.2)));
@@ -297,7 +390,13 @@ pub(crate) fn try_index(cx: &Ctx, threads: usize, t0: Instant) -> Result<Option<
 
     // verify candidates with the reader pool; classify from the index when it has symbols
     let use_spans = idx.has_symbols() && cx.classify;
-    let cx2 = Ctx { o, matcher: cx.matcher, stats: cx.stats, classify: cx.classify && !use_spans, filter_kinds: !use_spans };
+    let cx2 = Ctx {
+        o,
+        matcher: cx.matcher,
+        stats: cx.stats,
+        classify: cx.classify && !use_spans,
+        filter_kinds: !use_spans,
+    };
     let cx = &cx2;
     let out: Mutex<Vec<FileResult>> = Mutex::new(Vec::new());
     let next = AtomicUsize::new(0);
@@ -307,7 +406,10 @@ pub(crate) fn try_index(cx: &Ctx, threads: usize, t0: Instant) -> Result<Option<
         for _ in 0..n_threads {
             sc.spawn(|| {
                 let mut sb = SearcherBuilder::new();
-                sb.line_number(true).binary_detection(BinaryDetection::quit(0)).multi_line(o.multiline).bom_sniffing(false);
+                sb.line_number(true)
+                    .binary_detection(BinaryDetection::quit(0))
+                    .multi_line(o.multiline)
+                    .bom_sniffing(false);
                 let mut searcher = sb.build();
                 let mut buf: Vec<u8> = Vec::with_capacity(256 * 1024);
                 let mut local: Vec<FileResult> = Vec::new();
@@ -318,7 +420,9 @@ pub(crate) fn try_index(cx: &Ctx, threads: usize, t0: Instant) -> Result<Option<
                     }
                     let (_, id, rel) = &entries[i];
                     let path: PathBuf = root.join(rel);
-                    if let Some(mut fr) = process_file(cx, &path, rel.to_string(), &mut searcher, &mut buf) {
+                    if let Some(mut fr) =
+                        process_file(cx, &path, rel.to_string(), &mut searcher, &mut buf)
+                    {
                         fr.file_id = Some(*id);
                         if let Some(d) = display_rel(rel) {
                             fr.rel = d;
@@ -334,7 +438,9 @@ pub(crate) fn try_index(cx: &Ctx, threads: usize, t0: Instant) -> Result<Option<
                         for h in &mut fr.hits {
                             h.score *= k;
                         }
-                        cx.stats.classify_ns.fetch_add(t.elapsed().as_nanos() as u64, Relaxed);
+                        cx.stats
+                            .classify_ns
+                            .fetch_add(t.elapsed().as_nanos() as u64, Relaxed);
                         if !fr.hits.is_empty() {
                             local.push(fr);
                         }
@@ -356,29 +462,60 @@ pub(crate) fn try_index(cx: &Ctx, threads: usize, t0: Instant) -> Result<Option<
         mark_corrupt(o);
     }
     let _ = Mode::Files;
-    Ok(Some(ScanResult { opts: o.clone(), files, stats, rung: Rung::Exact, ignored_only: None, ignored_partial: false }))
+    Ok(Some(ScanResult {
+        opts: o.clone(),
+        files,
+        stats,
+        rung: Rung::Exact,
+        ignored_only: None,
+        ignored_partial: false,
+    }))
 }
 
 fn chain_of(idx: &Index, s: SymId) -> Vec<(DefKind, String)> {
-    idx.sym_chain(s).into_iter().map(|(k, n)| (kind_from_code(k), n.to_string())).collect()
+    idx.sym_chain(s)
+        .into_iter()
+        .map(|(k, n)| (kind_from_code(k), n.to_string()))
+        .collect()
 }
 
 /// Definition summaries of a file from the index.
 pub fn defs_of(idx: &Index, id: u32) -> Vec<DefSummary> {
-    let Some((first, syms)) = idx.symbols_of(id) else { return Vec::new() };
+    let Some((first, syms)) = idx.symbols_of(id) else {
+        return Vec::new();
+    };
     syms.iter()
         .enumerate()
         .map(|(i, s)| {
-            let sid = SymId { seg: first.seg, idx: first.idx + i as u32 };
-            DefSummary { name: idx.sym_name(sid).to_string(), kind: kind_from_code(s.kind), line: s.line, start: s.start, end: s.end, chain: chain_of(idx, sid), flags: s.flags }
+            let sid = SymId {
+                seg: first.seg,
+                idx: first.idx + i as u32,
+            };
+            DefSummary {
+                name: idx.sym_name(sid).to_string(),
+                kind: kind_from_code(s.kind),
+                line: s.line,
+                start: s.start,
+                end: s.end,
+                chain: chain_of(idx, sid),
+                flags: s.flags,
+            }
         })
         .collect()
 }
 
 /// Classify every hit of `f` (index file `id`) from the span tables, attach
 /// chains and definitions, apply `--kind`, and rescore.
-pub(crate) fn classify_from_index(idx: &Index, id: u32, f: &mut FileResult, o: &Options, src: &[u8]) {
-    let Some((first, syms)) = idx.symbols_of(id) else { return };
+pub(crate) fn classify_from_index(
+    idx: &Index,
+    id: u32,
+    f: &mut FileResult,
+    o: &Options,
+    src: &[u8],
+) {
+    let Some((first, syms)) = idx.symbols_of(id) else {
+        return;
+    };
     let mut kinds = [0u32; 9];
     let mut hits: Vec<Hit> = Vec::with_capacity(f.hits.len());
     for mut h in f.hits.drain(..) {
@@ -389,8 +526,19 @@ pub(crate) fn classify_from_index(idx: &Index, id: u32, f: &mut FileResult, o: &
         }
         h.kind = kind;
         h.def_idx = di;
-        h.chain = di.map(|d| chain_of(idx, SymId { seg: first.seg, idx: first.idx + d })).unwrap_or_default();
-        h.score = kind.weight() * f.prior * crate::exact_boost(kind, crate::is_exact(o, src, ms, me));
+        h.chain = di
+            .map(|d| {
+                chain_of(
+                    idx,
+                    SymId {
+                        seg: first.seg,
+                        idx: first.idx + d,
+                    },
+                )
+            })
+            .unwrap_or_default();
+        h.score =
+            kind.weight() * f.prior * crate::exact_boost(kind, crate::is_exact(o, src, ms, me));
         kinds[kind.idx()] += 1;
         hits.push(h);
     }
@@ -408,8 +556,19 @@ pub(crate) fn classify_from_index(idx: &Index, id: u32, f: &mut FileResult, o: &
     let mut defs: Vec<DefSummary> = Vec::with_capacity(used.len());
     for &d in &used {
         let s = &syms[d as usize];
-        let sid = SymId { seg: first.seg, idx: first.idx + d };
-        defs.push(DefSummary { name: idx.sym_name(sid).to_string(), kind: kind_from_code(s.kind), line: s.line, start: s.start, end: s.end, chain: Vec::new(), flags: s.flags });
+        let sid = SymId {
+            seg: first.seg,
+            idx: first.idx + d,
+        };
+        defs.push(DefSummary {
+            name: idx.sym_name(sid).to_string(),
+            kind: kind_from_code(s.kind),
+            line: s.line,
+            start: s.start,
+            end: s.end,
+            chain: Vec::new(),
+            flags: s.flags,
+        });
     }
     for h in &mut f.hits {
         if let Some(d) = h.def_idx {
@@ -421,14 +580,25 @@ pub(crate) fn classify_from_index(idx: &Index, id: u32, f: &mut FileResult, o: &
 }
 
 /// Kind and local definition index for one hit (DESIGN.md §6.2 steps 1–4).
-fn classify_hit(idx: &Index, id: u32, first: SymId, syms: &[SymRec], lang: Lang, src: &[u8], h: &Hit) -> (HitKind, Option<u32>) {
+fn classify_hit(
+    idx: &Index,
+    id: u32,
+    first: SymId,
+    syms: &[SymRec],
+    lang: Lang,
+    src: &[u8],
+    h: &Hit,
+) -> (HitKind, Option<u32>) {
     let (ms, me) = (h.match_start, h.match_end);
     if !lang.has_grammar() {
         return (HitKind::Ident, None);
     }
     let enclosing = || -> Option<u32> {
         let upto = syms.partition_point(|s| s.start <= ms);
-        (0..upto).rev().find(|&i| syms[i].end > ms).map(|i| i as u32)
+        (0..upto)
+            .rev()
+            .find(|&i| syms[i].end > ms)
+            .map(|i| i as u32)
     };
     if let Some((k, _, _)) = idx.noncode_at(id, ms) {
         let kind = match k {
@@ -454,9 +624,21 @@ fn classify_hit(idx: &Index, id: u32, first: SymId, syms: &[SymRec], lang: Lang,
         return (HitKind::Import, enclosing());
     }
     let ls = h.line_start as usize;
-    let le = memchr::memchr(b'\n', &src[ls..]).map(|k| ls + k).unwrap_or(src.len());
+    let le = memchr::memchr(b'\n', &src[ls..])
+        .map(|k| ls + k)
+        .unwrap_or(src.len());
     let _ = first;
-    (kind_by_context(lang, src, ms as usize, (me as usize).min(le), ls, &src[ls..le]), enclosing())
+    (
+        kind_by_context(
+            lang,
+            src,
+            ms as usize,
+            (me as usize).min(le),
+            ls,
+            &src[ls..le],
+        ),
+        enclosing(),
+    )
 }
 
 #[cfg(test)]
@@ -478,17 +660,43 @@ mod tests {
         fs::write(root.join("src/lib.rs"), "pub fn helper_alpha() {}\n").unwrap();
         // enough files that two edits stay below the inline-apply threshold (`needs_rebuild`)
         for i in 0..60 {
-            fs::write(root.join(format!("src/f{i}.rs")), format!("pub fn filler_{i}() {{}}\n")).unwrap();
+            fs::write(
+                root.join(format!("src/f{i}.rs")),
+                format!("pub fn filler_{i}() {{}}\n"),
+            )
+            .unwrap();
         }
-        build(&root, &dir, &BuildOpts { reader_threads: 1, quiet: true, phase1_only: true }).unwrap();
-        let o = Options { root: root.clone(), index_dir: Some(dir.clone()), fresh: Fresh::Stat, ..Default::default() };
+        build(
+            &root,
+            &dir,
+            &BuildOpts {
+                reader_threads: 1,
+                quiet: true,
+                phase1_only: true,
+            },
+        )
+        .unwrap();
+        let o = Options {
+            root: root.clone(),
+            index_dir: Some(dir.clone()),
+            fresh: Fresh::Stat,
+            ..Default::default()
+        };
 
         // another query opened the index, then saw only the first edit
         let other = Index::open(&dir).unwrap();
-        fs::write(root.join("src/main.rs"), "fn main() { helper_alpha(); omega_one(); }\n").unwrap();
+        fs::write(
+            root.join("src/main.rs"),
+            "fn main() { helper_alpha(); omega_one(); }\n",
+        )
+        .unwrap();
         let other_ch = fresh::check(&other, &root, Fresh::Stat, 1).unwrap();
         assert_eq!(other_ch.modified.len(), 1);
-        fs::write(root.join("src/lib.rs"), "pub fn helper_alpha() {}\npub fn omega_two() {}\n").unwrap();
+        fs::write(
+            root.join("src/lib.rs"),
+            "pub fn helper_alpha() {}\npub fn omega_two() {}\n",
+        )
+        .unwrap();
 
         // this query sees both edits, but the other one publishes first
         let mut raced = false;
@@ -498,20 +706,34 @@ mod tests {
                 assert_eq!(fresh::apply(&other, &root, &other_ch).unwrap(), 1);
             }
         };
-        let op = open_fresh_with(&o, 1, &mut race).unwrap().expect("index usable");
+        let op = open_fresh_with(&o, 1, &mut race)
+            .unwrap()
+            .expect("index usable");
         assert!(raced);
         let m = read_manifest(&dir).unwrap();
-        assert_eq!(m.deltas, 2, "the skipped delta must be recomputed against the reopened index");
+        assert_eq!(
+            m.deltas, 2,
+            "the skipped delta must be recomputed against the reopened index"
+        );
         assert_eq!(op.idx.manifest.deltas, 2);
         let hits = |pat: &str| -> Vec<String> {
             let q = plan::plan(pat, true, false).unwrap();
-            let mut v: Vec<String> = op.idx.candidates(&q).iter().map(|id| op.idx.path(id).unwrap().to_string()).collect();
+            let mut v: Vec<String> = op
+                .idx
+                .candidates(&q)
+                .iter()
+                .map(|id| op.idx.path(id).unwrap().to_string())
+                .collect();
             v.sort();
             v
         };
         assert_eq!(hits("omega_one"), ["src/main.rs"]);
         assert_eq!(hits("omega_two"), ["src/lib.rs"]);
-        assert!(fresh::check(&op.idx, &root, Fresh::Stat, 1).unwrap().is_empty());
+        assert!(
+            fresh::check(&op.idx, &root, Fresh::Stat, 1)
+                .unwrap()
+                .is_empty()
+        );
         let _ = fs::remove_dir_all(&base);
     }
 
@@ -532,11 +754,23 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("greeg-rel-{}", std::process::id()));
         fs::create_dir_all(dir.join("src/sync")).unwrap();
         fs::write(dir.join("src/sync/a.rs"), "x").unwrap();
-        assert_eq!(rel_of(&dir, &dir.join("src/sync")).as_deref(), Some("src/sync"));
-        assert_eq!(rel_of(&dir, &dir.join("src/sync/a.rs")).as_deref(), Some("src/sync/a.rs"));
+        assert_eq!(
+            rel_of(&dir, &dir.join("src/sync")).as_deref(),
+            Some("src/sync")
+        );
+        assert_eq!(
+            rel_of(&dir, &dir.join("src/sync/a.rs")).as_deref(),
+            Some("src/sync/a.rs")
+        );
         assert_eq!(rel_of(&dir, &dir).as_deref(), Some(""));
-        assert_eq!(rel_of(&dir, Path::new("./src/sync/")).as_deref(), Some("src/sync"));
-        assert_eq!(rel_of(&dir, Path::new("src/sync")).as_deref(), Some("src/sync"));
+        assert_eq!(
+            rel_of(&dir, Path::new("./src/sync/")).as_deref(),
+            Some("src/sync")
+        );
+        assert_eq!(
+            rel_of(&dir, Path::new("src/sync")).as_deref(),
+            Some("src/sync")
+        );
         assert_eq!(rel_of(&dir, Path::new(".")).as_deref(), Some(""));
         // outside the root (or nonexistent): scan mode
         assert_eq!(rel_of(&dir, &std::env::temp_dir()), None);

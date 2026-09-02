@@ -23,7 +23,11 @@ impl Drop for Tmp {
 static N: AtomicU32 = AtomicU32::new(0);
 
 fn tree() -> Tmp {
-    let base = std::env::temp_dir().join(format!("greeg-index-test-{}-{}", std::process::id(), N.fetch_add(1, Ordering::Relaxed)));
+    let base = std::env::temp_dir().join(format!(
+        "greeg-index-test-{}-{}",
+        std::process::id(),
+        N.fetch_add(1, Ordering::Relaxed)
+    ));
     let root = base.join("tree");
     let dir = base.join("index");
     fs::create_dir_all(root.join("src/util")).unwrap();
@@ -31,9 +35,21 @@ fn tree() -> Tmp {
     fs::create_dir_all(root.join("build")).unwrap();
     // `.gitignore` is honoured only inside a git repository (ripgrep's require_git)
     fs::create_dir_all(root.join(".git")).unwrap();
-    fs::write(root.join("src/main.rs"), "fn main() {\n    helper_alpha();\n}\n").unwrap();
-    fs::write(root.join("src/util/helper.rs"), "pub fn helper_alpha() -> u32 {\n    42\n}\n").unwrap();
-    fs::write(root.join("lib/thing.py"), "def thing_beta():\n    return 'beta'\n").unwrap();
+    fs::write(
+        root.join("src/main.rs"),
+        "fn main() {\n    helper_alpha();\n}\n",
+    )
+    .unwrap();
+    fs::write(
+        root.join("src/util/helper.rs"),
+        "pub fn helper_alpha() -> u32 {\n    42\n}\n",
+    )
+    .unwrap();
+    fs::write(
+        root.join("lib/thing.py"),
+        "def thing_beta():\n    return 'beta'\n",
+    )
+    .unwrap();
     fs::write(root.join("build/out.txt"), "generated_gamma\n").unwrap();
     fs::write(root.join("README.md"), "readme_delta\n").unwrap();
     fs::write(root.join(".gitignore"), "build/\n").unwrap();
@@ -41,12 +57,20 @@ fn tree() -> Tmp {
 }
 
 fn opts() -> BuildOpts {
-    BuildOpts { reader_threads: 2, quiet: true, phase1_only: false }
+    BuildOpts {
+        reader_threads: 2,
+        quiet: true,
+        phase1_only: false,
+    }
 }
 
 fn ids_for(idx: &Index, pat: &str) -> Vec<String> {
     let q = plan::plan(pat, true, false).unwrap();
-    let mut v: Vec<String> = idx.candidates(&q).iter().map(|id| idx.path(id).unwrap().to_string()).collect();
+    let mut v: Vec<String> = idx
+        .candidates(&q)
+        .iter()
+        .map(|id| idx.path(id).unwrap().to_string())
+        .collect();
     v.sort();
     v
 }
@@ -69,15 +93,33 @@ fn build_open_delta_tombstone_roundtrip() {
     assert!(t.dir.join("LOCK").exists());
     let idx = Index::open(&t.dir).unwrap();
     // the ignore file is tracked but never searchable; build/ is ignored
-    assert_eq!(live_paths(&idx), ["README.md", "lib/thing.py", "src/main.rs", "src/util/helper.rs"]);
+    assert_eq!(
+        live_paths(&idx),
+        [
+            "README.md",
+            "lib/thing.py",
+            "src/main.rs",
+            "src/util/helper.rs"
+        ]
+    );
     assert!(idx.tracked_files().any(|(_, r, _)| r == ".gitignore"));
     assert_eq!(idx.live_count(), 4);
-    assert_eq!(ids_for(&idx, "helper_alpha"), ["src/main.rs", "src/util/helper.rs"]);
-    assert!(ids_for(&idx, "build/").is_empty(), ".gitignore content must not be searchable");
+    assert_eq!(
+        ids_for(&idx, "helper_alpha"),
+        ["src/main.rs", "src/util/helper.rs"]
+    );
+    assert!(
+        ids_for(&idx, "build/").is_empty(),
+        ".gitignore content must not be searchable"
+    );
     assert!(check(&idx, &t.root).is_empty());
 
     // modify: the old id is tombstoned, the new version lives in a delta
-    fs::write(t.root.join("src/util/helper.rs"), "pub fn helper_omega() -> u32 {\n    43\n}\n").unwrap();
+    fs::write(
+        t.root.join("src/util/helper.rs"),
+        "pub fn helper_omega() -> u32 {\n    43\n}\n",
+    )
+    .unwrap();
     let ch = check(&idx, &t.root);
     assert_eq!(ch.modified.len(), 1);
     assert_eq!(fresh::apply(&idx, &t.root, &ch).unwrap(), 1);
@@ -88,8 +130,14 @@ fn build_open_delta_tombstone_roundtrip() {
     assert_eq!(ids_for(&idx, "helper_alpha"), ["src/main.rs"]);
     assert_eq!(ids_for(&idx, "helper_omega"), ["src/util/helper.rs"]);
     assert_eq!(idx.live_count(), 4);
-    assert!(!idx.lookup("helper_omega").is_empty(), "delta symbols are visible");
-    assert!(idx.lookup("helper_alpha").is_empty(), "tombstoned symbols are not");
+    assert!(
+        !idx.lookup("helper_omega").is_empty(),
+        "delta symbols are visible"
+    );
+    assert!(
+        idx.lookup("helper_alpha").is_empty(),
+        "tombstoned symbols are not"
+    );
     assert!(check(&idx, &t.root).is_empty());
 
     // a stray delta file that the manifest does not name is ignored
@@ -127,7 +175,10 @@ fn stat_mode_add_delete_rename() {
     let idx = Index::open(&t.dir).unwrap();
     assert_eq!(ids_for(&idx, "zeta_zeta"), ["newdir/deep/z.py"]);
     assert_eq!(ids_for(&idx, "extra_epsilon"), ["src/extra.rs"]);
-    assert!(check(&idx, &t.root).is_empty(), "new dirs are recorded with their mtime");
+    assert!(
+        check(&idx, &t.root).is_empty(),
+        "new dirs are recorded with their mtime"
+    );
 
     // delete a file
     fs::remove_file(t.root.join("lib/thing.py")).unwrap();
@@ -142,7 +193,10 @@ fn stat_mode_add_delete_rename() {
     fs::rename(t.root.join("src/extra.rs"), t.root.join("src/moved.rs")).unwrap();
     let ch = check(&idx, &t.root);
     assert_eq!(ch.deleted.len(), 1);
-    assert_eq!(ch.added.iter().map(|w| w.rel.as_str()).collect::<Vec<_>>(), ["src/moved.rs"]);
+    assert_eq!(
+        ch.added.iter().map(|w| w.rel.as_str()).collect::<Vec<_>>(),
+        ["src/moved.rs"]
+    );
     fresh::apply(&idx, &t.root, &ch).unwrap();
     let idx = Index::open(&t.dir).unwrap();
     assert_eq!(ids_for(&idx, "extra_epsilon"), ["src/moved.rs"]);
@@ -151,11 +205,23 @@ fn stat_mode_add_delete_rename() {
     fs::rename(t.root.join("newdir"), t.root.join("renamed")).unwrap();
     let ch = check(&idx, &t.root);
     assert_eq!(ch.deleted.len(), 1);
-    assert_eq!(ch.added.iter().map(|w| w.rel.as_str()).collect::<Vec<_>>(), ["renamed/deep/z.py"]);
+    assert_eq!(
+        ch.added.iter().map(|w| w.rel.as_str()).collect::<Vec<_>>(),
+        ["renamed/deep/z.py"]
+    );
     fresh::apply(&idx, &t.root, &ch).unwrap();
     let idx = Index::open(&t.dir).unwrap();
     assert_eq!(ids_for(&idx, "zeta_zeta"), ["renamed/deep/z.py"]);
-    assert_eq!(live_paths(&idx), ["README.md", "renamed/deep/z.py", "src/main.rs", "src/moved.rs", "src/util/helper.rs"]);
+    assert_eq!(
+        live_paths(&idx),
+        [
+            "README.md",
+            "renamed/deep/z.py",
+            "src/main.rs",
+            "src/moved.rs",
+            "src/util/helper.rs"
+        ]
+    );
     assert_eq!(idx.live_count(), 5);
 
     // delete a directory tree
@@ -177,17 +243,26 @@ fn ignore_file_edits_force_rebuild() {
     // modify: ignore lib/ too
     fs::write(t.root.join(".gitignore"), "build/\nlib/\n").unwrap();
     let ch = check(&idx, &t.root);
-    assert!(ch.ignore_changed, "edited .gitignore must be detected: {ch:?}");
+    assert!(
+        ch.ignore_changed,
+        "edited .gitignore must be detected: {ch:?}"
+    );
     assert!(fresh::needs_rebuild(&idx, &ch));
     build(&t.root, &t.dir, &opts()).unwrap();
     let idx = Index::open(&t.dir).unwrap();
-    assert_eq!(live_paths(&idx), ["README.md", "src/main.rs", "src/util/helper.rs"]);
+    assert_eq!(
+        live_paths(&idx),
+        ["README.md", "src/main.rs", "src/util/helper.rs"]
+    );
     assert!(check(&idx, &t.root).is_empty());
 
     // add a nested ignore file
     fs::write(t.root.join("src/.ignore"), "util/\n").unwrap();
     let ch = check(&idx, &t.root);
-    assert!(ch.ignore_changed, "added src/.ignore must be detected: {ch:?}");
+    assert!(
+        ch.ignore_changed,
+        "added src/.ignore must be detected: {ch:?}"
+    );
     build(&t.root, &t.dir, &opts()).unwrap();
     let idx = Index::open(&t.dir).unwrap();
     assert_eq!(live_paths(&idx), ["README.md", "src/main.rs"]);
@@ -196,10 +271,16 @@ fn ignore_file_edits_force_rebuild() {
     // delete it again
     fs::remove_file(t.root.join("src/.ignore")).unwrap();
     let ch = check(&idx, &t.root);
-    assert!(ch.ignore_changed, "deleted src/.ignore must be detected: {ch:?}");
+    assert!(
+        ch.ignore_changed,
+        "deleted src/.ignore must be detected: {ch:?}"
+    );
     build(&t.root, &t.dir, &opts()).unwrap();
     let idx = Index::open(&t.dir).unwrap();
-    assert_eq!(live_paths(&idx), ["README.md", "src/main.rs", "src/util/helper.rs"]);
+    assert_eq!(
+        live_paths(&idx),
+        ["README.md", "src/main.rs", "src/util/helper.rs"]
+    );
 }
 
 #[test]
@@ -209,9 +290,16 @@ fn huge_files_stay_candidates() {
     fs::write(t.root.join("src/blob.rs"), &big).unwrap();
     build(&t.root, &t.dir, &opts()).unwrap();
     let idx = Index::open(&t.dir).unwrap();
-    let rec = idx.live_files().find(|(_, r, _)| *r == "src/blob.rs").map(|(_, _, rec)| *rec).unwrap();
+    let rec = idx
+        .live_files()
+        .find(|(_, r, _)| *r == "src/blob.rs")
+        .map(|(_, _, rec)| *rec)
+        .unwrap();
     assert!(greeg_lang::FileFlags(rec.flags).has(greeg_lang::FileFlags::HUGE));
-    assert_eq!(ids_for(&idx, "helper_alpha"), ["src/blob.rs", "src/main.rs", "src/util/helper.rs"]);
+    assert_eq!(
+        ids_for(&idx, "helper_alpha"),
+        ["src/blob.rs", "src/main.rs", "src/util/helper.rs"]
+    );
     assert_eq!(ids_for(&idx, "no_such_gram_anywhere"), ["src/blob.rs"]);
     // and through a delta
     fs::write(t.root.join("src/blob.rs"), &big[..big.len() - 1]).unwrap();
@@ -227,7 +315,11 @@ fn truncated_delta_fails_open() {
     let t = tree();
     build(&t.root, &t.dir, &opts()).unwrap();
     let idx = Index::open(&t.dir).unwrap();
-    fs::write(t.root.join("src/main.rs"), "fn main() { helper_alpha(); helper_alpha(); }\n").unwrap();
+    fs::write(
+        t.root.join("src/main.rs"),
+        "fn main() { helper_alpha(); helper_alpha(); }\n",
+    )
+    .unwrap();
     let ch = check(&idx, &t.root);
     fresh::apply(&idx, &t.root, &ch).unwrap();
     let p = t.dir.join("delta/0001.bin");
@@ -238,14 +330,20 @@ fn truncated_delta_fails_open() {
     let mut bad = good.clone();
     bad[16 + 8..16 + 12].copy_from_slice(&u32::MAX.to_le_bytes());
     fs::write(&p, &bad).unwrap();
-    assert!(Index::open(&t.dir).is_err(), "oversized files section must fail open");
+    assert!(
+        Index::open(&t.dir).is_err(),
+        "oversized files section must fail open"
+    );
 
     // a section length that overflows into the tombstone bitmap
     let mut bad = good.clone();
     let gl = u32::from_le_bytes(good[16 + 12..16 + 16].try_into().unwrap());
     bad[16 + 12..16 + 16].copy_from_slice(&(gl + 8).to_le_bytes());
     fs::write(&p, &bad).unwrap();
-    assert!(Index::open(&t.dir).is_err(), "corrupt tombstone bitmap must fail open");
+    assert!(
+        Index::open(&t.dir).is_err(),
+        "corrupt tombstone bitmap must fail open"
+    );
 
     // physically truncated file
     fs::write(&p, &good[..good.len() / 2]).unwrap();
@@ -264,13 +362,21 @@ fn case_insensitive_long_s_stays_candidate() {
     let t = tree();
     fs::write(t.root.join("src/sess.rs"), "fn getU\u{17F}erSession() {}\n").unwrap();
     fs::write(t.root.join("src/kelvin.rs"), "let \u{212A}ilogram = 1;\n").unwrap();
-    fs::write(t.root.join("src/plain.rs"), "fn getUserSession() {}\nlet kilogram = 1;\n").unwrap();
+    fs::write(
+        t.root.join("src/plain.rs"),
+        "fn getUserSession() {}\nlet kilogram = 1;\n",
+    )
+    .unwrap();
     build(&t.root, &t.dir, &opts()).unwrap();
     let idx = Index::open(&t.dir).unwrap();
     let cands = |pat: &str| -> Vec<String> {
         let q = plan::plan(pat, false, true).unwrap();
         assert_ne!(q, plan::Q::All, "{pat}: -i must keep grams through s/k");
-        let mut v: Vec<String> = idx.candidates(&q).iter().map(|id| idx.path(id).unwrap().to_string()).collect();
+        let mut v: Vec<String> = idx
+            .candidates(&q)
+            .iter()
+            .map(|id| idx.path(id).unwrap().to_string())
+            .collect();
         v.sort();
         v
     };
@@ -287,11 +393,19 @@ fn apply_skips_when_manifest_moved() {
     let b = Index::open(&t.dir).unwrap();
 
     // two queries computed the same change against the same generation
-    fs::write(t.root.join("src/main.rs"), "fn main() { helper_alpha(); helper_alpha(); }\n").unwrap();
+    fs::write(
+        t.root.join("src/main.rs"),
+        "fn main() { helper_alpha(); helper_alpha(); }\n",
+    )
+    .unwrap();
     let ch_a = check(&a, &t.root);
     let ch_b = check(&b, &t.root);
     assert_eq!(fresh::apply(&a, &t.root, &ch_a).unwrap(), 1);
-    assert_eq!(fresh::apply(&b, &t.root, &ch_b).unwrap(), 0, "second writer must skip: the delta count moved");
+    assert_eq!(
+        fresh::apply(&b, &t.root, &ch_b).unwrap(),
+        0,
+        "second writer must skip: the delta count moved"
+    );
     let m = read_manifest(&t.dir).unwrap();
     assert_eq!(m.deltas, 1);
     assert!(!t.dir.join("delta/0002.bin").exists());
@@ -300,7 +414,11 @@ fn apply_skips_when_manifest_moved() {
 
     // a build published a new generation between open and apply
     let stale = Index::open(&t.dir).unwrap();
-    fs::write(t.root.join("lib/thing.py"), "def thing_beta():\n    return 'beta beta'\n").unwrap();
+    fs::write(
+        t.root.join("lib/thing.py"),
+        "def thing_beta():\n    return 'beta beta'\n",
+    )
+    .unwrap();
     let ch = check(&stale, &t.root);
     assert_eq!(ch.modified.len(), 1);
     let m2 = build(&t.root, &t.dir, &opts()).unwrap();
@@ -319,7 +437,10 @@ fn apply_skips_when_manifest_moved() {
     let stale = Index::open(&t.dir).unwrap();
     build(&t.root, &t.dir, &opts()).unwrap();
     let before = read_manifest(&t.dir).unwrap();
-    let empty = fresh::Changes { fsevents_id: 7, ..Default::default() };
+    let empty = fresh::Changes {
+        fsevents_id: 7,
+        ..Default::default()
+    };
     assert_eq!(fresh::apply(&stale, &t.root, &empty).unwrap(), 0);
     let after = read_manifest(&t.dir).unwrap();
     assert_eq!(after.generation, before.generation);

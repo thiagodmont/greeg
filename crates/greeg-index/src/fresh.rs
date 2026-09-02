@@ -52,7 +52,11 @@ pub struct Changes {
 
 impl Changes {
     pub fn is_empty(&self) -> bool {
-        self.modified.is_empty() && self.deleted.is_empty() && self.added.is_empty() && self.added_dirs.is_empty() && self.touched_dirs.is_empty()
+        self.modified.is_empty()
+            && self.deleted.is_empty()
+            && self.added.is_empty()
+            && self.added_dirs.is_empty()
+            && self.touched_dirs.is_empty()
     }
     pub fn count(&self) -> usize {
         self.modified.len() + self.added.len()
@@ -81,7 +85,10 @@ impl<'a> Known<'a> {
     /// Known child names (files and dirs) of each directory in `dirs`, in one
     /// pass over the file table.
     fn children_of<'d>(&self, dirs: &'d [(String, i64)]) -> HashMap<&'d str, HashSet<&'a str>> {
-        let mut out: HashMap<&'d str, HashSet<&'a str>> = dirs.iter().map(|(d, _)| (d.as_str(), HashSet::new())).collect();
+        let mut out: HashMap<&'d str, HashSet<&'a str>> = dirs
+            .iter()
+            .map(|(d, _)| (d.as_str(), HashSet::new()))
+            .collect();
         for (_, rel, _) in &self.files {
             let (d, n) = rel.rsplit_once('/').unwrap_or(("", rel));
             if let Some(set) = out.get_mut(d) {
@@ -114,7 +121,12 @@ fn known(idx: &Index) -> Known<'_> {
 }
 
 /// Parallel lstat of `items`, returning per item Some(size, mtime) or None if missing.
-fn stat_many<T: Sync>(root: &Path, items: &[T], rel: impl Fn(&T) -> &str + Sync, threads: usize) -> Vec<Option<(u64, i64)>> {
+fn stat_many<T: Sync>(
+    root: &Path,
+    items: &[T],
+    rel: impl Fn(&T) -> &str + Sync,
+    threads: usize,
+) -> Vec<Option<(u64, i64)>> {
     let n = items.len();
     let mut out: Vec<Option<(u64, i64)>> = vec![None; n];
     if n == 0 {
@@ -128,7 +140,9 @@ fn stat_many<T: Sync>(root: &Path, items: &[T], rel: impl Fn(&T) -> &str + Sync,
             let rel = &rel;
             sc.spawn(move || {
                 for (o, it) in part.iter_mut().zip(items) {
-                    *o = fs::symlink_metadata(root.join(rel(it))).ok().map(|md| (md.len(), mtime_ns(&md)));
+                    *o = fs::symlink_metadata(root.join(rel(it)))
+                        .ok()
+                        .map(|md| (md.len(), mtime_ns(&md)));
                 }
             });
         }
@@ -138,9 +152,18 @@ fn stat_many<T: Sync>(root: &Path, items: &[T], rel: impl Fn(&T) -> &str + Sync,
 
 /// List a directory with ignore rules (one level), returning (name, is_dir, size, mtime).
 fn list_dir(root: &Path, rel: &str) -> Vec<(String, bool, u64, i64)> {
-    let abs = if rel.is_empty() { root.to_path_buf() } else { root.join(rel) };
+    let abs = if rel.is_empty() {
+        root.to_path_buf()
+    } else {
+        root.join(rel)
+    };
     let mut out = Vec::new();
-    for e in walker(&abs).max_depth(Some(1)).parents(true).build().flatten() {
+    for e in walker(&abs)
+        .max_depth(Some(1))
+        .parents(true)
+        .build()
+        .flatten()
+    {
         if e.depth() == 0 {
             continue;
         }
@@ -157,14 +180,27 @@ fn walk_new_dir(root: &Path, rel: &str, dir_id: u32, ch: &mut Changes) {
     let abs = root.join(rel);
     for e in walker(&abs).parents(true).build().flatten() {
         let Ok(md) = e.metadata() else { continue };
-        let r = e.path().strip_prefix(root).unwrap_or(e.path()).to_string_lossy().replace('\\', "/");
+        let r = e
+            .path()
+            .strip_prefix(root)
+            .unwrap_or(e.path())
+            .to_string_lossy()
+            .replace('\\', "/");
         if e.file_type().map(|t| t.is_dir()).unwrap_or(false) {
-            ch.added_dirs.push(WalkedDir { rel: r, mtime_ns: mtime_ns(&md) });
+            ch.added_dirs.push(WalkedDir {
+                rel: r,
+                mtime_ns: mtime_ns(&md),
+            });
         } else if e.file_type().map(|t| t.is_file()).unwrap_or(false) {
             if is_ignore_file(&r) {
                 ch.ignore_changed = true;
             }
-            ch.added.push(WalkedFile { rel: r, size: md.len(), mtime_ns: mtime_ns(&md), dir: dir_id });
+            ch.added.push(WalkedFile {
+                rel: r,
+                size: md.len(),
+                mtime_ns: mtime_ns(&md),
+                dir: dir_id,
+            });
         }
     }
 }
@@ -182,7 +218,15 @@ fn classify(ch: &mut Changes, id: u32, rel: &str, rec: &FileRec, s: Option<(u64,
             if is_ignore_file(rel) {
                 ch.ignore_changed = true;
             }
-            ch.modified.push((id, WalkedFile { rel: rel.to_string(), size: sz, mtime_ns: m, dir: rec.dir }));
+            ch.modified.push((
+                id,
+                WalkedFile {
+                    rel: rel.to_string(),
+                    size: sz,
+                    mtime_ns: m,
+                    dir: rec.dir,
+                },
+            ));
         }
         _ => {}
     }
@@ -193,7 +237,11 @@ pub fn check_stat(idx: &Index, root: &Path, threads: usize) -> Changes {
     let t = Instant::now();
     let fsevents_id = current_fsevents_id();
     let k = known(idx);
-    let mut ch = Changes { method: "stat", fsevents_id, ..Default::default() };
+    let mut ch = Changes {
+        method: "stat",
+        fsevents_id,
+        ..Default::default()
+    };
     let st = stat_many(root, &k.files, |f| f.1, threads);
     for ((id, rel, rec), s) in k.files.iter().zip(st) {
         classify(&mut ch, *id, rel, rec, s);
@@ -221,21 +269,33 @@ fn relist_dirs(root: &Path, k: &Known, changed_dirs: &[(String, i64)], ch: &mut 
     let kids = k.children_of(changed_dirs);
     let dir_ids: HashMap<&str, u32> = k.files.iter().map(|f| (parent_of(f.1), f.2.dir)).collect();
     for (rel, new_mtime) in changed_dirs {
-        ch.touched_dirs.push(WalkedDir { rel: rel.clone(), mtime_ns: *new_mtime });
+        ch.touched_dirs.push(WalkedDir {
+            rel: rel.clone(),
+            mtime_ns: *new_mtime,
+        });
         let known_kids = kids.get(rel.as_str());
         let dir_id = *dir_ids.get(rel.as_str()).unwrap_or(&0);
         for (name, is_dir, size, mt) in list_dir(root, rel) {
             if known_kids.map(|s| s.contains(&name[..])).unwrap_or(false) {
                 continue;
             }
-            let child_rel = if rel.is_empty() { name.clone() } else { format!("{rel}/{name}") };
+            let child_rel = if rel.is_empty() {
+                name.clone()
+            } else {
+                format!("{rel}/{name}")
+            };
             if is_dir {
                 walk_new_dir(root, &child_rel, dir_id, ch);
             } else {
                 if is_ignore_file(&child_rel) {
                     ch.ignore_changed = true;
                 }
-                ch.added.push(WalkedFile { rel: child_rel, size, mtime_ns: mt, dir: dir_id });
+                ch.added.push(WalkedFile {
+                    rel: child_rel,
+                    size,
+                    mtime_ns: mt,
+                    dir: dir_id,
+                });
             }
         }
     }
@@ -250,8 +310,13 @@ pub fn check_fsevents(idx: &Index, root: &Path, threads: usize) -> Option<Change
     let fsevents_id = current_fsevents_id();
     let abs_root = fs::canonicalize(root).ok()?;
     let root_s = abs_root.to_string_lossy().into_owned();
-    let dirs = greeg_fsevents::changed_dirs_since(idx.manifest.fsevents_id, &root_s, FSEVENTS_CUTOFF)?;
-    let mut ch = Changes { method: "fsevents", fsevents_id, ..Default::default() };
+    let dirs =
+        greeg_fsevents::changed_dirs_since(idx.manifest.fsevents_id, &root_s, FSEVENTS_CUTOFF)?;
+    let mut ch = Changes {
+        method: "fsevents",
+        fsevents_id,
+        ..Default::default()
+    };
     if dirs.is_empty() {
         ch.ms = t.elapsed().as_secs_f64() * 1e3;
         return Some(ch);
@@ -261,7 +326,11 @@ pub fn check_fsevents(idx: &Index, root: &Path, threads: usize) -> Option<Change
     let mut rels: HashSet<String> = HashSet::new();
     for d in dirs {
         let d = d.trim_end_matches('/');
-        let r = if d.len() > root_s.len() { d[root_s.len()..].trim_start_matches('/').to_string() } else { String::new() };
+        let r = if d.len() > root_s.len() {
+            d[root_s.len()..].trim_start_matches('/').to_string()
+        } else {
+            String::new()
+        };
         // events on paths outside the index (ignored dirs) still matter when they are
         // new: their parent appears too, so only known dirs and the root are listed.
         rels.insert(r);
@@ -272,7 +341,11 @@ pub fn check_fsevents(idx: &Index, root: &Path, threads: usize) -> Option<Change
     let mut moved: HashSet<&str> = HashSet::new();
     for r in &rels {
         if let Some(&old) = k.dirs.get(r.as_str())
-            && let Ok(md) = fs::symlink_metadata(if r.is_empty() { abs_root.clone() } else { abs_root.join(r) })
+            && let Ok(md) = fs::symlink_metadata(if r.is_empty() {
+                abs_root.clone()
+            } else {
+                abs_root.join(r)
+            })
         {
             let m = mtime_ns(&md);
             if m != old {
@@ -298,7 +371,11 @@ pub fn check_fsevents(idx: &Index, root: &Path, threads: usize) -> Option<Change
         false
     };
     // stat files whose parent dir changed, or that live below a dir whose entries moved
-    let files: Vec<&(u32, &str, &FileRec)> = k.files.iter().filter(|f| rels.contains(parent_of(f.1)) || under_moved(f.1)).collect();
+    let files: Vec<&(u32, &str, &FileRec)> = k
+        .files
+        .iter()
+        .filter(|f| rels.contains(parent_of(f.1)) || under_moved(f.1))
+        .collect();
     let st = stat_many(root, &files, |f| f.1, threads);
     for (f, s) in files.iter().zip(st) {
         classify(&mut ch, f.0, f.1, f.2, s);
@@ -313,7 +390,9 @@ pub fn check(idx: &Index, root: &Path, mode: Mode, threads: usize) -> Option<Cha
     match mode {
         Mode::None => None,
         Mode::Stat => Some(check_stat(idx, root, threads)),
-        Mode::FsEvents => check_fsevents(idx, root, threads).or_else(|| Some(check_stat(idx, root, threads))),
+        Mode::FsEvents => {
+            check_fsevents(idx, root, threads).or_else(|| Some(check_stat(idx, root, threads)))
+        }
         Mode::Auto => {
             if now_ms().saturating_sub(idx.manifest.verified_unix_ms) < TTL_MS {
                 return None;
@@ -334,7 +413,10 @@ pub fn check(idx: &Index, root: &Path, mode: Mode, threads: usize) -> Option<Cha
 /// Does the on-disk manifest still describe the index `idx` was opened from?
 fn same_index(idx: &Index, cur: &crate::Manifest) -> bool {
     let m = &idx.manifest;
-    cur.generation == m.generation && cur.phase1 == m.phase1 && cur.phase2 == m.phase2 && cur.deltas == m.deltas
+    cur.generation == m.generation
+        && cur.phase1 == m.phase1
+        && cur.phase2 == m.phase2
+        && cur.deltas == m.deltas
 }
 
 /// Apply changes as a new delta segment; update the manifest. Returns the
@@ -343,14 +425,20 @@ fn same_index(idx: &Index, cur: &crate::Manifest) -> bool {
 /// opened, the delta (computed against stale ids) is skipped and 0 is
 /// returned; the caller reopens the index either way.
 pub fn apply(idx: &Index, root: &Path, ch: &Changes) -> Result<usize> {
-    let fsid = if ch.fsevents_id != 0 { ch.fsevents_id } else { current_fsevents_id() };
+    let fsid = if ch.fsevents_id != 0 {
+        ch.fsevents_id
+    } else {
+        current_fsevents_id()
+    };
     if ch.is_empty() {
         // nothing to publish: refresh the TTL stamp, at most once per second
         if now_ms().saturating_sub(idx.manifest.verified_unix_ms) < VERIFY_WRITE_MS {
             return Ok(0);
         }
         let _lock = crate::lock::writer(&idx.dir)?;
-        let Some(mut m) = read_manifest(&idx.dir) else { return Ok(0) };
+        let Some(mut m) = read_manifest(&idx.dir) else {
+            return Ok(0);
+        };
         if !same_index(idx, &m) {
             return Ok(0);
         }
@@ -366,20 +454,42 @@ pub fn apply(idx: &Index, root: &Path, ch: &Changes) -> Result<usize> {
     let mut tomb = RoaringBitmap::new();
     for (id, w) in &ch.modified {
         tomb.insert(*id);
-        files.push(WalkedFile { rel: w.rel.clone(), size: w.size, mtime_ns: w.mtime_ns, dir: w.dir });
+        files.push(WalkedFile {
+            rel: w.rel.clone(),
+            size: w.size,
+            mtime_ns: w.mtime_ns,
+            dir: w.dir,
+        });
     }
     for id in &ch.deleted {
         tomb.insert(*id);
     }
     for w in &ch.added {
-        files.push(WalkedFile { rel: w.rel.clone(), size: w.size, mtime_ns: w.mtime_ns, dir: w.dir });
+        files.push(WalkedFile {
+            rel: w.rel.clone(),
+            size: w.size,
+            mtime_ns: w.mtime_ns,
+            dir: w.dir,
+        });
     }
-    let mut dirs: Vec<WalkedDir> = ch.added_dirs.iter().map(|d| WalkedDir { rel: d.rel.clone(), mtime_ns: d.mtime_ns }).collect();
-    dirs.extend(ch.touched_dirs.iter().map(|d| WalkedDir { rel: d.rel.clone(), mtime_ns: d.mtime_ns }));
+    let mut dirs: Vec<WalkedDir> = ch
+        .added_dirs
+        .iter()
+        .map(|d| WalkedDir {
+            rel: d.rel.clone(),
+            mtime_ns: d.mtime_ns,
+        })
+        .collect();
+    dirs.extend(ch.touched_dirs.iter().map(|d| WalkedDir {
+        rel: d.rel.clone(),
+        mtime_ns: d.mtime_ns,
+    }));
     // extraction runs outside the lock; only the publish is serialized
     let body = build_delta(root, first_id, &files, &dirs, &tomb)?;
     let _lock = crate::lock::writer(&idx.dir)?;
-    let Some(mut m) = read_manifest(&idx.dir) else { return Ok(0) };
+    let Some(mut m) = read_manifest(&idx.dir) else {
+        return Ok(0);
+    };
     if !same_index(idx, &m) {
         return Ok(0);
     }
@@ -410,5 +520,8 @@ fn current_fsevents_id() -> u64 {
 
 /// Should a full rebuild be spawned instead of applying inline?
 pub fn needs_rebuild(idx: &Index, ch: &Changes) -> bool {
-    ch.ignore_changed || ch.count() > 2000 || idx.deltas.len() >= 16 || (idx.tomb.len() + ch.count() as u64) * 20 > idx.base.n_files as u64
+    ch.ignore_changed
+        || ch.count() > 2000
+        || idx.deltas.len() >= 16
+        || (idx.tomb.len() + ch.count() as u64) * 20 > idx.base.n_files as u64
 }

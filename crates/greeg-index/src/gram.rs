@@ -16,7 +16,10 @@ impl Default for Dedup {
 
 impl Dedup {
     pub fn new() -> Self {
-        Self { bits: vec![0; BITSET_WORDS], touched: Vec::with_capacity(8192) }
+        Self {
+            bits: vec![0; BITSET_WORDS],
+            touched: Vec::with_capacity(8192),
+        }
     }
 
     /// Unique trigram keys of `buf` (already case-folded), sorted ascending.
@@ -87,7 +90,10 @@ pub fn literal_keys(lit: &[u8]) -> Vec<Vec<u32>> {
         if piece.len() < 3 {
             continue;
         }
-        let mut v: Vec<u32> = piece.windows(3).map(|w| key3(fold(w[0]), fold(w[1]), fold(w[2]))).collect();
+        let mut v: Vec<u32> = piece
+            .windows(3)
+            .map(|w| key3(fold(w[0]), fold(w[1]), fold(w[2])))
+            .collect();
         v.sort_unstable();
         v.dedup();
         groups.push(v);

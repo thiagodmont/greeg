@@ -32,7 +32,11 @@ fn dir_of(rel: &str) -> &str {
 }
 
 fn join(dir: &str, name: &str) -> String {
-    if dir.is_empty() { name.to_string() } else { format!("{dir}/{name}") }
+    if dir.is_empty() {
+        name.to_string()
+    } else {
+        format!("{dir}/{name}")
+    }
 }
 
 fn parent(dir: &str) -> &str {
@@ -56,7 +60,11 @@ fn normalize(p: &str) -> String {
 
 impl<'a> Resolver<'a> {
     /// `files`: (id, relative path). `kt`: (id, package, top-level exported names) for Kotlin files.
-    pub fn new(root: &Path, files: &[(u32, &'a str)], kt: impl Iterator<Item = (u32, &'a str, Vec<&'a str>)>) -> Self {
+    pub fn new(
+        root: &Path,
+        files: &[(u32, &'a str)],
+        kt: impl Iterator<Item = (u32, &'a str, Vec<&'a str>)>,
+    ) -> Self {
         let mut paths: HashMap<&'a str, u32> = HashMap::with_capacity(files.len());
         let mut py_roots: Vec<String> = vec![String::new()];
         let mut rust_crates: Vec<(String, String, String)> = Vec::new();
@@ -76,7 +84,9 @@ impl<'a> Resolver<'a> {
                 }
                 "Cargo.toml" => {
                     let d = dir_of(rel).to_string();
-                    let pkg = cargo_package_name(&root.join(rel)).unwrap_or_else(|| d.rsplit('/').next().unwrap_or("").to_string()).replace('-', "_");
+                    let pkg = cargo_package_name(&root.join(rel))
+                        .unwrap_or_else(|| d.rsplit('/').next().unwrap_or("").to_string())
+                        .replace('-', "_");
                     let src = join(&d, "src");
                     rust_crates.push((d, pkg, src));
                 }
@@ -85,8 +95,16 @@ impl<'a> Resolver<'a> {
         }
         py_roots.sort_by_key(|b| std::cmp::Reverse(b.len()));
         rust_crates.sort_by(|a, b| b.0.len().cmp(&a.0.len()));
-        let rust_by_name = rust_crates.iter().enumerate().map(|(i, c)| (c.1.clone(), i)).collect();
-        let rust_by_dir = rust_crates.iter().enumerate().map(|(i, c)| (c.0.clone(), i)).collect();
+        let rust_by_name = rust_crates
+            .iter()
+            .enumerate()
+            .map(|(i, c)| (c.1.clone(), i))
+            .collect();
+        let rust_by_dir = rust_crates
+            .iter()
+            .enumerate()
+            .map(|(i, c)| (c.0.clone(), i))
+            .collect();
         let mut kt_packages: HashMap<String, Vec<u32>> = HashMap::new();
         let mut kt_syms: HashMap<String, u32> = HashMap::new();
         for (id, pkg, names) in kt {
@@ -95,7 +113,15 @@ impl<'a> Resolver<'a> {
                 kt_syms.entry(format!("{pkg}.{n}")).or_insert(id);
             }
         }
-        Resolver { paths, py_roots, rust_crates, rust_by_name, rust_by_dir, kt_packages, kt_syms }
+        Resolver {
+            paths,
+            py_roots,
+            rust_crates,
+            rust_by_name,
+            rust_by_dir,
+            kt_packages,
+            kt_syms,
+        }
     }
 
     /// Per-file context computed once (crate root and module directory for Rust).
@@ -115,10 +141,16 @@ impl<'a> Resolver<'a> {
                 }
                 d = parent(d);
             }
-            ctx.rust_src = found.map(|i| self.rust_crates[i].2.clone()).unwrap_or_else(|| "src".to_string());
+            ctx.rust_src = found
+                .map(|i| self.rust_crates[i].2.clone())
+                .unwrap_or_else(|| "src".to_string());
             let fname = from_rel.rsplit('/').next().unwrap_or("");
             let fdir = dir_of(from_rel);
-            ctx.rust_mod_dir = if matches!(fname, "mod.rs" | "lib.rs" | "main.rs") { fdir.to_string() } else { join(fdir, fname.trim_end_matches(".rs")) };
+            ctx.rust_mod_dir = if matches!(fname, "mod.rs" | "lib.rs" | "main.rs") {
+                fdir.to_string()
+            } else {
+                join(fdir, fname.trim_end_matches(".rs"))
+            };
         }
         ctx
     }
@@ -138,7 +170,9 @@ impl<'a> Resolver<'a> {
         let mut out = match lang {
             Lang::Python => self.python(from_rel, &im.module).into_iter().collect(),
             Lang::Rust => self.rust(ctx, &im.module).into_iter().collect(),
-            Lang::JavaScript | Lang::TypeScript => self.js(from_rel, &im.module).into_iter().collect(),
+            Lang::JavaScript | Lang::TypeScript => {
+                self.js(from_rel, &im.module).into_iter().collect()
+            }
             Lang::Kotlin => self.kotlin(&im.module, im.wildcard),
             _ => Vec::new(),
         };
@@ -156,7 +190,10 @@ impl<'a> Resolver<'a> {
 
     fn python(&self, from_rel: &str, module: &str) -> Option<u32> {
         let dots = module.bytes().take_while(|&b| b == b'.').count();
-        let rest: Vec<&str> = module[dots..].split('.').filter(|s| !s.is_empty()).collect();
+        let rest: Vec<&str> = module[dots..]
+            .split('.')
+            .filter(|s| !s.is_empty())
+            .collect();
         let try_under = |base: &str, segs: &[&str]| -> Option<u32> {
             // longest module path first, then shorter (the tail may be a symbol name)
             for k in (0..=segs.len()).rev() {
@@ -273,20 +310,42 @@ impl<'a> Resolver<'a> {
     }
 
     fn js(&self, from_rel: &str, module: &str) -> Option<u32> {
-        if !(module.starts_with("./") || module.starts_with("../") || module == "." || module == "..") {
+        if !(module.starts_with("./")
+            || module.starts_with("../")
+            || module == "."
+            || module == "..")
+        {
             return None;
         }
         let p = normalize(&join(dir_of(from_rel), module));
         if let Some(id) = self.get(&p) {
             return Some(id);
         }
-        let stem = if let Some(s) = p.strip_suffix(".js").or_else(|| p.strip_suffix(".jsx")).or_else(|| p.strip_suffix(".mjs")).or_else(|| p.strip_suffix(".cjs")) { s.to_string() } else { p.clone() };
-        for ext in [".ts", ".tsx", ".d.ts", ".js", ".jsx", ".mjs", ".cjs", ".mts", ".cts"] {
+        let stem = if let Some(s) = p
+            .strip_suffix(".js")
+            .or_else(|| p.strip_suffix(".jsx"))
+            .or_else(|| p.strip_suffix(".mjs"))
+            .or_else(|| p.strip_suffix(".cjs"))
+        {
+            s.to_string()
+        } else {
+            p.clone()
+        };
+        for ext in [
+            ".ts", ".tsx", ".d.ts", ".js", ".jsx", ".mjs", ".cjs", ".mts", ".cts",
+        ] {
             if let Some(id) = self.get(&format!("{stem}{ext}")) {
                 return Some(id);
             }
         }
-        for idx in ["index.ts", "index.tsx", "index.d.ts", "index.js", "index.jsx", "index.mjs"] {
+        for idx in [
+            "index.ts",
+            "index.tsx",
+            "index.d.ts",
+            "index.js",
+            "index.jsx",
+            "index.mjs",
+        ] {
             if let Some(id) = self.get(&join(&p, idx)) {
                 return Some(id);
             }
@@ -296,7 +355,11 @@ impl<'a> Resolver<'a> {
 
     fn kotlin(&self, module: &str, wildcard: bool) -> Vec<u32> {
         if wildcard {
-            return self.kt_packages.get(module).map(|v| v.iter().copied().take(20).collect()).unwrap_or_default();
+            return self
+                .kt_packages
+                .get(module)
+                .map(|v| v.iter().copied().take(20).collect())
+                .unwrap_or_default();
         }
         if let Some(&id) = self.kt_syms.get(module) {
             return vec![id];
@@ -338,53 +401,145 @@ mod tests {
     use super::*;
 
     fn imp(m: &str, wildcard: bool) -> Import {
-        Import { start: 0, end: 0, module: m.to_string(), names: vec![], wildcard }
+        Import {
+            start: 0,
+            end: 0,
+            module: m.to_string(),
+            names: vec![],
+            wildcard,
+        }
     }
 
     #[test]
     fn python_paths() {
-        let files: Vec<(u32, &str)> = vec![(0, "pkg/__init__.py"), (1, "pkg/a/b.py"), (2, "pkg/a/__init__.py"), (3, "pyproject.toml"), (4, "tests/test_x.py")];
+        let files: Vec<(u32, &str)> = vec![
+            (0, "pkg/__init__.py"),
+            (1, "pkg/a/b.py"),
+            (2, "pkg/a/__init__.py"),
+            (3, "pyproject.toml"),
+            (4, "tests/test_x.py"),
+        ];
         let r = Resolver::new(Path::new("/nonexistent"), &files, std::iter::empty());
-        assert_eq!(r.resolve(Lang::Python, "tests/test_x.py", &imp("pkg.a.b", false)), vec![1]);
-        assert_eq!(r.resolve(Lang::Python, "tests/test_x.py", &imp("pkg.a", false)), vec![2]);
-        assert_eq!(r.resolve(Lang::Python, "pkg/a/b.py", &imp(".", false)), vec![2]);
-        assert_eq!(r.resolve(Lang::Python, "pkg/a/b.py", &imp("..", false)), vec![0]);
-        assert_eq!(r.resolve(Lang::Python, "pkg/a/b.py", &imp("pkg.a.b.Thing", false)), Vec::<u32>::new()); // self excluded
-        assert_eq!(r.resolve(Lang::Python, "tests/test_x.py", &imp("os.path", false)), Vec::<u32>::new());
+        assert_eq!(
+            r.resolve(Lang::Python, "tests/test_x.py", &imp("pkg.a.b", false)),
+            vec![1]
+        );
+        assert_eq!(
+            r.resolve(Lang::Python, "tests/test_x.py", &imp("pkg.a", false)),
+            vec![2]
+        );
+        assert_eq!(
+            r.resolve(Lang::Python, "pkg/a/b.py", &imp(".", false)),
+            vec![2]
+        );
+        assert_eq!(
+            r.resolve(Lang::Python, "pkg/a/b.py", &imp("..", false)),
+            vec![0]
+        );
+        assert_eq!(
+            r.resolve(Lang::Python, "pkg/a/b.py", &imp("pkg.a.b.Thing", false)),
+            Vec::<u32>::new()
+        ); // self excluded
+        assert_eq!(
+            r.resolve(Lang::Python, "tests/test_x.py", &imp("os.path", false)),
+            Vec::<u32>::new()
+        );
     }
 
     #[test]
     fn rust_paths() {
-        let files: Vec<(u32, &str)> = vec![(0, "Cargo.toml"), (1, "src/lib.rs"), (2, "src/a/mod.rs"), (3, "src/a/b.rs"), (4, "src/c.rs"), (5, "crates/x/Cargo.toml"), (6, "crates/x/src/lib.rs")];
+        let files: Vec<(u32, &str)> = vec![
+            (0, "Cargo.toml"),
+            (1, "src/lib.rs"),
+            (2, "src/a/mod.rs"),
+            (3, "src/a/b.rs"),
+            (4, "src/c.rs"),
+            (5, "crates/x/Cargo.toml"),
+            (6, "crates/x/src/lib.rs"),
+        ];
         let r = Resolver::new(Path::new("/nonexistent"), &files, std::iter::empty());
-        assert_eq!(r.resolve(Lang::Rust, "src/c.rs", &imp("crate::a::b::Thing", false)), vec![3]);
-        assert_eq!(r.resolve(Lang::Rust, "src/c.rs", &imp("crate::a", false)), vec![2]);
-        assert_eq!(r.resolve(Lang::Rust, "src/a/b.rs", &imp("super::Thing", false)), vec![2]);
-        assert_eq!(r.resolve(Lang::Rust, "src/a/mod.rs", &imp("self::b", false)), vec![3]);
-        assert_eq!(r.resolve(Lang::Rust, "src/a/mod.rs", &imp("super::c::X", false)), vec![4]);
-        assert_eq!(r.resolve(Lang::Rust, "src/c.rs", &imp("x::Foo", false)), vec![6]);
-        assert_eq!(r.resolve(Lang::Rust, "src/c.rs", &imp("std::io", false)), Vec::<u32>::new());
+        assert_eq!(
+            r.resolve(Lang::Rust, "src/c.rs", &imp("crate::a::b::Thing", false)),
+            vec![3]
+        );
+        assert_eq!(
+            r.resolve(Lang::Rust, "src/c.rs", &imp("crate::a", false)),
+            vec![2]
+        );
+        assert_eq!(
+            r.resolve(Lang::Rust, "src/a/b.rs", &imp("super::Thing", false)),
+            vec![2]
+        );
+        assert_eq!(
+            r.resolve(Lang::Rust, "src/a/mod.rs", &imp("self::b", false)),
+            vec![3]
+        );
+        assert_eq!(
+            r.resolve(Lang::Rust, "src/a/mod.rs", &imp("super::c::X", false)),
+            vec![4]
+        );
+        assert_eq!(
+            r.resolve(Lang::Rust, "src/c.rs", &imp("x::Foo", false)),
+            vec![6]
+        );
+        assert_eq!(
+            r.resolve(Lang::Rust, "src/c.rs", &imp("std::io", false)),
+            Vec::<u32>::new()
+        );
     }
 
     #[test]
     fn js_paths() {
-        let files: Vec<(u32, &str)> = vec![(0, "src/a.ts"), (1, "src/b/index.ts"), (2, "src/c.tsx"), (3, "src/d.js")];
+        let files: Vec<(u32, &str)> = vec![
+            (0, "src/a.ts"),
+            (1, "src/b/index.ts"),
+            (2, "src/c.tsx"),
+            (3, "src/d.js"),
+        ];
         let r = Resolver::new(Path::new("/nonexistent"), &files, std::iter::empty());
-        assert_eq!(r.resolve(Lang::TypeScript, "src/c.tsx", &imp("./a", false)), vec![0]);
-        assert_eq!(r.resolve(Lang::TypeScript, "src/c.tsx", &imp("./a.js", false)), vec![0]);
-        assert_eq!(r.resolve(Lang::TypeScript, "src/c.tsx", &imp("./b", false)), vec![1]);
-        assert_eq!(r.resolve(Lang::TypeScript, "src/b/index.ts", &imp("../c", false)), vec![2]);
-        assert_eq!(r.resolve(Lang::JavaScript, "src/d.js", &imp("react", false)), Vec::<u32>::new());
+        assert_eq!(
+            r.resolve(Lang::TypeScript, "src/c.tsx", &imp("./a", false)),
+            vec![0]
+        );
+        assert_eq!(
+            r.resolve(Lang::TypeScript, "src/c.tsx", &imp("./a.js", false)),
+            vec![0]
+        );
+        assert_eq!(
+            r.resolve(Lang::TypeScript, "src/c.tsx", &imp("./b", false)),
+            vec![1]
+        );
+        assert_eq!(
+            r.resolve(Lang::TypeScript, "src/b/index.ts", &imp("../c", false)),
+            vec![2]
+        );
+        assert_eq!(
+            r.resolve(Lang::JavaScript, "src/d.js", &imp("react", false)),
+            Vec::<u32>::new()
+        );
     }
 
     #[test]
     fn kotlin_packages() {
         let files: Vec<(u32, &str)> = vec![(0, "a/A.kt"), (1, "a/B.kt"), (2, "b/C.kt")];
-        let kt = vec![(0u32, "com.a", vec!["A"]), (1, "com.a", vec!["B"]), (2, "com.b", vec!["C"])];
+        let kt = vec![
+            (0u32, "com.a", vec!["A"]),
+            (1, "com.a", vec!["B"]),
+            (2, "com.b", vec!["C"]),
+        ];
         let r = Resolver::new(Path::new("/nonexistent"), &files, kt.into_iter());
-        assert_eq!(r.resolve(Lang::Kotlin, "b/C.kt", &imp("com.a.A", false)), vec![0]);
-        assert_eq!(r.resolve(Lang::Kotlin, "b/C.kt", &imp("com.a.A.Nested", false)), vec![0]);
-        assert_eq!(r.resolve(Lang::Kotlin, "b/C.kt", &imp("com.a", true)), vec![0, 1]);
+        assert_eq!(
+            r.resolve(Lang::Kotlin, "b/C.kt", &imp("com.a.A", false)),
+            vec![0]
+        );
+        assert_eq!(
+            r.resolve(Lang::Kotlin, "b/C.kt", &imp("com.a.A.Nested", false)),
+            vec![0]
+        );
+        assert_eq!(
+            r.resolve(Lang::Kotlin, "b/C.kt", &imp("com.a", true)),
+            vec![0, 1]
+        );
         assert_eq!(r.kotlin_package_peers("com.a", 0), vec![1]);
     }
 }

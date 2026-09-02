@@ -85,7 +85,9 @@ impl Lang {
             "kt" | "kts" => Lang::Kotlin,
             "md" | "txt" | "json" | "yaml" | "yml" | "toml" | "xml" | "html" | "css" | "scss"
             | "sql" | "sh" | "bash" | "zsh" | "ini" | "cfg" | "conf" | "env" | "csv" | "rst"
-            | "proto" | "graphql" | "gql" | "tf" | "hcl" | "gradle" | "properties" | "lock" => Lang::Text,
+            | "proto" | "graphql" | "gql" | "tf" | "hcl" | "gradle" | "properties" | "lock" => {
+                Lang::Text
+            }
             _ => match extra::by_extension(ext) {
                 Some(i) => Lang::Extra(i),
                 None => Lang::None,
@@ -145,12 +147,63 @@ impl FileFlags {
 /// table; keep them in sync. Segments are matched case-insensitively against
 /// each directory component of the relative path.
 const TEST_SEGMENTS: &[&str] = &[
-    "test", "tests", "__tests__", "specs", "testing", "testdata", "test_data", "fixtures", "snapshots", "__snapshots__", "e2e", "integration-tests", "mock", "mocks", "__mocks__", "stub", "stubs", "fake", "fakes",
+    "test",
+    "tests",
+    "__tests__",
+    "specs",
+    "testing",
+    "testdata",
+    "test_data",
+    "fixtures",
+    "snapshots",
+    "__snapshots__",
+    "e2e",
+    "integration-tests",
+    "mock",
+    "mocks",
+    "__mocks__",
+    "stub",
+    "stubs",
+    "fake",
+    "fakes",
 ];
-const VENDOR_SEGMENTS: &[&str] = &["vendor", "vendored", "third_party", "thirdparty", "third-party", "node_modules", ".yarn", "bower_components", "site-packages", "_vendor"];
-const GENERATED_SEGMENTS: &[&str] = &["generated", "__generated__", "_gen", "autogen", "compiled", "dist", ".next", "target"];
+const VENDOR_SEGMENTS: &[&str] = &[
+    "vendor",
+    "vendored",
+    "third_party",
+    "thirdparty",
+    "third-party",
+    "node_modules",
+    ".yarn",
+    "bower_components",
+    "site-packages",
+    "_vendor",
+];
+const GENERATED_SEGMENTS: &[&str] = &[
+    "generated",
+    "__generated__",
+    "_gen",
+    "autogen",
+    "compiled",
+    "dist",
+    ".next",
+    "target",
+];
 const LOCKFILES: &[&str] = &[
-    "package-lock.json", "yarn.lock", "pnpm-lock.yaml", "Cargo.lock", "poetry.lock", "uv.lock", "Pipfile.lock", "gradle.lockfile", "pixi.lock", "composer.lock", "Gemfile.lock", "bun.lockb", "bun.lock", "flake.lock",
+    "package-lock.json",
+    "yarn.lock",
+    "pnpm-lock.yaml",
+    "Cargo.lock",
+    "poetry.lock",
+    "uv.lock",
+    "Pipfile.lock",
+    "gradle.lockfile",
+    "pixi.lock",
+    "composer.lock",
+    "Gemfile.lock",
+    "bun.lockb",
+    "bun.lock",
+    "flake.lock",
 ];
 
 /// `*Test.kt` / `*Tests.kt` with an uppercase `T` boundary: `FooTest.kt` and
@@ -237,7 +290,11 @@ pub fn content_flags(head: &[u8], total_len: u64) -> FileFlags {
     }
     let tail_len = head.len() - last;
     max_line = max_line.max(tail_len);
-    let avg = if lines > 0 { head.len() / lines } else { head.len() };
+    let avg = if lines > 0 {
+        head.len() / lines
+    } else {
+        head.len()
+    };
     if (max_line > 1000 && avg > 200) || (lines == 0 && head.len() > 2000) {
         f.set(FileFlags::MINIFIED);
     }
@@ -311,7 +368,17 @@ impl DefKind {
         }
     }
     pub fn is_container(self) -> bool {
-        matches!(self, DefKind::Class | DefKind::Struct | DefKind::Enum | DefKind::Trait | DefKind::Interface | DefKind::Module | DefKind::Object | DefKind::Impl)
+        matches!(
+            self,
+            DefKind::Class
+                | DefKind::Struct
+                | DefKind::Enum
+                | DefKind::Trait
+                | DefKind::Interface
+                | DefKind::Module
+                | DefKind::Object
+                | DefKind::Impl
+        )
     }
 }
 
@@ -321,12 +388,23 @@ pub fn is_import_line(lang: Lang, line: &[u8]) -> bool {
     let starts = |p: &[u8]| t.starts_with(p);
     match lang {
         Lang::Python => starts(b"import ") || starts(b"from "),
-        Lang::Rust => starts(b"use ") || starts(b"pub use ") || starts(b"pub(crate) use ") || starts(b"extern crate "),
+        Lang::Rust => {
+            starts(b"use ")
+                || starts(b"pub use ")
+                || starts(b"pub(crate) use ")
+                || starts(b"extern crate ")
+        }
         Lang::JavaScript | Lang::TypeScript => {
-            starts(b"import ") || starts(b"import{") || starts(b"export ") && (memchr::memmem::find(t, b" from ").is_some()) || memchr::memmem::find(t, b"require(").is_some() && (starts(b"const ") || starts(b"let ") || starts(b"var "))
+            starts(b"import ")
+                || starts(b"import{")
+                || starts(b"export ") && (memchr::memmem::find(t, b" from ").is_some())
+                || memchr::memmem::find(t, b"require(").is_some()
+                    && (starts(b"const ") || starts(b"let ") || starts(b"var "))
         }
         Lang::Kotlin => starts(b"import "),
-        Lang::Extra(i) => extra::get(i).map(|l| l.imports.iter().any(|p| starts(p.as_bytes()))).unwrap_or(false),
+        Lang::Extra(i) => extra::get(i)
+            .map(|l| l.imports.iter().any(|p| starts(p.as_bytes())))
+            .unwrap_or(false),
         _ => false,
     }
 }
@@ -360,7 +438,13 @@ pub fn transcode_utf16(buf: &mut Vec<u8>) -> bool {
     if !(le || be) {
         return false;
     }
-    let units = buf[2..].chunks_exact(2).map(|c| if le { u16::from_le_bytes([c[0], c[1]]) } else { u16::from_be_bytes([c[0], c[1]]) });
+    let units = buf[2..].chunks_exact(2).map(|c| {
+        if le {
+            u16::from_le_bytes([c[0], c[1]])
+        } else {
+            u16::from_be_bytes([c[0], c[1]])
+        }
+    });
     let mut out = String::with_capacity(buf.len());
     for r in char::decode_utf16(units) {
         out.push(r.unwrap_or(char::REPLACEMENT_CHARACTER));
@@ -386,29 +470,87 @@ mod flag_tests {
 
     #[test]
     fn test_segments_and_names() {
-        for p in ["src/__mocks__/fs.ts", "a/mocks/x.py", "a/mock/x.rs", "lib/stubs/s.kt", "lib/stub/s.kt", "x/fakes/f.go", "x/fake/f.go", "tests/a.rs", "src/testing/util.go", "pkg/fixtures/a.json", "e2e/login.ts", "testdata/x.txt"] {
+        for p in [
+            "src/__mocks__/fs.ts",
+            "a/mocks/x.py",
+            "a/mock/x.rs",
+            "lib/stubs/s.kt",
+            "lib/stub/s.kt",
+            "x/fakes/f.go",
+            "x/fake/f.go",
+            "tests/a.rs",
+            "src/testing/util.go",
+            "pkg/fixtures/a.json",
+            "e2e/login.ts",
+            "testdata/x.txt",
+        ] {
             assert!(has(p, FileFlags::TEST), "{p}");
         }
-        for p in ["src/a_test.go", "src/a_test.c", "src/foo_test.py", "src/x.test.ts", "src/x.spec.ts", "spec/models/user_spec.rb", "src/FooTest.kt", "src/FooTests.kt", "src/test_util.py", "conftest.py"] {
+        for p in [
+            "src/a_test.go",
+            "src/a_test.c",
+            "src/foo_test.py",
+            "src/x.test.ts",
+            "src/x.spec.ts",
+            "spec/models/user_spec.rb",
+            "src/FooTest.kt",
+            "src/FooTests.kt",
+            "src/test_util.py",
+            "conftest.py",
+        ] {
             assert!(has(p, FileFlags::TEST), "{p}");
         }
-        for p in ["src/Latest.kt", "src/latest.kt", "spec/openapi.yaml", "spec/rfc.md", "src/attest.rs", "src/contest.py", "specification/x.rs"] {
+        for p in [
+            "src/Latest.kt",
+            "src/latest.kt",
+            "spec/openapi.yaml",
+            "spec/rfc.md",
+            "src/attest.rs",
+            "src/contest.py",
+            "specification/x.rs",
+        ] {
             assert!(!has(p, FileFlags::TEST), "{p}");
         }
     }
 
     #[test]
     fn vendored_and_generated_segments() {
-        for p in ["vendor/x.go", "node_modules/a/i.js", "third_party/x.c", "site-packages/a.py", "x/_vendor/y.py"] {
+        for p in [
+            "vendor/x.go",
+            "node_modules/a/i.js",
+            "third_party/x.c",
+            "site-packages/a.py",
+            "x/_vendor/y.py",
+        ] {
             assert!(has(p, FileFlags::VENDORED), "{p}");
         }
         for p in ["src/external/x.rs", "pkg/deps/y.go", "externals/z.js"] {
             assert!(!has(p, FileFlags::VENDORED), "{p}");
         }
-        for p in ["generated/a.rs", "src/__generated__/b.ts", "dist/c.js", "target/d.rs", "x/autogen/e.py", "a.g.dart", "a.g.cs", "a.g.ts", "a_pb2.py", "a.pb.go", "Form.Designer.cs", "api.generated.ts"] {
+        for p in [
+            "generated/a.rs",
+            "src/__generated__/b.ts",
+            "dist/c.js",
+            "target/d.rs",
+            "x/autogen/e.py",
+            "a.g.dart",
+            "a.g.cs",
+            "a.g.ts",
+            "a_pb2.py",
+            "a.pb.go",
+            "Form.Designer.cs",
+            "api.generated.ts",
+        ] {
             assert!(has(p, FileFlags::GENERATED), "{p}");
         }
-        for p in ["pkg/build/x.go", "src/out/y.rs", "gen/z.py", "a.g.rs", "config.g.yaml", "src/build.rs"] {
+        for p in [
+            "pkg/build/x.go",
+            "src/out/y.rs",
+            "gen/z.py",
+            "a.g.rs",
+            "config.g.yaml",
+            "src/build.rs",
+        ] {
             assert!(!has(p, FileFlags::GENERATED), "{p}");
         }
     }

@@ -34,7 +34,10 @@ impl Outline {
         // defs are sorted by start; the innermost containing def is the last
         // one starting at or before `off` whose body still covers it.
         let upto = self.defs.partition_point(|d| d.start <= off);
-        (0..upto).rev().find(|&i| self.defs[i].end > off).map(|i| i as u32)
+        (0..upto)
+            .rev()
+            .find(|&i| self.defs[i].end > off)
+            .map(|i| i as u32)
     }
     /// Definition whose *name* overlaps the byte range `[ms, me)`.
     pub fn def_named_in(&self, ms: u32, me: u32) -> Option<u32> {
@@ -57,7 +60,11 @@ impl Outline {
         let mut guard = 0;
         while let Some(i) = cur {
             let d = &self.defs[i as usize];
-            v.push((d.kind, String::from_utf8_lossy(&src[d.name_start as usize..d.name_end as usize]).into_owned()));
+            v.push((
+                d.kind,
+                String::from_utf8_lossy(&src[d.name_start as usize..d.name_end as usize])
+                    .into_owned(),
+            ));
             cur = d.parent;
             guard += 1;
             if guard > 16 {
@@ -82,35 +89,89 @@ fn build(pat: &str) -> Regex {
 }
 
 static PY: LazyLock<LangRes> = LazyLock::new(|| LangRes {
-    re: build(r"(?m)^(?P<indent>[ \t]*)(?:(?:async\s+)?(?P<def>def)\s+(?P<name>[A-Za-z_]\w*)|(?P<class>class)\s+(?P<name2>[A-Za-z_]\w*)|(?P<const>[A-Z_][A-Z0-9_]{2,})\s*(?::[^=\n]+)?=[^=])"),
-    kinds: vec![("def", DefKind::Function), ("class", DefKind::Class), ("const", DefKind::Constant)],
+    re: build(
+        r"(?m)^(?P<indent>[ \t]*)(?:(?:async\s+)?(?P<def>def)\s+(?P<name>[A-Za-z_]\w*)|(?P<class>class)\s+(?P<name2>[A-Za-z_]\w*)|(?P<const>[A-Z_][A-Z0-9_]{2,})\s*(?::[^=\n]+)?=[^=])",
+    ),
+    kinds: vec![
+        ("def", DefKind::Function),
+        ("class", DefKind::Class),
+        ("const", DefKind::Constant),
+    ],
 });
 static RS: LazyLock<LangRes> = LazyLock::new(|| LangRes {
-    re: build(r#"(?m)^(?P<indent>[ \t]*)(?:pub(?:\([^)]*\))?\s+)?(?:(?:async|const|unsafe|default|extern\s+"[^"]*"|extern)\s+)*(?:(?P<fn>fn)\s+(?P<name>[A-Za-z_]\w*)|(?P<struct>struct)\s+(?P<name2>[A-Za-z_]\w*)|(?P<enum>enum)\s+(?P<name3>[A-Za-z_]\w*)|(?P<trait>trait)\s+(?P<name4>[A-Za-z_]\w*)|(?P<type>type)\s+(?P<name5>[A-Za-z_]\w*)|(?P<mod>mod)\s+(?P<name6>[A-Za-z_]\w*)|(?P<const>const|static)\s+(?:mut\s+)?(?P<name7>[A-Za-z_]\w*)|(?P<macro>macro_rules!)\s+(?P<name8>[A-Za-z_]\w*)|(?P<union>union)\s+(?P<name9>[A-Za-z_]\w*)|(?P<impl>impl)(?:\s*<(?:->|[^<>]|<(?:->|[^<>]|<[^<>]*>)*>)*>)?\s+(?:(?P<for_trait>[\w:]+(?:<(?:->|[^<>]|<[^<>]*>)*>)?)\s+for\s+)?(?P<name10>[A-Za-z_][\w:]*))"#),
+    re: build(
+        r#"(?m)^(?P<indent>[ \t]*)(?:pub(?:\([^)]*\))?\s+)?(?:(?:async|const|unsafe|default|extern\s+"[^"]*"|extern)\s+)*(?:(?P<fn>fn)\s+(?P<name>[A-Za-z_]\w*)|(?P<struct>struct)\s+(?P<name2>[A-Za-z_]\w*)|(?P<enum>enum)\s+(?P<name3>[A-Za-z_]\w*)|(?P<trait>trait)\s+(?P<name4>[A-Za-z_]\w*)|(?P<type>type)\s+(?P<name5>[A-Za-z_]\w*)|(?P<mod>mod)\s+(?P<name6>[A-Za-z_]\w*)|(?P<const>const|static)\s+(?:mut\s+)?(?P<name7>[A-Za-z_]\w*)|(?P<macro>macro_rules!)\s+(?P<name8>[A-Za-z_]\w*)|(?P<union>union)\s+(?P<name9>[A-Za-z_]\w*)|(?P<impl>impl)(?:\s*<(?:->|[^<>]|<(?:->|[^<>]|<[^<>]*>)*>)*>)?\s+(?:(?P<for_trait>[\w:]+(?:<(?:->|[^<>]|<[^<>]*>)*>)?)\s+for\s+)?(?P<name10>[A-Za-z_][\w:]*))"#,
+    ),
     kinds: vec![
-        ("fn", DefKind::Function), ("struct", DefKind::Struct), ("enum", DefKind::Enum), ("trait", DefKind::Trait), ("type", DefKind::TypeAlias),
-        ("mod", DefKind::Module), ("const", DefKind::Constant), ("macro", DefKind::Macro), ("union", DefKind::Struct), ("impl", DefKind::Impl),
+        ("fn", DefKind::Function),
+        ("struct", DefKind::Struct),
+        ("enum", DefKind::Enum),
+        ("trait", DefKind::Trait),
+        ("type", DefKind::TypeAlias),
+        ("mod", DefKind::Module),
+        ("const", DefKind::Constant),
+        ("macro", DefKind::Macro),
+        ("union", DefKind::Struct),
+        ("impl", DefKind::Impl),
     ],
 });
 static JS: LazyLock<LangRes> = LazyLock::new(|| LangRes {
-    re: build(r#"(?m)^(?P<indent>[ \t]*)(?:export\s+)?(?:default\s+)?(?:declare\s+)?(?:abstract\s+)?(?:(?:async\s+)?(?P<fn>function\*?)\s+(?P<name>[A-Za-z_$][\w$]*)|(?P<class>class)\s+(?P<name2>[A-Za-z_$][\w$]*)|(?P<iface>interface)\s+(?P<name3>[A-Za-z_$][\w$]*)|(?P<type>type)\s+(?P<name4>[A-Za-z_$][\w$]*)\s*(?:<[^=]*>)?\s*=|(?P<enum>(?:const\s+)?enum)\s+(?P<name5>[A-Za-z_$][\w$]*)|(?P<ns>namespace|module)\s+(?P<name6>[A-Za-z_$][\w$.]*|'[^'\n]*'|"[^"\n]*")|(?P<arrow>const|let|var)\s+(?P<name7>[A-Za-z_$][\w$]*)\s*(?::[^=]*)?=\s*(?:async\s+)?(?:\([^)]*\)|[A-Za-z_$][\w$]*)\s*(?::[^=]*)?=>|(?P<var>const|let|var)\s+(?P<name8>[A-Za-z_$][\w$]*)|(?:(?:public|private|protected|static|readonly|async|override|get|set|abstract|declare)\s+)*(?P<method>[A-Za-z_$][\w$]*)\s*(?:<[^>]*>)?\s*\([^)]*\)\s*(?::\s*[^{;=]+)?\s*\{)"#),
+    re: build(
+        r#"(?m)^(?P<indent>[ \t]*)(?:export\s+)?(?:default\s+)?(?:declare\s+)?(?:abstract\s+)?(?:(?:async\s+)?(?P<fn>function\*?)\s+(?P<name>[A-Za-z_$][\w$]*)|(?P<class>class)\s+(?P<name2>[A-Za-z_$][\w$]*)|(?P<iface>interface)\s+(?P<name3>[A-Za-z_$][\w$]*)|(?P<type>type)\s+(?P<name4>[A-Za-z_$][\w$]*)\s*(?:<[^=]*>)?\s*=|(?P<enum>(?:const\s+)?enum)\s+(?P<name5>[A-Za-z_$][\w$]*)|(?P<ns>namespace|module)\s+(?P<name6>[A-Za-z_$][\w$.]*|'[^'\n]*'|"[^"\n]*")|(?P<arrow>const|let|var)\s+(?P<name7>[A-Za-z_$][\w$]*)\s*(?::[^=]*)?=\s*(?:async\s+)?(?:\([^)]*\)|[A-Za-z_$][\w$]*)\s*(?::[^=]*)?=>|(?P<var>const|let|var)\s+(?P<name8>[A-Za-z_$][\w$]*)|(?:(?:public|private|protected|static|readonly|async|override|get|set|abstract|declare)\s+)*(?P<method>[A-Za-z_$][\w$]*)\s*(?:<[^>]*>)?\s*\([^)]*\)\s*(?::\s*[^{;=]+)?\s*\{)"#,
+    ),
     kinds: vec![
-        ("fn", DefKind::Function), ("class", DefKind::Class), ("iface", DefKind::Interface), ("type", DefKind::TypeAlias), ("enum", DefKind::Enum),
-        ("ns", DefKind::Module), ("arrow", DefKind::Function), ("var", DefKind::Variable), ("method", DefKind::Method),
+        ("fn", DefKind::Function),
+        ("class", DefKind::Class),
+        ("iface", DefKind::Interface),
+        ("type", DefKind::TypeAlias),
+        ("enum", DefKind::Enum),
+        ("ns", DefKind::Module),
+        ("arrow", DefKind::Function),
+        ("var", DefKind::Variable),
+        ("method", DefKind::Method),
     ],
 });
 static KT: LazyLock<LangRes> = LazyLock::new(|| LangRes {
     // leading annotations (`@Composable fun`, `@Inject constructor`, `@get:Rule val`) are
     // skipped; one level of parentheses inside annotation arguments is allowed
-    re: build(r"(?m)^(?P<indent>[ \t]*)(?:@[\w.:]+(?:\((?:[^()\n]|\([^()\n]*\))*\))?\s+)*(?:(?:public|private|protected|internal|open|abstract|final|sealed|data|annotation|inner|inline|value|suspend|operator|infix|override|external|tailrec|actual|expect|lateinit|const|vararg|crossinline|noinline|context\([^)]*\))\s+)*(?:(?P<fun>fun)(?:\s*<[^>]*>)?\s+(?:[\w.<>?*, ]+?\.)??(?P<name>[A-Za-z_]\w*|`[^`]+`)\s*(?:<|\()|(?P<iface>(?:fun\s+)?interface)\s+(?P<name11>[A-Za-z_]\w*)|(?P<enum>enum\s+class)\s+(?P<name12>[A-Za-z_]\w*)|(?P<class>class)\s+(?P<name2>[A-Za-z_]\w*)|(?P<object>object)\s+(?P<name3>[A-Za-z_]\w*)|(?P<companion>companion)\s+object\b\s*(?P<name4>[A-Za-z_]\w*)?|(?P<val>val|var)\s+(?:<[^>]*>\s*)?(?:[\w.<>?]+\.)?(?P<name5>[A-Za-z_]\w*|`[^`]+`)|(?P<typealias>typealias)\s+(?P<name6>[A-Za-z_]\w*))"),
+    re: build(
+        r"(?m)^(?P<indent>[ \t]*)(?:@[\w.:]+(?:\((?:[^()\n]|\([^()\n]*\))*\))?\s+)*(?:(?:public|private|protected|internal|open|abstract|final|sealed|data|annotation|inner|inline|value|suspend|operator|infix|override|external|tailrec|actual|expect|lateinit|const|vararg|crossinline|noinline|context\([^)]*\))\s+)*(?:(?P<fun>fun)(?:\s*<[^>]*>)?\s+(?:[\w.<>?*, ]+?\.)??(?P<name>[A-Za-z_]\w*|`[^`]+`)\s*(?:<|\()|(?P<iface>(?:fun\s+)?interface)\s+(?P<name11>[A-Za-z_]\w*)|(?P<enum>enum\s+class)\s+(?P<name12>[A-Za-z_]\w*)|(?P<class>class)\s+(?P<name2>[A-Za-z_]\w*)|(?P<object>object)\s+(?P<name3>[A-Za-z_]\w*)|(?P<companion>companion)\s+object\b\s*(?P<name4>[A-Za-z_]\w*)?|(?P<val>val|var)\s+(?:<[^>]*>\s*)?(?:[\w.<>?]+\.)?(?P<name5>[A-Za-z_]\w*|`[^`]+`)|(?P<typealias>typealias)\s+(?P<name6>[A-Za-z_]\w*))",
+    ),
     kinds: vec![
-        ("fun", DefKind::Function), ("iface", DefKind::Interface), ("enum", DefKind::Enum), ("class", DefKind::Class), ("object", DefKind::Object), ("companion", DefKind::Object), ("val", DefKind::Variable), ("typealias", DefKind::TypeAlias),
+        ("fun", DefKind::Function),
+        ("iface", DefKind::Interface),
+        ("enum", DefKind::Enum),
+        ("class", DefKind::Class),
+        ("object", DefKind::Object),
+        ("companion", DefKind::Object),
+        ("val", DefKind::Variable),
+        ("typealias", DefKind::TypeAlias),
     ],
 });
 
-const NAME_GROUPS: [&str; 12] = ["name", "name2", "name3", "name4", "name5", "name6", "name7", "name8", "name9", "name10", "name11", "name12"];
+const NAME_GROUPS: [&str; 12] = [
+    "name", "name2", "name3", "name4", "name5", "name6", "name7", "name8", "name9", "name10",
+    "name11", "name12",
+];
 
-const JS_KEYWORDS: &[&str] = &["if", "for", "while", "switch", "catch", "function", "return", "else", "do", "try", "with", "new", "typeof", "await", "yield", "constructor_"];
+const JS_KEYWORDS: &[&str] = &[
+    "if",
+    "for",
+    "while",
+    "switch",
+    "catch",
+    "function",
+    "return",
+    "else",
+    "do",
+    "try",
+    "with",
+    "new",
+    "typeof",
+    "await",
+    "yield",
+    "constructor_",
+];
 
 fn res_for(lang: Lang) -> Option<&'static LangRes> {
     Some(match lang {
@@ -136,14 +197,89 @@ fn is_word(b: u8) -> bool {
 fn is_def_word(lang: Lang, w: &[u8]) -> bool {
     match lang {
         Lang::Python => matches!(w, b"def" | b"class" | b"async"),
-        Lang::Rust => matches!(w, b"fn" | b"pub" | b"struct" | b"enum" | b"trait" | b"type" | b"mod" | b"const" | b"static" | b"macro_rules!" | b"union" | b"impl" | b"async" | b"unsafe" | b"extern" | b"default"),
+        Lang::Rust => matches!(
+            w,
+            b"fn"
+                | b"pub"
+                | b"struct"
+                | b"enum"
+                | b"trait"
+                | b"type"
+                | b"mod"
+                | b"const"
+                | b"static"
+                | b"macro_rules!"
+                | b"union"
+                | b"impl"
+                | b"async"
+                | b"unsafe"
+                | b"extern"
+                | b"default"
+        ),
         Lang::JavaScript | Lang::TypeScript => matches!(
             w,
-            b"function" | b"class" | b"interface" | b"type" | b"enum" | b"namespace" | b"module" | b"const" | b"let" | b"var" | b"export" | b"default" | b"declare" | b"abstract" | b"async" | b"public" | b"private" | b"protected" | b"static" | b"readonly" | b"override" | b"get" | b"set"
+            b"function"
+                | b"class"
+                | b"interface"
+                | b"type"
+                | b"enum"
+                | b"namespace"
+                | b"module"
+                | b"const"
+                | b"let"
+                | b"var"
+                | b"export"
+                | b"default"
+                | b"declare"
+                | b"abstract"
+                | b"async"
+                | b"public"
+                | b"private"
+                | b"protected"
+                | b"static"
+                | b"readonly"
+                | b"override"
+                | b"get"
+                | b"set"
         ),
         Lang::Kotlin => matches!(
             w,
-            b"fun" | b"class" | b"interface" | b"object" | b"val" | b"var" | b"typealias" | b"companion" | b"public" | b"private" | b"protected" | b"internal" | b"open" | b"abstract" | b"final" | b"sealed" | b"data" | b"enum" | b"annotation" | b"inner" | b"inline" | b"value" | b"suspend" | b"operator" | b"infix" | b"override" | b"external" | b"tailrec" | b"actual" | b"expect" | b"lateinit" | b"const" | b"vararg" | b"crossinline" | b"noinline" | b"context"
+            b"fun"
+                | b"class"
+                | b"interface"
+                | b"object"
+                | b"val"
+                | b"var"
+                | b"typealias"
+                | b"companion"
+                | b"public"
+                | b"private"
+                | b"protected"
+                | b"internal"
+                | b"open"
+                | b"abstract"
+                | b"final"
+                | b"sealed"
+                | b"data"
+                | b"enum"
+                | b"annotation"
+                | b"inner"
+                | b"inline"
+                | b"value"
+                | b"suspend"
+                | b"operator"
+                | b"infix"
+                | b"override"
+                | b"external"
+                | b"tailrec"
+                | b"actual"
+                | b"expect"
+                | b"lateinit"
+                | b"const"
+                | b"vararg"
+                | b"crossinline"
+                | b"noinline"
+                | b"context"
         ),
         _ => false,
     }
@@ -174,7 +310,11 @@ fn may_define(lang: Lang, line: &[u8]) -> bool {
         if nth == 0 {
             match lang {
                 Lang::Python => {
-                    if w[0].is_ascii_uppercase() && w.iter().all(|&b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'_') && w.len() >= 3 {
+                    if w[0].is_ascii_uppercase()
+                        && w.iter()
+                            .all(|&b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'_')
+                        && w.len() >= 3
+                    {
                         return true;
                     }
                     return false;
@@ -193,14 +333,22 @@ fn may_define(lang: Lang, line: &[u8]) -> bool {
         while pos < t.len() && (t[pos] == b' ' || t[pos] == b'\t') {
             pos += 1;
         }
-        if pos < t.len() && t[pos] == b'(' && lang == Lang::Kotlin
-            && let Some(k) = memchr::memchr(b')', &t[pos..]) {
-                pos += k + 1;
-                while pos < t.len() && (t[pos] == b' ' || t[pos] == b'\t') {
-                    pos += 1;
-                }
+        if pos < t.len()
+            && t[pos] == b'('
+            && lang == Lang::Kotlin
+            && let Some(k) = memchr::memchr(b')', &t[pos..])
+        {
+            pos += k + 1;
+            while pos < t.len() && (t[pos] == b' ' || t[pos] == b'\t') {
+                pos += 1;
             }
-        if lang != Lang::JavaScript && lang != Lang::TypeScript && lang != Lang::Kotlin && lang != Lang::Rust && nth == 0 {
+        }
+        if lang != Lang::JavaScript
+            && lang != Lang::TypeScript
+            && lang != Lang::Kotlin
+            && lang != Lang::Rust
+            && nth == 0
+        {
             return false;
         }
     }
@@ -250,7 +398,11 @@ fn skip_annotations(t: &[u8]) -> usize {
 
 /// Strip the quotes of a quoted name (TS `declare module 'x'`).
 fn unquoted(line: &[u8], s: usize, e: usize) -> (usize, usize) {
-    if e - s >= 2 && (line[s] == b'\'' || line[s] == b'"') && line[e - 1] == line[s] { (s + 1, e - 1) } else { (s, e) }
+    if e - s >= 2 && (line[s] == b'\'' || line[s] == b'"') && line[e - 1] == line[s] {
+        (s + 1, e - 1)
+    } else {
+        (s, e)
+    }
 }
 
 /// Cheap per-line check: if `line` starts a definition, return the name range
@@ -280,7 +432,9 @@ pub fn def_name_on_line(lang: Lang, line: &[u8]) -> Option<(usize, usize)> {
 
 /// Extract definitions and compute enclosing ranges.
 pub fn outline(lang: Lang, src: &[u8], lexed: &Lexed) -> Outline {
-    let Some(res) = res_for(lang) else { return Outline::default() };
+    let Some(res) = res_for(lang) else {
+        return Outline::default();
+    };
     let mut defs: Vec<Def> = Vec::new();
     let mut line_no = 0u32;
     let mut pos = 0usize;
@@ -288,23 +442,28 @@ pub fn outline(lang: Lang, src: &[u8], lexed: &Lexed) -> Outline {
     // `captures_iter` over the whole buffer with a multi-line anchor.
     while pos < src.len() {
         line_no += 1;
-        let le = memchr::memchr(b'\n', &src[pos..]).map(|k| pos + k).unwrap_or(src.len());
+        let le = memchr::memchr(b'\n', &src[pos..])
+            .map(|k| pos + k)
+            .unwrap_or(src.len());
         let line = &src[pos..le];
         let ls = pos;
         pos = le + 1;
         if line.len() < 3 || !may_define(lang, line) {
             continue;
         }
-        let Some(caps) = res.re.captures(line) else { continue };
+        let Some(caps) = res.re.captures(line) else {
+            continue;
+        };
         let m = caps.get(0).unwrap();
         if m.start() != 0 {
             continue;
         }
         // skip matches inside comments/strings (block comments spanning lines)
         if let Some(sp) = lexed.span_at(ls as u32)
-            && (sp.kind != SpanKind::Docstring || lang != Lang::Rust) {
-                continue;
-            }
+            && (sp.kind != SpanKind::Docstring || lang != Lang::Rust)
+        {
+            continue;
+        }
         let mut kind = None;
         for (g, k) in &res.kinds {
             if caps.name(g).is_some() {
@@ -331,7 +490,16 @@ pub fn outline(lang: Lang, src: &[u8], lexed: &Lexed) -> Outline {
         if lang == Lang::Python && kind == DefKind::Constant && indent > 0 {
             continue;
         }
-        defs.push(Def { name_start: (ls + name_start) as u32, name_end: (ls + name_end) as u32, start: ls as u32, end: 0, line: line_no, indent: indent.min(u16::MAX as usize) as u16, kind, parent: None });
+        defs.push(Def {
+            name_start: (ls + name_start) as u32,
+            name_end: (ls + name_end) as u32,
+            start: ls as u32,
+            end: 0,
+            line: line_no,
+            indent: indent.min(u16::MAX as usize) as u16,
+            kind,
+            parent: None,
+        });
     }
     // ends
     if lang.indent_scoped() {
@@ -403,7 +571,9 @@ pub fn outline(lang: Lang, src: &[u8], lexed: &Lexed) -> Outline {
 }
 
 fn line_end(src: &[u8], off: usize) -> usize {
-    memchr::memchr(b'\n', &src[off..]).map(|k| off + k + 1).unwrap_or(src.len())
+    memchr::memchr(b'\n', &src[off..])
+        .map(|k| off + k + 1)
+        .unwrap_or(src.len())
 }
 
 fn compute_ends_indent(src: &[u8], defs: &mut [Def]) {
@@ -438,11 +608,18 @@ fn compute_ends_brace(src: &[u8], lexed: &Lexed, defs: &mut [Def]) {
         let d = &defs[i];
         let start = d.start as usize;
         let le = line_end(src, start);
-        if matches!(d.kind, DefKind::Constant | DefKind::Variable | DefKind::TypeAlias) {
+        if matches!(
+            d.kind,
+            DefKind::Constant | DefKind::Variable | DefKind::TypeAlias
+        ) {
             defs[i].end = le as u32;
             continue;
         }
-        let limit = if i + 1 < n { (defs[i + 1].start as usize).min(start + 4096) } else { (start + 4096).min(src.len()) };
+        let limit = if i + 1 < n {
+            (defs[i + 1].start as usize).min(start + 4096)
+        } else {
+            (start + 4096).min(src.len())
+        };
         // find first '{' or ';' outside noncode at paren depth 0 before `limit`
         let mut j = d.name_end as usize;
         let mut paren = 0i32;
@@ -489,7 +666,11 @@ fn compute_ends_brace(src: &[u8], lexed: &Lexed, defs: &mut [Def]) {
                 e
             }
             None => {
-                if terminated { j + 1 } else { le.max(d.name_end as usize) }
+                if terminated {
+                    j + 1
+                } else {
+                    le.max(d.name_end as usize)
+                }
             }
         };
         defs[i].end = end as u32;
@@ -504,14 +685,32 @@ mod tests {
     fn names(lang: Lang, src: &[u8]) -> Vec<(String, &'static str, Option<u32>)> {
         let l = lex(lang, src);
         let o = outline(lang, src, &l);
-        o.defs.iter().map(|d| (String::from_utf8_lossy(&src[d.name_start as usize..d.name_end as usize]).into_owned(), d.kind.name(), d.parent)).collect()
+        o.defs
+            .iter()
+            .map(|d| {
+                (
+                    String::from_utf8_lossy(&src[d.name_start as usize..d.name_end as usize])
+                        .into_owned(),
+                    d.kind.name(),
+                    d.parent,
+                )
+            })
+            .collect()
     }
 
     #[test]
     fn python_outline() {
         let src = b"MAX = 3\nclass A:\n    def m(self):\n        pass\n\n    x = 1\ndef f():\n    return 1\n";
         let v = names(Lang::Python, src);
-        assert_eq!(v, vec![("MAX".into(), "const", None), ("A".into(), "class", None), ("m".into(), "method", Some(1)), ("f".into(), "fn", None)]);
+        assert_eq!(
+            v,
+            vec![
+                ("MAX".into(), "const", None),
+                ("A".into(), "class", None),
+                ("m".into(), "method", Some(1)),
+                ("f".into(), "fn", None)
+            ]
+        );
     }
 
     #[test]
@@ -519,7 +718,18 @@ mod tests {
         let src = b"pub struct S { a: u8 }\nimpl S {\n    pub fn new() -> S { S { a: 0 } }\n    fn helper(&self) {}\n}\nfn free() {}\ntrait T {\n    fn req(&self);\n}\n";
         let v = names(Lang::Rust, src);
         let n: Vec<_> = v.iter().map(|x| (x.0.as_str(), x.1, x.2)).collect();
-        assert_eq!(n, vec![("S", "struct", None), ("S", "impl", None), ("new", "method", Some(1)), ("helper", "method", Some(1)), ("free", "fn", None), ("T", "trait", None), ("req", "method", Some(5))]);
+        assert_eq!(
+            n,
+            vec![
+                ("S", "struct", None),
+                ("S", "impl", None),
+                ("new", "method", Some(1)),
+                ("helper", "method", Some(1)),
+                ("free", "fn", None),
+                ("T", "trait", None),
+                ("req", "method", Some(5))
+            ]
+        );
     }
 
     #[test]
@@ -527,7 +737,16 @@ mod tests {
         let src = b"export class C extends B {\n  private x = 1;\n  constructor() { super(); }\n  async run(a: number): Promise<void> {\n    if (a) { return; }\n  }\n}\nexport const go = async (x) => {\n  return x;\n};\nfunction plain() {}\n";
         let v = names(Lang::TypeScript, src);
         let n: Vec<_> = v.iter().map(|x| (x.0.as_str(), x.1, x.2)).collect();
-        assert_eq!(n, vec![("C", "class", None), ("constructor", "method", Some(0)), ("run", "method", Some(0)), ("go", "fn", None), ("plain", "fn", None)]);
+        assert_eq!(
+            n,
+            vec![
+                ("C", "class", None),
+                ("constructor", "method", Some(0)),
+                ("run", "method", Some(0)),
+                ("go", "fn", None),
+                ("plain", "fn", None)
+            ]
+        );
     }
 
     #[test]
@@ -535,7 +754,17 @@ mod tests {
         let src = b"class Svc(val repo: Repo) {\n    suspend fun ApplicationCall.respond(msg: Any?) {\n        val x = 1\n    }\n    fun short() = 1\n    companion object {\n        const val K = 2\n    }\n}\nfun top() {}\n";
         let v = names(Lang::Kotlin, src);
         let n: Vec<_> = v.iter().map(|x| (x.0.as_str(), x.1, x.2)).collect();
-        assert_eq!(n, vec![("Svc", "class", None), ("respond", "method", Some(0)), ("short", "method", Some(0)), ("companion", "object", Some(0)), ("K", "var", Some(3)), ("top", "fn", None)]);
+        assert_eq!(
+            n,
+            vec![
+                ("Svc", "class", None),
+                ("respond", "method", Some(0)),
+                ("short", "method", Some(0)),
+                ("companion", "object", Some(0)),
+                ("K", "var", Some(3)),
+                ("top", "fn", None)
+            ]
+        );
     }
 
     #[test]
@@ -543,9 +772,24 @@ mod tests {
         let src = b"@Composable fun Screen() {}\n@Inject constructor(x: Int)\n@Test fun `runs ok`() {}\n@get:Rule val rule = R()\nfun interface Fi {\n    fun run()\n}\nsealed interface SI\nenum class E { A }\nprivate class P\ncompanion object Named {}\n";
         let v = names(Lang::Kotlin, src);
         let n: Vec<_> = v.iter().map(|x| (x.0.as_str(), x.1)).collect();
-        assert_eq!(n, vec![("Screen", "fn"), ("`runs ok`", "fn"), ("rule", "var"), ("Fi", "interface"), ("run", "method"), ("SI", "interface"), ("E", "enum"), ("P", "class"), ("Named", "object")]);
+        assert_eq!(
+            n,
+            vec![
+                ("Screen", "fn"),
+                ("`runs ok`", "fn"),
+                ("rule", "var"),
+                ("Fi", "interface"),
+                ("run", "method"),
+                ("SI", "interface"),
+                ("E", "enum"),
+                ("P", "class"),
+                ("Named", "object")
+            ]
+        );
         assert!(def_name_on_line(Lang::Kotlin, b"@Composable fun Screen() {}").is_some());
-        assert!(def_name_on_line(Lang::Kotlin, b"@Suppress(\"x\", y(1)) internal class Z").is_some());
+        assert!(
+            def_name_on_line(Lang::Kotlin, b"@Suppress(\"x\", y(1)) internal class Z").is_some()
+        );
         assert!(def_name_on_line(Lang::Kotlin, b"@Composable").is_none());
         assert!(def_name_on_line(Lang::Kotlin, b"@Foo bar()").is_none());
     }
@@ -555,7 +799,18 @@ mod tests {
         let src = b"val top = 1\nclass C {\n    val member = 2\n    fun f() {\n        val local = 3\n        run {\n            var deeper = 4\n        }\n    }\n    init {\n        val inInit = 5\n    }\n    object Inner {\n        val z = 6\n    }\n}\nfun g() {\n    val x = 7\n}\n";
         let v = names(Lang::Kotlin, src);
         let n: Vec<_> = v.iter().map(|x| (x.0.as_str(), x.1, x.2)).collect();
-        assert_eq!(n, vec![("top", "var", None), ("C", "class", None), ("member", "var", Some(1)), ("f", "method", Some(1)), ("Inner", "object", Some(1)), ("z", "var", Some(4)), ("g", "fn", None)]);
+        assert_eq!(
+            n,
+            vec![
+                ("top", "var", None),
+                ("C", "class", None),
+                ("member", "var", Some(1)),
+                ("f", "method", Some(1)),
+                ("Inner", "object", Some(1)),
+                ("z", "var", Some(4)),
+                ("g", "fn", None)
+            ]
+        );
     }
 
     #[test]
@@ -563,7 +818,16 @@ mod tests {
         let src = b"impl<T: AsRef<str>> Foo<T> {\n    fn m(&self) {}\n}\nimpl<F: Fn() -> u8 + Send> Tr<Vec<F>> for Bar<F> {}\nmod inner {\n    pub fn free() {}\n}\n";
         let v = names(Lang::Rust, src);
         let n: Vec<_> = v.iter().map(|x| (x.0.as_str(), x.1, x.2)).collect();
-        assert_eq!(n, vec![("Foo", "impl", None), ("m", "method", Some(0)), ("Bar", "impl", None), ("inner", "mod", None), ("free", "fn", Some(3))]);
+        assert_eq!(
+            n,
+            vec![
+                ("Foo", "impl", None),
+                ("m", "method", Some(0)),
+                ("Bar", "impl", None),
+                ("inner", "mod", None),
+                ("free", "fn", Some(3))
+            ]
+        );
     }
 
     #[test]
@@ -571,8 +835,18 @@ mod tests {
         let src = b"declare module 'my-lib' {\n  export function g(): void;\n}\nnamespace N {\n  function nf() {}\n}\n";
         let v = names(Lang::TypeScript, src);
         let n: Vec<_> = v.iter().map(|x| (x.0.as_str(), x.1, x.2)).collect();
-        assert_eq!(n, vec![("my-lib", "mod", None), ("g", "fn", Some(0)), ("N", "mod", None), ("nf", "fn", Some(2))]);
-        assert_eq!(def_name_on_line(Lang::TypeScript, b"declare module \"x/y\" {"), Some((16, 19)));
+        assert_eq!(
+            n,
+            vec![
+                ("my-lib", "mod", None),
+                ("g", "fn", Some(0)),
+                ("N", "mod", None),
+                ("nf", "fn", Some(2))
+            ]
+        );
+        assert_eq!(
+            def_name_on_line(Lang::TypeScript, b"declare module \"x/y\" {"),
+            Some((16, 19))
+        );
     }
 }
-

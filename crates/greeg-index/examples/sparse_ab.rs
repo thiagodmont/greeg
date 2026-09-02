@@ -81,12 +81,19 @@ fn train(out: &Path, corpora: &[PathBuf]) {
     let bytes: Vec<u8> = w.iter().flat_map(|x| x.to_le_bytes()).collect();
     std::fs::write(out, bytes).unwrap();
     let nz = counts.iter().filter(|&&c| c > 0).count();
-    println!("trained on {} corpora: {} bigrams seen, weights written to {}", corpora.len(), nz, out.display());
+    println!(
+        "trained on {} corpora: {} bigrams seen, weights written to {}",
+        corpora.len(),
+        nz,
+        out.display()
+    );
 }
 
 fn load_weights(p: &Path) -> W {
     let b = std::fs::read(p).unwrap();
-    b.chunks(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect()
+    b.chunks(2)
+        .map(|c| u16::from_le_bytes([c[0], c[1]]))
+        .collect()
 }
 
 #[inline]
@@ -218,7 +225,26 @@ struct Eval {
 fn identifier_queries(root: &Path) -> Vec<String> {
     let mut q: Vec<String> = Vec::new();
     // fixed identifier family from the S1 spike
-    for s in ["createSourceFile", "checkExpression", "ParseFlags", "mir_borrowck", "HirId", "TyCtxt", "get_queryset", "HttpResponseRedirect", "request", "respond", "ContentNegotiation", "JoinHandle", "Semaphore", "spawn_blocking", "poll_next", "LocalDefId", "Symbol", "Model"] {
+    for s in [
+        "createSourceFile",
+        "checkExpression",
+        "ParseFlags",
+        "mir_borrowck",
+        "HirId",
+        "TyCtxt",
+        "get_queryset",
+        "HttpResponseRedirect",
+        "request",
+        "respond",
+        "ContentNegotiation",
+        "JoinHandle",
+        "Semaphore",
+        "spawn_blocking",
+        "poll_next",
+        "LocalDefId",
+        "Symbol",
+        "Model",
+    ] {
         q.push(s.to_string());
     }
     // sample symbol names from the index (every k-th name of length >= 4)
@@ -244,8 +270,22 @@ fn eval(weights: &Path, root: &Path, size: bool) {
     let w = load_weights(weights);
     let files = files_of(root);
     let queries = identifier_queries(root);
-    let schemes = [Scheme::Tri, Scheme::Cox { min: 3, max: 8 }, Scheme::Cox { min: 4, max: 8 }, Scheme::Minz { k: 4, w: 3 }, Scheme::Minz { k: 5, w: 3 }, Scheme::Minz { k: 5, w: 4 }, Scheme::Minz { k: 6, w: 4 }, Scheme::Minz { k: 6, w: 6 }];
-    println!("== {} : {} files, {} identifier queries", root.display(), files.len(), queries.len());
+    let schemes = [
+        Scheme::Tri,
+        Scheme::Cox { min: 3, max: 8 },
+        Scheme::Cox { min: 4, max: 8 },
+        Scheme::Minz { k: 4, w: 3 },
+        Scheme::Minz { k: 5, w: 3 },
+        Scheme::Minz { k: 5, w: 4 },
+        Scheme::Minz { k: 6, w: 4 },
+        Scheme::Minz { k: 6, w: 6 },
+    ];
+    println!(
+        "== {} : {} files, {} identifier queries",
+        root.display(),
+        files.len(),
+        queries.len()
+    );
     // query grams per scheme (folded)
     let qg: Vec<Vec<Option<Vec<u64>>>> = schemes
         .iter()
@@ -253,7 +293,10 @@ fn eval(weights: &Path, root: &Path, size: bool) {
             queries
                 .iter()
                 .map(|q| {
-                    let lit: Vec<u8> = q.bytes().map(|b| if b.is_ascii_uppercase() { b | 0x20 } else { b }).collect();
+                    let lit: Vec<u8> = q
+                        .bytes()
+                        .map(|b| if b.is_ascii_uppercase() { b | 0x20 } else { b })
+                        .collect();
                     let mut v = Vec::new();
                     grams(s, &lit, &w, &mut v);
                     if v.is_empty() { None } else { Some(v) }
@@ -261,7 +304,20 @@ fn eval(weights: &Path, root: &Path, size: bool) {
                 .collect()
         })
         .collect();
-    let mut results: Vec<Eval> = schemes.iter().map(|_| Eval { files: 0, bytes: 0, pairs: 0, distinct_sample: 0, cpu_ns: 0, postings_bytes: 0, dict_entries: 0, cands: vec![0; queries.len()], scans: 0 }).collect();
+    let mut results: Vec<Eval> = schemes
+        .iter()
+        .map(|_| Eval {
+            files: 0,
+            bytes: 0,
+            pairs: 0,
+            distinct_sample: 0,
+            cpu_ns: 0,
+            postings_bytes: 0,
+            dict_entries: 0,
+            cands: vec![0; queries.len()],
+            scans: 0,
+        })
+        .collect();
     struct FileOut {
         bytes: u64,
         cpu: u128,
@@ -293,7 +349,14 @@ fn eval(weights: &Path, root: &Path, size: bool) {
                         }
                     }
                     let sample: Vec<u64> = g.iter().copied().filter(|k| k % 64 == 0).collect();
-                    Some(FileOut { bytes: b.len() as u64, cpu, pairs: g.len() as u64, hits, sample, keys: if size { Some(g.clone()) } else { None } })
+                    Some(FileOut {
+                        bytes: b.len() as u64,
+                        cpu,
+                        pairs: g.len() as u64,
+                        hits,
+                        sample,
+                        keys: if size { Some(g.clone()) } else { None },
+                    })
                 },
             )
             .collect();
@@ -328,7 +391,25 @@ fn eval(weights: &Path, root: &Path, size: bool) {
             r.dict_entries = post.len() as u64;
         }
         let mbs = r.bytes as f64 / 1e6 / (r.cpu_ns as f64 / 1e9);
-        println!("{:<12} pairs {:>11}  pairs/byte {:.3}  ~distinct {:>9}  extract {:>6.0} MB/s/core  scans {:>3}/{}{}", s.name(), r.pairs, r.pairs as f64 / r.bytes as f64, r.distinct_sample * 64, mbs, r.scans, queries.len(), if size { format!("  postings {:.1} MB  dict {}", r.postings_bytes as f64 / 1e6, r.dict_entries) } else { String::new() });
+        println!(
+            "{:<12} pairs {:>11}  pairs/byte {:.3}  ~distinct {:>9}  extract {:>6.0} MB/s/core  scans {:>3}/{}{}",
+            s.name(),
+            r.pairs,
+            r.pairs as f64 / r.bytes as f64,
+            r.distinct_sample * 64,
+            mbs,
+            r.scans,
+            queries.len(),
+            if size {
+                format!(
+                    "  postings {:.1} MB  dict {}",
+                    r.postings_bytes as f64 / 1e6,
+                    r.dict_entries
+                )
+            } else {
+                String::new()
+            }
+        );
     }
     // candidates: per query table for the fixed family, and summary ratios over the sample
     println!("\ncandidates (files) per scheme:");
@@ -345,7 +426,10 @@ fn eval(weights: &Path, root: &Path, size: bool) {
         println!();
     }
     let base: Vec<f64> = results[0].cands.iter().map(|&c| c as f64).collect();
-    println!("\nsummary over {} identifier queries (geometric mean of candidates / trigram candidates; lower is better):", queries.len());
+    println!(
+        "\nsummary over {} identifier queries (geometric mean of candidates / trigram candidates; lower is better):",
+        queries.len()
+    );
     for (si, r) in results.iter().enumerate() {
         let mut lg = 0f64;
         let mut n = 0;
@@ -359,15 +443,31 @@ fn eval(weights: &Path, root: &Path, size: bool) {
                 }
             }
         }
-        println!("{:<12} ratio {:.3}  queries worse than trigram: {}  scans: {}  pairs vs tri: {:.2}", schemes[si].name(), (lg / n.max(1) as f64).exp(), worse, r.scans, r.pairs as f64 / results[0].pairs.max(1) as f64);
+        println!(
+            "{:<12} ratio {:.3}  queries worse than trigram: {}  scans: {}  pairs vs tri: {:.2}",
+            schemes[si].name(),
+            (lg / n.max(1) as f64).exp(),
+            worse,
+            r.scans,
+            r.pairs as f64 / results[0].pairs.max(1) as f64
+        );
     }
 }
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     match args.get(1).map(|s| s.as_str()) {
-        Some("train") => train(Path::new(&args[2]), &args[3..].iter().map(PathBuf::from).collect::<Vec<_>>()),
-        Some("eval") => eval(Path::new(&args[2]), Path::new(&args[3]), args.iter().any(|a| a == "--size")),
-        _ => eprintln!("usage: sparse_ab train OUT.bin CORPUS... | eval WEIGHTS.bin CORPUS [--size]"),
+        Some("train") => train(
+            Path::new(&args[2]),
+            &args[3..].iter().map(PathBuf::from).collect::<Vec<_>>(),
+        ),
+        Some("eval") => eval(
+            Path::new(&args[2]),
+            Path::new(&args[3]),
+            args.iter().any(|a| a == "--size"),
+        ),
+        _ => {
+            eprintln!("usage: sparse_ab train OUT.bin CORPUS... | eval WEIGHTS.bin CORPUS [--size]")
+        }
     }
 }

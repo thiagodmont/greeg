@@ -10,12 +10,12 @@ pub mod tokens;
 pub mod verbs;
 
 use anyhow::{Context, Result};
-use grep_matcher::Matcher;
-use grep_regex::{RegexMatcher, RegexMatcherBuilder};
-use grep_searcher::{BinaryDetection, Searcher, SearcherBuilder, Sink, SinkMatch};
 use greeg_lang::defs::{Outline, outline};
 use greeg_lang::lexer::{Lexed, SpanKind, lex};
 use greeg_lang::{DefKind, FileFlags, Lang, content_flags, is_import_line, path_flags};
+use grep_matcher::Matcher;
+use grep_regex::{RegexMatcher, RegexMatcherBuilder};
+use grep_searcher::{BinaryDetection, Searcher, SearcherBuilder, Sink, SinkMatch};
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -141,7 +141,17 @@ pub enum HitKind {
 }
 
 impl HitKind {
-    pub const ALL: [HitKind; 9] = [HitKind::Def, HitKind::Import, HitKind::Call, HitKind::Type, HitKind::Member, HitKind::Ident, HitKind::Docstring, HitKind::Comment, HitKind::Str];
+    pub const ALL: [HitKind; 9] = [
+        HitKind::Def,
+        HitKind::Import,
+        HitKind::Call,
+        HitKind::Type,
+        HitKind::Member,
+        HitKind::Ident,
+        HitKind::Docstring,
+        HitKind::Comment,
+        HitKind::Str,
+    ];
     pub fn name(self) -> &'static str {
         match self {
             HitKind::Def => "def",
@@ -224,7 +234,15 @@ impl Hit {
     /// Submatch ranges relative to `raw`, clamped to the line.
     pub fn raw_submatches(&self) -> Vec<(u32, u32)> {
         let len = self.raw.len() as u32;
-        self.submatches.iter().map(|&(s, e)| ((s - self.line_start).min(len), (e - self.line_start).min(len))).collect()
+        self.submatches
+            .iter()
+            .map(|&(s, e)| {
+                (
+                    (s - self.line_start).min(len),
+                    (e - self.line_start).min(len),
+                )
+            })
+            .collect()
     }
 }
 
@@ -257,7 +275,11 @@ impl Source {
     pub fn line(&self, n: u32) -> Option<&[u8]> {
         let i = n.checked_sub(1)? as usize;
         let s = *self.starts.get(i)? as usize;
-        let e = self.starts.get(i + 1).map(|&e| e as usize - 1).unwrap_or(self.bytes.len());
+        let e = self
+            .starts
+            .get(i + 1)
+            .map(|&e| e as usize - 1)
+            .unwrap_or(self.bytes.len());
         let l = &self.bytes[s..e.max(s)];
         Some(l.strip_suffix(b"\r").unwrap_or(l))
     }
@@ -313,7 +335,24 @@ pub struct FileResult {
 
 impl FileResult {
     pub(crate) fn empty() -> FileResult {
-        FileResult { rel: String::new(), path: PathBuf::new(), lang: Lang::None, flags: FileFlags::default(), size: 0, age_days: 0.0, mtime: 0, prior: 0.0, hits: vec![], total: 0, total_unfiltered: 0, kinds: [0; 9], defs: vec![], refined: false, file_id: None, src: None }
+        FileResult {
+            rel: String::new(),
+            path: PathBuf::new(),
+            lang: Lang::None,
+            flags: FileFlags::default(),
+            size: 0,
+            age_days: 0.0,
+            mtime: 0,
+            prior: 0.0,
+            hits: vec![],
+            total: 0,
+            total_unfiltered: 0,
+            kinds: [0; 9],
+            defs: vec![],
+            refined: false,
+            file_id: None,
+            src: None,
+        }
     }
     /// Read the file (once) and return it.
     pub fn source(&mut self) -> Option<&Source> {
@@ -412,17 +451,29 @@ pub struct ScanResult {
 }
 
 pub(crate) fn default_threads() -> usize {
-    let cores = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4);
-    if cfg!(target_os = "macos") { cores.min(4) } else { cores }
+    let cores = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(4);
+    if cfg!(target_os = "macos") {
+        cores.min(4)
+    } else {
+        cores
+    }
 }
 
 pub(crate) fn build_matcher(o: &Options) -> Result<RegexMatcher> {
     let mut b = RegexMatcherBuilder::new();
-    b.case_insensitive(o.case_insensitive).case_smart(o.smart_case && !o.case_insensitive).word(o.word).multi_line(true).fixed_strings(o.fixed_strings).whole_line(o.line_regexp);
+    b.case_insensitive(o.case_insensitive)
+        .case_smart(o.smart_case && !o.case_insensitive)
+        .word(o.word)
+        .multi_line(true)
+        .fixed_strings(o.fixed_strings)
+        .whole_line(o.line_regexp);
     if !o.multiline {
         b.line_terminator(Some(b'\n'));
     }
-    b.build(&o.pattern).with_context(|| format!("invalid pattern {:?}", o.pattern))
+    b.build(&o.pattern)
+        .with_context(|| format!("invalid pattern {:?}", o.pattern))
 }
 
 /// ripgrep's default file types plus greeg aliases (`rs`, `kt`, `python`, …)
@@ -454,7 +505,8 @@ pub(crate) fn build_types(o: &Options) -> Result<ignore::types::Types> {
     for t in &o.types_not {
         tb.negate(&alias(t));
     }
-    tb.build().map_err(|e| anyhow::anyhow!("unrecognized file type: {e}"))
+    tb.build()
+        .map_err(|e| anyhow::anyhow!("unrecognized file type: {e}"))
 }
 
 /// Bounds for one scan pass (used by ladder rung 5, which must stay cheap).
@@ -468,13 +520,23 @@ pub(crate) struct ScanBounds {
 }
 
 fn walker(o: &Options, threads: usize, bounds: &ScanBounds) -> Result<ignore::WalkParallel> {
-    let mut roots: Vec<PathBuf> = if o.paths.is_empty() { vec![o.root.clone()] } else { o.paths.clone() };
+    let mut roots: Vec<PathBuf> = if o.paths.is_empty() {
+        vec![o.root.clone()]
+    } else {
+        o.paths.clone()
+    };
     roots.dedup();
     let mut wb = ignore::WalkBuilder::new(&roots[0]);
     for r in &roots[1..] {
         wb.add(r);
     }
-    wb.hidden(!o.hidden).git_ignore(!o.no_ignore).git_global(!o.no_ignore).git_exclude(!o.no_ignore).ignore(!o.no_ignore).parents(!o.no_ignore).threads(threads);
+    wb.hidden(!o.hidden)
+        .git_ignore(!o.no_ignore)
+        .git_global(!o.no_ignore)
+        .git_exclude(!o.no_ignore)
+        .ignore(!o.no_ignore)
+        .parents(!o.no_ignore)
+        .threads(threads);
     if bounds.skip_git {
         wb.filter_entry(|e| e.file_name() != ".git");
     }
@@ -524,8 +586,28 @@ pub(crate) struct CollectSink<'a> {
 }
 
 impl<'a> CollectSink<'a> {
-    pub(crate) fn new(matcher: &'a RegexMatcher, lang: Lang, cap: usize, keep_defs: bool, multiline: bool) -> CollectSink<'a> {
-        CollectSink { matcher, lang, hits: Vec::new(), total: 0, max_per_line: 8, cap, keep_defs, def_cap: MAX_DEFS_PER_FILE, defs_kept: 0, first_only: false, base: 0, binary: false, multiline }
+    pub(crate) fn new(
+        matcher: &'a RegexMatcher,
+        lang: Lang,
+        cap: usize,
+        keep_defs: bool,
+        multiline: bool,
+    ) -> CollectSink<'a> {
+        CollectSink {
+            matcher,
+            lang,
+            hits: Vec::new(),
+            total: 0,
+            max_per_line: 8,
+            cap,
+            keep_defs,
+            def_cap: MAX_DEFS_PER_FILE,
+            defs_kept: 0,
+            first_only: false,
+            base: 0,
+            binary: false,
+            multiline,
+        }
     }
 }
 
@@ -536,7 +618,8 @@ impl Sink for CollectSink<'_> {
         let block_start = m.absolute_byte_offset() as u32 + self.base;
         let bytes = m.bytes();
         // a multi-line block (only under -U): line numbers are counted per match
-        let multi = self.multiline && memchr::memchr(b'\n', &bytes[..bytes.len().saturating_sub(1)]).is_some();
+        let multi = self.multiline
+            && memchr::memchr(b'\n', &bytes[..bytes.len().saturating_sub(1)]).is_some();
         let mut nl_pos = 0usize; // scanned up to here for newlines
         let mut nl_count = 0u32;
         let mut line_off = 0usize; // start of the current line within `bytes`
@@ -568,10 +651,14 @@ impl Sink for CollectSink<'_> {
             let keep = if self.hits.len() < self.cap {
                 true
             } else if self.keep_defs && self.defs_kept < self.def_cap {
-                let le = memchr::memchr(b'\n', &bytes[mat.start()..]).map(|k| mat.start() + k).unwrap_or(bytes.len());
+                let le = memchr::memchr(b'\n', &bytes[mat.start()..])
+                    .map(|k| mat.start() + k)
+                    .unwrap_or(bytes.len());
                 let l = &bytes[line_off..le];
                 let (lms, lme) = (mat.start() - line_off, mat.end().min(le) - line_off);
-                let is_def = greeg_lang::defs::def_name_on_line(self.lang, l).map(|(ns, ne)| ns < lme && lms < ne).unwrap_or(false);
+                let is_def = greeg_lang::defs::def_name_on_line(self.lang, l)
+                    .map(|(ns, ne)| ns < lme && lms < ne)
+                    .unwrap_or(false);
                 if is_def {
                     self.defs_kept += 1;
                 }
@@ -581,7 +668,11 @@ impl Sink for CollectSink<'_> {
             };
             last_kept = keep;
             if keep {
-                self.hits.push(LineHit { line, line_start: block_start + line_off as u32, subs: vec![(ms, me)] });
+                self.hits.push(LineHit {
+                    line,
+                    line_start: block_start + line_off as u32,
+                    subs: vec![(ms, me)],
+                });
             }
             if self.first_only {
                 stop = true;
@@ -605,11 +696,19 @@ fn near_weight(rel: &str, near: &[String]) -> f32 {
     let mut best = 0.7f32;
     for n in near {
         let n = n.trim_end_matches('/');
-        let ndir = if Path::new(n).extension().is_some() { n.rsplit_once('/').map(|(d, _)| d).unwrap_or("") } else { n };
+        let ndir = if Path::new(n).extension().is_some() {
+            n.rsplit_once('/').map(|(d, _)| d).unwrap_or("")
+        } else {
+            n
+        };
         if rel.starts_with(n) || dir == ndir || (ndir.is_empty() && !rel.contains('/')) {
             return 1.0;
         }
-        let parent = |d: &str| d.rsplit_once('/').map(|(p, _)| p.to_string()).unwrap_or_default();
+        let parent = |d: &str| {
+            d.rsplit_once('/')
+                .map(|(p, _)| p.to_string())
+                .unwrap_or_default()
+        };
         if parent(dir) == parent(ndir) {
             best = best.max(0.85);
         }
@@ -617,14 +716,26 @@ fn near_weight(rel: &str, near: &[String]) -> f32 {
     best
 }
 
-const MOCK_SEGMENTS: &[&str] = &["mock", "mocks", "__mocks__", "stub", "stubs", "fake", "fakes"];
+const MOCK_SEGMENTS: &[&str] = &[
+    "mock",
+    "mocks",
+    "__mocks__",
+    "stub",
+    "stubs",
+    "fake",
+    "fakes",
+];
 
 /// A path with a `mock`/`stub`/`fake` directory or file stem: demoted like tests.
 pub fn is_mock_path(rel: &str) -> bool {
     let mut parts = rel.split('/').peekable();
     while let Some(seg) = parts.next() {
         let is_file = parts.peek().is_none();
-        let stem = if is_file { seg.split('.').next().unwrap_or(seg) } else { seg };
+        let stem = if is_file {
+            seg.split('.').next().unwrap_or(seg)
+        } else {
+            seg
+        };
         if stem.len() <= 10 && MOCK_SEGMENTS.iter().any(|m| m.eq_ignore_ascii_case(stem)) {
             return true;
         }
@@ -738,13 +849,26 @@ fn close_angle(line: &[u8], open: usize) -> Option<usize> {
 /// language-aware. `ms`/`me` are offsets into `_src`; `line` is the line
 /// containing the match and starts at `line_start` in `_src`. Only the line is
 /// consulted, so every rule is line-local.
-pub(crate) fn kind_by_context(lang: Lang, _src: &[u8], ms: usize, me: usize, line_start: usize, line: &[u8]) -> HitKind {
+pub(crate) fn kind_by_context(
+    lang: Lang,
+    _src: &[u8],
+    ms: usize,
+    me: usize,
+    line_start: usize,
+    line: &[u8],
+) -> HitKind {
     if is_import_line(lang, line) {
         return HitKind::Import;
     }
     let lms = ms.saturating_sub(line_start).min(line.len());
     let lme = me.saturating_sub(line_start).clamp(lms, line.len());
-    let (rust, kotlin, ts, js, py) = (lang == Lang::Rust, lang == Lang::Kotlin, lang == Lang::TypeScript, lang == Lang::JavaScript, lang == Lang::Python);
+    let (rust, kotlin, ts, js, py) = (
+        lang == Lang::Rust,
+        lang == Lang::Kotlin,
+        lang == Lang::TypeScript,
+        lang == Lang::JavaScript,
+        lang == Lang::Python,
+    );
     // context after the match
     let after_i = {
         let mut i = lme;
@@ -765,29 +889,162 @@ pub(crate) fn kind_by_context(lang: Lang, _src: &[u8], ms: usize, me: usize, lin
     let kw_off = kw.as_ptr() as usize - line.as_ptr() as usize;
     let ends_sym = |s: &[u8]| head.ends_with(s);
     let double_colon = ends_sym(b"::");
-    let member_or_ident = |prev_tight: u8| if prev_tight == b'.' { HitKind::Member } else { HitKind::Ident };
+    let member_or_ident = |prev_tight: u8| {
+        if prev_tight == b'.' {
+            HitKind::Member
+        } else {
+            HitKind::Ident
+        }
+    };
     // Rust forbids struct literals in `if`/`while`/`match`/`for` heads: `X {` there opens the block
-    let rust_block_head = rust && matches!(kw, b"if" | b"while" | b"match" | b"for") && kw_off < lms;
+    let rust_block_head =
+        rust && matches!(kw, b"if" | b"while" | b"match" | b"for") && kw_off < lms;
     let decl_line = match lang {
-        Lang::Kotlin => matches!(kw, b"class" | b"interface" | b"object" | b"enum" | b"data" | b"sealed" | b"abstract" | b"open" | b"private" | b"public" | b"internal" | b"inner" | b"annotation" | b"fun" | b"override" | b"protected" | b"companion" | b"value" | b"typealias"),
-        Lang::TypeScript | Lang::JavaScript => matches!(kw, b"class" | b"export" | b"interface" | b"abstract" | b"declare"),
+        Lang::Kotlin => matches!(
+            kw,
+            b"class"
+                | b"interface"
+                | b"object"
+                | b"enum"
+                | b"data"
+                | b"sealed"
+                | b"abstract"
+                | b"open"
+                | b"private"
+                | b"public"
+                | b"internal"
+                | b"inner"
+                | b"annotation"
+                | b"fun"
+                | b"override"
+                | b"protected"
+                | b"companion"
+                | b"value"
+                | b"typealias"
+        ),
+        Lang::TypeScript | Lang::JavaScript => matches!(
+            kw,
+            b"class" | b"export" | b"interface" | b"abstract" | b"declare"
+        ),
         Lang::Python => matches!(kw, b"class" | b"except"),
         _ => false,
     };
     let type_kw = match lang {
-        Lang::Rust => matches!(word, b"impl" | b"dyn" | b"as" | b"struct" | b"trait" | b"enum" | b"type" | b"union" | b"where") || (word == b"for" && kw == b"impl"),
-        Lang::Kotlin => matches!(word, b"is" | b"as" | b"class" | b"interface" | b"object" | b"typealias"),
-        Lang::TypeScript => matches!(word, b"extends" | b"implements" | b"as" | b"is" | b"instanceof" | b"typeof" | b"keyof" | b"interface" | b"class" | b"satisfies"),
+        Lang::Rust => {
+            matches!(
+                word,
+                b"impl"
+                    | b"dyn"
+                    | b"as"
+                    | b"struct"
+                    | b"trait"
+                    | b"enum"
+                    | b"type"
+                    | b"union"
+                    | b"where"
+            ) || (word == b"for" && kw == b"impl")
+        }
+        Lang::Kotlin => matches!(
+            word,
+            b"is" | b"as" | b"class" | b"interface" | b"object" | b"typealias"
+        ),
+        Lang::TypeScript => matches!(
+            word,
+            b"extends"
+                | b"implements"
+                | b"as"
+                | b"is"
+                | b"instanceof"
+                | b"typeof"
+                | b"keyof"
+                | b"interface"
+                | b"class"
+                | b"satisfies"
+        ),
         Lang::JavaScript => matches!(word, b"extends" | b"instanceof" | b"class"),
         Lang::Python => matches!(word, b"except" | b"class"),
-        _ => matches!(word, b"extends" | b"implements" | b"instanceof" | b"struct" | b"class" | b"interface"),
+        _ => matches!(
+            word,
+            b"extends" | b"implements" | b"instanceof" | b"struct" | b"class" | b"interface"
+        ),
     };
     let value_kw = !word.is_empty()
         && match lang {
-            Lang::Rust => matches!(word, b"let" | b"match" | b"in" | b"if" | b"while" | b"return" | b"ref" | b"move" | b"break" | b"continue" | b"await") || (word == b"for" && kw != b"impl"),
-            Lang::Kotlin => matches!(word, b"val" | b"var" | b"in" | b"when" | b"if" | b"while" | b"return" | b"throw" | b"by" | b"do" | b"else"),
-            Lang::TypeScript | Lang::JavaScript => matches!(word, b"const" | b"let" | b"var" | b"return" | b"await" | b"yield" | b"in" | b"of" | b"case" | b"throw" | b"delete" | b"void" | b"if" | b"while" | b"else" | b"do") || (js && word == b"typeof"),
-            Lang::Python => matches!(word, b"in" | b"not" | b"and" | b"or" | b"if" | b"while" | b"return" | b"yield" | b"await" | b"del" | b"assert" | b"elif" | b"for" | b"lambda" | b"global" | b"nonlocal" | b"is" | b"as" | b"else" | b"with" | b"print"),
+            Lang::Rust => {
+                matches!(
+                    word,
+                    b"let"
+                        | b"match"
+                        | b"in"
+                        | b"if"
+                        | b"while"
+                        | b"return"
+                        | b"ref"
+                        | b"move"
+                        | b"break"
+                        | b"continue"
+                        | b"await"
+                ) || (word == b"for" && kw != b"impl")
+            }
+            Lang::Kotlin => matches!(
+                word,
+                b"val"
+                    | b"var"
+                    | b"in"
+                    | b"when"
+                    | b"if"
+                    | b"while"
+                    | b"return"
+                    | b"throw"
+                    | b"by"
+                    | b"do"
+                    | b"else"
+            ),
+            Lang::TypeScript | Lang::JavaScript => {
+                matches!(
+                    word,
+                    b"const"
+                        | b"let"
+                        | b"var"
+                        | b"return"
+                        | b"await"
+                        | b"yield"
+                        | b"in"
+                        | b"of"
+                        | b"case"
+                        | b"throw"
+                        | b"delete"
+                        | b"void"
+                        | b"if"
+                        | b"while"
+                        | b"else"
+                        | b"do"
+                ) || (js && word == b"typeof")
+            }
+            Lang::Python => matches!(
+                word,
+                b"in"
+                    | b"not"
+                    | b"and"
+                    | b"or"
+                    | b"if"
+                    | b"while"
+                    | b"return"
+                    | b"yield"
+                    | b"await"
+                    | b"del"
+                    | b"assert"
+                    | b"elif"
+                    | b"for"
+                    | b"lambda"
+                    | b"global"
+                    | b"nonlocal"
+                    | b"is"
+                    | b"as"
+                    | b"else"
+                    | b"with"
+                    | b"print"
+            ),
             _ => false,
         };
     // 1. calls: `foo(`, `new Foo`, `foo<T>(`, trailing lambda / struct literal in expression position
@@ -801,15 +1058,26 @@ pub(crate) fn kind_by_context(lang: Lang, _src: &[u8], ms: usize, me: usize, lin
     let generic_lang = rust || ts || kotlin;
     if generic_lang && after_tight == b'<' && !matches!(after2, b' ' | b'\t' | b'0'..=b'9' | b'=') {
         // `foo<T>(x)` is a call with type arguments; `Foo<T>` alone is a type
-        let is_call = close_angle(line, lme).map(|c| greeg_lang::trim_start(&line[c..]).first() == Some(&b'(')).unwrap_or(false);
-        return if is_call { HitKind::Call } else { HitKind::Type };
+        let is_call = close_angle(line, lme)
+            .map(|c| greeg_lang::trim_start(&line[c..]).first() == Some(&b'('))
+            .unwrap_or(false);
+        return if is_call {
+            HitKind::Call
+        } else {
+            HitKind::Type
+        };
     }
     let value_pos = value_kw && !ends_kw(head, b"return");
     let literal_lang = (rust && !rust_block_head) || (kotlin && !decl_line);
     if after == b'{' && literal_lang && !type_kw && !value_pos {
         let expr_pos = head.is_empty()
             || double_colon
-            || (prev == b'=' && !(ends_sym(b"==") || ends_sym(b"!=") || ends_sym(b"<=") || ends_sym(b">=") || ends_sym(b"=>")))
+            || (prev == b'='
+                && !(ends_sym(b"==")
+                    || ends_sym(b"!=")
+                    || ends_sym(b"<=")
+                    || ends_sym(b">=")
+                    || ends_sym(b"=>")))
             || matches!(prev, b'(' | b',' | b'.' | b'[' | b'!' | b'|')
             || ends_kw(head, b"return");
         if expr_pos && !(head.is_empty() && block_keyword_line(line)) {
@@ -826,7 +1094,13 @@ pub(crate) fn kind_by_context(lang: Lang, _src: &[u8], ms: usize, me: usize, lin
     }
     // supertype lists: Kotlin `class A : B, C {`, TS `implements B, C {`, Python `class A(B, C):`
     if prev == b',' && decl_line {
-        let in_list = if py { open_bracket(head) == Some(b'(') } else { memchr::memmem::find(head, b" : ").is_some() || memchr::memmem::find(head, b" implements ").is_some() || memchr::memmem::find(head, b" extends ").is_some() };
+        let in_list = if py {
+            open_bracket(head) == Some(b'(')
+        } else {
+            memchr::memmem::find(head, b" : ").is_some()
+                || memchr::memmem::find(head, b" implements ").is_some()
+                || memchr::memmem::find(head, b" extends ").is_some()
+        };
         if in_list {
             return HitKind::Type;
         }
@@ -858,7 +1132,10 @@ pub(crate) fn kind_by_context(lang: Lang, _src: &[u8], ms: usize, me: usize, lin
             }
             if t.ends_with(b"&") || t.ends_with(b"*") {
                 // `a & b` / `a * b` (spaced on both sides) is a binary operator, not a prefix
-                let spaced = t.len() >= 2 && matches!(t[t.len() - 2], b' ' | b'\t') && lms > 0 && matches!(line[lms - 1], b' ' | b'\t');
+                let spaced = t.len() >= 2
+                    && matches!(t[t.len() - 2], b' ' | b'\t')
+                    && lms > 0
+                    && matches!(line[lms - 1], b' ' | b'\t');
                 if spaced && !stripped {
                     return member_or_ident(prev_tight);
                 }
@@ -871,9 +1148,20 @@ pub(crate) fn kind_by_context(lang: Lang, _src: &[u8], ms: usize, me: usize, lin
         if stripped {
             let t = trim_end_ws(h);
             let w = last_word(t);
-            let generic = t.ends_with(b"<") || (t.ends_with(b",") && open_bracket(t).is_none() && memchr::memchr(b'<', t).is_some());
-            let type_ctx = (t.ends_with(b":") && !t.ends_with(b"::")) || t.ends_with(b"->") || generic || (kw == b"fn" && (t.ends_with(b"(") || t.ends_with(b","))) || matches!(w, b"impl" | b"dyn" | b"as" | b"for" | b"where");
-            return if type_ctx { HitKind::Type } else { HitKind::Ident };
+            let generic = t.ends_with(b"<")
+                || (t.ends_with(b",")
+                    && open_bracket(t).is_none()
+                    && memchr::memchr(b'<', t).is_some());
+            let type_ctx = (t.ends_with(b":") && !t.ends_with(b"::"))
+                || t.ends_with(b"->")
+                || generic
+                || (kw == b"fn" && (t.ends_with(b"(") || t.ends_with(b",")))
+                || matches!(w, b"impl" | b"dyn" | b"as" | b"for" | b"where");
+            return if type_ctx {
+                HitKind::Type
+            } else {
+                HitKind::Ident
+            };
         }
         // `Semaphore::new`: an uppercase path qualifier is a type
         if after_tight == b':' && after2 == b':' && line[lms].is_ascii_uppercase() {
@@ -894,24 +1182,56 @@ pub(crate) fn kind_by_context(lang: Lang, _src: &[u8], ms: usize, me: usize, lin
                     if js || key_is_string {
                         false
                     } else if py {
-                        !matches!(kw, b"if" | b"elif" | b"else" | b"for" | b"while" | b"try" | b"except" | b"finally" | b"with" | b"lambda" | b"case" | b"match" | b"def" | b"class")
+                        !matches!(
+                            kw,
+                            b"if"
+                                | b"elif"
+                                | b"else"
+                                | b"for"
+                                | b"while"
+                                | b"try"
+                                | b"except"
+                                | b"finally"
+                                | b"with"
+                                | b"lambda"
+                                | b"case"
+                                | b"match"
+                                | b"def"
+                                | b"class"
+                        )
                     } else {
                         // TS: `x: Foo;` (member/parameter annotation) vs `x: foo,` (object literal row)
-                        let literal_row = after == b',' && !line.contains(&b';') && !line.contains(&b'=');
+                        let literal_row =
+                            after == b',' && !line.contains(&b';') && !line.contains(&b'=');
                         !(matches!(kw, b"case" | b"default") || literal_row)
                     }
                 }
             }
         };
-        return if is_type { HitKind::Type } else { member_or_ident(prev_tight) };
+        return if is_type {
+            HitKind::Type
+        } else {
+            member_or_ident(prev_tight)
+        };
     }
     if ends_sym(b"->") {
         return HitKind::Type;
     }
     // generics: `Foo<Bar>`, `Map<K, Bar>`, `Vec<Foo`; not `a<b` / `i < n`
-    if generic_lang && prev_tight == b'<' && !matches!(after_tight, b' ' | b'\t' | b'0'..=b'9') && matches!(after, b'>' | b',' | b'<' | b'(' | b'[' | b'&' | b'\'' | 0 | b';') {
+    if generic_lang
+        && prev_tight == b'<'
+        && !matches!(after_tight, b' ' | b'\t' | b'0'..=b'9')
+        && matches!(
+            after,
+            b'>' | b',' | b'<' | b'(' | b'[' | b'&' | b'\'' | 0 | b';'
+        )
+    {
         // `<` must hang off an identifier or `::`: `Vec<`, `::<`
-        if head[..head.len() - 1].last().map(|&b| is_word_byte(b) || b == b':' || b == b'>').unwrap_or(false) {
+        if head[..head.len() - 1]
+            .last()
+            .map(|&b| is_word_byte(b) || b == b':' || b == b'>')
+            .unwrap_or(false)
+        {
             return HitKind::Type;
         }
     }
@@ -920,23 +1240,49 @@ pub(crate) fn kind_by_context(lang: Lang, _src: &[u8], ms: usize, me: usize, lin
         && let Some(lt) = memchr::memrchr(b'<', head)
         && lt > 0
         && (is_word_byte(head[lt - 1]) || head[lt - 1] == b':')
-        && memchr::memrchr(b'(', head).map(|lp| lt > lp).unwrap_or(true)
+        && memchr::memrchr(b'(', head)
+            .map(|lp| lt > lp)
+            .unwrap_or(true)
         && !head[lt + 1..].contains(&b'>')
     {
         return HitKind::Type;
     }
     // Python subscripted generics: `List[Foo]`, `dict[str, Foo]`
     if py && (prev_tight == b'[' || (prev == b',' && open_bracket(head) == Some(b'['))) {
-        let h = if prev_tight == b'[' { &head[..head.len() - 1] } else { &head[..memchr::memrchr(b'[', head).unwrap_or(0)] };
+        let h = if prev_tight == b'[' {
+            &head[..head.len() - 1]
+        } else {
+            &head[..memchr::memrchr(b'[', head).unwrap_or(0)]
+        };
         let owner = last_word(trim_end_ws(h));
-        if !owner.is_empty() && (owner[0].is_ascii_uppercase() || matches!(owner, b"list" | b"dict" | b"set" | b"tuple" | b"type" | b"frozenset")) {
+        if !owner.is_empty()
+            && (owner[0].is_ascii_uppercase()
+                || matches!(
+                    owner,
+                    b"list" | b"dict" | b"set" | b"tuple" | b"type" | b"frozenset"
+                ))
+        {
             return HitKind::Type;
         }
     }
     // property key: `{ Foo: 1 }`, `Foo: string;`, `readonly Foo: T`
     if !py && after == b':' && after2 != b':' && after2 != b'=' {
-        let modifier = matches!(word, b"readonly" | b"private" | b"public" | b"protected" | b"static" | b"declare" | b"abstract" | b"override" | b"pub");
-        if matches!(prev, b'{' | b',') || modifier || (head.is_empty() && !matches!(kw, b"case" | b"default")) {
+        let modifier = matches!(
+            word,
+            b"readonly"
+                | b"private"
+                | b"public"
+                | b"protected"
+                | b"static"
+                | b"declare"
+                | b"abstract"
+                | b"override"
+                | b"pub"
+        );
+        if matches!(prev, b'{' | b',')
+            || modifier
+            || (head.is_empty() && !matches!(kw, b"case" | b"default"))
+        {
             return HitKind::Member;
         }
     }
@@ -957,7 +1303,10 @@ fn block_keyword_line(line: &[u8]) -> bool {
     while i < t.len() && is_word_byte(t[i]) {
         i += 1;
     }
-    matches!(&t[..i], b"else" | b"try" | b"finally" | b"do" | b"loop" | b"unsafe" | b"async" | b"move" | b"init")
+    matches!(
+        &t[..i],
+        b"else" | b"try" | b"finally" | b"do" | b"loop" | b"unsafe" | b"async" | b"move" | b"init"
+    )
 }
 
 /// Cheap, line-local classification used during the scan (no file outline).
@@ -966,7 +1315,9 @@ fn classify_line(lang: Lang, line: &[u8], ms: usize, me: usize) -> HitKind {
         return HitKind::Ident;
     }
     // a line without quote or comment starters has no noncode spans: skip the lexer
-    if memchr::memchr3(b'"', b'\'', b'/', line).is_some() || memchr::memchr2(b'#', b'`', line).is_some() {
+    if memchr::memchr3(b'"', b'\'', b'/', line).is_some()
+        || memchr::memchr2(b'#', b'`', line).is_some()
+    {
         let lexed = lex(lang, line);
         if let Some(sp) = lexed.span_at(ms as u32) {
             return match sp.kind {
@@ -987,7 +1338,16 @@ fn classify_line(lang: Lang, line: &[u8], ms: usize, me: usize) -> HitKind {
 
 /// Precise classification with a file outline (used for shown files).
 #[allow(clippy::too_many_arguments)]
-fn classify_full(lang: Lang, src: &[u8], lexed: &Lexed, ol: &Outline, ms: u32, me: u32, line_start: u32, line: &[u8]) -> (HitKind, Option<u32>) {
+fn classify_full(
+    lang: Lang,
+    src: &[u8],
+    lexed: &Lexed,
+    ol: &Outline,
+    ms: u32,
+    me: u32,
+    line_start: u32,
+    line: &[u8],
+) -> (HitKind, Option<u32>) {
     if let Some(sp) = lexed.span_at(ms) {
         return (
             match sp.kind {
@@ -1001,7 +1361,17 @@ fn classify_full(lang: Lang, src: &[u8], lexed: &Lexed, ol: &Outline, ms: u32, m
     if let Some(d) = ol.def_named_in(ms, me) {
         return (HitKind::Def, Some(d));
     }
-    (kind_by_context(lang, src, ms as usize, me as usize, line_start as usize, line), ol.enclosing(ms))
+    (
+        kind_by_context(
+            lang,
+            src,
+            ms as usize,
+            me as usize,
+            line_start as usize,
+            line,
+        ),
+        ol.enclosing(ms),
+    )
 }
 
 pub(crate) fn is_word_byte(b: u8) -> bool {
@@ -1023,7 +1393,11 @@ pub(crate) fn exact_boost(kind: HitKind, exact: bool) -> f32 {
 
 /// The match equals the pattern as a whole word, exact case.
 pub(crate) fn is_exact(o: &Options, src: &[u8], ms: u32, me: u32) -> bool {
-    !o.fixed_strings && !o.case_insensitive && src.get(ms as usize..me as usize) == Some(o.pattern.as_bytes()) && (ms == 0 || !is_word_byte(src[ms as usize - 1])) && (me as usize >= src.len() || !is_word_byte(src[me as usize]))
+    !o.fixed_strings
+        && !o.case_insensitive
+        && src.get(ms as usize..me as usize) == Some(o.pattern.as_bytes())
+        && (ms == 0 || !is_word_byte(src[ms as usize - 1]))
+        && (me as usize >= src.len() || !is_word_byte(src[me as usize]))
 }
 
 pub(crate) struct Ctx<'a> {
@@ -1035,7 +1409,13 @@ pub(crate) struct Ctx<'a> {
     pub(crate) filter_kinds: bool,
 }
 
-pub(crate) fn process_file(cx: &Ctx, path: &Path, rel: String, searcher: &mut Searcher, buf: &mut Vec<u8>) -> Option<FileResult> {
+pub(crate) fn process_file(
+    cx: &Ctx,
+    path: &Path,
+    rel: String,
+    searcher: &mut Searcher,
+    buf: &mut Vec<u8>,
+) -> Option<FileResult> {
     let o = cx.o;
     cx.stats.searched.fetch_add(1, Relaxed);
     // Path-derived exclusions are cheap enough to apply before reading.
@@ -1043,7 +1423,11 @@ pub(crate) fn process_file(cx: &Ctx, path: &Path, rel: String, searcher: &mut Se
     let need_path_flags = !o.all && (o.no_tests || o.no_vendored || o.no_generated);
     if need_path_flags {
         flags = path_flags(&rel);
-        if o.no_tests && flags.has(FileFlags::TEST) || o.no_vendored && flags.has(FileFlags::VENDORED) || o.no_generated && flags.has(FileFlags::GENERATED | FileFlags::MINIFIED | FileFlags::LOCKFILE) {
+        if o.no_tests && flags.has(FileFlags::TEST)
+            || o.no_vendored && flags.has(FileFlags::VENDORED)
+            || o.no_generated
+                && flags.has(FileFlags::GENERATED | FileFlags::MINIFIED | FileFlags::LOCKFILE)
+        {
             return None;
         }
     }
@@ -1055,7 +1439,9 @@ pub(crate) fn process_file(cx: &Ctx, path: &Path, rel: String, searcher: &mut Se
         // read at most max_filesize + 1 so oversized files are detected without a stat
         f.take(o.max_filesize + 1).read_to_end(buf).ok()?;
     }
-    cx.stats.read_ns.fetch_add(t_read.elapsed().as_nanos() as u64, Relaxed);
+    cx.stats
+        .read_ns
+        .fetch_add(t_read.elapsed().as_nanos() as u64, Relaxed);
     if buf.len() as u64 > o.max_filesize {
         cx.stats.huge.fetch_add(1, Relaxed);
         return None;
@@ -1064,20 +1450,36 @@ pub(crate) fn process_file(cx: &Ctx, path: &Path, rel: String, searcher: &mut Se
     let src: &[u8] = buf;
     // A UTF-8 BOM is not part of the first line: search past it (offsets keep
     // indexing the whole buffer, which is what the index's span tables use).
-    let bom = if src.starts_with(&[0xEF, 0xBB, 0xBF]) { 3 } else { 0 };
+    let bom = if src.starts_with(&[0xEF, 0xBB, 0xBF]) {
+        3
+    } else {
+        0
+    };
     let body = &src[bom..];
     if memchr::memchr(0, &body[..body.len().min(8192)]).is_some() {
         cx.stats.binary.fetch_add(1, Relaxed);
         return None;
     }
     let lang = Lang::from_path(path);
-    let cap = if o.budget == 0 { usize::MAX } else { MAX_HITS_PER_FILE };
-    let mut sink = CollectSink::new(cx.matcher, lang, cap, cx.classify && lang.has_grammar(), o.multiline);
+    let cap = if o.budget == 0 {
+        usize::MAX
+    } else {
+        MAX_HITS_PER_FILE
+    };
+    let mut sink = CollectSink::new(
+        cx.matcher,
+        lang,
+        cap,
+        cx.classify && lang.has_grammar(),
+        o.multiline,
+    );
     sink.base = bom as u32;
     sink.first_only = o.mode == Mode::Files && o.kinds.is_empty();
     let t_search = Instant::now();
     let r = searcher.search_slice(cx.matcher, body, &mut sink);
-    cx.stats.search_ns.fetch_add(t_search.elapsed().as_nanos() as u64, Relaxed);
+    cx.stats
+        .search_ns
+        .fetch_add(t_search.elapsed().as_nanos() as u64, Relaxed);
     if sink.binary {
         // a NUL past the first 8 KiB: ripgrep skips the file too; count it
         cx.stats.binary.fetch_add(1, Relaxed);
@@ -1099,8 +1501,14 @@ pub(crate) fn process_file(cx: &Ctx, path: &Path, rel: String, searcher: &mut Se
     let md = fs::metadata(path).ok();
     let size = md.as_ref().map(|m| m.len()).unwrap_or(src.len() as u64);
     let modified = md.and_then(|m| m.modified().ok());
-    let mtime = modified.and_then(|m| m.duration_since(SystemTime::UNIX_EPOCH).ok()).map(|d| d.as_secs()).unwrap_or(0);
-    let age_days = modified.and_then(|m| SystemTime::now().duration_since(m).ok()).map(|d| d.as_secs_f32() / 86400.0).unwrap_or(365.0);
+    let mtime = modified
+        .and_then(|m| m.duration_since(SystemTime::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let age_days = modified
+        .and_then(|m| SystemTime::now().duration_since(m).ok())
+        .map(|d| d.as_secs_f32() / 86400.0)
+        .unwrap_or(365.0);
     let prior = file_prior(flags, &rel, o);
     let mut hits = Vec::with_capacity(sink.hits.len());
     let mut kinds = [0u32; 9];
@@ -1108,39 +1516,102 @@ pub(crate) fn process_file(cx: &Ctx, path: &Path, rel: String, searcher: &mut Se
     for lh in sink.hits {
         let ls = lh.line_start;
         let (ms, me) = lh.subs[0];
-        let le = memchr::memchr(b'\n', &src[ls as usize..]).map(|k| ls as usize + k).unwrap_or(src.len());
+        let le = memchr::memchr(b'\n', &src[ls as usize..])
+            .map(|k| ls as usize + k)
+            .unwrap_or(src.len());
         if ms < ls || (ms as usize) > le {
             if std::env::var_os("GREEG_DEBUG").is_some() {
-                eprintln!("greeg: offset mismatch in {} line {} ls={} le={} ms={} me={}", rel, lh.line, ls, le, ms, me);
+                eprintln!(
+                    "greeg: offset mismatch in {} line {} ls={} le={} ms={} me={}",
+                    rel, lh.line, ls, le, ms, me
+                );
             }
             continue;
         }
         let line_bytes = &src[ls as usize..le];
         // a multi-line match (-U) is classified and displayed by its first line
         let me_line = (me as usize).min(le) as u32;
-        let kind = if cx.classify && !flags.has(FileFlags::MINIFIED) { classify_line(lang, line_bytes, (ms - ls) as usize, (me_line - ls) as usize) } else { HitKind::Ident };
+        let kind = if cx.classify && !flags.has(FileFlags::MINIFIED) {
+            classify_line(
+                lang,
+                line_bytes,
+                (ms - ls) as usize,
+                (me_line - ls) as usize,
+            )
+        } else {
+            HitKind::Ident
+        };
         if filtering && !o.kinds.contains(&kind) {
             continue;
         }
         kinds[kind.idx()] += 1;
         let exact = is_exact(o, src, ms, me);
         let score = kind.weight() * prior * exact_boost(kind, exact);
-        let lead = line_bytes.len() - greeg_lang::trim_start(line_bytes).len().min(line_bytes.len());
-        let (text, clipped, tm) = clip_line(&line_bytes[lead..], ((ms - ls) as usize).saturating_sub(lead), ((me_line - ls) as usize).saturating_sub(lead), o.max_columns);
-        let raw = line_bytes.strip_suffix(b"\r").unwrap_or(line_bytes).to_vec();
-        hits.push(Hit { line: lh.line, line_start: ls, match_start: ms, match_end: me, submatches: lh.subs, kind, chain: Vec::new(), def_idx: None, score, text, text_match: (tm.0 as u32, tm.1 as u32), clipped, raw });
+        let lead = line_bytes.len()
+            - greeg_lang::trim_start(line_bytes)
+                .len()
+                .min(line_bytes.len());
+        let (text, clipped, tm) = clip_line(
+            &line_bytes[lead..],
+            ((ms - ls) as usize).saturating_sub(lead),
+            ((me_line - ls) as usize).saturating_sub(lead),
+            o.max_columns,
+        );
+        let raw = line_bytes
+            .strip_suffix(b"\r")
+            .unwrap_or(line_bytes)
+            .to_vec();
+        hits.push(Hit {
+            line: lh.line,
+            line_start: ls,
+            match_start: ms,
+            match_end: me,
+            submatches: lh.subs,
+            kind,
+            chain: Vec::new(),
+            def_idx: None,
+            score,
+            text,
+            text_match: (tm.0 as u32, tm.1 as u32),
+            clipped,
+            raw,
+        });
     }
-    cx.stats.classify_ns.fetch_add(t_cls.elapsed().as_nanos() as u64, Relaxed);
+    cx.stats
+        .classify_ns
+        .fetch_add(t_cls.elapsed().as_nanos() as u64, Relaxed);
     if hits.is_empty() {
         return None;
     }
     let total = if filtering { hits.len() } else { sink.total };
-    Some(FileResult { rel, path: path.to_path_buf(), lang, flags, size, age_days, mtime, prior, hits, total, total_unfiltered: sink.total, kinds, defs: Vec::new(), refined: false, file_id: None, src: None })
+    Some(FileResult {
+        rel,
+        path: path.to_path_buf(),
+        lang,
+        flags,
+        size,
+        age_days,
+        mtime,
+        prior,
+        hits,
+        total,
+        total_unfiltered: sink.total,
+        kinds,
+        defs: Vec::new(),
+        refined: false,
+        file_id: None,
+        src: None,
+    })
 }
 
 /// Clip a line around the match. Returns the text, whether it was clipped,
 /// and the match range within the returned text.
-pub fn clip_line(line: &[u8], ms: usize, me: usize, max_cols: usize) -> (Vec<u8>, bool, (usize, usize)) {
+pub fn clip_line(
+    line: &[u8],
+    ms: usize,
+    me: usize,
+    max_cols: usize,
+) -> (Vec<u8>, bool, (usize, usize)) {
     let line = line.strip_suffix(b"\r").unwrap_or(line);
     let ms = ms.min(line.len());
     let me = me.clamp(ms, line.len());
@@ -1189,16 +1660,35 @@ pub fn refine_file(f: &mut FileResult) {
     // the accepted inaccuracy) and ends 64 KiB after the last hit.
     const BEFORE: usize = 512 * 1024;
     const AFTER: usize = 64 * 1024;
-    let first = f.hits.iter().map(|h| h.line_start as usize).min().unwrap_or(0);
-    let last = f.hits.iter().map(|h| h.match_end as usize).max().unwrap_or(0).min(full.len());
+    let first = f
+        .hits
+        .iter()
+        .map(|h| h.line_start as usize)
+        .min()
+        .unwrap_or(0);
+    let last = f
+        .hits
+        .iter()
+        .map(|h| h.match_end as usize)
+        .max()
+        .unwrap_or(0)
+        .min(full.len());
     let start = if first > BEFORE {
         let s = first - BEFORE;
-        memchr::memchr(b'\n', &full[s..]).map(|k| s + k + 1).unwrap_or(s)
+        memchr::memchr(b'\n', &full[s..])
+            .map(|k| s + k + 1)
+            .unwrap_or(s)
     } else {
         0
     };
     let cut = (last + AFTER).min(full.len());
-    let cut = if cut < full.len() { memchr::memchr(b'\n', &full[cut..]).map(|k| cut + k + 1).unwrap_or(full.len()) } else { full.len() };
+    let cut = if cut < full.len() {
+        memchr::memchr(b'\n', &full[cut..])
+            .map(|k| cut + k + 1)
+            .unwrap_or(full.len())
+    } else {
+        full.len()
+    };
     let window = &full[start..cut];
     let t_lex = Instant::now();
     let lexed = lex(f.lang, window);
@@ -1206,7 +1696,16 @@ pub fn refine_file(f: &mut FileResult) {
     let t_ol = Instant::now();
     let mut ol = outline(f.lang, window, &lexed);
     if std::env::var_os("GREEG_DEBUG").is_some() {
-        eprintln!("refine {} full={} window={} read={}us lex={}us outline={}us defs={}", f.rel, full.len(), window.len(), read_us, lex_us, t_ol.elapsed().as_micros(), ol.defs.len());
+        eprintln!(
+            "refine {} full={} window={} read={}us lex={}us outline={}us defs={}",
+            f.rel,
+            full.len(),
+            window.len(),
+            read_us,
+            lex_us,
+            t_ol.elapsed().as_micros(),
+            ol.defs.len()
+        );
     }
     // shift window-relative offsets to absolute
     let base = start as u32;
@@ -1226,9 +1725,20 @@ pub fn refine_file(f: &mut FileResult) {
             continue;
         }
         let ls = h.line_start as usize;
-        let le = memchr::memchr(b'\n', &src[ls..]).map(|k| ls + k).unwrap_or(src.len());
+        let le = memchr::memchr(b'\n', &src[ls..])
+            .map(|k| ls + k)
+            .unwrap_or(src.len());
         let me = (h.match_end as usize).min(le) as u32;
-        let (kind, di) = classify_full(f.lang, src, &lexed, &ol, h.match_start, me, h.line_start, &src[ls..le]);
+        let (kind, di) = classify_full(
+            f.lang,
+            src,
+            &lexed,
+            &ol,
+            h.match_start,
+            me,
+            h.line_start,
+            &src[ls..le],
+        );
         h.kind = kind;
         h.def_idx = di;
         if let Some(d) = di
@@ -1242,13 +1752,24 @@ pub fn refine_file(f: &mut FileResult) {
     let mut defs: Vec<DefSummary> = Vec::with_capacity(used.len());
     for &d in &used {
         let def = &ol.defs[d as usize];
-        defs.push(DefSummary { name: String::from_utf8_lossy(&src[def.name_start as usize..def.name_end as usize]).into_owned(), kind: def.kind, line: def.line, start: def.start, end: def.end, chain: ol.chain(d, src), flags: 0 });
+        defs.push(DefSummary {
+            name: String::from_utf8_lossy(&src[def.name_start as usize..def.name_end as usize])
+                .into_owned(),
+            kind: def.kind,
+            line: def.line,
+            start: def.start,
+            end: def.end,
+            chain: ol.chain(d, src),
+            flags: 0,
+        });
     }
     for h in &mut f.hits {
         if let Some(d) = h.def_idx {
             let i = used.binary_search(&d).ok().map(|i| i as u32);
             h.def_idx = i;
-            h.chain = i.map(|i| defs[i as usize].chain.clone()).unwrap_or_default();
+            h.chain = i
+                .map(|i| defs[i as usize].chain.clone())
+                .unwrap_or_default();
         }
     }
     f.defs = defs;
@@ -1274,7 +1795,10 @@ pub fn refine(r: &mut ScanResult, indices: &[usize]) {
     idx.sort_unstable();
     idx.dedup();
     idx.retain(|&i| !r.files[i].refined);
-    let mut taken: Vec<(usize, FileResult)> = idx.iter().map(|&i| (i, std::mem::replace(&mut r.files[i], FileResult::empty()))).collect();
+    let mut taken: Vec<(usize, FileResult)> = idx
+        .iter()
+        .map(|&i| (i, std::mem::replace(&mut r.files[i], FileResult::empty())))
+        .collect();
     let n = taken.len();
     if n <= 3 {
         for (_, f) in taken.iter_mut() {
@@ -1314,18 +1838,31 @@ pub(crate) struct StatsAcc {
 fn scan_once(o: &Options, bounds: &ScanBounds) -> Result<ScanResult> {
     let t0 = Instant::now();
     let matcher = build_matcher(o)?;
-    let threads = if o.threads == 0 { default_threads() } else { o.threads };
+    let threads = if o.threads == 0 {
+        default_threads()
+    } else {
+        o.threads
+    };
     let acc = StatsAcc::default();
-    let classify = matches!(o.mode, Mode::Content | Mode::Outline | Mode::Block) || !o.kinds.is_empty();
+    let classify =
+        matches!(o.mode, Mode::Content | Mode::Outline | Mode::Block) || !o.kinds.is_empty();
     if classify {
         // compile the definition regexes while the walk starts
         std::thread::spawn(greeg_lang::defs::warm);
     }
-    let cx = Ctx { o, matcher: &matcher, stats: &acc, classify, filter_kinds: true };
+    let cx = Ctx {
+        o,
+        matcher: &matcher,
+        stats: &acc,
+        classify,
+        filter_kinds: true,
+    };
     if o.use_index && !o.no_ignore && !o.hidden {
         // A panic anywhere in the index path degrades to scan mode (DESIGN.md §12):
         // the answer is still correct, one line goes to stderr, and the index is rebuilt.
-        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| indexed::try_index(&cx, threads, t0))) {
+        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            indexed::try_index(&cx, threads, t0)
+        })) {
             Ok(Ok(Some(r))) => return Ok(r),
             Ok(Ok(None)) => {}
             Ok(Err(e)) => {
@@ -1334,7 +1871,9 @@ fn scan_once(o: &Options, bounds: &ScanBounds) -> Result<ScanResult> {
                 }
             }
             Err(_) => {
-                eprintln!("greeg: internal error in the index path; answering from a scan and rebuilding the index");
+                eprintln!(
+                    "greeg: internal error in the index path; answering from a scan and rebuilding the index"
+                );
                 indexed::mark_corrupt(o);
             }
         }
@@ -1358,14 +1897,22 @@ fn scan_once(o: &Options, bounds: &ScanBounds) -> Result<ScanResult> {
         // bom_sniffing(false): offsets must index the buffer we read (the
         // searcher would otherwise strip a UTF-8 BOM and shift every offset by 3).
         // UTF-16 files are therefore searched as raw bytes (ripgrep transcodes them).
-        sb.line_number(true).binary_detection(BinaryDetection::quit(0)).multi_line(o.multiline).bom_sniffing(false);
+        sb.line_number(true)
+            .binary_detection(BinaryDetection::quit(0))
+            .multi_line(o.multiline)
+            .bom_sniffing(false);
         let mut searcher = sb.build();
         let mut buf: Vec<u8> = Vec::with_capacity(256 * 1024);
-        let mut local = Local { v: Vec::new(), out: &out };
+        let mut local = Local {
+            v: Vec::new(),
+            out: &out,
+        };
         let cx = &cx;
         let bounds = *bounds;
         Box::new(move |entry| {
-            let Ok(e) = entry else { return ignore::WalkState::Continue };
+            let Ok(e) = entry else {
+                return ignore::WalkState::Continue;
+            };
             if !e.file_type().map(|t| t.is_file()).unwrap_or(false) {
                 return ignore::WalkState::Continue;
             }
@@ -1376,7 +1923,11 @@ fn scan_once(o: &Options, bounds: &ScanBounds) -> Result<ScanResult> {
             }
             let p = e.path();
             cx.stats.walked.fetch_add(1, Relaxed);
-            let rel = p.strip_prefix(root).unwrap_or(p).to_string_lossy().replace('\\', "/");
+            let rel = p
+                .strip_prefix(root)
+                .unwrap_or(p)
+                .to_string_lossy()
+                .replace('\\', "/");
             if let Some(fr) = process_file(cx, p, rel, &mut searcher, &mut buf) {
                 let n = cx.stats.matched.fetch_add(1, Relaxed) + 1;
                 local.v.push(fr);
@@ -1392,13 +1943,31 @@ fn scan_once(o: &Options, bounds: &ScanBounds) -> Result<ScanResult> {
     });
     let mut files = out.into_inner().unwrap();
     files.sort_by(|a, b| a.rel.cmp(&b.rel));
-    let mut stats = Stats { files_walked: acc.walked.load(Relaxed), threads, source: "scan", ..Default::default() };
+    let mut stats = Stats {
+        files_walked: acc.walked.load(Relaxed),
+        threads,
+        source: "scan",
+        ..Default::default()
+    };
     finish_stats(&mut stats, &files, o, &acc, t0);
-    Ok(ScanResult { opts: o.clone(), files, stats, rung: Rung::Exact, ignored_only: None, ignored_partial: false })
+    Ok(ScanResult {
+        opts: o.clone(),
+        files,
+        stats,
+        rung: Rung::Exact,
+        ignored_only: None,
+        ignored_partial: false,
+    })
 }
 
 /// Finish a `Stats` from per-file results (shared by scan and index paths).
-pub(crate) fn finish_stats(stats: &mut Stats, files: &[FileResult], o: &Options, acc: &StatsAcc, t0: Instant) {
+pub(crate) fn finish_stats(
+    stats: &mut Stats,
+    files: &[FileResult],
+    o: &Options,
+    acc: &StatsAcc,
+    t0: Instant,
+) {
     for f in files {
         stats.files_matched += 1;
         stats.total_hits += f.total;
@@ -1441,7 +2010,9 @@ pub(crate) fn regex_escape(s: &str) -> String {
 
 /// Does the path argument look like a glob (`*`, `?`, `[`)?
 pub fn looks_like_glob(p: &Path) -> bool {
-    p.to_string_lossy().bytes().any(|b| matches!(b, b'*' | b'?' | b'['))
+    p.to_string_lossy()
+        .bytes()
+        .any(|b| matches!(b, b'*' | b'?' | b'['))
 }
 
 /// C13: a positional path with glob metacharacters that does not exist on disk
@@ -1454,7 +2025,8 @@ pub fn normalize_paths(o: &Options) -> Option<Options> {
     o2.paths.clear();
     for p in &o.paths {
         if looks_like_glob(p) && !p.exists() {
-            o2.globs.push(p.to_string_lossy().trim_start_matches("./").to_string());
+            o2.globs
+                .push(p.to_string_lossy().trim_start_matches("./").to_string());
         } else {
             o2.paths.push(p.clone());
         }
@@ -1503,7 +2075,11 @@ pub fn scan(o: &Options) -> Result<ScanResult> {
     }
     // rungs 3 and 4 need the symbol names (DESIGN.md §7.6)
     if o.use_index && !o.no_ignore && !o.hidden && (o.fixed_strings || is_plain_word(&o.pattern)) {
-        let threads = if o.threads == 0 { default_threads() } else { o.threads };
+        let threads = if o.threads == 0 {
+            default_threads()
+        } else {
+            o.threads
+        };
         if let Ok(Some(op)) = indexed::open_fresh(o, threads)
             && op.idx.has_symbols()
         {
@@ -1518,7 +2094,12 @@ pub fn scan(o: &Options) -> Result<ScanResult> {
             }
             if alts.is_empty() && o.pattern.len() >= 4 {
                 let d = if o.pattern.len() < 8 { 1 } else { 2 };
-                alts = op.idx.fuzzy_names(&o.pattern, d, 6).into_iter().map(|(n, _)| n).collect();
+                alts = op
+                    .idx
+                    .fuzzy_names(&o.pattern, d, 6)
+                    .into_iter()
+                    .map(|(n, _)| n)
+                    .collect();
                 if !alts.is_empty() {
                     rung = Rung::Fuzzy(alts.clone());
                 }
@@ -1526,7 +2107,11 @@ pub fn scan(o: &Options) -> Result<ScanResult> {
             drop(op);
             if !alts.is_empty() {
                 let mut o2 = o.clone();
-                o2.pattern = alts.iter().map(|a| regex_escape(a)).collect::<Vec<_>>().join("|");
+                o2.pattern = alts
+                    .iter()
+                    .map(|a| regex_escape(a))
+                    .collect::<Vec<_>>()
+                    .join("|");
                 o2.fixed_strings = false;
                 o2.word = true;
                 o2.case_insensitive = false;
@@ -1549,12 +2134,17 @@ pub fn scan(o: &Options) -> Result<ScanResult> {
         o2.mode = Mode::Count;
         o2.budget = 0;
         o2.use_index = false;
-        let bounds = ScanBounds { deadline: Some(Instant::now() + Duration::from_millis(50)), skip_git: true, max_matched: 200 };
+        let bounds = ScanBounds {
+            deadline: Some(Instant::now() + Duration::from_millis(50)),
+            skip_git: true,
+            max_matched: 200,
+        };
         let r2 = scan_once(&o2, &bounds)?;
         elapsed += r2.stats.elapsed_ms;
         if r2.stats.total_hits > 0 {
             r.ignored_only = Some((r2.stats.files_matched, r2.stats.total_hits));
-            r.ignored_partial = r2.stats.files_matched >= bounds.max_matched || r2.stats.elapsed_ms >= 50.0;
+            r.ignored_partial =
+                r2.stats.files_matched >= bounds.max_matched || r2.stats.elapsed_ms >= 50.0;
             r.rung = Rung::Ignored;
         }
     }
@@ -1567,14 +2157,26 @@ mod tests {
     use super::*;
 
     fn opts(pattern: &str) -> Options {
-        Options { pattern: pattern.to_string(), ..Default::default() }
+        Options {
+            pattern: pattern.to_string(),
+            ..Default::default()
+        }
     }
 
-    fn search(o: &Options, src: &[u8], lang: Lang, cap: usize, keep_defs: bool) -> CollectSink<'static> {
+    fn search(
+        o: &Options,
+        src: &[u8],
+        lang: Lang,
+        cap: usize,
+        keep_defs: bool,
+    ) -> CollectSink<'static> {
         let m: &'static RegexMatcher = Box::leak(Box::new(build_matcher(o).unwrap()));
         let mut sink = CollectSink::new(m, lang, cap, keep_defs, o.multiline);
         let mut sb = SearcherBuilder::new();
-        sb.line_number(true).binary_detection(BinaryDetection::quit(0)).multi_line(o.multiline).bom_sniffing(false);
+        sb.line_number(true)
+            .binary_detection(BinaryDetection::quit(0))
+            .multi_line(o.multiline)
+            .bom_sniffing(false);
         sb.build().search_slice(m, src, &mut sink).unwrap();
         sink
     }
@@ -1607,8 +2209,22 @@ mod tests {
         let s = search(&opts("foo"), src, Lang::Rust, 64, false);
         assert_eq!(s.total, 2);
         assert_eq!(s.hits.len(), 2);
-        assert_eq!(s.hits[0], LineHit { line: 1, line_start: 0, subs: vec![(0, 3), (4, 7)] });
-        assert_eq!(s.hits[1], LineHit { line: 3, line_start: 12, subs: vec![(12, 15)] });
+        assert_eq!(
+            s.hits[0],
+            LineHit {
+                line: 1,
+                line_start: 0,
+                subs: vec![(0, 3), (4, 7)]
+            }
+        );
+        assert_eq!(
+            s.hits[1],
+            LineHit {
+                line: 3,
+                line_start: 12,
+                subs: vec![(12, 15)]
+            }
+        );
     }
 
     #[test]
@@ -1618,7 +2234,10 @@ mod tests {
         o.multiline = true;
         let s = search(&o, src, Lang::Kotlin, 64, false);
         assert_eq!(s.total, 2);
-        assert_eq!(s.hits.iter().map(|h| h.line).collect::<Vec<_>>(), vec![2, 5]);
+        assert_eq!(
+            s.hits.iter().map(|h| h.line).collect::<Vec<_>>(),
+            vec![2, 5]
+        );
         assert_eq!(s.hits[0].line_start, 2);
         assert_eq!(s.hits[0].subs, vec![(2, 11)]);
         assert_eq!(s.hits[1].line_start, 18);
@@ -1627,7 +2246,10 @@ mod tests {
         let mut o = opts(r"(?s)ab\ncd|x\d");
         o.multiline = true;
         let s = search(&o, src, Lang::Rust, 64, false);
-        assert_eq!(s.hits.iter().map(|h| h.line).collect::<Vec<_>>(), vec![1, 2, 4]);
+        assert_eq!(
+            s.hits.iter().map(|h| h.line).collect::<Vec<_>>(),
+            vec![1, 2, 4]
+        );
         assert_eq!(s.total, 3);
     }
 
@@ -1675,12 +2297,27 @@ mod tests {
     fn run_process(o: &Options, path: &Path) -> Option<FileResult> {
         let matcher = build_matcher(o).unwrap();
         let acc = StatsAcc::default();
-        let cx = Ctx { o, matcher: &matcher, stats: &acc, classify: true, filter_kinds: true };
+        let cx = Ctx {
+            o,
+            matcher: &matcher,
+            stats: &acc,
+            classify: true,
+            filter_kinds: true,
+        };
         let mut sb = SearcherBuilder::new();
-        sb.line_number(true).binary_detection(BinaryDetection::quit(0)).multi_line(o.multiline).bom_sniffing(false);
+        sb.line_number(true)
+            .binary_detection(BinaryDetection::quit(0))
+            .multi_line(o.multiline)
+            .bom_sniffing(false);
         let mut searcher = sb.build();
         let mut buf = Vec::new();
-        process_file(&cx, path, path.file_name().unwrap().to_string_lossy().to_string(), &mut searcher, &mut buf)
+        process_file(
+            &cx,
+            path,
+            path.file_name().unwrap().to_string_lossy().to_string(),
+            &mut searcher,
+            &mut buf,
+        )
     }
 
     #[test]
@@ -1699,7 +2336,10 @@ mod tests {
         assert_eq!(f.hits.len(), 1);
         assert_eq!(f.hits[0].kind, HitKind::Def);
         assert_eq!(f.hits[0].line, 71);
-        assert!((f.hits[0].score - 1.0 * 0.8 * 1.3).abs() < 1e-5, "exact definitions get 1.3x");
+        assert!(
+            (f.hits[0].score - 1.0 * 0.8 * 1.3).abs() < 1e-5,
+            "exact definitions get 1.3x"
+        );
         let o = opts("spawn");
         let f = run_process(&o, &p).unwrap();
         assert_eq!(f.total, 71);
@@ -1726,9 +2366,17 @@ mod tests {
         let o = opts("foo");
         let matcher = build_matcher(&o).unwrap();
         let acc = StatsAcc::default();
-        let cx = Ctx { o: &o, matcher: &matcher, stats: &acc, classify: false, filter_kinds: true };
+        let cx = Ctx {
+            o: &o,
+            matcher: &matcher,
+            stats: &acc,
+            classify: false,
+            filter_kinds: true,
+        };
         let mut sb = SearcherBuilder::new();
-        sb.line_number(true).binary_detection(BinaryDetection::quit(0)).bom_sniffing(false);
+        sb.line_number(true)
+            .binary_detection(BinaryDetection::quit(0))
+            .bom_sniffing(false);
         let mut searcher = sb.build();
         let mut buf = Vec::new();
         assert!(process_file(&cx, &p, "bin.txt".into(), &mut searcher, &mut buf).is_none());
@@ -1755,8 +2403,14 @@ mod tests {
         assert!(is_mock_path("test/Fakes/FakeClock.kt"));
         assert!(!is_mock_path("src/mockingbird.rs"));
         assert!(!is_mock_path("src/runtime/task/join.rs"));
-        assert_eq!(loc_weight(FileFlags::default(), "tokio/src/fs/mocks.rs", false), 0.45);
-        assert_eq!(loc_weight(FileFlags::default(), "tokio/src/fs/mocks.rs", true), 1.0);
+        assert_eq!(
+            loc_weight(FileFlags::default(), "tokio/src/fs/mocks.rs", false),
+            0.45
+        );
+        assert_eq!(
+            loc_weight(FileFlags::default(), "tokio/src/fs/mocks.rs", true),
+            1.0
+        );
     }
 
     #[test]
@@ -1793,7 +2447,9 @@ mod tests {
             let me = ms + m.len();
             let got = classify_line(lang, line.as_bytes(), ms, me);
             if got != *want {
-                bad.push(format!("{lang:?} {line:?} match {m:?}: got {got:?}, want {want:?}"));
+                bad.push(format!(
+                    "{lang:?} {line:?} match {m:?}: got {got:?}, want {want:?}"
+                ));
             }
         }
         assert!(bad.is_empty(), "\n{}", bad.join("\n"));
@@ -1845,7 +2501,11 @@ mod tests {
             &[
                 ("class Foo : Bar {", "Bar", Type),
                 ("class Foo(val x: Int) : Bar, Baz {", "Baz", Type),
-                ("fun f(call: ApplicationCall): Response {", "ApplicationCall", Type),
+                (
+                    "fun f(call: ApplicationCall): Response {",
+                    "ApplicationCall",
+                    Type,
+                ),
                 ("fun f(call: ApplicationCall): Response {", "Response", Type),
                 ("val x = Foo {", "Foo", Call),
                 ("launch {", "launch", Call),
@@ -1859,7 +2519,11 @@ mod tests {
                 ("for (item in items) {", "items", Ident),
                 ("val m: Map<String, Foo> = mapOf()", "Foo", Type),
                 ("object : Runnable {", "Runnable", Type),
-                ("import io.ktor.server.application.ApplicationCall", "ApplicationCall", Import),
+                (
+                    "import io.ktor.server.application.ApplicationCall",
+                    "ApplicationCall",
+                    Import,
+                ),
                 ("val x = config.host", "host", Member),
                 ("else {", "else", Ident),
             ],
@@ -1876,11 +2540,27 @@ mod tests {
                 ("class Foo extends Bar implements Baz {", "Baz", Type),
                 ("const x = { key: value };", "value", Ident),
                 ("const x = { key: value };", "key", Member),
-                ("return { node: createSourceFile(x) };", "createSourceFile", Call),
+                (
+                    "return { node: createSourceFile(x) };",
+                    "createSourceFile",
+                    Call,
+                ),
                 ("return { node: sourceFile };", "sourceFile", Ident),
-                ("function f(node: Node, flags: ParseFlags): SourceFile {", "Node", Type),
-                ("function f(node: Node, flags: ParseFlags): SourceFile {", "ParseFlags", Type),
-                ("function f(node: Node, flags: ParseFlags): SourceFile {", "SourceFile", Type),
+                (
+                    "function f(node: Node, flags: ParseFlags): SourceFile {",
+                    "Node",
+                    Type,
+                ),
+                (
+                    "function f(node: Node, flags: ParseFlags): SourceFile {",
+                    "ParseFlags",
+                    Type,
+                ),
+                (
+                    "function f(node: Node, flags: ParseFlags): SourceFile {",
+                    "SourceFile",
+                    Type,
+                ),
                 ("let x: Map<string, Node> = new Map();", "Node", Type),
                 ("const s = new SourceFile(x);", "SourceFile", Call),
                 ("if (x instanceof Node) {", "Node", Type),
@@ -1891,7 +2571,11 @@ mod tests {
                 ("if (i<n) {", "n", Ident),
                 ("for (const x of nodes) {", "nodes", Ident),
                 ("import { Node } from './types';", "Node", Import),
-                ("export function createSourceFile(x) {", "createSourceFile", Def),
+                (
+                    "export function createSourceFile(x) {",
+                    "createSourceFile",
+                    Def,
+                ),
                 ("foo<T>(x)", "foo", Call),
                 ("const t = typeof node;", "node", Type),
             ],
@@ -1930,8 +2614,16 @@ mod tests {
             &[
                 ("class Foo(Base):", "Base", Type),
                 ("class Foo(Base, Mixin):", "Mixin", Type),
-                ("def get(self, request: HttpRequest) -> HttpResponse:", "HttpRequest", Type),
-                ("def get(self, request: HttpRequest) -> HttpResponse:", "HttpResponse", Type),
+                (
+                    "def get(self, request: HttpRequest) -> HttpResponse:",
+                    "HttpRequest",
+                    Type,
+                ),
+                (
+                    "def get(self, request: HttpRequest) -> HttpResponse:",
+                    "HttpResponse",
+                    Type,
+                ),
                 ("x = {'key': value}", "value", Ident),
                 ("x = {\"key\": Value}", "Value", Ident),
                 ("x: Optional[Model] = None", "Optional", Type),

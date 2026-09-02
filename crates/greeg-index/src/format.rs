@@ -214,7 +214,13 @@ impl FileTable {
         self.files.push(rec);
     }
     pub fn serialize(&self) -> Vec<u8> {
-        let mut body = Vec::with_capacity(self.files.len() * 32 + self.dirs.len() * 16 + self.arena.len() + 48 + (self.huge.len() + self.hidden.len()) * 4);
+        let mut body = Vec::with_capacity(
+            self.files.len() * 32
+                + self.dirs.len() * 16
+                + self.arena.len()
+                + 48
+                + (self.huge.len() + self.hidden.len()) * 4,
+        );
         body.extend_from_slice(&(self.files.len() as u32).to_le_bytes());
         body.extend_from_slice(&(self.dirs.len() as u32).to_le_bytes());
         body.extend_from_slice(&(self.arena.len() as u32).to_le_bytes());
@@ -250,9 +256,13 @@ impl<'a> FilesView<'a> {
         let n_dirs = u32::from_le_bytes(body[4..8].try_into().unwrap()) as usize;
         let arena_len = u32::from_le_bytes(body[8..12].try_into().unwrap()) as usize;
         let mut off = 16;
-        let fb = body.get(off..off + n_files * 32).context("files table truncated")?;
+        let fb = body
+            .get(off..off + n_files * 32)
+            .context("files table truncated")?;
         off += n_files * 32;
-        let db = body.get(off..off + n_dirs * 16).context("dirs table truncated")?;
+        let db = body
+            .get(off..off + n_dirs * 16)
+            .context("dirs table truncated")?;
         off += n_dirs * 16;
         let arena = body.get(off..off + arena_len).context("arena truncated")?;
         off = (off + arena_len + 7) & !7;
@@ -260,21 +270,39 @@ impl<'a> FilesView<'a> {
         let n_huge = u32::from_le_bytes(counts[0..4].try_into().unwrap()) as usize;
         let n_hidden = u32::from_le_bytes(counts[4..8].try_into().unwrap()) as usize;
         off += 8;
-        let hb = body.get(off..off + n_huge * 4).context("huge list truncated")?;
+        let hb = body
+            .get(off..off + n_huge * 4)
+            .context("huge list truncated")?;
         off += n_huge * 4;
-        let ib = body.get(off..off + n_hidden * 4).context("hidden list truncated")?;
-        let huge: &[u32] = bytemuck::try_cast_slice(hb).map_err(|_| anyhow::anyhow!("unaligned huge list"))?;
-        let hidden: &[u32] = bytemuck::try_cast_slice(ib).map_err(|_| anyhow::anyhow!("unaligned hidden list"))?;
+        let ib = body
+            .get(off..off + n_hidden * 4)
+            .context("hidden list truncated")?;
+        let huge: &[u32] =
+            bytemuck::try_cast_slice(hb).map_err(|_| anyhow::anyhow!("unaligned huge list"))?;
+        let hidden: &[u32] =
+            bytemuck::try_cast_slice(ib).map_err(|_| anyhow::anyhow!("unaligned hidden list"))?;
         if huge.iter().chain(hidden).any(|&i| i as usize >= n_files) {
             bail!("id list out of range");
         }
-        Ok(FilesView { files: bytemuck::cast_slice(fb), dirs: bytemuck::cast_slice(db), arena, huge, hidden })
+        Ok(FilesView {
+            files: bytemuck::cast_slice(fb),
+            dirs: bytemuck::cast_slice(db),
+            arena,
+            huge,
+            hidden,
+        })
     }
     pub fn path(&self, f: &FileRec) -> &'a str {
-        std::str::from_utf8(&self.arena[f.path_off as usize..f.path_off as usize + f.path_len as usize]).unwrap_or("")
+        std::str::from_utf8(
+            &self.arena[f.path_off as usize..f.path_off as usize + f.path_len as usize],
+        )
+        .unwrap_or("")
     }
     pub fn dir_path(&self, d: &DirRec) -> &'a str {
-        std::str::from_utf8(&self.arena[d.path_off as usize..d.path_off as usize + d.path_len as usize]).unwrap_or("")
+        std::str::from_utf8(
+            &self.arena[d.path_off as usize..d.path_off as usize + d.path_len as usize],
+        )
+        .unwrap_or("")
     }
 }
 
@@ -333,7 +361,12 @@ impl<'a> GramsView<'a> {
             Ok(s) => s,
             Err(_) => bail!("unaligned offsets table"),
         };
-        Ok(GramsView { keys, counts, offsets, postings })
+        Ok(GramsView {
+            keys,
+            counts,
+            offsets,
+            postings,
+        })
     }
     pub fn find(&self, key: u32) -> Option<usize> {
         self.keys.binary_search(&key).ok()
@@ -348,7 +381,10 @@ static TMP_COUNTER: AtomicU32 = AtomicU32::new(0);
 /// A temp name next to `path`, unique per process and call.
 pub fn tmp_path(path: &Path) -> std::path::PathBuf {
     let n = TMP_COUNTER.fetch_add(1, Ordering::Relaxed);
-    let name = path.file_name().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+    let name = path
+        .file_name()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_default();
     path.with_file_name(format!("{name}.{}.{n}.tmp", std::process::id()))
 }
 

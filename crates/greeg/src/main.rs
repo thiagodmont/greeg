@@ -43,7 +43,13 @@ struct Cli {
     /// Paths to search (default: current directory; stdin when piped and no path is given)
     paths: Vec<PathBuf>,
     /// Pattern (repeatable: patterns are joined as alternatives; use when the pattern starts with `-` or equals a verb name)
-    #[arg(short = 'e', long = "regexp", value_name = "PATTERN", allow_hyphen_values = true, num_args = 1)]
+    #[arg(
+        short = 'e',
+        long = "regexp",
+        value_name = "PATTERN",
+        allow_hyphen_values = true,
+        num_args = 1
+    )]
     regexp: Vec<String>,
 
     #[command(flatten)]
@@ -334,7 +340,16 @@ enum LangCmd {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn run_index(root: PathBuf, index_dir: Option<PathBuf>, status: bool, check: bool, fresh: String, threads: usize, phase1: bool, quiet: bool) -> Result<()> {
+fn run_index(
+    root: PathBuf,
+    index_dir: Option<PathBuf>,
+    status: bool,
+    check: bool,
+    fresh: String,
+    threads: usize,
+    phase1: bool,
+    quiet: bool,
+) -> Result<()> {
     let dir = match index_dir {
         Some(d) => d,
         None => greeg_index::index_dir_for(&root)?,
@@ -349,16 +364,30 @@ fn run_index(root: PathBuf, index_dir: Option<PathBuf>, status: bool, check: boo
     }
     if check {
         let idx = greeg_index::Index::open(&dir)?;
-        let mode = greeg_index::fresh::Mode::parse(&fresh).ok_or_else(|| anyhow::anyhow!("bad --fresh"))?;
+        let mode = greeg_index::fresh::Mode::parse(&fresh)
+            .ok_or_else(|| anyhow::anyhow!("bad --fresh"))?;
         let t = std::time::Instant::now();
         match greeg_index::fresh::check(&idx, &root, mode, 4) {
             Some(ch) => {
-                println!("{}: modified {} deleted {} added {} added_dirs {} touched_dirs {} ignore_changed {} in {:.1} ms", ch.method, ch.modified.len(), ch.deleted.len(), ch.added.len(), ch.added_dirs.len(), ch.touched_dirs.len(), ch.ignore_changed, ch.ms);
+                println!(
+                    "{}: modified {} deleted {} added {} added_dirs {} touched_dirs {} ignore_changed {} in {:.1} ms",
+                    ch.method,
+                    ch.modified.len(),
+                    ch.deleted.len(),
+                    ch.added.len(),
+                    ch.added_dirs.len(),
+                    ch.touched_dirs.len(),
+                    ch.ignore_changed,
+                    ch.ms
+                );
                 if greeg_index::fresh::needs_rebuild(&idx, &ch) {
                     println!("needs full rebuild");
                 } else {
                     let n = greeg_index::fresh::apply(&idx, &root, &ch)?;
-                    println!("applied delta with {n} files in {:.1} ms total", t.elapsed().as_secs_f64() * 1e3);
+                    println!(
+                        "applied delta with {n} files in {:.1} ms total",
+                        t.elapsed().as_secs_f64() * 1e3
+                    );
                 }
             }
             None => println!("skipped (ttl or mode none)"),
@@ -367,23 +396,39 @@ fn run_index(root: PathBuf, index_dir: Option<PathBuf>, status: bool, check: boo
     }
     std::fs::create_dir_all(&dir)?;
     let marker = dir.join("BUILDING");
-    match std::fs::OpenOptions::new().write(true).create_new(true).open(&marker) {
+    match std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&marker)
+    {
         Ok(mut f) => {
             use std::io::Write as _;
             let _ = writeln!(f, "{}", std::process::id());
         }
         Err(_) => {
             // stale marker (older than 10 min) is taken over
-            let stale = std::fs::metadata(&marker).ok().and_then(|m| m.modified().ok()).and_then(|m| m.elapsed().ok()).map(|e| e.as_secs() > 600).unwrap_or(true);
+            let stale = std::fs::metadata(&marker)
+                .ok()
+                .and_then(|m| m.modified().ok())
+                .and_then(|m| m.elapsed().ok())
+                .map(|e| e.as_secs() > 600)
+                .unwrap_or(true);
             if !stale {
                 if !quiet {
-                    eprintln!("greeg index: another build is running ({})", marker.display());
+                    eprintln!(
+                        "greeg index: another build is running ({})",
+                        marker.display()
+                    );
                 }
                 return Ok(());
             }
         }
     }
-    let mut opts = greeg_index::build::BuildOpts { quiet, phase1_only: phase1, ..Default::default() };
+    let mut opts = greeg_index::build::BuildOpts {
+        quiet,
+        phase1_only: phase1,
+        ..Default::default()
+    };
     if threads > 0 {
         opts.reader_threads = threads;
     }
@@ -391,7 +436,11 @@ fn run_index(root: PathBuf, index_dir: Option<PathBuf>, status: bool, check: boo
     let _ = std::fs::remove_file(&marker);
     let m = r?;
     if !quiet {
-        eprintln!("greeg index: written to {} (generation {})", dir.display(), m.generation);
+        eprintln!(
+            "greeg index: written to {} (generation {})",
+            dir.display(),
+            m.generation
+        );
     }
     Ok(())
 }
@@ -418,10 +467,14 @@ fn install_sigbus_guard() {
     if args.iter().any(|a| a == "--after-sigbus") || args.iter().any(|a| a == "--no-index") {
         return;
     }
-    let Ok(exe) = std::env::current_exe() else { return };
+    let Ok(exe) = std::env::current_exe() else {
+        return;
+    };
     use std::os::unix::ffi::OsStrExt;
     let mut cs: Vec<std::ffi::CString> = Vec::with_capacity(args.len() + 3);
-    let Ok(e) = std::ffi::CString::new(exe.as_os_str().as_bytes()) else { return };
+    let Ok(e) = std::ffi::CString::new(exe.as_os_str().as_bytes()) else {
+        return;
+    };
     cs.push(e);
     for a in args.iter().skip(1) {
         if let Ok(c) = std::ffi::CString::new(a.as_bytes()) {
@@ -455,8 +508,16 @@ fn main_inner() -> Result<()> {
     // One line per panic, no backtrace hint: the index path is wrapped in
     // catch_unwind and degrades to a scan (DESIGN.md §12).
     std::panic::set_hook(Box::new(|info| {
-        let msg = info.payload().downcast_ref::<&str>().map(|s| s.to_string()).or_else(|| info.payload().downcast_ref::<String>().cloned()).unwrap_or_default();
-        let loc = info.location().map(|l| format!(" at {}:{}", l.file(), l.line())).unwrap_or_default();
+        let msg = info
+            .payload()
+            .downcast_ref::<&str>()
+            .map(|s| s.to_string())
+            .or_else(|| info.payload().downcast_ref::<String>().cloned())
+            .unwrap_or_default();
+        let loc = info
+            .location()
+            .map(|l| format!(" at {}:{}", l.file(), l.line()))
+            .unwrap_or_default();
         eprintln!("greeg: internal error{loc}: {msg}");
     }));
     install_sigbus_guard();
@@ -480,7 +541,12 @@ fn build_options(c: &Common, pattern: String, paths: Vec<PathBuf>) -> Result<Opt
         }
     };
     let kinds = match &c.kind {
-        Some(k) => k.split(',').map(|s| HitKind::parse(s.trim()).ok_or_else(|| anyhow::anyhow!("unknown --kind {s:?}"))).collect::<Result<Vec<_>>>()?,
+        Some(k) => k
+            .split(',')
+            .map(|s| {
+                HitKind::parse(s.trim()).ok_or_else(|| anyhow::anyhow!("unknown --kind {s:?}"))
+            })
+            .collect::<Result<Vec<_>>>()?,
         None => vec![],
     };
     let sort_path = match c.sort.as_deref().or(c.sortr.as_deref()) {
@@ -525,7 +591,9 @@ fn build_options(c: &Common, pattern: String, paths: Vec<PathBuf>) -> Result<Opt
         before: c.before.unwrap_or(0),
         after: c.after.unwrap_or(0),
         use_index: !c.no_index,
-        fresh: greeg_index::fresh::Mode::parse(&c.fresh).ok_or_else(|| anyhow::anyhow!("unknown --fresh {:?} (auto|none|stat|fsevents)", c.fresh))?,
+        fresh: greeg_index::fresh::Mode::parse(&c.fresh).ok_or_else(|| {
+            anyhow::anyhow!("unknown --fresh {:?} (auto|none|stat|fsevents)", c.fresh)
+        })?,
         index_dir: c.index_dir.clone(),
         precise: c.precise,
         sort_path,
@@ -538,12 +606,24 @@ fn since_start_us() -> Option<u64> {
     {
         let mut info: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
         let size = std::mem::size_of::<libc::proc_bsdinfo>() as libc::c_int;
-        let r = unsafe { libc::proc_pidinfo(std::process::id() as libc::c_int, libc::PROC_PIDTBSDINFO, 0, &mut info as *mut _ as *mut libc::c_void, size) };
+        let r = unsafe {
+            libc::proc_pidinfo(
+                std::process::id() as libc::c_int,
+                libc::PROC_PIDTBSDINFO,
+                0,
+                &mut info as *mut _ as *mut libc::c_void,
+                size,
+            )
+        };
         if r != size {
             return None;
         }
-        let start = std::time::UNIX_EPOCH + std::time::Duration::new(info.pbi_start_tvsec, info.pbi_start_tvusec as u32 * 1000);
-        return std::time::SystemTime::now().duration_since(start).ok().map(|d| d.as_micros() as u64);
+        let start = std::time::UNIX_EPOCH
+            + std::time::Duration::new(info.pbi_start_tvsec, info.pbi_start_tvusec as u32 * 1000);
+        return std::time::SystemTime::now()
+            .duration_since(start)
+            .ok()
+            .map(|d| d.as_micros() as u64);
     }
     #[allow(unreachable_code)]
     None
@@ -555,7 +635,10 @@ fn join_patterns(pats: &[String], fixed: bool) -> (String, bool) {
     if pats.len() == 1 {
         return (pats[0].clone(), fixed);
     }
-    let alts: Vec<String> = pats.iter().map(|p| format!("(?:{})", if fixed { regex_escape(p) } else { p.clone() })).collect();
+    let alts: Vec<String> = pats
+        .iter()
+        .map(|p| format!("(?:{})", if fixed { regex_escape(p) } else { p.clone() }))
+        .collect();
     (alts.join("|"), false)
 }
 
@@ -583,7 +666,10 @@ pub(crate) struct Fmt {
 fn run() -> Result<()> {
     let trace = std::env::var_os("GREEG_DEBUG_START").is_some();
     if trace {
-        eprintln!("greeg: main entry at {:?} µs after process start", since_start_us());
+        eprintln!(
+            "greeg: main entry at {:?} µs after process start",
+            since_start_us()
+        );
     }
     let cli = Cli::parse();
     if trace {
@@ -592,14 +678,47 @@ fn run() -> Result<()> {
     let c = &cli.common;
     if let Some(cmd) = cli.cmd {
         return match cmd {
-            Cmd::Index { root, index_dir, status, check, fresh, threads, phase1, quiet } => run_index(root, index_dir, status, check, fresh, threads, phase1, quiet),
-            Cmd::Def { name, from, def_kind } => verbs_out::run_def(c, &build_options(c, name.clone(), vec![])?, &name, &from, def_kind.as_deref()),
-            Cmd::Refs { name } => verbs_out::run_refs(c, &build_options(c, name.clone(), vec![])?, &name),
-            Cmd::Callers { name, depth } => verbs_out::run_callers(c, &build_options(c, name.clone(), vec![])?, &name, depth),
-            Cmd::Impls { name } => verbs_out::run_impls(c, &build_options(c, name.clone(), vec![])?, &name),
-            Cmd::Outline { file, imports } => verbs_out::run_outline(c, &build_options(c, String::new(), vec![])?, &file, imports),
-            Cmd::Map { dir } => verbs_out::run_map(c, &build_options(c, String::new(), vec![])?, &dir),
-            Cmd::Impact { name } => verbs_out::run_impact(c, &build_options(c, name.clone(), vec![])?, &name),
+            Cmd::Index {
+                root,
+                index_dir,
+                status,
+                check,
+                fresh,
+                threads,
+                phase1,
+                quiet,
+            } => run_index(
+                root, index_dir, status, check, fresh, threads, phase1, quiet,
+            ),
+            Cmd::Def {
+                name,
+                from,
+                def_kind,
+            } => verbs_out::run_def(
+                c,
+                &build_options(c, name.clone(), vec![])?,
+                &name,
+                &from,
+                def_kind.as_deref(),
+            ),
+            Cmd::Refs { name } => {
+                verbs_out::run_refs(c, &build_options(c, name.clone(), vec![])?, &name)
+            }
+            Cmd::Callers { name, depth } => {
+                verbs_out::run_callers(c, &build_options(c, name.clone(), vec![])?, &name, depth)
+            }
+            Cmd::Impls { name } => {
+                verbs_out::run_impls(c, &build_options(c, name.clone(), vec![])?, &name)
+            }
+            Cmd::Outline { file, imports } => {
+                verbs_out::run_outline(c, &build_options(c, String::new(), vec![])?, &file, imports)
+            }
+            Cmd::Map { dir } => {
+                verbs_out::run_map(c, &build_options(c, String::new(), vec![])?, &dir)
+            }
+            Cmd::Impact { name } => {
+                verbs_out::run_impact(c, &build_options(c, name.clone(), vec![])?, &name)
+            }
             Cmd::Doctor => doctor::run(c),
             Cmd::Man => {
                 let mut out = Vec::new();
@@ -607,14 +726,22 @@ fn run() -> Result<()> {
                 std::io::stdout().write_all(&out)?;
                 Ok(())
             }
-            Cmd::Hook { which: HookCmd::Claude { uninstall, dry_run } } => hook::install_claude(uninstall, dry_run),
-            Cmd::Hook { which: HookCmd::Run } => hook::run(),
-            Cmd::Lang { which: LangCmd::Check { dir } } => doctor::lang_check(&dir),
+            Cmd::Hook {
+                which: HookCmd::Claude { uninstall, dry_run },
+            } => hook::install_claude(uninstall, dry_run),
+            Cmd::Hook {
+                which: HookCmd::Run,
+            } => hook::run(),
+            Cmd::Lang {
+                which: LangCmd::Check { dir },
+            } => doctor::lang_check(&dir),
         };
     }
     if c.after_sigbus {
         // the previous process died on a truncated index file: the index is unusable
-        eprintln!("greeg: an index file was truncated while in use; answering from a scan and rebuilding the index");
+        eprintln!(
+            "greeg: an index file was truncated while in use; answering from a scan and rebuilding the index"
+        );
         let o = build_options(c, String::new(), vec![])?;
         greeg_query::indexed::mark_corrupt(&o);
     }
@@ -625,19 +752,39 @@ fn run() -> Result<()> {
         }
     } else {
         let (p, fixed) = join_patterns(&cli.regexp, c.fixed_strings);
-        let paths: Vec<PathBuf> = cli.pattern.iter().map(PathBuf::from).chain(cli.paths.iter().cloned()).collect();
+        let paths: Vec<PathBuf> = cli
+            .pattern
+            .iter()
+            .map(PathBuf::from)
+            .chain(cli.paths.iter().cloned())
+            .collect();
         (p, paths, fixed)
     };
     let mut opts = build_options(c, pattern, paths)?;
     opts.fixed_strings = fixed;
-    let fmt = Fmt { chain: c.chain, stats: c.stats, line_numbers: c.line_number, stdin: false };
+    let fmt = Fmt {
+        chain: c.chain,
+        stats: c.stats,
+        line_numbers: c.line_number,
+        stdin: false,
+    };
     if opts.paths.is_empty() && greeg_query::stdin::is_readable_stdin() {
         return run_stdin(c, opts, fmt);
     }
-    if opts.sort_path && opts.budget > 0 && !matches!(opts.mode, Mode::Files | Mode::Count) && !c._no_messages {
-        eprintln!("greeg: --sort path applies to -l, -c and --budget 0; ranked output keeps score order");
+    if opts.sort_path
+        && opts.budget > 0
+        && !matches!(opts.mode, Mode::Files | Mode::Count)
+        && !c._no_messages
+    {
+        eprintln!(
+            "greeg: --sort path applies to -l, -c and --budget 0; ranked output keeps score order"
+        );
     }
-    let session = if c.no_session { None } else { greeg_query::session::Session::open(&opts, c.session.as_deref()) };
+    let session = if c.no_session {
+        None
+    } else {
+        greeg_query::session::Session::open(&opts, c.session.as_deref())
+    };
     if let Some(s) = &session
         && opts.near.is_empty()
     {
@@ -662,11 +809,42 @@ fn run() -> Result<()> {
     if c.stats {
         let s = &result.stats;
         let t_render = t0.elapsed() - t_scan - t_shape;
-        eprintln!("greeg: {} · walked {} files, candidates {}, searched {}, matched {} ({} hits) with {} threads; binary {} huge {}", s.source, s.files_walked, s.candidates, s.files_searched, s.files_matched, s.total_hits, s.threads, s.skipped_binary, s.skipped_huge);
+        eprintln!(
+            "greeg: {} · walked {} files, candidates {}, searched {}, matched {} ({} hits) with {} threads; binary {} huge {}",
+            s.source,
+            s.files_walked,
+            s.candidates,
+            s.files_searched,
+            s.files_matched,
+            s.total_hits,
+            s.threads,
+            s.skipped_binary,
+            s.skipped_huge
+        );
         if s.source == "index" {
-            eprintln!("greeg: fresh {} {:.1} ms ({} changed) · plan {}", s.fresh_method, s.fresh_ms, s.fresh_changed, if s.plan.len() > 120 { format!("{}…", &s.plan[..120]) } else { s.plan.clone() });
+            eprintln!(
+                "greeg: fresh {} {:.1} ms ({} changed) · plan {}",
+                s.fresh_method,
+                s.fresh_ms,
+                s.fresh_changed,
+                if s.plan.len() > 120 {
+                    format!("{}…", &s.plan[..120])
+                } else {
+                    s.plan.clone()
+                }
+            );
         }
-        eprintln!("greeg: scan {:.1} ms · shape {:.1} ms (refine {:.1}) · render {:.1} ms · total {:.1} ms · cpu: read {:.1} search {:.1} classify {:.1} ms", t_scan.as_secs_f64() * 1e3, t_shape.as_secs_f64() * 1e3, s.refine_ms, t_render.as_secs_f64() * 1e3, t0.elapsed().as_secs_f64() * 1e3, s.cpu_read_ms, s.cpu_search_ms, s.cpu_classify_ms);
+        eprintln!(
+            "greeg: scan {:.1} ms · shape {:.1} ms (refine {:.1}) · render {:.1} ms · total {:.1} ms · cpu: read {:.1} search {:.1} classify {:.1} ms",
+            t_scan.as_secs_f64() * 1e3,
+            t_shape.as_secs_f64() * 1e3,
+            s.refine_ms,
+            t_render.as_secs_f64() * 1e3,
+            t0.elapsed().as_secs_f64() * 1e3,
+            s.cpu_read_ms,
+            s.cpu_search_ms,
+            s.cpu_classify_ms
+        );
     }
     // C14: exit 0 only when the pattern itself matched under the user's flags
     if result.stats.total_hits == 0 || result.rung != greeg_query::Rung::Exact {
@@ -707,7 +885,8 @@ fn emit(c: &Common, result: &ScanResult, report: &Report, fmt: Fmt) -> Result<()
     let mut body: Vec<u8> = Vec::with_capacity(16 * 1024);
     render_body(&mut body, result, report, fmt)?;
     w.write_all(&body)?;
-    let pipe_safe = matches!(report.layout, Layout::Files | Layout::Count) || result.opts.budget == 0;
+    let pipe_safe =
+        matches!(report.layout, Layout::Files | Layout::Count) || result.opts.budget == 0;
     if pipe_safe {
         w.flush()?;
         if !fmt.stdin {
@@ -749,18 +928,34 @@ pub(crate) fn fmt_size(b: u64) -> String {
 }
 
 pub(crate) fn chain_str(chain: &[(greeg_lang::DefKind, String)]) -> String {
-    chain.iter().map(|(_, n)| n.as_str()).collect::<Vec<_>>().join(" › ")
+    chain
+        .iter()
+        .map(|(_, n)| n.as_str())
+        .collect::<Vec<_>>()
+        .join(" › ")
 }
 
 /// Container to display for a hit: the last enclosing `Class.method` (a
 /// definition's own name is already in its text); the full chain with `--chain`.
-pub(crate) fn container_of(chain: &[(greeg_lang::DefKind, String)], is_def: bool, full: bool) -> String {
-    let chain = if is_def && !chain.is_empty() { &chain[..chain.len() - 1] } else { chain };
+pub(crate) fn container_of(
+    chain: &[(greeg_lang::DefKind, String)],
+    is_def: bool,
+    full: bool,
+) -> String {
+    let chain = if is_def && !chain.is_empty() {
+        &chain[..chain.len() - 1]
+    } else {
+        chain
+    };
     if full {
         chain_str(chain)
     } else {
         let n = chain.len();
-        chain[n.saturating_sub(2)..].iter().map(|(_, s)| s.as_str()).collect::<Vec<_>>().join(".")
+        chain[n.saturating_sub(2)..]
+            .iter()
+            .map(|(_, s)| s.as_str())
+            .collect::<Vec<_>>()
+            .join(".")
     }
 }
 
@@ -771,7 +966,11 @@ pub(crate) fn flag_suffix(f: &greeg_query::FileResult) -> String {
     if flags.is_empty() && greeg_query::is_mock_path(&f.rel) {
         flags.push("mock");
     }
-    if flags.is_empty() { String::new() } else { format!("  [{}]", flags.join(",")) }
+    if flags.is_empty() {
+        String::new()
+    } else {
+        format!("  [{}]", flags.join(","))
+    }
 }
 
 fn digits(n: u32) -> usize {
@@ -785,7 +984,14 @@ fn text_of(h: &greeg_query::Hit) -> std::borrow::Cow<'_, str> {
 /// One `  <line> <kind> <text>  ‹ container` row. `kw` is the kind column width
 /// (0 = no kind column); ident hits leave the column blank. The container is
 /// printed only when it differs from the previous row's.
-fn hit_row(h: &greeg_query::Hit, lw: usize, kw: usize, fmt: Fmt, last: &mut String, extra: &str) -> String {
+fn hit_row(
+    h: &greeg_query::Hit,
+    lw: usize,
+    kw: usize,
+    fmt: Fmt,
+    last: &mut String,
+    extra: &str,
+) -> String {
     let kind = if kw == 0 {
         String::new()
     } else if h.kind == HitKind::Ident {
@@ -794,20 +1000,38 @@ fn hit_row(h: &greeg_query::Hit, lw: usize, kw: usize, fmt: Fmt, last: &mut Stri
         format!(" {:<kw$}", h.kind.name())
     };
     let c = container_of(&h.chain, h.kind == HitKind::Def, fmt.chain);
-    let tag = if !c.is_empty() && *last != c { format!("  ‹ {c}") } else { String::new() };
+    let tag = if !c.is_empty() && *last != c {
+        format!("  ‹ {c}")
+    } else {
+        String::new()
+    };
     *last = c;
-    format!("  {:>lw$}{kind}  {}{tag}{extra}", h.line, text_of(h).trim_end())
+    format!(
+        "  {:>lw$}{kind}  {}{tag}{extra}",
+        h.line,
+        text_of(h).trim_end()
+    )
 }
 
 /// Kind column width for a set of hits: the widest non-ident kind, 0 when all are ident.
 fn kind_width<'a>(hits: impl Iterator<Item = &'a greeg_query::Hit>) -> usize {
-    hits.filter(|h| h.kind != HitKind::Ident).map(|h| h.kind.name().len()).max().unwrap_or(0)
+    hits.filter(|h| h.kind != HitKind::Ident)
+        .map(|h| h.kind.name().len())
+        .max()
+        .unwrap_or(0)
 }
 
 /// Hits grouped by file (order of first appearance), one header per file.
-pub(crate) fn write_groups(w: &mut impl Write, r: &ScanResult, list: &[(usize, usize)], fmt: Fmt, with_kind: bool) -> Result<()> {
+pub(crate) fn write_groups(
+    w: &mut impl Write,
+    r: &ScanResult,
+    list: &[(usize, usize)],
+    fmt: Fmt,
+    with_kind: bool,
+) -> Result<()> {
     let mut order: Vec<usize> = Vec::new();
-    let mut groups: std::collections::BTreeMap<usize, Vec<usize>> = std::collections::BTreeMap::new();
+    let mut groups: std::collections::BTreeMap<usize, Vec<usize>> =
+        std::collections::BTreeMap::new();
     for &(fi, hi) in list {
         if !groups.contains_key(&fi) {
             order.push(fi);
@@ -820,8 +1044,16 @@ pub(crate) fn write_groups(w: &mut impl Write, r: &ScanResult, list: &[(usize, u
         hits.sort_by_key(|&hi| f.hits[hi].line);
         let hits = &hits[..];
         writeln!(w, "{}{}", f.rel, flag_suffix(f))?;
-        let lw = hits.iter().map(|&hi| digits(f.hits[hi].line)).max().unwrap_or(1);
-        let kw = if with_kind { kind_width(hits.iter().map(|&hi| &f.hits[hi])) } else { 0 };
+        let lw = hits
+            .iter()
+            .map(|&hi| digits(f.hits[hi].line))
+            .max()
+            .unwrap_or(1);
+        let kw = if with_kind {
+            kind_width(hits.iter().map(|&hi| &f.hits[hi]))
+        } else {
+            0
+        };
         let mut last = String::new();
         for &hi in hits {
             writeln!(w, "{}", hit_row(&f.hits[hi], lw, kw, fmt, &mut last, ""))?;
@@ -835,7 +1067,17 @@ pub(crate) fn write_groups(w: &mut impl Write, r: &ScanResult, list: &[(usize, u
 pub(crate) fn short_names<'a>(rels: impl Iterator<Item = &'a str>) -> Vec<String> {
     let rels: Vec<&str> = rels.collect();
     let short: Vec<String> = rels.iter().map(|r| short_name(r)).collect();
-    short.iter().enumerate().map(|(i, s)| if short.iter().filter(|x| *x == s).count() > 1 { rels[i].to_string() } else { s.clone() }).collect()
+    short
+        .iter()
+        .enumerate()
+        .map(|(i, s)| {
+            if short.iter().filter(|x| *x == s).count() > 1 {
+                rels[i].to_string()
+            } else {
+                s.clone()
+            }
+        })
+        .collect()
 }
 
 /// Short display name for a file in an `imported by` list.
@@ -873,13 +1115,31 @@ fn render_body(w: &mut impl Write, r: &ScanResult, rep: &Report, fmt: Fmt) -> Re
             for sf in &rep.files {
                 let f = &files[sf.file];
                 writeln!(w, "{}{}", f.rel, flag_suffix(f))?;
-                let lw = sf.hits.iter().map(|sh| digits(f.hits[sh.hit].line)).max().unwrap_or(1);
+                let lw = sf
+                    .hits
+                    .iter()
+                    .map(|sh| digits(f.hits[sh.hit].line))
+                    .max()
+                    .unwrap_or(1);
                 let kw = kind_width(sf.hits.iter().map(|sh| &f.hits[sh.hit]));
                 for sh in &sf.hits {
                     let h = &f.hits[sh.hit];
-                    let kind = if kw == 0 { String::new() } else if h.kind == HitKind::Ident { format!(" {:kw$}", "") } else { format!(" {:<kw$}", h.kind.name()) };
+                    let kind = if kw == 0 {
+                        String::new()
+                    } else if h.kind == HitKind::Ident {
+                        format!(" {:kw$}", "")
+                    } else {
+                        format!(" {:<kw$}", h.kind.name())
+                    };
                     let ch = container_of(&h.chain, h.kind == HitKind::Def, fmt.chain);
-                    writeln!(w, "  {:>lw$}{kind}  {}{}{}", h.line, ch, if ch.is_empty() { "" } else { " › " }, text_of(h).trim_end())?;
+                    writeln!(
+                        w,
+                        "  {:>lw$}{kind}  {}{}{}",
+                        h.line,
+                        ch,
+                        if ch.is_empty() { "" } else { " › " },
+                        text_of(h).trim_end()
+                    )?;
                 }
                 if sf.more > 0 {
                     writeln!(w, "  +{} more", sf.more)?;
@@ -910,25 +1170,64 @@ fn render_body(w: &mut impl Write, r: &ScanResult, rep: &Report, fmt: Fmt) -> Re
                 }
                 writeln!(w)?;
             }
-            let kinds: Vec<String> = fc.by_kind.iter().map(|(k, n)| format!("{} {}", k.name(), fmt_n(*n))).collect();
-            let flags: Vec<String> = fc.by_flag.iter().map(|(l, n)| format!("{} {}", l, fmt_n(*n))).collect();
-            write!(w, "{}  {} hits · {} files · {}", r.opts.pattern, fmt_n(r.stats.total_hits), fmt_n(r.stats.files_matched), kinds.join(" "))?;
+            let kinds: Vec<String> = fc
+                .by_kind
+                .iter()
+                .map(|(k, n)| format!("{} {}", k.name(), fmt_n(*n)))
+                .collect();
+            let flags: Vec<String> = fc
+                .by_flag
+                .iter()
+                .map(|(l, n)| format!("{} {}", l, fmt_n(*n)))
+                .collect();
+            write!(
+                w,
+                "{}  {} hits · {} files · {}",
+                r.opts.pattern,
+                fmt_n(r.stats.total_hits),
+                fmt_n(r.stats.files_matched),
+                kinds.join(" ")
+            )?;
             if !flags.is_empty() {
                 write!(w, " · {}", flags.join(" "))?;
             }
             writeln!(w)?;
-            let dirs: Vec<String> = fc.by_dir.iter().map(|(d, n)| format!("{} {}", d, fmt_n(*n))).collect();
+            let dirs: Vec<String> = fc
+                .by_dir
+                .iter()
+                .map(|(d, n)| format!("{} {}", d, fmt_n(*n)))
+                .collect();
             writeln!(w, "areas  {}", dirs.join("  "))?;
             if !fc.by_lang.is_empty() {
-                let langs: Vec<String> = fc.by_lang.iter().map(|(l, n)| format!("{} {}", l, fmt_n(*n))).collect();
+                let langs: Vec<String> = fc
+                    .by_lang
+                    .iter()
+                    .map(|(l, n)| format!("{} {}", l, fmt_n(*n)))
+                    .collect();
                 writeln!(w, "langs  {}", langs.join("  "))?;
             }
             if !fc.top_hits.is_empty() || !fc.import_files.is_empty() {
                 writeln!(w, "\ntop hits")?;
                 if !fc.import_files.is_empty() {
-                    let names = short_names(fc.import_files.iter().take(6).map(|&fi| files[fi].rel.as_str()));
+                    let names = short_names(
+                        fc.import_files
+                            .iter()
+                            .take(6)
+                            .map(|&fi| files[fi].rel.as_str()),
+                    );
                     let more = fc.import_files.len().saturating_sub(6);
-                    writeln!(w, "imported by {} file{}: {}{}", fc.import_files.len(), if fc.import_files.len() == 1 { "" } else { "s" }, names.join(", "), if more > 0 { format!(" (+{more})") } else { String::new() })?;
+                    writeln!(
+                        w,
+                        "imported by {} file{}: {}{}",
+                        fc.import_files.len(),
+                        if fc.import_files.len() == 1 { "" } else { "s" },
+                        names.join(", "),
+                        if more > 0 {
+                            format!(" (+{more})")
+                        } else {
+                            String::new()
+                        }
+                    )?;
                 }
                 write_groups(w, r, &fc.top_hits, fmt, true)?;
             }
@@ -960,7 +1259,8 @@ fn render_parity(w: &mut impl Write, r: &ScanResult, rep: &Report, fmt: Fmt) -> 
             writeln!(w, "--")?;
         }
         first_file = false;
-        let hit_lines: std::collections::BTreeSet<u32> = sf.hits.iter().map(|sh| f.hits[sh.hit].line).collect();
+        let hit_lines: std::collections::BTreeSet<u32> =
+            sf.hits.iter().map(|sh| f.hits[sh.hit].line).collect();
         let mut last = 0u32;
         for sh in &sf.hits {
             let h = &f.hits[sh.hit];
@@ -984,7 +1284,12 @@ fn render_parity(w: &mut impl Write, r: &ScanResult, rep: &Report, fmt: Fmt) -> 
                 }
                 None => {
                     if h.line > last {
-                        writeln!(w, "{}{}", prefix(h.line, ':'), String::from_utf8_lossy(&h.raw))?;
+                        writeln!(
+                            w,
+                            "{}{}",
+                            prefix(h.line, ':'),
+                            String::from_utf8_lossy(&h.raw)
+                        )?;
                         last = h.line;
                     }
                 }
@@ -994,7 +1299,14 @@ fn render_parity(w: &mut impl Write, r: &ScanResult, rep: &Report, fmt: Fmt) -> 
     Ok(())
 }
 
-fn render_footer(w: &mut impl Write, r: &ScanResult, rep: &Report, est: usize, fmt: Fmt, with_hints: bool) -> Result<()> {
+fn render_footer(
+    w: &mut impl Write,
+    r: &ScanResult,
+    rep: &Report,
+    est: usize,
+    fmt: Fmt,
+    with_hints: bool,
+) -> Result<()> {
     let ft = &rep.footer;
     if with_hints {
         writeln!(w)?;
@@ -1002,13 +1314,29 @@ fn render_footer(w: &mut impl Write, r: &ScanResult, rep: &Report, est: usize, f
     if r.stats.total_hits == 0 {
         write!(w, "no hits")?;
     } else {
-        write!(w, "{}/{} hits · {}/{} files", fmt_n(ft.hits_shown), fmt_n(ft.hits_total), fmt_n(ft.files_shown), fmt_n(ft.files_total))?;
+        write!(
+            w,
+            "{}/{} hits · {}/{} files",
+            fmt_n(ft.hits_shown),
+            fmt_n(ft.hits_total),
+            fmt_n(ft.files_shown),
+            fmt_n(ft.files_total)
+        )?;
         if ft.demoted_files > 0 {
-            write!(w, " · {} files demoted ({})", ft.demoted_files, fmt_n(ft.demoted_hits))?;
+            write!(
+                w,
+                " · {} files demoted ({})",
+                ft.demoted_files,
+                fmt_n(ft.demoted_hits)
+            )?;
         }
     }
     if ft.skipped_binary + ft.skipped_huge > 0 {
-        write!(w, " · skipped {} binary, {} huge", ft.skipped_binary, ft.skipped_huge)?;
+        write!(
+            w,
+            " · skipped {} binary, {} huge",
+            ft.skipped_binary, ft.skipped_huge
+        )?;
     }
     if ft.rung != greeg_query::Rung::Exact {
         write!(w, " · matched {}", ft.rung.describe())?;
@@ -1024,7 +1352,12 @@ fn render_footer(w: &mut impl Write, r: &ScanResult, rep: &Report, est: usize, f
     Ok(())
 }
 
-fn render_hits(w: &mut impl Write, f: &greeg_query::FileResult, sf: &ShownFile, fmt: Fmt) -> Result<()> {
+fn render_hits(
+    w: &mut impl Write,
+    f: &greeg_query::FileResult,
+    sf: &ShownFile,
+    fmt: Fmt,
+) -> Result<()> {
     let mut max_line = 1u32;
     for sh in &sf.hits {
         max_line = max_line.max(f.hits[sh.hit].line);
@@ -1037,19 +1370,37 @@ fn render_hits(w: &mut impl Write, f: &greeg_query::FileResult, sf: &ShownFile, 
     }
     let lw = digits(max_line);
     let kw = kind_width(sf.hits.iter().map(|sh| &f.hits[sh.hit]));
-    let pad = if kw == 0 { String::new() } else { format!(" {:kw$}", "") };
+    let pad = if kw == 0 {
+        String::new()
+    } else {
+        format!(" {:kw$}", "")
+    };
     let mut last_line_printed = 0u32;
     let mut last = String::new();
     for sh in &sf.hits {
         let h = &f.hits[sh.hit];
         // context and bodies are dedented by the hit line's own indentation
-        let indent = h.raw.iter().position(|b| !matches!(b, b' ' | b'\t')).unwrap_or(h.raw.len());
+        let indent = h
+            .raw
+            .iter()
+            .position(|b| !matches!(b, b' ' | b'\t'))
+            .unwrap_or(h.raw.len());
         let dedent = |l: &[u8]| -> String {
-            let lead = l.iter().position(|b| !matches!(b, b' ' | b'\t')).unwrap_or(l.len());
+            let lead = l
+                .iter()
+                .position(|b| !matches!(b, b' ' | b'\t'))
+                .unwrap_or(l.len());
             String::from_utf8_lossy(&l[lead.min(indent)..]).into_owned()
         };
         if let Some((first, lines)) = &sh.block {
-            writeln!(w, "  ── {} {} (lines {}–{})", h.chain.last().map(|(k, _)| k.name()).unwrap_or("block"), chain_str(&h.chain), first, first + lines.len() as u32 - 1)?;
+            writeln!(
+                w,
+                "  ── {} {} (lines {}–{})",
+                h.chain.last().map(|(k, _)| k.name()).unwrap_or("block"),
+                chain_str(&h.chain),
+                first,
+                first + lines.len() as u32 - 1
+            )?;
             for (i, l) in lines.iter().enumerate() {
                 writeln!(w, "  {:>lw$}  {}", first + i as u32, dedent(l))?;
             }
@@ -1079,7 +1430,11 @@ fn render_hits(w: &mut impl Write, f: &greeg_query::FileResult, sf: &ShownFile, 
                 last_line_printed = ln;
             }
         } else {
-            let seen = if sh.seen_before { "  (shown before)" } else { "" };
+            let seen = if sh.seen_before {
+                "  (shown before)"
+            } else {
+                ""
+            };
             writeln!(w, "{}", hit_row(h, lw, kw, fmt, &mut last, seen))?;
             last_line_printed = h.line;
         }
@@ -1090,7 +1445,11 @@ fn render_hits(w: &mut impl Write, f: &greeg_query::FileResult, sf: &ShownFile, 
         for k in shown {
             rest[k.idx()] = rest[k.idx()].saturating_sub(1);
         }
-        let f_kinds: Vec<String> = HitKind::ALL.iter().filter(|k| rest[k.idx()] > 0).map(|k| format!("{} {}", rest[k.idx()], k.name())).collect();
+        let f_kinds: Vec<String> = HitKind::ALL
+            .iter()
+            .filter(|k| rest[k.idx()] > 0)
+            .map(|k| format!("{} {}", rest[k.idx()], k.name()))
+            .collect();
         let counted: u32 = rest.iter().sum();
         let unclassified = sf.more.saturating_sub(counted as usize);
         let mut parts = f_kinds;
@@ -1113,7 +1472,9 @@ fn line_span(bytes: &[u8], anchor_line: u32, anchor_start: u32, n: u32) -> Optio
     if n < anchor_line {
         for _ in 0..(anchor_line - n) {
             let prev = start.checked_sub(1)?; // the '\n' ending the previous line
-            start = memchr::memrchr(b'\n', &bytes[..prev]).map(|k| k + 1).unwrap_or(0);
+            start = memchr::memrchr(b'\n', &bytes[..prev])
+                .map(|k| k + 1)
+                .unwrap_or(0);
         }
     } else {
         for _ in 0..(n - anchor_line) {
@@ -1123,7 +1484,9 @@ fn line_span(bytes: &[u8], anchor_line: u32, anchor_start: u32, n: u32) -> Optio
             }
         }
     }
-    let end = memchr::memchr(b'\n', &bytes[start..]).map(|k| start + k + 1).unwrap_or(bytes.len());
+    let end = memchr::memchr(b'\n', &bytes[start..])
+        .map(|k| start + k + 1)
+        .unwrap_or(bytes.len());
     Some((start, end))
 }
 
@@ -1136,19 +1499,29 @@ fn render_json(w: &mut impl Write, r: &ScanResult, rep: &Report) -> Result<()> {
     let mut printed_bytes = 0usize;
     let mut emit_file = |w: &mut dyn Write, sf: &ShownFile| -> Result<()> {
         let f = &files[sf.file];
-        serde_json::to_writer(&mut *w, &json!({"type":"begin","data":{"path":{"text":f.rel}}}))?;
+        serde_json::to_writer(
+            &mut *w,
+            &json!({"type":"begin","data":{"path":{"text":f.rel}}}),
+        )?;
         writeln!(w)?;
         // hits in line order, with their explicit context ranges merged
         let mut hits: Vec<&greeg_query::shape::ShownHit> = sf.hits.iter().collect();
         hits.sort_by_key(|sh| f.hits[sh.hit].line);
         let src = f.src.as_ref().map(|s| &s.bytes[..]);
-        let hit_lines: std::collections::BTreeMap<u32, usize> = sf.hits.iter().map(|sh| (f.hits[sh.hit].line, sh.hit)).collect();
+        let hit_lines: std::collections::BTreeMap<u32, usize> = sf
+            .hits
+            .iter()
+            .map(|sh| (f.hits[sh.hit].line, sh.hit))
+            .collect();
         let mut last = 0u32;
         let mut file_matches = 0usize;
         let mut file_lines = 0usize;
         let mut emit_match = |w: &mut dyn Write, hi: usize| -> Result<()> {
             let h = &f.hits[hi];
-            let text: String = match src.and_then(|b| line_span(b, h.line, h.line_start, h.line).map(|(s, e)| String::from_utf8_lossy(&b[s..e]).into_owned())) {
+            let text: String = match src.and_then(|b| {
+                line_span(b, h.line, h.line_start, h.line)
+                    .map(|(s, e)| String::from_utf8_lossy(&b[s..e]).into_owned())
+            }) {
                 Some(t) => t,
                 None => {
                     let mut t = String::from_utf8_lossy(&h.raw).into_owned();
@@ -1161,18 +1534,21 @@ fn render_json(w: &mut impl Write, r: &ScanResult, rep: &Report) -> Result<()> {
             file_matches += subs.len();
             file_lines += 1;
             printed_bytes += text.len();
-            serde_json::to_writer(&mut *w, &json!({"type":"match","data":{
-                "path":{"text":f.rel},
-                "lines":{"text":text},
-                "line_number":h.line,
-                "absolute_offset":h.line_start,
-                "submatches":subs,
-                "kind":h.kind.name(),
-                "symbol":sym,
-                "file_flags":f.flags.names(),
-                "score":h.score,
-                "clipped":h.clipped
-            }}))?;
+            serde_json::to_writer(
+                &mut *w,
+                &json!({"type":"match","data":{
+                    "path":{"text":f.rel},
+                    "lines":{"text":text},
+                    "line_number":h.line,
+                    "absolute_offset":h.line_start,
+                    "submatches":subs,
+                    "kind":h.kind.name(),
+                    "symbol":sym,
+                    "file_flags":f.flags.names(),
+                    "score":h.score,
+                    "clipped":h.clipped
+                }}),
+            )?;
             writeln!(w)?;
             Ok(())
         };
@@ -1189,7 +1565,10 @@ fn render_json(w: &mut impl Write, r: &ScanResult, rep: &Report) -> Result<()> {
                             emit_match(w, hi)?;
                         } else if let Some((s, e)) = line_span(b, h.line, h.line_start, ln) {
                             let text = String::from_utf8_lossy(&b[s..e]);
-                            serde_json::to_writer(&mut *w, &json!({"type":"context","data":{"path":{"text":f.rel},"lines":{"text":text},"line_number":ln,"absolute_offset":s,"submatches":[]}}))?;
+                            serde_json::to_writer(
+                                &mut *w,
+                                &json!({"type":"context","data":{"path":{"text":f.rel},"lines":{"text":text},"line_number":ln,"absolute_offset":s,"submatches":[]}}),
+                            )?;
                             writeln!(w)?;
                         }
                         last = ln;
@@ -1205,18 +1584,24 @@ fn render_json(w: &mut impl Write, r: &ScanResult, rep: &Report) -> Result<()> {
         }
         printed_lines += file_lines;
         printed_matches += file_matches;
-        serde_json::to_writer(&mut *w, &json!({"type":"end","data":{"path":{"text":f.rel},"binary_offset":null,"stats":{"elapsed":{"secs":0,"nanos":0,"human":"0s"},"searches":1,"searches_with_match":1,"bytes_searched":f.size,"bytes_printed":0,"matched_lines":f.total,"matches":file_matches,"shown":file_lines}}}))?;
+        serde_json::to_writer(
+            &mut *w,
+            &json!({"type":"end","data":{"path":{"text":f.rel},"binary_offset":null,"stats":{"elapsed":{"secs":0,"nanos":0,"human":"0s"},"searches":1,"searches_with_match":1,"bytes_searched":f.size,"bytes_printed":0,"matched_lines":f.total,"matches":file_matches,"shown":file_lines}}}),
+        )?;
         writeln!(w)?;
         Ok(())
     };
     if let Some(fc) = &rep.facets {
-        serde_json::to_writer(&mut *w, &json!({"type":"facets","data":{
-            "total":r.stats.total_hits,"files":r.stats.files_matched,
-            "by_kind":fc.by_kind.iter().map(|(k,n)| json!([k.name(), n])).collect::<Vec<_>>(),
-            "by_dir":fc.by_dir,"by_lang":fc.by_lang,"by_flag":fc.by_flag,
-            "definitions_total":fc.defs_total,"demoted_definitions":fc.demoted_defs,
-            "imported_by":fc.import_files.iter().map(|&fi| files[fi].rel.clone()).collect::<Vec<_>>()
-        }}))?;
+        serde_json::to_writer(
+            &mut *w,
+            &json!({"type":"facets","data":{
+                "total":r.stats.total_hits,"files":r.stats.files_matched,
+                "by_kind":fc.by_kind.iter().map(|(k,n)| json!([k.name(), n])).collect::<Vec<_>>(),
+                "by_dir":fc.by_dir,"by_lang":fc.by_lang,"by_flag":fc.by_flag,
+                "definitions_total":fc.defs_total,"demoted_definitions":fc.demoted_defs,
+                "imported_by":fc.import_files.iter().map(|&fi| files[fi].rel.clone()).collect::<Vec<_>>()
+            }}),
+        )?;
         writeln!(w)?;
     }
     for sf in &rep.files {
@@ -1225,14 +1610,20 @@ fn render_json(w: &mut impl Write, r: &ScanResult, rep: &Report) -> Result<()> {
     let ft = &rep.footer;
     let el = t0.elapsed() + std::time::Duration::from_secs_f64(r.stats.elapsed_ms / 1e3);
     let elapsed = json!({"secs":el.as_secs(),"nanos":el.subsec_nanos(),"human":format!("{:.6}s", el.as_secs_f64())});
-    serde_json::to_writer(&mut *w, &json!({"type":"summary","data":{"elapsed_total":elapsed,"stats":{"elapsed":elapsed,"searches":r.stats.files_searched,"searches_with_match":r.stats.files_matched,"bytes_searched":r.files.iter().map(|f| f.size).sum::<u64>(),"bytes_printed":printed_bytes,"matched_lines":r.stats.total_hits,"matches":printed_matches,"matched_lines_shown":printed_lines}}}))?;
+    serde_json::to_writer(
+        &mut *w,
+        &json!({"type":"summary","data":{"elapsed_total":elapsed,"stats":{"elapsed":elapsed,"searches":r.stats.files_searched,"searches_with_match":r.stats.files_matched,"bytes_searched":r.files.iter().map(|f| f.size).sum::<u64>(),"bytes_printed":printed_bytes,"matched_lines":r.stats.total_hits,"matches":printed_matches,"matched_lines_shown":printed_lines}}}),
+    )?;
     writeln!(w)?;
-    serde_json::to_writer(&mut *w, &json!({"type":"footer","data":{
-        "hits_shown":ft.hits_shown,"hits_total":ft.hits_total,"files_shown":ft.files_shown,"files_total":ft.files_total,
-        "demoted_files":ft.demoted_files,"demoted_hits":ft.demoted_hits,"skipped_binary":ft.skipped_binary,"skipped_huge":ft.skipped_huge,
-        "rung":ft.rung.name(),"rung_names":match &ft.rung { greeg_query::Rung::SplitTokens(v) | greeg_query::Rung::Fuzzy(v) => v.clone(), _ => vec![] },"ignored_only":ft.ignored_only,"est_tokens":ft.est_tokens,"elapsed_ms":ft.elapsed_ms,"hints":ft.hints,
-        "layout":format!("{:?}", rep.layout).to_lowercase()
-    }}))?;
+    serde_json::to_writer(
+        &mut *w,
+        &json!({"type":"footer","data":{
+            "hits_shown":ft.hits_shown,"hits_total":ft.hits_total,"files_shown":ft.files_shown,"files_total":ft.files_total,
+            "demoted_files":ft.demoted_files,"demoted_hits":ft.demoted_hits,"skipped_binary":ft.skipped_binary,"skipped_huge":ft.skipped_huge,
+            "rung":ft.rung.name(),"rung_names":match &ft.rung { greeg_query::Rung::SplitTokens(v) | greeg_query::Rung::Fuzzy(v) => v.clone(), _ => vec![] },"ignored_only":ft.ignored_only,"est_tokens":ft.est_tokens,"elapsed_ms":ft.elapsed_ms,"hints":ft.hints,
+            "layout":format!("{:?}", rep.layout).to_lowercase()
+        }}),
+    )?;
     writeln!(w)?;
     Ok(())
 }
@@ -1244,14 +1635,24 @@ mod tests {
     #[test]
     fn patterns_join_like_ripgrep() {
         assert_eq!(join_patterns(&["a".into()], true), ("a".into(), true));
-        assert_eq!(join_patterns(&["a".into(), "b(".into()], false), ("(?:a)|(?:b()".into(), false));
-        assert_eq!(join_patterns(&["a.b".into(), "-x".into()], true), (r"(?:a\.b)|(?:\-x)".into(), false));
+        assert_eq!(
+            join_patterns(&["a".into(), "b(".into()], false),
+            ("(?:a)|(?:b()".into(), false)
+        );
+        assert_eq!(
+            join_patterns(&["a.b".into(), "-x".into()], true),
+            (r"(?:a\.b)|(?:\-x)".into(), false)
+        );
     }
 
     #[test]
     fn containers_collapse_to_the_last_two() {
         use greeg_lang::DefKind::*;
-        let chain = vec![(Function, "outer".to_string()), (Class, "Cls".to_string()), (Method, "m".to_string())];
+        let chain = vec![
+            (Function, "outer".to_string()),
+            (Class, "Cls".to_string()),
+            (Method, "m".to_string()),
+        ];
         assert_eq!(container_of(&chain, false, false), "Cls.m");
         assert_eq!(container_of(&chain, true, false), "outer.Cls");
         assert_eq!(container_of(&chain, false, true), "outer › Cls › m");
@@ -1270,7 +1671,22 @@ mod tests {
 
     #[test]
     fn cli_accepts_ripgrep_cosmetic_flags() {
-        for args in [vec!["greeg", "-N", "-H", "--color", "never", "--no-heading", "-p", "--column", "foo"], vec!["greeg", "-uu", "-a", "--no-config", "--trim", "-h", "foo"], vec!["greeg", "-e", "-x", "-e", "y", "src"], vec!["greeg", "--sort", "path", "-l", "foo"]] {
+        for args in [
+            vec![
+                "greeg",
+                "-N",
+                "-H",
+                "--color",
+                "never",
+                "--no-heading",
+                "-p",
+                "--column",
+                "foo",
+            ],
+            vec!["greeg", "-uu", "-a", "--no-config", "--trim", "-h", "foo"],
+            vec!["greeg", "-e", "-x", "-e", "y", "src"],
+            vec!["greeg", "--sort", "path", "-l", "foo"],
+        ] {
             let cli = Cli::try_parse_from(&args).unwrap_or_else(|e| panic!("{args:?}: {e}"));
             assert!(cli.cmd.is_none());
         }
@@ -1279,6 +1695,9 @@ mod tests {
         assert_eq!(cli.pattern.as_deref(), Some("src"));
         let cli = Cli::try_parse_from(["greeg", "-uu", "foo"]).unwrap();
         assert_eq!(cli.common.unrestricted, 2);
-        assert!(Cli::try_parse_from(["greeg", "--help"]).is_err(), "--help exits through clap's help action");
+        assert!(
+            Cli::try_parse_from(["greeg", "--help"]).is_err(),
+            "--help exits through clap's help action"
+        );
     }
 }

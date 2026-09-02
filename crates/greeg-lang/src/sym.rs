@@ -69,7 +69,10 @@ impl Extract {
     /// Innermost symbol whose range contains `off`.
     pub fn enclosing(&self, off: u32) -> Option<u32> {
         let upto = self.symbols.partition_point(|d| d.start <= off);
-        (0..upto).rev().find(|&i| self.symbols[i].end > off).map(|i| i as u32)
+        (0..upto)
+            .rev()
+            .find(|&i| self.symbols[i].end > off)
+            .map(|i| i as u32)
     }
 }
 
@@ -137,12 +140,42 @@ fn compile(lang: Language, src: &str) -> LangQ {
     LangQ { lang, query, caps }
 }
 
-static PY: LazyLock<LangQ> = LazyLock::new(|| compile(tree_sitter_python::LANGUAGE.into(), include_str!("../queries/python.scm")));
-static RS: LazyLock<LangQ> = LazyLock::new(|| compile(tree_sitter_rust::LANGUAGE.into(), include_str!("../queries/rust.scm")));
-static JS: LazyLock<LangQ> = LazyLock::new(|| compile(tree_sitter_javascript::LANGUAGE.into(), include_str!("../queries/javascript.scm")));
-static TS: LazyLock<LangQ> = LazyLock::new(|| compile(tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(), include_str!("../queries/typescript.scm")));
-static TSX: LazyLock<LangQ> = LazyLock::new(|| compile(tree_sitter_typescript::LANGUAGE_TSX.into(), include_str!("../queries/typescript.scm")));
-static KT: LazyLock<LangQ> = LazyLock::new(|| compile(tree_sitter_kotlin_sg::LANGUAGE.into(), include_str!("../queries/kotlin.scm")));
+static PY: LazyLock<LangQ> = LazyLock::new(|| {
+    compile(
+        tree_sitter_python::LANGUAGE.into(),
+        include_str!("../queries/python.scm"),
+    )
+});
+static RS: LazyLock<LangQ> = LazyLock::new(|| {
+    compile(
+        tree_sitter_rust::LANGUAGE.into(),
+        include_str!("../queries/rust.scm"),
+    )
+});
+static JS: LazyLock<LangQ> = LazyLock::new(|| {
+    compile(
+        tree_sitter_javascript::LANGUAGE.into(),
+        include_str!("../queries/javascript.scm"),
+    )
+});
+static TS: LazyLock<LangQ> = LazyLock::new(|| {
+    compile(
+        tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
+        include_str!("../queries/typescript.scm"),
+    )
+});
+static TSX: LazyLock<LangQ> = LazyLock::new(|| {
+    compile(
+        tree_sitter_typescript::LANGUAGE_TSX.into(),
+        include_str!("../queries/typescript.scm"),
+    )
+});
+static KT: LazyLock<LangQ> = LazyLock::new(|| {
+    compile(
+        tree_sitter_kotlin_sg::LANGUAGE.into(),
+        include_str!("../queries/kotlin.scm"),
+    )
+});
 
 fn lang_q(lang: Lang, tsx: bool) -> Option<&'static LangQ> {
     Some(match lang {
@@ -160,20 +193,34 @@ fn lang_q(lang: Lang, tsx: bool) -> Option<&'static LangQ> {
 /// Runtime-loaded grammars: `dlopen` + query compile on first use, cached per language.
 fn extra_q(i: u8) -> Option<&'static LangQ> {
     static CACHE: OnceLock<Vec<OnceLock<Option<LangQ>>>> = OnceLock::new();
-    let cache = CACHE.get_or_init(|| (0..crate::extra::registry().len()).map(|_| OnceLock::new()).collect());
-    cache.get(i as usize)?.get_or_init(|| {
-        let (lang, query) = crate::extra::grammar(i)?;
-        match Query::new(&lang, &query) {
-            Ok(q) => {
-                let caps = q.capture_names().iter().map(|n| cap_of(n)).collect();
-                Some(LangQ { lang, query: q, caps })
+    let cache = CACHE.get_or_init(|| {
+        (0..crate::extra::registry().len())
+            .map(|_| OnceLock::new())
+            .collect()
+    });
+    cache
+        .get(i as usize)?
+        .get_or_init(|| {
+            let (lang, query) = crate::extra::grammar(i)?;
+            match Query::new(&lang, &query) {
+                Ok(q) => {
+                    let caps = q.capture_names().iter().map(|n| cap_of(n)).collect();
+                    Some(LangQ {
+                        lang,
+                        query: q,
+                        caps,
+                    })
+                }
+                Err(e) => {
+                    eprintln!(
+                        "greeg: extra language {}: bad tags.scm: {e}",
+                        crate::extra::get(i).map(|l| l.name).unwrap_or("?")
+                    );
+                    None
+                }
             }
-            Err(e) => {
-                eprintln!("greeg: extra language {}: bad tags.scm: {e}", crate::extra::get(i).map(|l| l.name).unwrap_or("?"));
-                None
-            }
-        }
-    }).as_ref()
+        })
+        .as_ref()
 }
 
 /// Is the runtime grammar for an extra language usable? (`greeg doctor`, `greeg lang check`)
@@ -212,22 +259,49 @@ fn macro_body_has_items(t: &[u8]) -> bool {
     if t.first() != Some(&b'{') || t.len() < 8 {
         return false;
     }
-    [&b"fn "[..], b"struct ", b"impl", b"enum ", b"trait ", b"mod ", b"const ", b"static ", b"type ", b"macro_rules!"].iter().any(|k| memchr::memmem::find(t, k).is_some())
+    [
+        &b"fn "[..],
+        b"struct ",
+        b"impl",
+        b"enum ",
+        b"trait ",
+        b"mod ",
+        b"const ",
+        b"static ",
+        b"type ",
+        b"macro_rules!",
+    ]
+    .iter()
+    .any(|k| memchr::memmem::find(t, k).is_some())
 }
 
 fn extract_raw(lang: Lang, tsx: bool, src: &[u8], depth: u8) -> Extract {
-    let Some(lq) = lang_q(lang, tsx) else { return regex_extract(lang, src) };
+    let Some(lq) = lang_q(lang, tsx) else {
+        return regex_extract(lang, src);
+    };
     let tree = PARSER.with(|p| {
         let mut p = p.borrow_mut();
         if p.set_language(&lq.lang).is_err() {
             return None;
         }
         let t0 = Instant::now();
-        let mut cb = |_: &tree_sitter::ParseState| if t0.elapsed() > PARSE_TIMEOUT { ControlFlow::Break(()) } else { ControlFlow::Continue(()) };
+        let mut cb = |_: &tree_sitter::ParseState| {
+            if t0.elapsed() > PARSE_TIMEOUT {
+                ControlFlow::Break(())
+            } else {
+                ControlFlow::Continue(())
+            }
+        };
         let opts = ParseOptions::new().progress_callback(&mut cb);
-        p.parse_with_options(&mut |off, _| if off < src.len() { &src[off..] } else { &[] }, None, Some(opts))
+        p.parse_with_options(
+            &mut |off, _| if off < src.len() { &src[off..] } else { &[] },
+            None,
+            Some(opts),
+        )
     });
-    let Some(tree) = tree else { return regex_extract(lang, src) };
+    let Some(tree) = tree else {
+        return regex_extract(lang, src);
+    };
     let root = tree.root_node();
     let mut parse_errors = false;
     if root.has_error() {
@@ -239,7 +313,11 @@ fn extract_raw(lang: Lang, tsx: bool, src: &[u8], depth: u8) -> Extract {
             return e;
         }
     }
-    let mut ex = Extract { parse_errors, tree_sitter: true, ..Default::default() };
+    let mut ex = Extract {
+        parse_errors,
+        tree_sitter: true,
+        ..Default::default()
+    };
     let mut macro_bodies: Vec<(u32, u32)> = Vec::new();
     CURSOR.with(|c| {
         let mut cursor = c.borrow_mut();
@@ -252,27 +330,53 @@ fn extract_raw(lang: Lang, tsx: bool, src: &[u8], depth: u8) -> Extract {
                 match lq.caps[c.index as usize] {
                     Cap::Def(k) => def = Some((k, c.node)),
                     Cap::Name => name = Some(c.node),
-                    Cap::Supers => super_names(&src[c.node.byte_range()], c.node.start_byte() as u32, &mut supers),
+                    Cap::Supers => super_names(
+                        &src[c.node.byte_range()],
+                        c.node.start_byte() as u32,
+                        &mut supers,
+                    ),
                     Cap::Import => {
                         let text = &src[c.node.byte_range()];
-                        parse_imports(lang, text, c.node.start_byte() as u32, c.node.end_byte() as u32, &mut ex.imports);
+                        parse_imports(
+                            lang,
+                            text,
+                            c.node.start_byte() as u32,
+                            c.node.end_byte() as u32,
+                            &mut ex.imports,
+                        );
                     }
                     Cap::Package => {
                         let t = String::from_utf8_lossy(&src[c.node.byte_range()]);
-                        let t = t.trim().trim_start_matches("package").trim().trim_end_matches(';').trim();
+                        let t = t
+                            .trim()
+                            .trim_start_matches("package")
+                            .trim()
+                            .trim_end_matches(';')
+                            .trim();
                         if !t.is_empty() {
                             ex.package = Some(t.to_string());
                         }
                     }
                     Cap::MacroBody => {
                         if depth < 2 && macro_body_has_items(&src[c.node.byte_range()]) {
-                            macro_bodies.push((c.node.start_byte() as u32, c.node.end_byte() as u32));
+                            macro_bodies
+                                .push((c.node.start_byte() as u32, c.node.end_byte() as u32));
                         }
                     }
                     Cap::Noncode(k) => {
                         let (s, e) = (c.node.start_byte() as u32, c.node.end_byte() as u32);
-                        let k = if k == SpanKind::Comment && is_doc_comment(lang, &src[s as usize..e as usize]) { SpanKind::Docstring } else { k };
-                        ex.noncode.push(Span { start: s, end: e, kind: k });
+                        let k = if k == SpanKind::Comment
+                            && is_doc_comment(lang, &src[s as usize..e as usize])
+                        {
+                            SpanKind::Docstring
+                        } else {
+                            k
+                        };
+                        ex.noncode.push(Span {
+                            start: s,
+                            end: e,
+                            kind: k,
+                        });
                     }
                     Cap::Ignore => {}
                 }
@@ -287,9 +391,29 @@ fn extract_raw(lang: Lang, tsx: bool, src: &[u8], depth: u8) -> Extract {
                     if ne <= ns {
                         if let Some(&(a, b)) = supers.first() {
                             kind = DefKind::Impl;
-                            ex.symbols.push(Symbol { name_start: a, name_end: b, start: node.start_byte() as u32, end: node.end_byte() as u32, line: node.start_position().row as u32 + 1, kind, parent: None, flags: 0, supers: std::mem::take(&mut supers) });
+                            ex.symbols.push(Symbol {
+                                name_start: a,
+                                name_end: b,
+                                start: node.start_byte() as u32,
+                                end: node.end_byte() as u32,
+                                line: node.start_position().row as u32 + 1,
+                                kind,
+                                parent: None,
+                                flags: 0,
+                                supers: std::mem::take(&mut supers),
+                            });
                         } else {
-                            ex.symbols.push(Symbol { name_start: n.start_byte() as u32, name_end: n.end_byte() as u32, start: node.start_byte() as u32, end: node.end_byte() as u32, line: node.start_position().row as u32 + 1, kind, parent: None, flags: 0, supers: Vec::new() });
+                            ex.symbols.push(Symbol {
+                                name_start: n.start_byte() as u32,
+                                name_end: n.end_byte() as u32,
+                                start: node.start_byte() as u32,
+                                end: node.end_byte() as u32,
+                                line: node.start_position().row as u32 + 1,
+                                kind,
+                                parent: None,
+                                flags: 0,
+                                supers: Vec::new(),
+                            });
                         }
                         continue;
                     }
@@ -299,7 +423,9 @@ fn extract_raw(lang: Lang, tsx: bool, src: &[u8], depth: u8) -> Extract {
                         kind = kotlin_class_kind(node, src);
                     }
                     if node.kind() == "companion_object" && name.is_none() {
-                        name = (0..node.child_count()).filter_map(|i| node.child(i)).find(|ch| ch.kind() == "type_identifier");
+                        name = (0..node.child_count())
+                            .filter_map(|i| node.child(i))
+                            .find(|ch| ch.kind() == "type_identifier");
                     }
                 }
                 let (ns, ne) = match name {
@@ -322,7 +448,13 @@ fn extract_raw(lang: Lang, tsx: bool, src: &[u8], depth: u8) -> Extract {
                 }
                 // line = the name's line (annotations, decorators and modifiers may precede the
                 // declaration on earlier lines; `start` still covers them for block extraction)
-                let line = node.start_position().row as u32 + 1 + memchr::memchr_iter(b'\n', &src[node.start_byte()..(ns as usize).max(node.start_byte())]).count() as u32;
+                let line = node.start_position().row as u32
+                    + 1
+                    + memchr::memchr_iter(
+                        b'\n',
+                        &src[node.start_byte()..(ns as usize).max(node.start_byte())],
+                    )
+                    .count() as u32;
                 ex.symbols.push(Symbol {
                     name_start: ns,
                     name_end: ne,
@@ -410,9 +542,16 @@ fn narrow_name(src: &[u8], s: u32, e: u32) -> (u32, u32) {
     if t.len() >= 2 && (t[0] == b'\'' || t[0] == b'"') && t[t.len() - 1] == t[0] {
         return (s + 1, e - 1);
     }
-    let cut = t.iter().position(|&b| b == b'<' || b == b'(' || b == b'[').unwrap_or(t.len());
+    let cut = t
+        .iter()
+        .position(|&b| b == b'<' || b == b'(' || b == b'[')
+        .unwrap_or(t.len());
     let head = &t[..cut];
-    let last = head.iter().rposition(|&b| !is_word(b)).map(|p| p + 1).unwrap_or(0);
+    let last = head
+        .iter()
+        .rposition(|&b| !is_word(b))
+        .map(|p| p + 1)
+        .unwrap_or(0);
     let mut end = cut;
     while end > last && !is_word(head[end - 1]) {
         end -= 1;
@@ -429,15 +568,25 @@ fn keyword_name(src: &[u8], node: Node, kind: DefKind) -> (u32, u32) {
         _ => b"constructor",
     };
     match memchr::memmem::find(t, kw) {
-        Some(p) => (node.start_byte() as u32 + p as u32, node.start_byte() as u32 + (p + kw.len()) as u32),
+        Some(p) => (
+            node.start_byte() as u32 + p as u32,
+            node.start_byte() as u32 + (p + kw.len()) as u32,
+        ),
         None => (node.start_byte() as u32, node.start_byte() as u32),
     }
 }
 
 fn is_doc_comment(lang: Lang, t: &[u8]) -> bool {
     match lang {
-        Lang::Rust => t.starts_with(b"///") || t.starts_with(b"//!") || t.starts_with(b"/**") || t.starts_with(b"/*!"),
-        Lang::JavaScript | Lang::TypeScript | Lang::Kotlin => t.starts_with(b"/**") && !t.starts_with(b"/**/"),
+        Lang::Rust => {
+            t.starts_with(b"///")
+                || t.starts_with(b"//!")
+                || t.starts_with(b"/**")
+                || t.starts_with(b"/*!")
+        }
+        Lang::JavaScript | Lang::TypeScript | Lang::Kotlin => {
+            t.starts_with(b"/**") && !t.starts_with(b"/**/")
+        }
         _ => false,
     }
 }
@@ -445,7 +594,11 @@ fn is_doc_comment(lang: Lang, t: &[u8]) -> bool {
 /// Split a supertype list (`Base, metaclass=M`, `extends A<T> implements B`,
 /// `: Send + Sync`, `Foo(), Bar by x`) into last-segment identifier ranges.
 fn super_names(t: &[u8], base: u32, out: &mut Vec<(u32, u32)>) {
-    let (t, base) = if t.first() == Some(&b'(') && t.last() == Some(&b')') { (&t[1..t.len() - 1], base + 1) } else { (t, base) };
+    let (t, base) = if t.first() == Some(&b'(') && t.last() == Some(&b')') {
+        (&t[1..t.len() - 1], base + 1)
+    } else {
+        (t, base)
+    };
     const SEP_WORDS: &[&[u8]] = &[b"extends", b"implements", b"by", b"where", b"with"];
     let mut depth = 0i32;
     let mut i = 0;
@@ -457,7 +610,15 @@ fn super_names(t: &[u8], base: u32, out: &mut Vec<(u32, u32)>) {
         }
         // leading path
         let mut j = 0;
-        while j < e.len() && (e[j] == b' ' || e[j] == b'\t' || e[j] == b'\n' || e[j] == b'\r' || e[j] == b':' || e[j] == b'(' || e[j] == b'?') {
+        while j < e.len()
+            && (e[j] == b' '
+                || e[j] == b'\t'
+                || e[j] == b'\n'
+                || e[j] == b'\r'
+                || e[j] == b':'
+                || e[j] == b'('
+                || e[j] == b'?')
+        {
             j += 1;
         }
         let ps = j;
@@ -468,7 +629,11 @@ fn super_names(t: &[u8], base: u32, out: &mut Vec<(u32, u32)>) {
         if path.is_empty() {
             return;
         }
-        let last = path.iter().rposition(|&b| !is_word(b)).map(|p| p + 1).unwrap_or(0);
+        let last = path
+            .iter()
+            .rposition(|&b| !is_word(b))
+            .map(|p| p + 1)
+            .unwrap_or(0);
         if last >= path.len() {
             return;
         }
@@ -476,7 +641,10 @@ fn super_names(t: &[u8], base: u32, out: &mut Vec<(u32, u32)>) {
         if SEP_WORDS.contains(&name) || name == b"object" {
             return;
         }
-        out.push((base + (a + ps + last) as u32, base + (a + ps + path.len()) as u32));
+        out.push((
+            base + (a + ps + last) as u32,
+            base + (a + ps + path.len()) as u32,
+        ));
     };
     while i < t.len() {
         match t[i] {
@@ -508,7 +676,11 @@ fn super_names(t: &[u8], base: u32, out: &mut Vec<(u32, u32)>) {
 /// Python module-level constant: `MAX`, `_CACHE_SIZE` (`[A-Z_][A-Z0-9_]{2,}`,
 /// the same rule as the regex extractor).
 fn is_const_name(name: &[u8]) -> bool {
-    name.len() >= 3 && (name[0].is_ascii_uppercase() || name[0] == b'_') && name.iter().all(|&b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'_')
+    name.len() >= 3
+        && (name[0].is_ascii_uppercase() || name[0] == b'_')
+        && name
+            .iter()
+            .all(|&b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'_')
 }
 
 /// Python visibility from the name: `_private` is not exported, dunder names
@@ -547,10 +719,14 @@ fn kotlin_class_kind(node: Node, src: &[u8]) -> DefKind {
 
 /// Kotlin: does the declaration's `modifiers` node carry `private` or `internal`?
 fn kotlin_hidden(node: Node, src: &[u8]) -> bool {
-    let Some(mods) = node.child(0).filter(|c| c.kind() == "modifiers") else { return false };
+    let Some(mods) = node.child(0).filter(|c| c.kind() == "modifiers") else {
+        return false;
+    };
     for i in 0..mods.child_count() {
         let Some(m) = mods.child(i) else { break };
-        if m.kind() == "visibility_modifier" && matches!(&src[m.byte_range()], b"private" | b"internal") {
+        if m.kind() == "visibility_modifier"
+            && matches!(&src[m.byte_range()], b"private" | b"internal")
+        {
             return true;
         }
     }
@@ -561,11 +737,16 @@ fn exported(lang: Lang, node: Node, name: Option<Node>, src: &[u8], name_bytes: 
     match lang {
         Lang::Rust => {
             // plain `pub` only: `pub(crate)`, `pub(super)`, `pub(in path)` have a named child
-            (0..2).filter_map(|i| node.child(i)).any(|ch| ch.kind() == "visibility_modifier" && ch.named_child_count() == 0)
+            (0..2)
+                .filter_map(|i| node.child(i))
+                .any(|ch| ch.kind() == "visibility_modifier" && ch.named_child_count() == 0)
         }
         Lang::Python => python_name_exported(name_bytes),
         Lang::JavaScript | Lang::TypeScript => {
-            if name.map(|n| n.kind() == "private_property_identifier").unwrap_or(false) {
+            if name
+                .map(|n| n.kind() == "private_property_identifier")
+                .unwrap_or(false)
+            {
                 return false;
             }
             // declarator → declaration → (ambient_declaration) → export_statement
@@ -577,7 +758,15 @@ fn exported(lang: Lang, node: Node, name: Option<Node>, src: &[u8], name_bytes: 
                     None => break,
                 }
             }
-            matches!(node.kind(), "method_definition" | "method_signature" | "abstract_method_signature" | "public_field_definition" | "field_definition" | "property_signature")
+            matches!(
+                node.kind(),
+                "method_definition"
+                    | "method_signature"
+                    | "abstract_method_signature"
+                    | "public_field_definition"
+                    | "field_definition"
+                    | "property_signature"
+            )
         }
         Lang::Kotlin => !kotlin_hidden(node, src),
         _ => false,
@@ -589,8 +778,12 @@ fn exported(lang: Lang, node: Node, name: Option<Node>, src: &[u8], name_bytes: 
 /// `#[async_std::test]`, `#[wasm_bindgen_test]`, and `#[cfg(test)]` on a
 /// `mod`. `#[cfg(not(test))]` and `#[cfg_attr(test, …)]` are not.
 fn rust_test_attribute(attr: Node, item: Node, src: &[u8]) -> bool {
-    let Some(a) = attr.named_child(0).filter(|a| a.kind() == "attribute") else { return false };
-    let Some(path) = a.named_child(0) else { return false };
+    let Some(a) = attr.named_child(0).filter(|a| a.kind() == "attribute") else {
+        return false;
+    };
+    let Some(path) = a.named_child(0) else {
+        return false;
+    };
     let path = &src[path.byte_range()];
     let last = path.rsplit(|&b| b == b':').next().unwrap_or(path);
     match last {
@@ -598,7 +791,10 @@ fn rust_test_attribute(attr: Node, item: Node, src: &[u8]) -> bool {
         b"wasm_bindgen_test" => true,
         _ if last.starts_with(b"rstest") => true,
         b"cfg" if item.kind() == "mod_item" => {
-            let args = a.child_by_field_name("arguments").map(|n| &src[n.byte_range()]).unwrap_or(b"");
+            let args = a
+                .child_by_field_name("arguments")
+                .map(|n| &src[n.byte_range()])
+                .unwrap_or(b"");
             args.trim_ascii() == b"(test)"
         }
         _ => false,
@@ -634,7 +830,12 @@ fn is_test(lang: Lang, node: Node, src: &[u8], name: &[u8]) -> bool {
 /// Post-processing shared by both extractors: ordering, dedup, parent links,
 /// method/field normalization, doc flags, and Python/Kotlin visibility fixes.
 fn finish(ex: &mut Extract, lang: Lang, src: &[u8]) {
-    ex.symbols.sort_by(|a, b| a.start.cmp(&b.start).then(b.end.cmp(&a.end)).then(a.name_start.cmp(&b.name_start)));
+    ex.symbols.sort_by(|a, b| {
+        a.start
+            .cmp(&b.start)
+            .then(b.end.cmp(&a.end))
+            .then(a.name_start.cmp(&b.name_start))
+    });
     ex.symbols.dedup_by(|b, a| {
         if a.start == b.start && a.name_start == b.name_start {
             if a.kind == DefKind::Variable && b.kind != DefKind::Variable {
@@ -684,7 +885,8 @@ fn finish(ex: &mut Extract, lang: Lang, src: &[u8]) {
         stack.push(i as u32);
     }
     // noncode: sort, drop nested duplicates, prefer docstring on equal start
-    ex.noncode.sort_by(|a, b| a.start.cmp(&b.start).then(b.end.cmp(&a.end)));
+    ex.noncode
+        .sort_by(|a, b| a.start.cmp(&b.start).then(b.end.cmp(&a.end)));
     let mut out: Vec<Span> = Vec::with_capacity(ex.noncode.len());
     for sp in ex.noncode.drain(..) {
         if let Some(last) = out.last_mut() {
@@ -711,7 +913,23 @@ fn finish(ex: &mut Extract, lang: Lang, src: &[u8]) {
         let mut has = false;
         if before > 0 {
             let n = &ex.noncode[before - 1];
-            if s.start - n.end < 200 && (n.kind == SpanKind::Docstring || n.kind == SpanKind::Comment) && src[n.end as usize..s.start as usize].iter().all(|b| b.is_ascii_whitespace() || *b == b'#' || *b == b'@' || *b == b'[' || *b == b']' || is_word(*b) || *b == b'(' || *b == b')' || *b == b'.' || *b == b'=' || *b == b'"' || *b == b',') {
+            if s.start - n.end < 200
+                && (n.kind == SpanKind::Docstring || n.kind == SpanKind::Comment)
+                && src[n.end as usize..s.start as usize].iter().all(|b| {
+                    b.is_ascii_whitespace()
+                        || *b == b'#'
+                        || *b == b'@'
+                        || *b == b'['
+                        || *b == b']'
+                        || is_word(*b)
+                        || *b == b'('
+                        || *b == b')'
+                        || *b == b'.'
+                        || *b == b'='
+                        || *b == b'"'
+                        || *b == b','
+                })
+            {
                 has = true;
             }
         }
@@ -751,7 +969,9 @@ pub fn regex_extract(lang: Lang, src: &[u8]) -> Extract {
         let head = crate::trim_start(&src[d.start as usize..d.name_start as usize]);
         let exported = match lang {
             Lang::Rust => head.starts_with(b"pub ") || head.starts_with(b"pub\t"),
-            Lang::Kotlin => !head.split(|b| b.is_ascii_whitespace()).any(|w| w == b"private" || w == b"internal"),
+            Lang::Kotlin => !head
+                .split(|b| b.is_ascii_whitespace())
+                .any(|w| w == b"private" || w == b"internal"),
             _ => true,
         };
         ex.symbols.push(Symbol {
@@ -769,14 +989,23 @@ pub fn regex_extract(lang: Lang, src: &[u8]) -> Extract {
     ex.noncode = lexed.spans;
     let mut pos = 0usize;
     while pos < src.len() {
-        let le = memchr::memchr(b'\n', &src[pos..]).map(|k| pos + k).unwrap_or(src.len());
+        let le = memchr::memchr(b'\n', &src[pos..])
+            .map(|k| pos + k)
+            .unwrap_or(src.len());
         let line = &src[pos..le];
         if crate::is_import_line(lang, line) {
             let t = crate::trim_start(line);
             let off = pos + (line.len() - t.len());
             parse_imports(lang, t, off as u32, le as u32, &mut ex.imports);
-        } else if lang == Lang::Kotlin && ex.package.is_none() && crate::trim_start(line).starts_with(b"package ") {
-            ex.package = Some(String::from_utf8_lossy(crate::trim_start(line)[8..].trim_ascii()).trim_end_matches(';').to_string());
+        } else if lang == Lang::Kotlin
+            && ex.package.is_none()
+            && crate::trim_start(line).starts_with(b"package ")
+        {
+            ex.package = Some(
+                String::from_utf8_lossy(crate::trim_start(line)[8..].trim_ascii())
+                    .trim_end_matches(';')
+                    .to_string(),
+            );
         }
         pos = le + 1;
     }
@@ -811,9 +1040,19 @@ pub fn parse(lang: Lang, tsx: bool, src: &[u8]) -> Option<Parsed> {
         let mut p = p.borrow_mut();
         p.set_language(&lq.lang).ok()?;
         let t0 = Instant::now();
-        let mut cb = |_: &tree_sitter::ParseState| if t0.elapsed() > PARSE_TIMEOUT { ControlFlow::Break(()) } else { ControlFlow::Continue(()) };
+        let mut cb = |_: &tree_sitter::ParseState| {
+            if t0.elapsed() > PARSE_TIMEOUT {
+                ControlFlow::Break(())
+            } else {
+                ControlFlow::Continue(())
+            }
+        };
         let opts = ParseOptions::new().progress_callback(&mut cb);
-        p.parse_with_options(&mut |off, _| if off < src.len() { &src[off..] } else { &[] }, None, Some(opts))
+        p.parse_with_options(
+            &mut |off, _| if off < src.len() { &src[off..] } else { &[] },
+            None,
+            Some(opts),
+        )
     })?;
     Some(Parsed { tree, lang })
 }
@@ -822,22 +1061,61 @@ impl Parsed {
     /// Kind of the identifier covering `[ms, me)`.
     pub fn kind_at(&self, ms: usize, me: usize) -> NodeKind {
         let root = self.tree.root_node();
-        let Some(node) = root.descendant_for_byte_range(ms, me.max(ms + 1) - 1) else { return NodeKind::Ident };
+        let Some(node) = root.descendant_for_byte_range(ms, me.max(ms + 1) - 1) else {
+            return NodeKind::Ident;
+        };
         let k = node.kind();
         if k.contains("comment") {
             return NodeKind::Comment;
         }
-        if k.contains("string") || k == "template_string" || k == "regex" || k == "char_literal" || k == "character_literal" {
+        if k.contains("string")
+            || k == "template_string"
+            || k == "regex"
+            || k == "char_literal"
+            || k == "character_literal"
+        {
             return NodeKind::Str;
         }
         // walk up through wrappers that carry no meaning (e.g. Kotlin `user_type` inside `delegation_specifier`)
-        let Some(parent) = node.parent() else { return NodeKind::Ident };
+        let Some(parent) = node.parent() else {
+            return NodeKind::Ident;
+        };
         let pk = parent.kind();
-        let is_name_of_parent = parent.child_by_field_name("name").map(|n| n.id() == node.id()).unwrap_or(false);
-        if is_name_of_parent && (pk.ends_with("_declaration") || pk.ends_with("_definition") || pk.ends_with("_item") || pk.ends_with("_signature") || pk == "class" || pk == "module" || pk == "internal_module" || pk == "variable_declarator" || pk == "pair" || pk == "enum_assignment" || pk == "field_definition" || pk == "public_field_definition" || pk == "property_signature") {
+        let is_name_of_parent = parent
+            .child_by_field_name("name")
+            .map(|n| n.id() == node.id())
+            .unwrap_or(false);
+        if is_name_of_parent
+            && (pk.ends_with("_declaration")
+                || pk.ends_with("_definition")
+                || pk.ends_with("_item")
+                || pk.ends_with("_signature")
+                || pk == "class"
+                || pk == "module"
+                || pk == "internal_module"
+                || pk == "variable_declarator"
+                || pk == "pair"
+                || pk == "enum_assignment"
+                || pk == "field_definition"
+                || pk == "public_field_definition"
+                || pk == "property_signature")
+        {
             return NodeKind::Def;
         }
-        if self.lang == Lang::Kotlin && matches!(pk, "class_declaration" | "object_declaration" | "function_declaration" | "variable_declaration" | "type_alias" | "enum_entry" | "class_parameter" | "companion_object") && node.kind() != "user_type" {
+        if self.lang == Lang::Kotlin
+            && matches!(
+                pk,
+                "class_declaration"
+                    | "object_declaration"
+                    | "function_declaration"
+                    | "variable_declaration"
+                    | "type_alias"
+                    | "enum_entry"
+                    | "class_parameter"
+                    | "companion_object"
+            )
+            && node.kind() != "user_type"
+        {
             return NodeKind::Def;
         }
         let gp = parent.parent();
@@ -853,15 +1131,36 @@ impl Parsed {
             }
             false
         };
-        if ancestors_contain("import") || ancestors_contain("use_declaration") || pk == "extern_crate_declaration" || pk == "package_header" {
+        if ancestors_contain("import")
+            || ancestors_contain("use_declaration")
+            || pk == "extern_crate_declaration"
+            || pk == "package_header"
+        {
             return NodeKind::Import;
         }
         // calls: callee position of a call node, directly or through a member access
-        let is_call_parent = |k: &str| matches!(k, "call_expression" | "call" | "macro_invocation" | "new_expression" | "constructor_invocation" | "generic_function" | "call_suffix");
+        let is_call_parent = |k: &str| {
+            matches!(
+                k,
+                "call_expression"
+                    | "call"
+                    | "macro_invocation"
+                    | "new_expression"
+                    | "constructor_invocation"
+                    | "generic_function"
+                    | "call_suffix"
+            )
+        };
         let callee = |p: Node| -> bool {
-            p.child_by_field_name("function").map(|f| f.id() == node.id() || f.id() == parent.id()).unwrap_or(false)
-                || p.child_by_field_name("constructor").map(|f| f.id() == node.id() || f.id() == parent.id()).unwrap_or(false)
-                || p.child_by_field_name("macro").map(|f| f.id() == node.id()).unwrap_or(false)
+            p.child_by_field_name("function")
+                .map(|f| f.id() == node.id() || f.id() == parent.id())
+                .unwrap_or(false)
+                || p.child_by_field_name("constructor")
+                    .map(|f| f.id() == node.id() || f.id() == parent.id())
+                    .unwrap_or(false)
+                || p.child_by_field_name("macro")
+                    .map(|f| f.id() == node.id())
+                    .unwrap_or(false)
         };
         if is_call_parent(pk) && (callee(parent) || self.lang == Lang::Kotlin) {
             return NodeKind::Call;
@@ -872,17 +1171,51 @@ impl Parsed {
         {
             return NodeKind::Call;
         }
-        if self.lang == Lang::Kotlin && pk == "navigation_suffix" && gp.and_then(|g| g.parent()).map(|c| c.kind() == "call_expression").unwrap_or(false) {
+        if self.lang == Lang::Kotlin
+            && pk == "navigation_suffix"
+            && gp
+                .and_then(|g| g.parent())
+                .map(|c| c.kind() == "call_expression")
+                .unwrap_or(false)
+        {
             return NodeKind::Call;
         }
-        if k == "type_identifier" || k == "primitive_type" || pk.contains("type") && pk != "type_arguments" || gk == "type_annotation" || pk == "extends_clause" || pk == "implements_clause" || pk == "delegation_specifier" || pk == "trait_bounds" || pk == "superclasses" || gk == "generic_type" || pk == "type_arguments" || pk == "class_heritage" {
+        if k == "type_identifier"
+            || k == "primitive_type"
+            || pk.contains("type") && pk != "type_arguments"
+            || gk == "type_annotation"
+            || pk == "extends_clause"
+            || pk == "implements_clause"
+            || pk == "delegation_specifier"
+            || pk == "trait_bounds"
+            || pk == "superclasses"
+            || gk == "generic_type"
+            || pk == "type_arguments"
+            || pk == "class_heritage"
+        {
             return NodeKind::Type;
         }
-        if (pk == "member_expression" && parent.child_by_field_name("property").map(|f| f.id() == node.id()).unwrap_or(false))
-            || (pk == "field_expression" && parent.child_by_field_name("field").map(|f| f.id() == node.id()).unwrap_or(false))
-            || (pk == "attribute" && parent.child_by_field_name("attribute").map(|f| f.id() == node.id()).unwrap_or(false))
+        if (pk == "member_expression"
+            && parent
+                .child_by_field_name("property")
+                .map(|f| f.id() == node.id())
+                .unwrap_or(false))
+            || (pk == "field_expression"
+                && parent
+                    .child_by_field_name("field")
+                    .map(|f| f.id() == node.id())
+                    .unwrap_or(false))
+            || (pk == "attribute"
+                && parent
+                    .child_by_field_name("attribute")
+                    .map(|f| f.id() == node.id())
+                    .unwrap_or(false))
             || pk == "navigation_suffix"
-            || (pk == "scoped_identifier" && parent.child_by_field_name("name").map(|f| f.id() == node.id()).unwrap_or(false))
+            || (pk == "scoped_identifier"
+                && parent
+                    .child_by_field_name("name")
+                    .map(|f| f.id() == node.id())
+                    .unwrap_or(false))
             || pk == "field_initializer"
             || pk == "shorthand_field_initializer"
         {
@@ -911,7 +1244,13 @@ fn lossy(b: &[u8]) -> String {
 
 /// Parse one import statement's text into [`Import`]s.
 pub fn parse_imports(lang: Lang, t: &[u8], start: u32, end: u32, out: &mut Vec<Import>) {
-    let mk = |module: String, names: Vec<String>, wildcard: bool| Import { start, end, module, names, wildcard };
+    let mk = |module: String, names: Vec<String>, wildcard: bool| Import {
+        start,
+        end,
+        module,
+        names,
+        wildcard,
+    };
     match lang {
         Lang::Python => {
             let t = t.trim_ascii();
@@ -919,7 +1258,9 @@ pub fn parse_imports(lang: Lang, t: &[u8], start: u32, end: u32, out: &mut Vec<I
                 let (ms, me) = ident_at(rest, 0);
                 let module = lossy(&rest[ms..me]);
                 let after = &rest[me..];
-                let Some(p) = memchr::memmem::find(after, b"import") else { return };
+                let Some(p) = memchr::memmem::find(after, b"import") else {
+                    return;
+                };
                 let list = &after[p + 6..];
                 let wildcard = list.contains(&b'*');
                 let names = split_names(list);
@@ -935,12 +1276,22 @@ pub fn parse_imports(lang: Lang, t: &[u8], start: u32, end: u32, out: &mut Vec<I
         }
         Lang::Kotlin => {
             let t = t.trim_ascii();
-            let Some(rest) = t.strip_prefix(b"import ") else { return };
+            let Some(rest) = t.strip_prefix(b"import ") else {
+                return;
+            };
             let (s, e) = ident_at(rest, 0);
             let path = lossy(&rest[s..e]);
             let wildcard = path.ends_with(".*");
             let module = path.trim_end_matches(".*").to_string();
-            let names = if wildcard { vec![] } else { module.rsplit('.').next().map(|s| vec![s.to_string()]).unwrap_or_default() };
+            let names = if wildcard {
+                vec![]
+            } else {
+                module
+                    .rsplit('.')
+                    .next()
+                    .map(|s| vec![s.to_string()])
+                    .unwrap_or_default()
+            };
             out.push(mk(module, names, wildcard));
         }
         Lang::Rust => {
@@ -950,13 +1301,17 @@ pub fn parse_imports(lang: Lang, t: &[u8], start: u32, end: u32, out: &mut Vec<I
                 out.push(mk(lossy(&rest[s..e]), vec![], false));
                 return;
             }
-            if crate::trim_start(t).starts_with(b"mod ") || memchr::memmem::find(t, b" mod ").is_some() && !t.contains(&b'{') {
+            if crate::trim_start(t).starts_with(b"mod ")
+                || memchr::memmem::find(t, b" mod ").is_some() && !t.contains(&b'{')
+            {
                 let p = memchr::memmem::find(t, b"mod ").unwrap();
                 let (s, e) = ident_at(t, p + 4);
                 out.push(mk(format!("self::{}", lossy(&t[s..e])), vec![], false));
                 return;
             }
-            let Some(p) = memchr::memmem::find(t, b"use ") else { return };
+            let Some(p) = memchr::memmem::find(t, b"use ") else {
+                return;
+            };
             let body = t[p + 4..].trim_ascii().trim_ascii_end();
             let body = body.strip_suffix(b";").unwrap_or(body);
             let mut leaves: Vec<String> = Vec::new();
@@ -964,22 +1319,36 @@ pub fn parse_imports(lang: Lang, t: &[u8], start: u32, end: u32, out: &mut Vec<I
             for leaf in leaves {
                 let wildcard = leaf.ends_with("::*");
                 let module = leaf.trim_end_matches("::*").to_string();
-                let names = if wildcard { vec![] } else { module.rsplit("::").next().map(|s| vec![s.to_string()]).unwrap_or_default() };
+                let names = if wildcard {
+                    vec![]
+                } else {
+                    module
+                        .rsplit("::")
+                        .next()
+                        .map(|s| vec![s.to_string()])
+                        .unwrap_or_default()
+                };
                 out.push(mk(module, names, wildcard));
             }
         }
         Lang::JavaScript | Lang::TypeScript => {
             // module = quoted source; names = clause identifiers
-            let Some(q) = t.iter().position(|&b| b == b'\'' || b == b'"' || b == b'`') else { return };
+            let Some(q) = t.iter().position(|&b| b == b'\'' || b == b'"' || b == b'`') else {
+                return;
+            };
             let qc = t[q];
-            let Some(qe) = t[q + 1..].iter().position(|&b| b == qc) else { return };
+            let Some(qe) = t[q + 1..].iter().position(|&b| b == qc) else {
+                return;
+            };
             let module = lossy(&t[q + 1..q + 1 + qe]);
             let clause = &t[..q];
             let mut names = Vec::new();
             let mut wildcard = false;
             if clause.starts_with(b"import") || clause.starts_with(b"export") {
                 let c = &clause[6..];
-                let c = memchr::memmem::find(c, b"from").map(|p| &c[..p]).unwrap_or(c);
+                let c = memchr::memmem::find(c, b"from")
+                    .map(|p| &c[..p])
+                    .unwrap_or(c);
                 let c = c.strip_prefix(b" type").unwrap_or(c);
                 if c.contains(&b'*') {
                     wildcard = true;
@@ -1022,7 +1391,9 @@ fn expand_use_tree(t: &[u8], prefix: &str, out: &mut Vec<String>) {
         return;
     }
     if let Some(brace) = t.iter().position(|&b| b == b'{') {
-        let head = lossy(t[..brace].trim_ascii()).trim_end_matches("::").to_string();
+        let head = lossy(t[..brace].trim_ascii())
+            .trim_end_matches("::")
+            .to_string();
         let prefix = join_path(prefix, &head);
         let inner = &t[brace + 1..t.iter().rposition(|&b| b == b'}').unwrap_or(t.len())];
         // split at depth-0 commas
@@ -1044,7 +1415,11 @@ fn expand_use_tree(t: &[u8], prefix: &str, out: &mut Vec<String>) {
     }
     let s = lossy(t);
     let s = s.split(" as ").next().unwrap_or("").trim();
-    let leaf = if s == "self" { prefix.to_string() } else { join_path(prefix, s) };
+    let leaf = if s == "self" {
+        prefix.to_string()
+    } else {
+        join_path(prefix, s)
+    };
     if !leaf.is_empty() {
         out.push(leaf);
     }
@@ -1067,7 +1442,14 @@ mod tests {
     fn names(ex: &Extract, src: &[u8]) -> Vec<(String, &'static str, Option<String>)> {
         ex.symbols
             .iter()
-            .map(|s| (ex.name(s, src).to_string(), s.kind.name(), s.parent.map(|p| ex.name(&ex.symbols[p as usize], src).to_string())))
+            .map(|s| {
+                (
+                    ex.name(s, src).to_string(),
+                    s.kind.name(),
+                    s.parent
+                        .map(|p| ex.name(&ex.symbols[p as usize], src).to_string()),
+                )
+            })
             .collect()
     }
 
@@ -1082,21 +1464,45 @@ mod tests {
         let ex = extract(Lang::Python, false, src);
         assert!(ex.tree_sitter);
         let n = names(&ex, src);
-        assert_eq!(n, vec![
-            ("MAX".into(), "const", None),
-            ("A".into(), "class", None),
-            ("x".into(), "field", Some("A".into())),
-            ("m".into(), "method", Some("A".into())),
-            ("free".into(), "fn", None),
-        ]);
+        assert_eq!(
+            n,
+            vec![
+                ("MAX".into(), "const", None),
+                ("A".into(), "class", None),
+                ("x".into(), "field", Some("A".into())),
+                ("m".into(), "method", Some("A".into())),
+                ("free".into(), "fn", None),
+            ]
+        );
         let a = &ex.symbols[1];
-        assert_eq!(a.supers.iter().map(|&(s, e)| std::str::from_utf8(&src[s as usize..e as usize]).unwrap()).collect::<Vec<_>>(), vec!["Base"]);
+        assert_eq!(
+            a.supers
+                .iter()
+                .map(|&(s, e)| std::str::from_utf8(&src[s as usize..e as usize]).unwrap())
+                .collect::<Vec<_>>(),
+            vec!["Base"]
+        );
         assert!(a.flags & SYM_HAS_DOC != 0);
         assert_eq!(ex.imports.len(), 4);
         assert_eq!(ex.imports[0].module, "os");
-        assert_eq!(ex.imports[2], Import { start: ex.imports[2].start, end: ex.imports[2].end, module: "a.b".into(), names: vec!["c".into(), "d".into()], wildcard: false });
+        assert_eq!(
+            ex.imports[2],
+            Import {
+                start: ex.imports[2].start,
+                end: ex.imports[2].end,
+                module: "a.b".into(),
+                names: vec!["c".into(), "d".into()],
+                wildcard: false
+            }
+        );
         assert_eq!(ex.imports[3].module, ".");
-        assert_eq!(ex.noncode.iter().filter(|s| s.kind == SpanKind::Docstring).count(), 2);
+        assert_eq!(
+            ex.noncode
+                .iter()
+                .filter(|s| s.kind == SpanKind::Docstring)
+                .count(),
+            2
+        );
     }
 
     #[test]
@@ -1106,18 +1512,45 @@ mod tests {
         assert!(ex.tree_sitter, "{ex:?}");
         let n = names(&ex, src);
         let want: Vec<(&str, &str, Option<&str>)> = vec![
-            ("sub", "mod", None), ("S", "struct", None), ("a", "field", Some("S")), ("S", "impl", None), ("fmt", "method", Some("S")),
-            ("S", "impl", None), ("new", "method", Some("S")), ("T", "trait", None), ("Out", "type", Some("T")), ("req", "method", Some("T")),
-            ("E", "enum", None), ("A", "variant", Some("E")), ("B", "variant", Some("E")), ("C", "const", None), ("m", "macro", None), ("free", "fn", None),
+            ("sub", "mod", None),
+            ("S", "struct", None),
+            ("a", "field", Some("S")),
+            ("S", "impl", None),
+            ("fmt", "method", Some("S")),
+            ("S", "impl", None),
+            ("new", "method", Some("S")),
+            ("T", "trait", None),
+            ("Out", "type", Some("T")),
+            ("req", "method", Some("T")),
+            ("E", "enum", None),
+            ("A", "variant", Some("E")),
+            ("B", "variant", Some("E")),
+            ("C", "const", None),
+            ("m", "macro", None),
+            ("free", "fn", None),
         ];
-        assert_eq!(n.iter().map(|(a, b, c)| (a.as_str(), *b, c.as_deref())).collect::<Vec<_>>(), want);
-        let sup = |i: usize| ex.symbols[i].supers.iter().map(|&(s, e)| std::str::from_utf8(&src[s as usize..e as usize]).unwrap()).collect::<Vec<_>>();
+        assert_eq!(
+            n.iter()
+                .map(|(a, b, c)| (a.as_str(), *b, c.as_deref()))
+                .collect::<Vec<_>>(),
+            want
+        );
+        let sup = |i: usize| {
+            ex.symbols[i]
+                .supers
+                .iter()
+                .map(|&(s, e)| std::str::from_utf8(&src[s as usize..e as usize]).unwrap())
+                .collect::<Vec<_>>()
+        };
         assert_eq!(sup(3), vec!["Debug"]);
         assert_eq!(sup(7), vec!["Send", "Sync"]);
         assert!(ex.symbols[1].flags & SYM_EXPORTED != 0 && ex.symbols[1].flags & SYM_HAS_DOC != 0);
         assert!(ex.symbols[2].flags & SYM_EXPORTED == 0);
         let mods: Vec<&str> = ex.imports.iter().map(|i| i.module.as_str()).collect();
-        assert_eq!(mods, vec!["std::io", "std::fmt", "std::fmt::Debug", "self::sub"]);
+        assert_eq!(
+            mods,
+            vec!["std::io", "std::fmt", "std::fmt::Debug", "self::sub"]
+        );
     }
 
     #[test]
@@ -1127,20 +1560,61 @@ mod tests {
         assert!(ex.tree_sitter);
         let n = names(&ex, src);
         let want: Vec<(&str, &str, Option<&str>)> = vec![
-            ("r", "var", None), ("K", "class", None), ("p", "field", Some("K")), ("s", "method", Some("K")), ("m", "method", Some("K")),
-            ("I", "interface", None), ("f", "field", Some("I")), ("g", "method", Some("I")), ("Al", "type", None), ("En", "enum", None),
-            ("A", "variant", Some("En")), ("B", "variant", Some("En")), ("arrow", "fn", None), ("v", "var", None), ("f", "fn", None),
-            ("NS", "mod", None), ("g", "fn", Some("NS")),
+            ("r", "var", None),
+            ("K", "class", None),
+            ("p", "field", Some("K")),
+            ("s", "method", Some("K")),
+            ("m", "method", Some("K")),
+            ("I", "interface", None),
+            ("f", "field", Some("I")),
+            ("g", "method", Some("I")),
+            ("Al", "type", None),
+            ("En", "enum", None),
+            ("A", "variant", Some("En")),
+            ("B", "variant", Some("En")),
+            ("arrow", "fn", None),
+            ("v", "var", None),
+            ("f", "fn", None),
+            ("NS", "mod", None),
+            ("g", "fn", Some("NS")),
         ];
-        assert_eq!(n.iter().map(|(a, b, c)| (a.as_str(), *b, c.as_deref())).collect::<Vec<_>>(), want);
-        let sup = |i: usize| ex.symbols[i].supers.iter().map(|&(s, e)| std::str::from_utf8(&src[s as usize..e as usize]).unwrap()).collect::<Vec<_>>();
+        assert_eq!(
+            n.iter()
+                .map(|(a, b, c)| (a.as_str(), *b, c.as_deref()))
+                .collect::<Vec<_>>(),
+            want
+        );
+        let sup = |i: usize| {
+            ex.symbols[i]
+                .supers
+                .iter()
+                .map(|&(s, e)| std::str::from_utf8(&src[s as usize..e as usize]).unwrap())
+                .collect::<Vec<_>>()
+        };
         assert_eq!(sup(1), vec!["Base", "I", "J"]);
         assert_eq!(sup(5), vec!["Q"]);
         assert!(ex.symbols[1].flags & SYM_EXPORTED != 0 && ex.symbols[1].flags & SYM_HAS_DOC != 0);
         assert!(ex.symbols[2].flags & SYM_EXPORTED != 0); // members count as exported
         assert!(ex.symbols[13].flags & SYM_EXPORTED == 0);
-        let imps: Vec<(&str, Vec<&str>)> = ex.imports.iter().map(|i| (i.module.as_str(), i.names.iter().map(|s| s.as_str()).collect())).collect();
-        assert_eq!(imps, vec![("./m", vec!["x", "a", "b"]), ("./t", vec!["T"]), ("./re", vec![]), ("./cjs", vec![])]);
+        let imps: Vec<(&str, Vec<&str>)> = ex
+            .imports
+            .iter()
+            .map(|i| {
+                (
+                    i.module.as_str(),
+                    i.names.iter().map(|s| s.as_str()).collect(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            imps,
+            vec![
+                ("./m", vec!["x", "a", "b"]),
+                ("./t", vec!["T"]),
+                ("./re", vec![]),
+                ("./cjs", vec![])
+            ]
+        );
         assert!(ex.imports[2].wildcard);
     }
 
@@ -1149,12 +1623,31 @@ mod tests {
         let src = b"export default function App() { return <div className=\"x\">{1}</div>; }\nconst C = () => <App/>;\n";
         let ex = extract(Lang::TypeScript, true, src);
         assert!(ex.tree_sitter && !ex.parse_errors);
-        assert_eq!(names(&ex, src).iter().map(|x| x.0.as_str()).collect::<Vec<_>>(), vec!["App", "C"]);
+        assert_eq!(
+            names(&ex, src)
+                .iter()
+                .map(|x| x.0.as_str())
+                .collect::<Vec<_>>(),
+            vec!["App", "C"]
+        );
         let src = b"const fs = require('fs');\nmodule.exports.run = function () {};\nclass Q extends P { #priv() {} go() {} }\nfunction* gen() {}\nvar old = function () {};\n";
         let ex = extract(Lang::JavaScript, false, src);
         assert!(ex.tree_sitter, "{ex:?}");
         let n = names(&ex, src);
-        assert_eq!(n.iter().map(|(a, b, _)| (a.as_str(), *b)).collect::<Vec<_>>(), vec![("fs", "var"), ("run", "fn"), ("Q", "class"), ("priv", "method"), ("go", "method"), ("gen", "fn"), ("old", "fn")]);
+        assert_eq!(
+            n.iter()
+                .map(|(a, b, _)| (a.as_str(), *b))
+                .collect::<Vec<_>>(),
+            vec![
+                ("fs", "var"),
+                ("run", "fn"),
+                ("Q", "class"),
+                ("priv", "method"),
+                ("go", "method"),
+                ("gen", "fn"),
+                ("old", "fn")
+            ]
+        );
         assert_eq!(ex.imports[0].module, "fs");
     }
 
@@ -1165,16 +1658,48 @@ mod tests {
         assert!(ex.tree_sitter, "{ex:?}");
         let n = names(&ex, src);
         let want: Vec<(&str, &str, Option<&str>)> = vec![
-            ("P", "class", None), ("x", "field", Some("P")), ("z", "field", Some("P")), ("m", "method", Some("P")), ("companion", "object", Some("P")),
-            ("K", "field", Some("companion")), ("constructor", "method", Some("P")), ("O", "object", None), ("En", "enum", None), ("A", "variant", Some("En")),
-            ("B", "variant", Some("En")), ("Al", "type", None), ("top", "fn", None), ("I", "interface", None), ("req", "method", Some("I")),
+            ("P", "class", None),
+            ("x", "field", Some("P")),
+            ("z", "field", Some("P")),
+            ("m", "method", Some("P")),
+            ("companion", "object", Some("P")),
+            ("K", "field", Some("companion")),
+            ("constructor", "method", Some("P")),
+            ("O", "object", None),
+            ("En", "enum", None),
+            ("A", "variant", Some("En")),
+            ("B", "variant", Some("En")),
+            ("Al", "type", None),
+            ("top", "fn", None),
+            ("I", "interface", None),
+            ("req", "method", Some("I")),
         ];
-        assert_eq!(n.iter().map(|(a, b, c)| (a.as_str(), *b, c.as_deref())).collect::<Vec<_>>(), want);
-        let sup = |i: usize| ex.symbols[i].supers.iter().map(|&(s, e)| std::str::from_utf8(&src[s as usize..e as usize]).unwrap()).collect::<Vec<_>>();
+        assert_eq!(
+            n.iter()
+                .map(|(a, b, c)| (a.as_str(), *b, c.as_deref()))
+                .collect::<Vec<_>>(),
+            want
+        );
+        let sup = |i: usize| {
+            ex.symbols[i]
+                .supers
+                .iter()
+                .map(|&(s, e)| std::str::from_utf8(&src[s as usize..e as usize]).unwrap())
+                .collect::<Vec<_>>()
+        };
         assert_eq!(sup(0), vec!["Base", "I"]);
         assert_eq!(ex.package.as_deref(), Some("a.b"));
-        assert_eq!(ex.symbols[0].line, 8, "line is the name's line, not the annotation's");
-        assert_eq!(ex.imports.iter().map(|i| (i.module.as_str(), i.wildcard)).collect::<Vec<_>>(), vec![("c.d.E", false), ("c.d", true)]);
+        assert_eq!(
+            ex.symbols[0].line, 8,
+            "line is the name's line, not the annotation's"
+        );
+        assert_eq!(
+            ex.imports
+                .iter()
+                .map(|i| (i.module.as_str(), i.wildcard))
+                .collect::<Vec<_>>(),
+            vec![("c.d.E", false), ("c.d", true)]
+        );
         assert!(ex.symbols[0].flags & SYM_HAS_DOC != 0);
     }
 
@@ -1184,17 +1709,30 @@ mod tests {
         let ex = extract(Lang::Rust, false, src);
         let n = names(&ex, src);
         let want: Vec<(&str, &str, Option<&str>)> = vec![
-            ("J", "struct", None), ("raw", "field", Some("J")), ("J", "impl", None), ("new", "method", Some("J")),
-            ("Tr", "impl", None), ("m", "method", Some("Tr")), ("Tr", "impl", None),
+            ("J", "struct", None),
+            ("raw", "field", Some("J")),
+            ("J", "impl", None),
+            ("new", "method", Some("J")),
+            ("Tr", "impl", None),
+            ("m", "method", Some("Tr")),
+            ("Tr", "impl", None),
         ];
-        assert_eq!(n.iter().map(|(a, b, c)| (a.as_str(), *b, c.as_deref())).collect::<Vec<_>>(), want);
+        assert_eq!(
+            n.iter()
+                .map(|(a, b, c)| (a.as_str(), *b, c.as_deref()))
+                .collect::<Vec<_>>(),
+            want
+        );
         assert_eq!(ex.symbols[0].line, 3);
         assert!(ex.symbols[0].flags & SYM_HAS_DOC != 0);
         assert!(ex.symbols[0].flags & SYM_EXPORTED != 0);
     }
 
     fn flags_of<'a>(ex: &Extract, src: &'a [u8]) -> Vec<(&'a str, u8)> {
-        ex.symbols.iter().map(|s| (ex.name(s, src), s.flags & (SYM_EXPORTED | SYM_TEST))).collect()
+        ex.symbols
+            .iter()
+            .map(|s| (ex.name(s, src), s.flags & (SYM_EXPORTED | SYM_TEST)))
+            .collect()
     }
 
     #[test]
@@ -1202,12 +1740,40 @@ mod tests {
         let src = b"pub struct A;\npub(crate) struct B;\npub(super) struct C;\npub(in crate::x) struct D;\nstruct E;\npub fn f() {}\npub(crate) fn g() {}\n";
         let ex = extract(Lang::Rust, false, src);
         assert!(ex.tree_sitter);
-        let v: Vec<(&str, bool)> = flags_of(&ex, src).iter().map(|(n, f)| (*n, f & SYM_EXPORTED != 0)).collect();
-        assert_eq!(v, vec![("A", true), ("B", false), ("C", false), ("D", false), ("E", false), ("f", true), ("g", false)]);
+        let v: Vec<(&str, bool)> = flags_of(&ex, src)
+            .iter()
+            .map(|(n, f)| (*n, f & SYM_EXPORTED != 0))
+            .collect();
+        assert_eq!(
+            v,
+            vec![
+                ("A", true),
+                ("B", false),
+                ("C", false),
+                ("D", false),
+                ("E", false),
+                ("f", true),
+                ("g", false)
+            ]
+        );
         // regex fallback agrees
         let ex = regex_extract(Lang::Rust, src);
-        let v: Vec<(&str, bool)> = flags_of(&ex, src).iter().map(|(n, f)| (*n, f & SYM_EXPORTED != 0)).collect();
-        assert_eq!(v, vec![("A", true), ("B", false), ("C", false), ("D", false), ("E", false), ("f", true), ("g", false)]);
+        let v: Vec<(&str, bool)> = flags_of(&ex, src)
+            .iter()
+            .map(|(n, f)| (*n, f & SYM_EXPORTED != 0))
+            .collect();
+        assert_eq!(
+            v,
+            vec![
+                ("A", true),
+                ("B", false),
+                ("C", false),
+                ("D", false),
+                ("E", false),
+                ("f", true),
+                ("g", false)
+            ]
+        );
     }
 
     #[test]
@@ -1215,10 +1781,27 @@ mod tests {
         let src = b"#[cfg(not(test))]\nfn a() {}\n#[cfg_attr(test, derive(Debug))]\nstruct B;\n#[test]\nfn c() {}\n#[tokio::test(flavor = \"multi_thread\")]\nasync fn d() {}\n#[rstest]\n#[case(1)]\nfn e() {}\n#[wasm_bindgen_test]\nfn w() {}\n#[async_std::test]\nfn s() {}\n#[cfg(test)]\nmod tests {\n    fn helper() {}\n    struct Fx;\n}\n#[cfg(test)]\nfn not_a_mod() {}\nmod plain {\n    fn p() {}\n}\n";
         let ex = extract(Lang::Rust, false, src);
         assert!(ex.tree_sitter, "{ex:?}");
-        let v: Vec<(&str, bool)> = flags_of(&ex, src).iter().map(|(n, f)| (*n, f & SYM_TEST != 0)).collect();
+        let v: Vec<(&str, bool)> = flags_of(&ex, src)
+            .iter()
+            .map(|(n, f)| (*n, f & SYM_TEST != 0))
+            .collect();
         assert_eq!(
             v,
-            vec![("a", false), ("B", false), ("c", true), ("d", true), ("e", true), ("w", true), ("s", true), ("tests", true), ("helper", true), ("Fx", true), ("not_a_mod", false), ("plain", false), ("p", false)]
+            vec![
+                ("a", false),
+                ("B", false),
+                ("c", true),
+                ("d", true),
+                ("e", true),
+                ("w", true),
+                ("s", true),
+                ("tests", true),
+                ("helper", true),
+                ("Fx", true),
+                ("not_a_mod", false),
+                ("plain", false),
+                ("p", false)
+            ]
         );
     }
 
@@ -1227,11 +1810,32 @@ mod tests {
         let src = b"mod x {\n    fn f() {}\n    struct S;\n    impl S {\n        fn m(&self) {}\n    }\n}\n";
         let ex = extract(Lang::Rust, false, src);
         let n = names(&ex, src);
-        assert_eq!(n.iter().map(|(a, b, c)| (a.as_str(), *b, c.as_deref())).collect::<Vec<_>>(), vec![("x", "mod", None), ("f", "fn", Some("x")), ("S", "struct", Some("x")), ("S", "impl", Some("x")), ("m", "method", Some("S"))]);
+        assert_eq!(
+            n.iter()
+                .map(|(a, b, c)| (a.as_str(), *b, c.as_deref()))
+                .collect::<Vec<_>>(),
+            vec![
+                ("x", "mod", None),
+                ("f", "fn", Some("x")),
+                ("S", "struct", Some("x")),
+                ("S", "impl", Some("x")),
+                ("m", "method", Some("S"))
+            ]
+        );
         let src = b"namespace N {\n  function f() {}\n  export class C {\n    m() {}\n  }\n}\n";
         let ex = extract(Lang::TypeScript, false, src);
         let n = names(&ex, src);
-        assert_eq!(n.iter().map(|(a, b, c)| (a.as_str(), *b, c.as_deref())).collect::<Vec<_>>(), vec![("N", "mod", None), ("f", "fn", Some("N")), ("C", "class", Some("N")), ("m", "method", Some("C"))]);
+        assert_eq!(
+            n.iter()
+                .map(|(a, b, c)| (a.as_str(), *b, c.as_deref()))
+                .collect::<Vec<_>>(),
+            vec![
+                ("N", "mod", None),
+                ("f", "fn", Some("N")),
+                ("C", "class", Some("N")),
+                ("m", "method", Some("C"))
+            ]
+        );
     }
 
     #[test]
@@ -1240,14 +1844,51 @@ mod tests {
         let ex = extract(Lang::Python, false, src);
         assert!(ex.tree_sitter);
         let n = names(&ex, src);
-        assert_eq!(n.iter().map(|(a, b, _)| (a.as_str(), *b)).collect::<Vec<_>>(), vec![("MAX", "const"), ("_CACHE", "const"), ("lower", "var"), ("__all__", "var"), ("_private", "fn"), ("__init__", "fn"), ("__mangled", "fn"), ("_Hidden", "class")]);
-        let v: Vec<(&str, bool)> = flags_of(&ex, src).iter().map(|(n, f)| (*n, f & SYM_EXPORTED != 0)).collect();
-        assert_eq!(v, vec![("MAX", true), ("_CACHE", false), ("lower", true), ("__all__", true), ("_private", false), ("__init__", true), ("__mangled", false), ("_Hidden", false)]);
+        assert_eq!(
+            n.iter()
+                .map(|(a, b, _)| (a.as_str(), *b))
+                .collect::<Vec<_>>(),
+            vec![
+                ("MAX", "const"),
+                ("_CACHE", "const"),
+                ("lower", "var"),
+                ("__all__", "var"),
+                ("_private", "fn"),
+                ("__init__", "fn"),
+                ("__mangled", "fn"),
+                ("_Hidden", "class")
+            ]
+        );
+        let v: Vec<(&str, bool)> = flags_of(&ex, src)
+            .iter()
+            .map(|(n, f)| (*n, f & SYM_EXPORTED != 0))
+            .collect();
+        assert_eq!(
+            v,
+            vec![
+                ("MAX", true),
+                ("_CACHE", false),
+                ("lower", true),
+                ("__all__", true),
+                ("_private", false),
+                ("__init__", true),
+                ("__mangled", false),
+                ("_Hidden", false)
+            ]
+        );
         // regex path: same kind for MAX and same visibility
         let ex = regex_extract(Lang::Python, src);
         let n = names(&ex, src);
         assert_eq!(n[0], ("MAX".to_string(), "const", None));
-        assert!(ex.symbols.iter().zip(flags_of(&ex, src)).all(|(s, (nm, f))| (f & SYM_EXPORTED != 0) == python_name_exported(nm.as_bytes()) || s.kind == DefKind::Constant));
+        assert!(
+            ex.symbols
+                .iter()
+                .zip(flags_of(&ex, src))
+                .all(
+                    |(s, (nm, f))| (f & SYM_EXPORTED != 0) == python_name_exported(nm.as_bytes())
+                        || s.kind == DefKind::Constant
+                )
+        );
     }
 
     #[test]
@@ -1259,12 +1900,46 @@ mod tests {
         let got: Vec<(&str, &str)> = n.iter().map(|(a, b, _)| (a.as_str(), *b)).collect();
         assert_eq!(
             got,
-            vec![("P", "class"), ("h", "fn"), ("Q", "class"), ("R", "class"), ("secret", "field"), ("open", "field"), ("m", "method"), ("Named", "object"), ("Fi", "interface"), ("run", "method"), ("SI", "interface"), ("E", "enum"), ("A", "variant"), ("NotAnInterface", "class"), ("An", "class")]
+            vec![
+                ("P", "class"),
+                ("h", "fn"),
+                ("Q", "class"),
+                ("R", "class"),
+                ("secret", "field"),
+                ("open", "field"),
+                ("m", "method"),
+                ("Named", "object"),
+                ("Fi", "interface"),
+                ("run", "method"),
+                ("SI", "interface"),
+                ("E", "enum"),
+                ("A", "variant"),
+                ("NotAnInterface", "class"),
+                ("An", "class")
+            ]
         );
-        let v: Vec<(&str, bool)> = flags_of(&ex, src).iter().take(6).map(|(n, f)| (*n, f & SYM_EXPORTED != 0)).collect();
-        assert_eq!(v, vec![("P", false), ("h", false), ("Q", true), ("R", true), ("secret", false), ("open", true)]);
+        let v: Vec<(&str, bool)> = flags_of(&ex, src)
+            .iter()
+            .take(6)
+            .map(|(n, f)| (*n, f & SYM_EXPORTED != 0))
+            .collect();
+        assert_eq!(
+            v,
+            vec![
+                ("P", false),
+                ("h", false),
+                ("Q", true),
+                ("R", true),
+                ("secret", false),
+                ("open", true)
+            ]
+        );
         let ex = regex_extract(Lang::Kotlin, src);
-        let v: Vec<(&str, bool)> = flags_of(&ex, src).iter().take(3).map(|(n, f)| (*n, f & SYM_EXPORTED != 0)).collect();
+        let v: Vec<(&str, bool)> = flags_of(&ex, src)
+            .iter()
+            .take(3)
+            .map(|(n, f)| (*n, f & SYM_EXPORTED != 0))
+            .collect();
         assert_eq!(v, vec![("P", false), ("h", false), ("Q", true)]);
     }
 
@@ -1275,10 +1950,24 @@ mod tests {
         assert!(ex.tree_sitter, "{ex:?}");
         let n = names(&ex, src);
         assert_eq!(
-            n.iter().map(|(a, b, c)| (a.as_str(), *b, c.as_deref())).collect::<Vec<_>>(),
-            vec![("X", "var", None), ("Y", "var", None), ("df", "fn", None), ("DC", "class", None), ("my-lib", "mod", None), ("g", "fn", Some("my-lib")), ("EX", "var", None), ("ef", "fn", None)]
+            n.iter()
+                .map(|(a, b, c)| (a.as_str(), *b, c.as_deref()))
+                .collect::<Vec<_>>(),
+            vec![
+                ("X", "var", None),
+                ("Y", "var", None),
+                ("df", "fn", None),
+                ("DC", "class", None),
+                ("my-lib", "mod", None),
+                ("g", "fn", Some("my-lib")),
+                ("EX", "var", None),
+                ("ef", "fn", None)
+            ]
         );
-        let v: Vec<(&str, bool)> = flags_of(&ex, src).iter().map(|(n, f)| (*n, f & SYM_EXPORTED != 0)).collect();
+        let v: Vec<(&str, bool)> = flags_of(&ex, src)
+            .iter()
+            .map(|(n, f)| (*n, f & SYM_EXPORTED != 0))
+            .collect();
         assert_eq!(v[0], ("X", false));
         assert_eq!(v[6], ("EX", true));
         assert_eq!(v[7], ("ef", true));
@@ -1329,7 +2018,21 @@ mod dump {
                     }
                 }
             });
-            out.push_str(&format!("{}{}{}{}\n", "  ".repeat(depth), field.map(|f| format!("{f}: ")).unwrap_or_default(), if n.is_named() { n.kind().to_string() } else { format!("{:?}", n.kind()) }, if n.child_count() == 0 { format!(" @{}", n.start_position().row + 1) } else { String::new() }));
+            out.push_str(&format!(
+                "{}{}{}{}\n",
+                "  ".repeat(depth),
+                field.map(|f| format!("{f}: ")).unwrap_or_default(),
+                if n.is_named() {
+                    n.kind().to_string()
+                } else {
+                    format!("{:?}", n.kind())
+                },
+                if n.child_count() == 0 {
+                    format!(" @{}", n.start_position().row + 1)
+                } else {
+                    String::new()
+                }
+            ));
             let mut c = n.walk();
             for ch in n.children(&mut c) {
                 walk(ch, depth + 1, out);

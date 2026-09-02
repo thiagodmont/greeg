@@ -39,8 +39,16 @@ pub fn dedup_applies(o: &Options) -> bool {
 }
 
 /// A previously printed range covers the requested one (same file and mtime).
-pub fn covered(shown: &[(String, u32, u32, u64)], file: &str, first: u32, last: u32, mtime: u64) -> bool {
-    shown.iter().any(|(f, a, b, m)| f == file && *m == mtime && *a <= first && *b >= last)
+pub fn covered(
+    shown: &[(String, u32, u32, u64)],
+    file: &str,
+    first: u32,
+    last: u32,
+    mtime: u64,
+) -> bool {
+    shown
+        .iter()
+        .any(|(f, a, b, m)| f == file && *m == mtime && *a <= first && *b >= last)
 }
 
 pub struct Session {
@@ -53,7 +61,12 @@ pub struct Session {
 pub fn normalize(q: &str) -> String {
     let mut toks: Vec<String> = greeg_index::symtab::split_tokens(q);
     if toks.is_empty() {
-        toks = q.to_lowercase().split(|c: char| !c.is_alphanumeric()).filter(|s| !s.is_empty()).map(|s| s.to_string()).collect();
+        toks = q
+            .to_lowercase()
+            .split(|c: char| !c.is_alphanumeric())
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string())
+            .collect();
     }
     toks.sort();
     toks.dedup();
@@ -61,7 +74,10 @@ pub fn normalize(q: &str) -> String {
 }
 
 fn now_secs() -> u64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
 }
 
 #[cfg(target_os = "macos")]
@@ -70,11 +86,21 @@ fn parent_of(pid: u32) -> Option<(u32, String)> {
     let mut info: libc::proc_bsdinfo = unsafe { mem::zeroed() };
     let size = mem::size_of::<libc::proc_bsdinfo>() as libc::c_int;
     // SAFETY: proc_pidinfo writes at most `size` bytes into `info`; a short return means failure.
-    let r = unsafe { libc::proc_pidinfo(pid as libc::c_int, libc::PROC_PIDTBSDINFO, 0, &mut info as *mut _ as *mut libc::c_void, size) };
+    let r = unsafe {
+        libc::proc_pidinfo(
+            pid as libc::c_int,
+            libc::PROC_PIDTBSDINFO,
+            0,
+            &mut info as *mut _ as *mut libc::c_void,
+            size,
+        )
+    };
     if r != size {
         return None;
     }
-    let comm = unsafe { std::ffi::CStr::from_ptr(info.pbi_comm.as_ptr()) }.to_string_lossy().into_owned();
+    let comm = unsafe { std::ffi::CStr::from_ptr(info.pbi_comm.as_ptr()) }
+        .to_string_lossy()
+        .into_owned();
     Some((info.pbi_ppid, comm))
 }
 
@@ -95,16 +121,27 @@ fn parent_of(_pid: u32) -> Option<(u32, String)> {
 }
 
 fn is_shell(comm: &str) -> bool {
-    let c = comm.rsplit('/').next().unwrap_or(comm).trim_start_matches('-');
-    matches!(c, "sh" | "bash" | "zsh" | "fish" | "dash" | "ksh" | "tcsh" | "csh" | "nu" | "xonsh" | "login")
+    let c = comm
+        .rsplit('/')
+        .next()
+        .unwrap_or(comm)
+        .trim_start_matches('-');
+    matches!(
+        c,
+        "sh" | "bash" | "zsh" | "fish" | "dash" | "ksh" | "tcsh" | "csh" | "nu" | "xonsh" | "login"
+    )
 }
 
 /// The first non-shell ancestor's pid: all calls from one agent process share it.
 pub fn agent_pid() -> u32 {
     let me = std::process::id();
-    let Some((mut pid, _)) = parent_of(me) else { return me };
+    let Some((mut pid, _)) = parent_of(me) else {
+        return me;
+    };
     for _ in 0..8 {
-        let Some((ppid, comm)) = parent_of(pid) else { break };
+        let Some((ppid, comm)) = parent_of(pid) else {
+            break;
+        };
         if !is_shell(&comm) || ppid <= 1 {
             return pid;
         }
@@ -122,8 +159,16 @@ impl Session {
             None => greeg_index::index_dir_for(&o.root).ok()?,
         }
         .join("session");
-        let id = match id.map(|s| s.to_string()).or_else(|| std::env::var("GREEG_SESSION").ok()).filter(|s| !s.is_empty()) {
-            Some(s) => s.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_').take(64).collect(),
+        let id = match id
+            .map(|s| s.to_string())
+            .or_else(|| std::env::var("GREEG_SESSION").ok())
+            .filter(|s| !s.is_empty())
+        {
+            Some(s) => s
+                .chars()
+                .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+                .take(64)
+                .collect(),
             None => format!("p{}", agent_pid()),
         };
         let path = dir.join(format!("{id}.jsonl"));
@@ -164,7 +209,11 @@ impl Session {
         if self.records.is_empty() || !dedup_applies(&r.opts) {
             return;
         }
-        let shown: Vec<(String, u32, u32, u64)> = self.records.iter().flat_map(|r| r.shown.iter().cloned()).collect();
+        let shown: Vec<(String, u32, u32, u64)> = self
+            .records
+            .iter()
+            .flat_map(|r| r.shown.iter().cloned())
+            .collect();
         if shown.is_empty() {
             return;
         }
@@ -191,13 +240,34 @@ impl Session {
         let recent = self.records.iter().rev().take(5);
         let same = recent.filter(|rec| rec.q == q).count();
         if same >= 2 {
-            let shown: HashSet<&str> = self.records.iter().flat_map(|r| r.files.iter().map(|s| s.as_str())).collect();
-            let new_files = r.files.iter().filter(|f| !shown.contains(f.rel.as_str())).count();
-            let ident = o.pattern.split(|c: char| !c.is_alphanumeric() && c != '_').filter(|s| !s.is_empty()).max_by_key(|s| s.len()).unwrap_or(&o.pattern);
+            let shown: HashSet<&str> = self
+                .records
+                .iter()
+                .flat_map(|r| r.files.iter().map(|s| s.as_str()))
+                .collect();
+            let new_files = r
+                .files
+                .iter()
+                .filter(|f| !shown.contains(f.rel.as_str()))
+                .count();
+            let ident = o
+                .pattern
+                .split(|c: char| !c.is_alphanumeric() && c != '_')
+                .filter(|s| !s.is_empty())
+                .max_by_key(|s| s.len())
+                .unwrap_or(&o.pattern);
             let msg = if new_files == 0 {
-                format!("this is query #{} for these tokens in this session with nothing new; try `greeg def {}`, `greeg map`, or different tokens", same + 1, ident)
+                format!(
+                    "this is query #{} for these tokens in this session with nothing new; try `greeg def {}`, `greeg map`, or different tokens",
+                    same + 1,
+                    ident
+                )
             } else {
-                format!("query #{} for these tokens this session ({} new files)", same + 1, new_files)
+                format!(
+                    "query #{} for these tokens this session ({} new files)",
+                    same + 1,
+                    new_files
+                )
             };
             rep.footer.hints.insert(0, msg);
         }
@@ -215,15 +285,30 @@ impl Session {
             for sh in &sf.hits {
                 for (first, lines) in sh.context.iter().chain(sh.block.iter()) {
                     if !lines.is_empty() {
-                        shown.push((f.rel.clone(), *first, first + lines.len() as u32 - 1, f.mtime));
+                        shown.push((
+                            f.rel.clone(),
+                            *first,
+                            first + lines.len() as u32 - 1,
+                            f.mtime,
+                        ));
                     }
                 }
             }
         }
         files.truncate(64);
         shown.truncate(128);
-        let rec = Record { t: now_secs(), q: normalize(&o.pattern), pat: o.pattern.clone(), hits: r.stats.total_hits, files, ctx: Vec::new(), shown };
-        let Ok(line) = serde_json::to_string(&rec) else { return };
+        let rec = Record {
+            t: now_secs(),
+            q: normalize(&o.pattern),
+            pat: o.pattern.clone(),
+            hits: r.stats.total_hits,
+            files,
+            ctx: Vec::new(),
+            shown,
+        };
+        let Ok(line) = serde_json::to_string(&rec) else {
+            return;
+        };
         let _ = fs::create_dir_all(self.path.parent().unwrap_or(&self.path));
         let fresh_file = !self.path.exists();
         if self.records.len() >= MAX_RECORDS {
@@ -239,7 +324,11 @@ impl Session {
             body.push_str(&line);
             body.push('\n');
             let _ = fs::write(&self.path, body);
-        } else if let Ok(mut f) = fs::OpenOptions::new().create(true).append(true).open(&self.path) {
+        } else if let Ok(mut f) = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&self.path)
+        {
             let _ = writeln!(f, "{line}");
         }
         if fresh_file {
@@ -249,7 +338,9 @@ impl Session {
 
     /// Delete session files older than 24 h (runs when a new session starts).
     fn prune(&self) {
-        let Some(dir) = self.path.parent() else { return };
+        let Some(dir) = self.path.parent() else {
+            return;
+        };
         let Ok(rd) = fs::read_dir(dir) else { return };
         let now = std::time::SystemTime::now();
         for e in rd.flatten() {
@@ -258,7 +349,10 @@ impl Session {
             }
             if let Ok(md) = e.metadata()
                 && let Ok(m) = md.modified()
-                && now.duration_since(m).map(|d| d.as_secs() > MAX_AGE_SECS).unwrap_or(false)
+                && now
+                    .duration_since(m)
+                    .map(|d| d.as_secs() > MAX_AGE_SECS)
+                    .unwrap_or(false)
             {
                 let _ = fs::remove_file(e.path());
             }
@@ -288,28 +382,49 @@ mod tests {
         // covered only when the earlier range contains the requested one, same mtime
         assert!(covered(&shown, "a.rs", 12, 18, 7));
         assert!(covered(&shown, "a.rs", 10, 20, 7));
-        assert!(!covered(&shown, "a.rs", 8, 18, 7), "more context than before is shown again");
+        assert!(
+            !covered(&shown, "a.rs", 8, 18, 7),
+            "more context than before is shown again"
+        );
         assert!(!covered(&shown, "a.rs", 12, 25, 7));
-        assert!(!covered(&shown, "a.rs", 12, 18, 8), "edited file (mtime) is shown again");
+        assert!(
+            !covered(&shown, "a.rs", 12, 18, 8),
+            "edited file (mtime) is shown again"
+        );
         assert!(!covered(&shown, "b.rs", 12, 18, 7));
         // explicit context, block mode and --all are never deduplicated
         let mut o = Options::default();
         assert!(dedup_applies(&o));
         o.context = Some(2);
         assert!(!dedup_applies(&o));
-        o = Options { after: 3, ..Default::default() };
+        o = Options {
+            after: 3,
+            ..Default::default()
+        };
         assert!(!dedup_applies(&o));
-        o = Options { before: 1, ..Default::default() };
+        o = Options {
+            before: 1,
+            ..Default::default()
+        };
         assert!(!dedup_applies(&o));
-        o = Options { mode: Mode::Block, ..Default::default() };
+        o = Options {
+            mode: Mode::Block,
+            ..Default::default()
+        };
         assert!(!dedup_applies(&o));
-        o = Options { all: true, ..Default::default() };
+        o = Options {
+            all: true,
+            ..Default::default()
+        };
         assert!(!dedup_applies(&o));
     }
 
     #[test]
     fn old_records_still_parse() {
-        let r: Record = serde_json::from_str(r#"{"t":1,"q":"a","pat":"a","hits":1,"files":[],"ctx":[["a.rs",3]]}"#).unwrap();
+        let r: Record = serde_json::from_str(
+            r#"{"t":1,"q":"a","pat":"a","hits":1,"files":[],"ctx":[["a.rs",3]]}"#,
+        )
+        .unwrap();
         assert!(r.shown.is_empty());
         assert_eq!(r.ctx.len(), 1);
     }

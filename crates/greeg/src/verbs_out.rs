@@ -17,7 +17,11 @@ fn out() -> BufWriter<std::io::StdoutLock<'static>> {
 
 /// ` · N ms` only with `--stats`.
 fn ms(c: &Common, elapsed: f64) -> String {
-    if c.stats { format!(" · {elapsed:.0} ms") } else { String::new() }
+    if c.stats {
+        format!(" · {elapsed:.0} ms")
+    } else {
+        String::new()
+    }
 }
 
 fn parse_def_kind(s: &str) -> Result<DefKind> {
@@ -65,7 +69,11 @@ fn file_flag_suffix(rel: &str, flags: FileFlags) -> String {
     if names.is_empty() && greeg_query::is_mock_path(rel) {
         names.push("mock");
     }
-    if names.is_empty() { String::new() } else { format!("  [{}]", names.join(",")) }
+    if names.is_empty() {
+        String::new()
+    } else {
+        format!("  [{}]", names.join(","))
+    }
 }
 
 fn def_json(e: &DefEntry) -> serde_json::Value {
@@ -82,7 +90,13 @@ fn digits(n: u32) -> usize {
 
 /// Definition entries grouped by file in order of first appearance:
 /// `  <line> <kind>  [name  ]container › signature   [flags] : supers [reach]`.
-fn write_def_groups(w: &mut impl Write, entries: &[&DefEntry], show_name: bool, show_reach: bool, full_chain: bool) -> Result<()> {
+fn write_def_groups(
+    w: &mut impl Write,
+    entries: &[&DefEntry],
+    show_name: bool,
+    show_reach: bool,
+    full_chain: bool,
+) -> Result<()> {
     let mut order: Vec<&str> = Vec::new();
     for e in entries {
         if !order.contains(&e.rel.as_str()) {
@@ -97,7 +111,11 @@ fn write_def_groups(w: &mut impl Write, entries: &[&DefEntry], show_name: bool, 
         let file_test = group[0].file_flags.has(FileFlags::TEST);
         for e in group {
             let ch = container_of(&e.chain, false, full_chain);
-            let sig = if e.signature.is_empty() { e.name.clone() } else { e.signature.clone() };
+            let sig = if e.signature.is_empty() {
+                e.name.clone()
+            } else {
+                e.signature.clone()
+            };
             let mut ann: Vec<String> = Vec::new();
             let mut fl: Vec<&str> = Vec::new();
             if e.flags & SYM_EXPORTED != 0 {
@@ -115,9 +133,27 @@ fn write_def_groups(w: &mut impl Write, entries: &[&DefEntry], show_name: bool, 
             if show_reach && e.reach >= 0.8 {
                 ann.push(format!("reach {:.1}", e.reach));
             }
-            let ann = if ann.is_empty() { String::new() } else { format!("  {}", ann.join(" ")) };
-            let name = if show_name { format!("{}  ", e.name) } else { String::new() };
-            writeln!(w, "  {:>lw$} {:<kw$}  {}{}{}{}{}", e.line, e.kind.name(), name, ch, if ch.is_empty() { "" } else { " › " }, sig, ann)?;
+            let ann = if ann.is_empty() {
+                String::new()
+            } else {
+                format!("  {}", ann.join(" "))
+            };
+            let name = if show_name {
+                format!("{}  ", e.name)
+            } else {
+                String::new()
+            };
+            writeln!(
+                w,
+                "  {:>lw$} {:<kw$}  {}{}{}{}{}",
+                e.line,
+                e.kind.name(),
+                name,
+                ch,
+                if ch.is_empty() { "" } else { " › " },
+                sig,
+                ann
+            )?;
             if let Some(d) = &e.doc {
                 writeln!(w, "  {:lw$} {:kw$}  \"{d}\"", "", "")?;
             }
@@ -126,7 +162,13 @@ fn write_def_groups(w: &mut impl Write, entries: &[&DefEntry], show_name: bool, 
     Ok(())
 }
 
-pub fn run_def(c: &Common, o: &Options, name: &str, from: &[String], def_kind: Option<&str>) -> Result<()> {
+pub fn run_def(
+    c: &Common,
+    o: &Options,
+    name: &str,
+    from: &[String],
+    def_kind: Option<&str>,
+) -> Result<()> {
     let want = def_kind.map(parse_def_kind).transpose()?;
     let explicit_from = !from.is_empty();
     let mut from: Vec<String> = from.to_vec();
@@ -145,7 +187,10 @@ pub fn run_def(c: &Common, o: &Options, name: &str, from: &[String], def_kind: O
             serde_json::to_writer(&mut w, &v)?;
             writeln!(w)?;
         }
-        serde_json::to_writer(&mut w, &json!({"type":"footer","data":{"verb":"def","name":r.name,"shown":r.entries.len(),"total":r.total,"source":r.source,"rung":r.rung.name(),"suggestions":r.suggestions,"elapsed_ms":r.elapsed_ms}}))?;
+        serde_json::to_writer(
+            &mut w,
+            &json!({"type":"footer","data":{"verb":"def","name":r.name,"shown":r.entries.len(),"total":r.total,"source":r.source,"rung":r.rung.name(),"suggestions":r.suggestions,"elapsed_ms":r.elapsed_ms}}),
+        )?;
         writeln!(w)?;
         w.flush()?;
         return Ok(());
@@ -161,8 +206,21 @@ pub fn run_def(c: &Common, o: &Options, name: &str, from: &[String], def_kind: O
         greeg_query::indexed::flush_pending_build();
         std::process::exit(1);
     }
-    let rung = if r.rung != greeg_query::Rung::Exact { format!(" · matched {}", r.rung.describe()) } else { String::new() };
-    writeln!(w, "def {}  {} of {} definitions{} · {}{}", r.name, r.entries.len(), r.total, rung, r.source, ms(c, r.elapsed_ms))?;
+    let rung = if r.rung != greeg_query::Rung::Exact {
+        format!(" · matched {}", r.rung.describe())
+    } else {
+        String::new()
+    };
+    writeln!(
+        w,
+        "def {}  {} of {} definitions{} · {}{}",
+        r.name,
+        r.entries.len(),
+        r.total,
+        rung,
+        r.source,
+        ms(c, r.elapsed_ms)
+    )?;
     let multi_name = r.entries.iter().any(|e| e.name != r.name);
     let entries: Vec<&DefEntry> = r.entries.iter().collect();
     write_def_groups(&mut w, &entries, multi_name, explicit_from, c.chain)?;
@@ -170,7 +228,11 @@ pub fn run_def(c: &Common, o: &Options, name: &str, from: &[String], def_kind: O
         writeln!(w, "  +{} more (raise --budget)", r.total - r.entries.len())?;
     }
     if let Some(top) = r.entries.first() {
-        writeln!(w, "next: refs {} | callers {} | outline {}", r.name, r.name, top.rel)?;
+        writeln!(
+            w,
+            "next: refs {} | callers {} | outline {}",
+            r.name, r.name, top.rel
+        )?;
     }
     w.flush()?;
     Ok(())
@@ -182,22 +244,52 @@ pub fn run_refs(c: &Common, o: &Options, name: &str) -> Result<()> {
     let s = &r.scan;
     let mut w = out();
     // group hits by kind, best first within each kind
-    let mut by_kind: Vec<(HitKind, Vec<(usize, usize)>)> = HitKind::ALL.iter().map(|k| (*k, Vec::new())).collect();
+    let mut by_kind: Vec<(HitKind, Vec<(usize, usize)>)> =
+        HitKind::ALL.iter().map(|k| (*k, Vec::new())).collect();
     for (fi, f) in s.files.iter().enumerate() {
         for (hi, h) in f.hits.iter().enumerate() {
             by_kind[h.kind.idx()].1.push((fi, hi));
         }
     }
     for (_, v) in by_kind.iter_mut() {
-        v.sort_by(|a, b| s.files[b.0].hits[b.1].score.partial_cmp(&s.files[a.0].hits[a.1].score).unwrap_or(std::cmp::Ordering::Equal).then(s.files[a.0].rel.cmp(&s.files[b.0].rel)).then(s.files[a.0].hits[a.1].line.cmp(&s.files[b.0].hits[b.1].line)));
+        v.sort_by(|a, b| {
+            s.files[b.0].hits[b.1]
+                .score
+                .partial_cmp(&s.files[a.0].hits[a.1].score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then(s.files[a.0].rel.cmp(&s.files[b.0].rel))
+                .then(
+                    s.files[a.0].hits[a.1]
+                        .line
+                        .cmp(&s.files[b.0].hits[b.1].line),
+                )
+        });
     }
-    let total_lines: usize = if o.budget == 0 { usize::MAX } else { (o.budget / 26).max(6) };
+    let total_lines: usize = if o.budget == 0 {
+        usize::MAX
+    } else {
+        (o.budget / 26).max(6)
+    };
     // imports collapse to one line in text mode; other kinds share the budget by √count
     let collapse_imports = !c.json && o.kinds.is_empty();
-    let nonempty: Vec<&(HitKind, Vec<(usize, usize)>)> = by_kind.iter().filter(|(k, v)| !(v.is_empty() || collapse_imports && *k == HitKind::Import)).collect();
+    let nonempty: Vec<&(HitKind, Vec<(usize, usize)>)> = by_kind
+        .iter()
+        .filter(|(k, v)| !(v.is_empty() || collapse_imports && *k == HitKind::Import))
+        .collect();
     let weight_sum: f64 = nonempty.iter().map(|(_, v)| (v.len() as f64).sqrt()).sum();
-    let share_of = |n: usize| -> usize { if total_lines == usize::MAX { n } else { ((total_lines as f64 * (n as f64).sqrt() / weight_sum.max(1.0)).round() as usize).clamp(2, n) } };
-    let resolved = if r.classified > 0 { format!(" · {}% resolved", r.resolved * 100 / r.classified) } else { String::new() };
+    let share_of = |n: usize| -> usize {
+        if total_lines == usize::MAX {
+            n
+        } else {
+            ((total_lines as f64 * (n as f64).sqrt() / weight_sum.max(1.0)).round() as usize)
+                .clamp(2, n)
+        }
+    };
+    let resolved = if r.classified > 0 {
+        format!(" · {}% resolved", r.resolved * 100 / r.classified)
+    } else {
+        String::new()
+    };
     if c.json {
         for e in &r.defs {
             let mut v = def_json(e);
@@ -209,11 +301,17 @@ pub fn run_refs(c: &Common, o: &Options, name: &str) -> Result<()> {
             for &(fi, hi) in v.iter().take(share_of(v.len())) {
                 let f = &s.files[fi];
                 let h = &f.hits[hi];
-                serde_json::to_writer(&mut w, &json!({"type":"ref","data":{"kind":k.name(),"path":f.rel,"line":h.line,"text":String::from_utf8_lossy(&h.text),"symbol":chain_str(&h.chain),"file_flags":f.flags.names(),"score":h.score}}))?;
+                serde_json::to_writer(
+                    &mut w,
+                    &json!({"type":"ref","data":{"kind":k.name(),"path":f.rel,"line":h.line,"text":String::from_utf8_lossy(&h.text),"symbol":chain_str(&h.chain),"file_flags":f.flags.names(),"score":h.score}}),
+                )?;
                 writeln!(w)?;
             }
         }
-        serde_json::to_writer(&mut w, &json!({"type":"footer","data":{"verb":"refs","name":name,"hits_total":s.stats.total_hits,"files_total":s.stats.files_matched,"by_kind":nonempty.iter().map(|(k,v)| json!([k.name(), v.len()])).collect::<Vec<_>>(),"resolved":r.resolved,"classified":r.classified,"rung":s.rung.name(),"source":s.stats.source,"elapsed_ms":s.stats.elapsed_ms}}))?;
+        serde_json::to_writer(
+            &mut w,
+            &json!({"type":"footer","data":{"verb":"refs","name":name,"hits_total":s.stats.total_hits,"files_total":s.stats.files_matched,"by_kind":nonempty.iter().map(|(k,v)| json!([k.name(), v.len()])).collect::<Vec<_>>(),"resolved":r.resolved,"classified":r.classified,"rung":s.rung.name(),"source":s.stats.source,"elapsed_ms":s.stats.elapsed_ms}}),
+        )?;
         writeln!(w)?;
         w.flush()?;
         return Ok(());
@@ -224,10 +322,29 @@ pub fn run_refs(c: &Common, o: &Options, name: &str) -> Result<()> {
         greeg_query::indexed::flush_pending_build();
         std::process::exit(1);
     }
-    let rung = if s.rung != greeg_query::Rung::Exact { format!(" · matched {}", s.rung.describe()) } else { String::new() };
-    writeln!(w, "refs {}  {} hits · {} files{}{} · {}{}", name, fmt_n(s.stats.total_hits), fmt_n(s.stats.files_matched), resolved, rung, s.stats.source, ms(c, s.stats.elapsed_ms))?;
+    let rung = if s.rung != greeg_query::Rung::Exact {
+        format!(" · matched {}", s.rung.describe())
+    } else {
+        String::new()
+    };
+    writeln!(
+        w,
+        "refs {}  {} hits · {} files{}{} · {}{}",
+        name,
+        fmt_n(s.stats.total_hits),
+        fmt_n(s.stats.files_matched),
+        resolved,
+        rung,
+        s.stats.source,
+        ms(c, s.stats.elapsed_ms)
+    )?;
     if !r.defs.is_empty() {
-        let d: Vec<String> = r.defs.iter().take(3).map(|e| format!("{}:{} ({})", e.rel, e.line, e.kind.name())).collect();
+        let d: Vec<String> = r
+            .defs
+            .iter()
+            .take(3)
+            .map(|e| format!("{}:{} ({})", e.rel, e.line, e.kind.name()))
+            .collect();
         writeln!(w, "defined at  {}", d.join("  "))?;
     }
     if collapse_imports && !by_kind[HitKind::Import.idx()].1.is_empty() {
@@ -239,10 +356,26 @@ pub fn run_refs(c: &Common, o: &Options, name: &str) -> Result<()> {
         }
         let names = crate::short_names(files.iter().take(6).map(|&fi| s.files[fi].rel.as_str()));
         let more = files.len().saturating_sub(6);
-        writeln!(w, "imported by {} file{}: {}{}", files.len(), if files.len() == 1 { "" } else { "s" }, names.join(", "), if more > 0 { format!(" (+{more})") } else { String::new() })?;
+        writeln!(
+            w,
+            "imported by {} file{}: {}{}",
+            files.len(),
+            if files.len() == 1 { "" } else { "s" },
+            names.join(", "),
+            if more > 0 {
+                format!(" (+{more})")
+            } else {
+                String::new()
+            }
+        )?;
     }
     let mut shown = 0usize;
-    let fmt = crate::Fmt { chain: c.chain, stats: c.stats, line_numbers: false, stdin: false };
+    let fmt = crate::Fmt {
+        chain: c.chain,
+        stats: c.stats,
+        line_numbers: false,
+        stdin: false,
+    };
     for (k, v) in &nonempty {
         let share = share_of(v.len());
         writeln!(w, "\n{} ({})", k.name(), fmt_n(v.len()))?;
@@ -265,7 +398,12 @@ pub fn run_refs(c: &Common, o: &Options, name: &str) -> Result<()> {
             writeln!(w, "  +{} more", v.len() - taken.len())?;
         }
     }
-    writeln!(w, "\n{}/{} hits · next: callers {name} | impact {name} | refs {name} --kind call", shown, fmt_n(s.stats.total_hits))?;
+    writeln!(
+        w,
+        "\n{}/{} hits · next: callers {name} | impact {name} | refs {name} --kind call",
+        shown,
+        fmt_n(s.stats.total_hits)
+    )?;
     w.flush()?;
     Ok(())
 }
@@ -273,13 +411,23 @@ pub fn run_refs(c: &Common, o: &Options, name: &str) -> Result<()> {
 pub fn run_callers(c: &Common, o: &Options, name: &str, depth: usize) -> Result<()> {
     let r = verbs::callers(o, name, depth)?;
     let mut w = out();
-    let limit = if o.budget == 0 { usize::MAX } else { (o.budget / 22).max(5) };
+    let limit = if o.budget == 0 {
+        usize::MAX
+    } else {
+        (o.budget / 22).max(5)
+    };
     if c.json {
         for cl in r.callers.iter().take(limit) {
-            serde_json::to_writer(&mut w, &json!({"type":"caller","data":{"path":cl.rel,"symbol":chain_str(&cl.chain),"kind":cl.chain.last().map(|(k,_)| k.name()),"def_line":cl.def_line,"count":cl.count,"lines":cl.lines,"file_flags":cl.file_flags.names(),"called_by":cl.called_by}}))?;
+            serde_json::to_writer(
+                &mut w,
+                &json!({"type":"caller","data":{"path":cl.rel,"symbol":chain_str(&cl.chain),"kind":cl.chain.last().map(|(k,_)| k.name()),"def_line":cl.def_line,"count":cl.count,"lines":cl.lines,"file_flags":cl.file_flags.names(),"called_by":cl.called_by}}),
+            )?;
             writeln!(w)?;
         }
-        serde_json::to_writer(&mut w, &json!({"type":"footer","data":{"verb":"callers","name":r.name,"callers":r.callers.len(),"call_sites":r.total_hits,"files":r.files,"source":r.source,"rung":r.rung.name(),"elapsed_ms":r.elapsed_ms}}))?;
+        serde_json::to_writer(
+            &mut w,
+            &json!({"type":"footer","data":{"verb":"callers","name":r.name,"callers":r.callers.len(),"call_sites":r.total_hits,"files":r.files,"source":r.source,"rung":r.rung.name(),"elapsed_ms":r.elapsed_ms}}),
+        )?;
         writeln!(w)?;
         w.flush()?;
         return Ok(());
@@ -290,7 +438,16 @@ pub fn run_callers(c: &Common, o: &Options, name: &str, depth: usize) -> Result<
         greeg_query::indexed::flush_pending_build();
         std::process::exit(1);
     }
-    writeln!(w, "callers {}  {} call sites in {} functions · {} files · {}{}", r.name, fmt_n(r.total_hits), fmt_n(r.callers.len()), fmt_n(r.files), r.source, ms(c, r.elapsed_ms))?;
+    writeln!(
+        w,
+        "callers {}  {} call sites in {} functions · {} files · {}{}",
+        r.name,
+        fmt_n(r.total_hits),
+        fmt_n(r.callers.len()),
+        fmt_n(r.files),
+        r.source,
+        ms(c, r.elapsed_ms)
+    )?;
     let shown: Vec<&verbs::Caller> = r.callers.iter().take(limit).collect();
     let mut order: Vec<&str> = Vec::new();
     for cl in &shown {
@@ -301,20 +458,50 @@ pub fn run_callers(c: &Common, o: &Options, name: &str, depth: usize) -> Result<
     for rel in order {
         let group: Vec<&verbs::Caller> = shown.iter().filter(|cl| cl.rel == rel).copied().collect();
         writeln!(w, "{}{}", rel, file_flag_suffix(rel, group[0].file_flags))?;
-        let lw = group.iter().map(|cl| digits(cl.def_line)).max().unwrap_or(1);
-        let kw = group.iter().map(|cl| cl.chain.last().map(|(k, _)| k.name().len()).unwrap_or(0)).max().unwrap_or(0);
+        let lw = group
+            .iter()
+            .map(|cl| digits(cl.def_line))
+            .max()
+            .unwrap_or(1);
+        let kw = group
+            .iter()
+            .map(|cl| cl.chain.last().map(|(k, _)| k.name().len()).unwrap_or(0))
+            .max()
+            .unwrap_or(0);
         for cl in group {
-            let sym = if cl.chain.is_empty() { "(top level)".to_string() } else { container_of(&cl.chain, false, c.chain) };
+            let sym = if cl.chain.is_empty() {
+                "(top level)".to_string()
+            } else {
+                container_of(&cl.chain, false, c.chain)
+            };
             let kind = cl.chain.last().map(|(k, _)| k.name()).unwrap_or("");
             let lines: Vec<String> = cl.lines.iter().map(|l| l.to_string()).collect();
-            writeln!(w, "  {:>lw$} {:<kw$}  {} ×{} (lines {})", cl.def_line, kind, sym, cl.count, lines.join(", "))?;
+            writeln!(
+                w,
+                "  {:>lw$} {:<kw$}  {} ×{} (lines {})",
+                cl.def_line,
+                kind,
+                sym,
+                cl.count,
+                lines.join(", ")
+            )?;
             if !cl.called_by.is_empty() {
-                writeln!(w, "  {:lw$} {:kw$}  ← called by {}", "", "", cl.called_by.join(", "))?;
+                writeln!(
+                    w,
+                    "  {:lw$} {:kw$}  ← called by {}",
+                    "",
+                    "",
+                    cl.called_by.join(", ")
+                )?;
             }
         }
     }
     if r.callers.len() > limit {
-        writeln!(w, "  +{} more callers (raise --budget)", r.callers.len() - limit)?;
+        writeln!(
+            w,
+            "  +{} more callers (raise --budget)",
+            r.callers.len() - limit
+        )?;
     }
     w.flush()?;
     Ok(())
@@ -323,7 +510,11 @@ pub fn run_callers(c: &Common, o: &Options, name: &str, depth: usize) -> Result<
 pub fn run_impls(c: &Common, o: &Options, name: &str) -> Result<()> {
     let r = verbs::impls(o, name)?;
     let mut w = out();
-    let limit = if o.budget == 0 { usize::MAX } else { (o.budget / 30).max(5) };
+    let limit = if o.budget == 0 {
+        usize::MAX
+    } else {
+        (o.budget / 30).max(5)
+    };
     if c.json {
         for e in r.direct.iter().take(limit) {
             let mut v = def_json(e);
@@ -339,7 +530,10 @@ pub fn run_impls(c: &Common, o: &Options, name: &str) -> Result<()> {
             serde_json::to_writer(&mut w, &v)?;
             writeln!(w)?;
         }
-        serde_json::to_writer(&mut w, &json!({"type":"footer","data":{"verb":"impls","name":r.name,"direct":r.direct.len(),"extras":r.extras.len(),"source":r.source,"elapsed_ms":r.elapsed_ms}}))?;
+        serde_json::to_writer(
+            &mut w,
+            &json!({"type":"footer","data":{"verb":"impls","name":r.name,"direct":r.direct.len(),"extras":r.extras.len(),"source":r.source,"elapsed_ms":r.elapsed_ms}}),
+        )?;
         writeln!(w)?;
         w.flush()?;
         return Ok(());
@@ -350,14 +544,30 @@ pub fn run_impls(c: &Common, o: &Options, name: &str) -> Result<()> {
         greeg_query::indexed::flush_pending_build();
         std::process::exit(1);
     }
-    writeln!(w, "impls {}  {} implementations{} · {}{}", r.name, r.direct.len(), if r.extras.is_empty() { String::new() } else { format!(" + {} low-confidence", r.extras.len()) }, r.source, ms(c, r.elapsed_ms))?;
+    writeln!(
+        w,
+        "impls {}  {} implementations{} · {}{}",
+        r.name,
+        r.direct.len(),
+        if r.extras.is_empty() {
+            String::new()
+        } else {
+            format!(" + {} low-confidence", r.extras.len())
+        },
+        r.source,
+        ms(c, r.elapsed_ms)
+    )?;
     let direct: Vec<&DefEntry> = r.direct.iter().take(limit).collect();
     write_def_groups(&mut w, &direct, true, false, c.chain)?;
     if r.direct.len() > limit {
         writeln!(w, "  +{} more", r.direct.len() - limit)?;
     }
     if !r.extras.is_empty() {
-        writeln!(w, "low confidence ({} in type position on definition lines)", r.name)?;
+        writeln!(
+            w,
+            "low confidence ({} in type position on definition lines)",
+            r.name
+        )?;
         let extras: Vec<&DefEntry> = r.extras.iter().take(limit / 2 + 1).collect();
         write_def_groups(&mut w, &extras, true, false, c.chain)?;
     }
@@ -370,26 +580,63 @@ pub fn run_outline(c: &Common, o: &Options, file: &str, imports: bool) -> Result
     let mut w = out();
     if c.json {
         for d in &r.defs {
-            serde_json::to_writer(&mut w, &json!({"type":"symbol","data":{"path":r.rel,"name":d.name,"kind":d.kind.name(),"line":d.line,"start":d.start,"end":d.end,"container":chain_str(&d.chain[..d.chain.len().saturating_sub(1)]),"depth":d.chain.len().saturating_sub(1),"flags":sym_flags(d.flags, FileFlags::default())}}))?;
+            serde_json::to_writer(
+                &mut w,
+                &json!({"type":"symbol","data":{"path":r.rel,"name":d.name,"kind":d.kind.name(),"line":d.line,"start":d.start,"end":d.end,"container":chain_str(&d.chain[..d.chain.len().saturating_sub(1)]),"depth":d.chain.len().saturating_sub(1),"flags":sym_flags(d.flags, FileFlags::default())}}),
+            )?;
             writeln!(w)?;
         }
-        serde_json::to_writer(&mut w, &json!({"type":"footer","data":{"verb":"outline","path":r.rel,"symbols":r.defs.len(),"imports":r.imports,"source":r.source,"parse_errors":r.parse_errors,"elapsed_ms":r.elapsed_ms}}))?;
+        serde_json::to_writer(
+            &mut w,
+            &json!({"type":"footer","data":{"verb":"outline","path":r.rel,"symbols":r.defs.len(),"imports":r.imports,"source":r.source,"parse_errors":r.parse_errors,"elapsed_ms":r.elapsed_ms}}),
+        )?;
         writeln!(w)?;
         w.flush()?;
         return Ok(());
     }
-    writeln!(w, "outline {}  {} symbols · {} imports · {} · {}{}", r.rel, r.defs.len(), r.imports.len(), r.lang.name(), r.source, ms(c, r.elapsed_ms))?;
+    writeln!(
+        w,
+        "outline {}  {} symbols · {} imports · {} · {}{}",
+        r.rel,
+        r.defs.len(),
+        r.imports.len(),
+        r.lang.name(),
+        r.source,
+        ms(c, r.elapsed_ms)
+    )?;
     if r.parse_errors {
-        writeln!(w, "  (file has parse errors; some definitions may come from the regex fallback)")?;
+        writeln!(
+            w,
+            "  (file has parse errors; some definitions may come from the regex fallback)"
+        )?;
     }
     if !r.imports.is_empty() && (imports || r.imports.len() <= 3) {
         let imps: Vec<&str> = r.imports.iter().map(|s| s.as_str()).take(40).collect();
-        writeln!(w, "  imports  {}{}", imps.join(", "), if r.imports.len() > 40 { format!(" +{}", r.imports.len() - 40) } else { String::new() })?;
+        writeln!(
+            w,
+            "  imports  {}{}",
+            imps.join(", "),
+            if r.imports.len() > 40 {
+                format!(" +{}", r.imports.len() - 40)
+            } else {
+                String::new()
+            }
+        )?;
     }
     // budget: collapse depth when the tree is large
-    let max_lines = if o.budget == 0 { usize::MAX } else { (o.budget / 12).max(10) };
+    let max_lines = if o.budget == 0 {
+        usize::MAX
+    } else {
+        (o.budget / 12).max(10)
+    };
     let mut max_depth = 8usize;
-    while max_depth > 0 && r.defs.iter().filter(|d| d.chain.len() <= max_depth + 1).count() > max_lines {
+    while max_depth > 0
+        && r.defs
+            .iter()
+            .filter(|d| d.chain.len() <= max_depth + 1)
+            .count()
+            > max_lines
+    {
         max_depth -= 1;
     }
     let mut printed = 0usize;
@@ -401,7 +648,10 @@ pub fn run_outline(c: &Common, o: &Options, file: &str, imports: bool) -> Result
             let mut j = i;
             while j > 0 {
                 j -= 1;
-                if r.defs[j].chain.len().saturating_sub(1) <= max_depth && d.start >= r.defs[j].start && d.end <= r.defs[j].end {
+                if r.defs[j].chain.len().saturating_sub(1) <= max_depth
+                    && d.start >= r.defs[j].start
+                    && d.end <= r.defs[j].end
+                {
                     hidden_counts[j] += 1;
                     break;
                 }
@@ -418,7 +668,11 @@ pub fn run_outline(c: &Common, o: &Options, file: &str, imports: bool) -> Result
         }
         n += 1;
         if n > max_lines {
-            writeln!(w, "  +{} more symbols (raise --budget)", printed - max_lines)?;
+            writeln!(
+                w,
+                "  +{} more symbols (raise --budget)",
+                printed - max_lines
+            )?;
             break;
         }
         let mut ann: Vec<&str> = Vec::new();
@@ -431,9 +685,26 @@ pub fn run_outline(c: &Common, o: &Options, file: &str, imports: bool) -> Result
         if d.flags & SYM_TEST != 0 {
             ann.push("test");
         }
-        let ann = if ann.is_empty() { String::new() } else { format!("  [{}]", ann.join(",")) };
-        let more = if hidden_counts[i] > 0 { format!("  (+{} nested)", hidden_counts[i]) } else { String::new() };
-        writeln!(w, "  {}{} {}  :{}{}{}", "  ".repeat(depth), d.kind.name(), d.name, d.line, ann, more)?;
+        let ann = if ann.is_empty() {
+            String::new()
+        } else {
+            format!("  [{}]", ann.join(","))
+        };
+        let more = if hidden_counts[i] > 0 {
+            format!("  (+{} nested)", hidden_counts[i])
+        } else {
+            String::new()
+        };
+        writeln!(
+            w,
+            "  {}{} {}  :{}{}{}",
+            "  ".repeat(depth),
+            d.kind.name(),
+            d.name,
+            d.line,
+            ann,
+            more
+        )?;
     }
     w.flush()?;
     Ok(())
@@ -442,27 +713,60 @@ pub fn run_outline(c: &Common, o: &Options, file: &str, imports: bool) -> Result
 pub fn run_map(c: &Common, o: &Options, dir: &str) -> Result<()> {
     let r = verbs::map(o, dir)?;
     let mut w = out();
-    let file_limit = if o.budget == 0 { usize::MAX } else { (o.budget / 45).clamp(5, 60) };
-    let dir_limit = if o.budget == 0 { usize::MAX } else { (o.budget / 60).clamp(4, 24) };
+    let file_limit = if o.budget == 0 {
+        usize::MAX
+    } else {
+        (o.budget / 45).clamp(5, 60)
+    };
+    let dir_limit = if o.budget == 0 {
+        usize::MAX
+    } else {
+        (o.budget / 60).clamp(4, 24)
+    };
     if c.json {
         for d in r.dirs.iter().take(dir_limit) {
-            serde_json::to_writer(&mut w, &json!({"type":"dir","data":{"path":d.rel,"files":d.files,"symbols":d.symbols,"rank":d.rank}}))?;
+            serde_json::to_writer(
+                &mut w,
+                &json!({"type":"dir","data":{"path":d.rel,"files":d.files,"symbols":d.symbols,"rank":d.rank}}),
+            )?;
             writeln!(w)?;
         }
         for f in r.files.iter().take(file_limit) {
-            serde_json::to_writer(&mut w, &json!({"type":"file","data":{"path":f.rel,"rank":f.rank,"symbols":f.symbols,"imported_by":f.imported_by,"by_kind":f.by_kind.iter().map(|(k,n)| json!([k.name(), n])).collect::<Vec<_>>(),"top":f.top.iter().map(|(k,n)| json!([k.name(), n])).collect::<Vec<_>>(),"file_flags":f.flags.names()}}))?;
+            serde_json::to_writer(
+                &mut w,
+                &json!({"type":"file","data":{"path":f.rel,"rank":f.rank,"symbols":f.symbols,"imported_by":f.imported_by,"by_kind":f.by_kind.iter().map(|(k,n)| json!([k.name(), n])).collect::<Vec<_>>(),"top":f.top.iter().map(|(k,n)| json!([k.name(), n])).collect::<Vec<_>>(),"file_flags":f.flags.names()}}),
+            )?;
             writeln!(w)?;
         }
-        serde_json::to_writer(&mut w, &json!({"type":"footer","data":{"verb":"map","dir":r.dir,"files_total":r.files_total,"symbols_total":r.symbols_total,"dirs_total":r.dirs.len(),"source":r.source,"elapsed_ms":r.elapsed_ms}}))?;
+        serde_json::to_writer(
+            &mut w,
+            &json!({"type":"footer","data":{"verb":"map","dir":r.dir,"files_total":r.files_total,"symbols_total":r.symbols_total,"dirs_total":r.dirs.len(),"source":r.source,"elapsed_ms":r.elapsed_ms}}),
+        )?;
         writeln!(w)?;
         w.flush()?;
         return Ok(());
     }
-    writeln!(w, "map {}  {} files · {} symbols · {} subdirectories · {}{}", if r.dir.is_empty() { "." } else { &r.dir }, fmt_n(r.files_total), fmt_n(r.symbols_total), r.dirs.len(), r.source, ms(c, r.elapsed_ms))?;
+    writeln!(
+        w,
+        "map {}  {} files · {} symbols · {} subdirectories · {}{}",
+        if r.dir.is_empty() { "." } else { &r.dir },
+        fmt_n(r.files_total),
+        fmt_n(r.symbols_total),
+        r.dirs.len(),
+        r.source,
+        ms(c, r.elapsed_ms)
+    )?;
     if !r.dirs.is_empty() {
         writeln!(w, "\ndirectories (by best file rank)")?;
         for d in r.dirs.iter().take(dir_limit) {
-            writeln!(w, "  {:<40} {:>5} files {:>7} symbols  rank {:.2}", format!("{}/", d.rel), d.files, fmt_n(d.symbols), d.rank)?;
+            writeln!(
+                w,
+                "  {:<40} {:>5} files {:>7} symbols  rank {:.2}",
+                format!("{}/", d.rel),
+                d.files,
+                fmt_n(d.symbols),
+                d.rank
+            )?;
         }
         if r.dirs.len() > dir_limit {
             writeln!(w, "  +{} more directories", r.dirs.len() - dir_limit)?;
@@ -470,18 +774,43 @@ pub fn run_map(c: &Common, o: &Options, dir: &str) -> Result<()> {
     }
     writeln!(w, "\nfiles (by import PageRank)")?;
     for f in r.files.iter().take(file_limit) {
-        let kinds: Vec<String> = f.by_kind.iter().map(|(k, n)| format!("{} {}", n, k.name())).collect();
-        let top: Vec<String> = f.top.iter().map(|(k, n)| format!("{} {}", k.name(), n)).collect();
-        writeln!(w, "  {}{}  rank {:.2} · ←{} · {}", f.rel, file_flag_suffix(&f.rel, f.flags), f.rank, f.imported_by, kinds.join(", "))?;
+        let kinds: Vec<String> = f
+            .by_kind
+            .iter()
+            .map(|(k, n)| format!("{} {}", n, k.name()))
+            .collect();
+        let top: Vec<String> = f
+            .top
+            .iter()
+            .map(|(k, n)| format!("{} {}", k.name(), n))
+            .collect();
+        writeln!(
+            w,
+            "  {}{}  rank {:.2} · ←{} · {}",
+            f.rel,
+            file_flag_suffix(&f.rel, f.flags),
+            f.rank,
+            f.imported_by,
+            kinds.join(", ")
+        )?;
         if !top.is_empty() {
             writeln!(w, "      {}", top.join(", "))?;
         }
     }
     if r.files.len() > file_limit {
-        writeln!(w, "  +{} more files (raise --budget or narrow the directory)", r.files.len() - file_limit)?;
+        writeln!(
+            w,
+            "  +{} more files (raise --budget or narrow the directory)",
+            r.files.len() - file_limit
+        )?;
     }
     if let Some(d) = r.dirs.first() {
-        writeln!(w, "next: map {} | outline {}", d.rel, r.files.first().map(|f| f.rel.as_str()).unwrap_or(""))?;
+        writeln!(
+            w,
+            "next: map {} | outline {}",
+            d.rel,
+            r.files.first().map(|f| f.rel.as_str()).unwrap_or("")
+        )?;
     }
     w.flush()?;
     Ok(())
@@ -490,31 +819,64 @@ pub fn run_map(c: &Common, o: &Options, dir: &str) -> Result<()> {
 pub fn run_impact(c: &Common, o: &Options, name: &str) -> Result<()> {
     let r = verbs::impact(o, name)?;
     let mut w = out();
-    let per_group = if o.budget == 0 { usize::MAX } else { (o.budget / 130).clamp(3, 30) };
-    let write_group = |w: &mut dyn Write, title: &str, why: &str, files: &[verbs::ImpactFile]| -> Result<()> {
-        if files.is_empty() {
-            return Ok(());
-        }
-        let hits: usize = files.iter().map(|f| f.hits).sum();
-        writeln!(w, "\n{} ({} files, {} hits) — {}", title, files.len(), fmt_n(hits), why)?;
-        for f in files.iter().take(per_group) {
-            let kinds: Vec<String> = f.kinds.iter().map(|(k, n)| format!("{} {}", k.name(), n)).collect();
-            writeln!(w, "{}{}  {}", f.rel, file_flag_suffix(&f.rel, f.flags), kinds.join(", "))?;
-            let lw = f.sample.iter().take(2).map(|(l, _)| digits(*l)).max().unwrap_or(1);
-            for (l, t) in f.sample.iter().take(2) {
-                writeln!(w, "  {:>lw$}  {}", l, t.trim())?;
-            }
-        }
-        if files.len() > per_group {
-            writeln!(w, "  +{} more files", files.len() - per_group)?;
-        }
-        Ok(())
+    let per_group = if o.budget == 0 {
+        usize::MAX
+    } else {
+        (o.budget / 130).clamp(3, 30)
     };
+    let write_group =
+        |w: &mut dyn Write, title: &str, why: &str, files: &[verbs::ImpactFile]| -> Result<()> {
+            if files.is_empty() {
+                return Ok(());
+            }
+            let hits: usize = files.iter().map(|f| f.hits).sum();
+            writeln!(
+                w,
+                "\n{} ({} files, {} hits) — {}",
+                title,
+                files.len(),
+                fmt_n(hits),
+                why
+            )?;
+            for f in files.iter().take(per_group) {
+                let kinds: Vec<String> = f
+                    .kinds
+                    .iter()
+                    .map(|(k, n)| format!("{} {}", k.name(), n))
+                    .collect();
+                writeln!(
+                    w,
+                    "{}{}  {}",
+                    f.rel,
+                    file_flag_suffix(&f.rel, f.flags),
+                    kinds.join(", ")
+                )?;
+                let lw = f
+                    .sample
+                    .iter()
+                    .take(2)
+                    .map(|(l, _)| digits(*l))
+                    .max()
+                    .unwrap_or(1);
+                for (l, t) in f.sample.iter().take(2) {
+                    writeln!(w, "  {:>lw$}  {}", l, t.trim())?;
+                }
+            }
+            if files.len() > per_group {
+                writeln!(w, "  +{} more files", files.len() - per_group)?;
+            }
+            Ok(())
+        };
     if c.json {
-        let grp = |files: &[verbs::ImpactFile]| -> Vec<serde_json::Value> { files.iter().map(|f| json!({"path":f.rel,"hits":f.hits,"kinds":f.kinds.iter().map(|(k,n)| json!([k.name(), n])).collect::<Vec<_>>(),"file_flags":f.flags.names(),"sample":f.sample})).collect() };
-        serde_json::to_writer(&mut w, &json!({"type":"impact","data":{"name":r.name,"definitions":r.defs.iter().map(def_json).collect::<Vec<_>>(),"will_break":grp(&r.will_break),"may_break":grp(&r.may_break),"review":grp(&r.review),
+        let grp = |files: &[verbs::ImpactFile]| -> Vec<serde_json::Value> {
+            files.iter().map(|f| json!({"path":f.rel,"hits":f.hits,"kinds":f.kinds.iter().map(|(k,n)| json!([k.name(), n])).collect::<Vec<_>>(),"file_flags":f.flags.names(),"sample":f.sample})).collect()
+        };
+        serde_json::to_writer(
+            &mut w,
+            &json!({"type":"impact","data":{"name":r.name,"definitions":r.defs.iter().map(def_json).collect::<Vec<_>>(),"will_break":grp(&r.will_break),"may_break":grp(&r.may_break),"review":grp(&r.review),
             "callers":r.callers.callers.iter().take(per_group).map(|cl| json!({"path":cl.rel,"symbol":chain_str(&cl.chain),"count":cl.count,"called_by":cl.called_by})).collect::<Vec<_>>(),
-            "total_hits":r.total_hits,"elapsed_ms":r.elapsed_ms}}))?;
+            "total_hits":r.total_hits,"elapsed_ms":r.elapsed_ms}}),
+        )?;
         writeln!(w)?;
         w.flush()?;
         return Ok(());
@@ -525,14 +887,41 @@ pub fn run_impact(c: &Common, o: &Options, name: &str) -> Result<()> {
         greeg_query::indexed::flush_pending_build();
         std::process::exit(1);
     }
-    writeln!(w, "impact {}  {} hits · {} files · {} definitions{}", r.name, fmt_n(r.total_hits), r.will_break.len() + r.may_break.len() + r.review.len(), r.defs.len(), ms(c, r.elapsed_ms))?;
+    writeln!(
+        w,
+        "impact {}  {} hits · {} files · {} definitions{}",
+        r.name,
+        fmt_n(r.total_hits),
+        r.will_break.len() + r.may_break.len() + r.review.len(),
+        r.defs.len(),
+        ms(c, r.elapsed_ms)
+    )?;
     let defs: Vec<&DefEntry> = r.defs.iter().take(3).collect();
     write_def_groups(&mut w, &defs, false, false, c.chain)?;
-    write_group(&mut w, "WILL BREAK", "calls, type uses or imports in source", &r.will_break)?;
-    write_group(&mut w, "MAY BREAK", "member or bare identifier uses", &r.may_break)?;
-    write_group(&mut w, "REVIEW", "tests, comments, strings, demoted files", &r.review)?;
+    write_group(
+        &mut w,
+        "WILL BREAK",
+        "calls, type uses or imports in source",
+        &r.will_break,
+    )?;
+    write_group(
+        &mut w,
+        "MAY BREAK",
+        "member or bare identifier uses",
+        &r.may_break,
+    )?;
+    write_group(
+        &mut w,
+        "REVIEW",
+        "tests, comments, strings, demoted files",
+        &r.review,
+    )?;
     if !r.callers.callers.is_empty() {
-        writeln!(w, "\ncallers ({} functions, depth 2)", r.callers.callers.len())?;
+        writeln!(
+            w,
+            "\ncallers ({} functions, depth 2)",
+            r.callers.callers.len()
+        )?;
         let shown: Vec<&verbs::Caller> = r.callers.callers.iter().take(per_group).collect();
         let mut order: Vec<&str> = Vec::new();
         for cl in &shown {
@@ -543,8 +932,23 @@ pub fn run_impact(c: &Common, o: &Options, name: &str) -> Result<()> {
         for rel in order {
             writeln!(w, "{rel}")?;
             for cl in shown.iter().filter(|cl| cl.rel == rel) {
-                let sym = if cl.chain.is_empty() { "(top level)".to_string() } else { container_of(&cl.chain, false, c.chain) };
-                writeln!(w, "  {}  {} ×{}{}", cl.def_line, sym, cl.count, if cl.called_by.is_empty() { String::new() } else { format!("  ← {}", cl.called_by.join(", ")) })?;
+                let sym = if cl.chain.is_empty() {
+                    "(top level)".to_string()
+                } else {
+                    container_of(&cl.chain, false, c.chain)
+                };
+                writeln!(
+                    w,
+                    "  {}  {} ×{}{}",
+                    cl.def_line,
+                    sym,
+                    cl.count,
+                    if cl.called_by.is_empty() {
+                        String::new()
+                    } else {
+                        format!("  ← {}", cl.called_by.join(", "))
+                    }
+                )?;
             }
         }
     }

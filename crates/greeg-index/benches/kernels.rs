@@ -72,8 +72,12 @@ fn bench_grams(c: &mut Criterion) {
     g.throughput(Throughput::Bytes(src.len() as u64));
     let mut dedup = Dedup::new();
     let mut out = Vec::new();
-    g.bench_function("extract_1MiB", |b| b.iter(|| dedup.extract(black_box(&src), &mut out)));
-    g.bench_function("literal_keys", |b| b.iter(|| literal_keys(black_box(b"fn poll_read(&mut self, cx: &mut Context"))));
+    g.bench_function("extract_1MiB", |b| {
+        b.iter(|| dedup.extract(black_box(&src), &mut out))
+    });
+    g.bench_function("literal_keys", |b| {
+        b.iter(|| literal_keys(black_box(b"fn poll_read(&mut self, cx: &mut Context")))
+    });
     g.finish();
 }
 
@@ -90,34 +94,50 @@ fn bench_plan(c: &mut Criterion) {
     ];
     let mut g = c.benchmark_group("plan");
     for (p, fixed) in pats {
-        g.bench_with_input(BenchmarkId::from_parameter(p), &(p, fixed), |b, (p, fixed)| b.iter(|| plan(black_box(p), *fixed, false).unwrap()));
+        g.bench_with_input(
+            BenchmarkId::from_parameter(p),
+            &(p, fixed),
+            |b, (p, fixed)| b.iter(|| plan(black_box(p), *fixed, false).unwrap()),
+        );
     }
     g.finish();
 }
 
 fn bench_lexer(c: &mut Criterion) {
     let mut g = c.benchmark_group("lexer");
-    for (name, lang, snippet) in [("rust", Lang::Rust, RUST_SNIPPET), ("python", Lang::Python, PY_SNIPPET)] {
+    for (name, lang, snippet) in [
+        ("rust", Lang::Rust, RUST_SNIPPET),
+        ("python", Lang::Python, PY_SNIPPET),
+    ] {
         let src = repeat_to(snippet, 1 << 20);
         g.throughput(Throughput::Bytes(src.len() as u64));
-        g.bench_function(format!("{name}_1MiB"), |b| b.iter(|| lexer::lex(lang, black_box(&src))));
+        g.bench_function(format!("{name}_1MiB"), |b| {
+            b.iter(|| lexer::lex(lang, black_box(&src)))
+        });
     }
     g.finish();
 }
 
 fn bench_extract(c: &mut Criterion) {
     let mut g = c.benchmark_group("extract");
-    for (name, lang, snippet) in [("rust", Lang::Rust, RUST_SNIPPET), ("python", Lang::Python, PY_SNIPPET)] {
+    for (name, lang, snippet) in [
+        ("rust", Lang::Rust, RUST_SNIPPET),
+        ("python", Lang::Python, PY_SNIPPET),
+    ] {
         let src = repeat_to(snippet, 64 << 10);
         g.throughput(Throughput::Bytes(src.len() as u64));
-        g.bench_function(format!("{name}_64KiB"), |b| b.iter(|| sym::extract(lang, false, black_box(&src))));
+        g.bench_function(format!("{name}_64KiB"), |b| {
+            b.iter(|| sym::extract(lang, false, black_box(&src)))
+        });
     }
     g.finish();
 }
 
 fn bench_postings(c: &mut Criterion) {
     let mut g = c.benchmark_group("postings");
-    let mk = |seed: u32, n: u32, stride: u32| -> RoaringBitmap { (0..n).map(|i| (i * stride + seed) % 200_000).collect() };
+    let mk = |seed: u32, n: u32, stride: u32| -> RoaringBitmap {
+        (0..n).map(|i| (i * stride + seed) % 200_000).collect()
+    };
     let a = mk(1, 60_000, 3);
     let b = mk(7, 40_000, 5);
     let d = mk(11, 20_000, 7);
@@ -126,10 +146,21 @@ fn bench_postings(c: &mut Criterion) {
         a.serialize_into(&mut v).unwrap();
         v
     };
-    g.bench_function("and3_60k_40k_20k", |bb| bb.iter(|| black_box(&a) & black_box(&b) & black_box(&d)));
-    g.bench_function("deserialize_60k", |bb| bb.iter(|| RoaringBitmap::deserialize_from(black_box(&ser[..])).unwrap()));
+    g.bench_function("and3_60k_40k_20k", |bb| {
+        bb.iter(|| black_box(&a) & black_box(&b) & black_box(&d))
+    });
+    g.bench_function("deserialize_60k", |bb| {
+        bb.iter(|| RoaringBitmap::deserialize_from(black_box(&ser[..])).unwrap())
+    });
     g.finish();
 }
 
-criterion_group!(kernels, bench_grams, bench_plan, bench_lexer, bench_extract, bench_postings);
+criterion_group!(
+    kernels,
+    bench_grams,
+    bench_plan,
+    bench_lexer,
+    bench_extract,
+    bench_postings
+);
 criterion_main!(kernels);

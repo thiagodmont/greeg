@@ -66,11 +66,15 @@ struct DeltaParts {
 
 fn parse_delta(body: &'static [u8]) -> Result<DeltaParts> {
     let hb = body.get(..24).context("delta header truncated")?;
-    let h: Vec<usize> = (0..6).map(|i| u32::from_le_bytes(hb[i * 4..i * 4 + 4].try_into().unwrap()) as usize).collect();
+    let h: Vec<usize> = (0..6)
+        .map(|i| u32::from_le_bytes(hb[i * 4..i * 4 + 4].try_into().unwrap()) as usize)
+        .collect();
     let first_id = h[0] as u32;
     let mut off: usize = 24;
     let mut section = |len: usize, what: &str| -> Result<&'static [u8]> {
-        let b = body.get(off..off.checked_add(len).context("delta section overflow")?).with_context(|| format!("delta {what} section truncated"))?;
+        let b = body
+            .get(off..off.checked_add(len).context("delta section overflow")?)
+            .with_context(|| format!("delta {what} section truncated"))?;
         off += len;
         Ok(b)
     };
@@ -85,9 +89,24 @@ fn parse_delta(body: &'static [u8]) -> Result<DeltaParts> {
         bail!("delta file count mismatch");
     }
     let grams = GramsView::parse(gb)?;
-    let symbols = if sb.is_empty() { None } else { Some(SymbolsView::parse(sb)?) };
-    let spans = if pb.is_empty() { None } else { Some(SpansView::parse(pb)?) };
-    Ok(DeltaParts { files, grams, symbols, spans, first_id, tomb })
+    let symbols = if sb.is_empty() {
+        None
+    } else {
+        Some(SymbolsView::parse(sb)?)
+    };
+    let spans = if pb.is_empty() {
+        None
+    } else {
+        Some(SpansView::parse(pb)?)
+    };
+    Ok(DeltaParts {
+        files,
+        grams,
+        symbols,
+        spans,
+        first_id,
+        tomb,
+    })
 }
 
 impl Segment {
@@ -104,7 +123,9 @@ impl Segment {
         self.spans.as_ref()
     }
     pub fn rec(&self, id: u32) -> Option<&FileRec> {
-        self.files.files.get(id.checked_sub(self.first_id)? as usize)
+        self.files
+            .files
+            .get(id.checked_sub(self.first_id)? as usize)
     }
     pub fn path(&self, id: u32) -> Option<&str> {
         self.rec(id).map(|r| self.files.path(r))
@@ -131,7 +152,8 @@ impl Segment {
         match RoaringBitmap::deserialize_from(bytes) {
             Ok(bm) => Some((self.grams.counts[i], bm)),
             Err(_) => {
-                self.corrupt.store(true, std::sync::atomic::Ordering::Relaxed);
+                self.corrupt
+                    .store(true, std::sync::atomic::Ordering::Relaxed);
                 Some((self.n_files, self.all()))
             }
         }
@@ -222,7 +244,10 @@ impl Index {
         }
         let generation = manifest.generation;
         // the file table is read for every candidate; postings are touched sparsely
-        let fmap = mmap(&dir.join(format!("files.{generation}.bin")), Advice::WillNeed)?;
+        let fmap = mmap(
+            &dir.join(format!("files.{generation}.bin")),
+            Advice::WillNeed,
+        )?;
         let gmap = mmap(&dir.join(format!("grams.{generation}.bin")), Advice::Random)?;
         let fbody = leak(format::check_header(&fmap, format::COMP_FILES)?);
         let gbody = leak(format::check_header(&gmap, format::COMP_GRAMS)?);
@@ -232,16 +257,36 @@ impl Index {
         let mut maps = vec![fmap, gmap];
         let (mut symbols, mut spans) = (None, None);
         if manifest.phase2 {
-            let smap = mmap(&dir.join(format!("symbols.{generation}.bin")), Advice::Random)?;
+            let smap = mmap(
+                &dir.join(format!("symbols.{generation}.bin")),
+                Advice::Random,
+            )?;
             let pmap = mmap(&dir.join(format!("spans.{generation}.bin")), Advice::Random)?;
-            symbols = Some(SymbolsView::parse(leak(format::check_header(&smap, format::COMP_SYMBOLS)?))?);
-            spans = Some(SpansView::parse(leak(format::check_header(&pmap, format::COMP_SPANS)?))?);
+            symbols = Some(SymbolsView::parse(leak(format::check_header(
+                &smap,
+                format::COMP_SYMBOLS,
+            )?))?);
+            spans = Some(SpansView::parse(leak(format::check_header(
+                &pmap,
+                format::COMP_SPANS,
+            )?))?);
             maps.push(smap);
             maps.push(pmap);
         }
         let huge = ids_bitmap(0, files.huge);
         let hidden = ids_bitmap(0, files.hidden);
-        let base = Segment { _maps: maps, files, grams, symbols, spans, first_id: 0, n_files: n, huge, hidden, corrupt: Default::default() };
+        let base = Segment {
+            _maps: maps,
+            files,
+            grams,
+            symbols,
+            spans,
+            first_id: 0,
+            n_files: n,
+            huge,
+            hidden,
+            corrupt: Default::default(),
+        };
         // only the deltas the manifest names, in order; stray files (from a
         // superseded generation or an interrupted writer) are ignored
         let mut deltas = Vec::with_capacity(manifest.deltas as usize);
@@ -250,44 +295,92 @@ impl Index {
         for i in 1..=manifest.deltas {
             let p = dir.join("delta").join(format!("{i:04}.bin"));
             let map = mmap(&p, Advice::WillNeed)?;
-            let body = leak(format::check_header(&map, format::COMP_DELTA).with_context(|| format!("delta {}", p.display()))?);
-            let DeltaParts { files, grams, symbols, spans, first_id, tomb: t } = parse_delta(body).with_context(|| format!("delta {}", p.display()))?;
+            let body = leak(
+                format::check_header(&map, format::COMP_DELTA)
+                    .with_context(|| format!("delta {}", p.display()))?,
+            );
+            let DeltaParts {
+                files,
+                grams,
+                symbols,
+                spans,
+                first_id,
+                tomb: t,
+            } = parse_delta(body).with_context(|| format!("delta {}", p.display()))?;
             if first_id != next {
-                bail!("delta {} starts at id {first_id}, expected {next}", p.display());
+                bail!(
+                    "delta {} starts at id {first_id}, expected {next}",
+                    p.display()
+                );
             }
             let n = files.files.len() as u32;
             next = first_id + n;
             tomb |= t;
             let huge = ids_bitmap(first_id, files.huge);
             let hidden = ids_bitmap(first_id, files.hidden);
-            deltas.push(Segment { _maps: vec![map], files, grams, symbols, spans, first_id, n_files: n, huge, hidden, corrupt: Default::default() });
+            deltas.push(Segment {
+                _maps: vec![map],
+                files,
+                grams,
+                symbols,
+                spans,
+                first_id,
+                n_files: n,
+                huge,
+                hidden,
+                corrupt: Default::default(),
+            });
         }
-        Ok(Index { dir: dir.to_path_buf(), manifest, base, deltas, tomb, graph: OnceLock::new() })
+        Ok(Index {
+            dir: dir.to_path_buf(),
+            manifest,
+            base,
+            deltas,
+            tomb,
+            graph: OnceLock::new(),
+        })
     }
 
     /// Next free file id for a new delta segment.
     pub fn next_id(&self) -> u32 {
-        self.deltas.last().map(|d| d.first_id + d.n_files).unwrap_or(self.base.n_files)
+        self.deltas
+            .last()
+            .map(|d| d.first_id + d.n_files)
+            .unwrap_or(self.base.n_files)
     }
 
     pub fn segment_for(&self, id: u32) -> Option<&Segment> {
         if id < self.base.n_files {
             return Some(&self.base);
         }
-        self.deltas.iter().find(|d| id >= d.first_id && id < d.first_id + d.n_files)
+        self.deltas
+            .iter()
+            .find(|d| id >= d.first_id && id < d.first_id + d.n_files)
     }
     /// Segment index (0 = base) for a file id.
     pub fn seg_index(&self, id: u32) -> Option<u8> {
         if id < self.base.n_files {
             return Some(0);
         }
-        self.deltas.iter().position(|d| id >= d.first_id && id < d.first_id + d.n_files).map(|i| i as u8 + 1)
+        self.deltas
+            .iter()
+            .position(|d| id >= d.first_id && id < d.first_id + d.n_files)
+            .map(|i| i as u8 + 1)
     }
     pub fn segment(&self, seg: u8) -> &Segment {
-        if seg == 0 { &self.base } else { &self.deltas[seg as usize - 1] }
+        if seg == 0 {
+            &self.base
+        } else {
+            &self.deltas[seg as usize - 1]
+        }
     }
     pub fn segments(&self) -> impl Iterator<Item = (u8, &Segment)> {
-        std::iter::once((0u8, &self.base)).chain(self.deltas.iter().enumerate().map(|(i, d)| (i as u8 + 1, d)))
+        std::iter::once((0u8, &self.base)).chain(
+            self.deltas
+                .iter()
+                .enumerate()
+                .map(|(i, d)| (i as u8 + 1, d)),
+        )
     }
 
     pub fn path(&self, id: u32) -> Option<&str> {
@@ -351,7 +444,11 @@ impl Index {
             let fv = seg.files();
             fv.files.iter().enumerate().filter_map(move |(i, rec)| {
                 let id = seg.first_id + i as u32;
-                if self.tomb.contains(id) { None } else { Some((id, fv.path(rec), rec)) }
+                if self.tomb.contains(id) {
+                    None
+                } else {
+                    Some((id, fv.path(rec), rec))
+                }
             })
         })
     }
@@ -364,10 +461,20 @@ impl Index {
         let seg = self.segment(seg_i);
         let sv = seg.symbols.as_ref()?;
         let (base, syms) = sv.symbols_of(id - seg.first_id);
-        Some((SymId { seg: seg_i, idx: base }, syms))
+        Some((
+            SymId {
+                seg: seg_i,
+                idx: base,
+            },
+            syms,
+        ))
     }
     pub fn sym(&self, s: SymId) -> Option<&SymRec> {
-        self.segment(s.seg).symbols.as_ref()?.syms.get(s.idx as usize)
+        self.segment(s.seg)
+            .symbols
+            .as_ref()?
+            .syms
+            .get(s.idx as usize)
     }
     pub fn sym_name(&self, s: SymId) -> &str {
         let seg = self.segment(s.seg);
@@ -383,7 +490,14 @@ impl Index {
     }
     pub fn sym_parent(&self, s: SymId) -> Option<SymId> {
         let r = self.sym(s)?;
-        if r.parent == NONE { None } else { Some(SymId { seg: s.seg, idx: r.parent }) }
+        if r.parent == NONE {
+            None
+        } else {
+            Some(SymId {
+                seg: s.seg,
+                idx: r.parent,
+            })
+        }
     }
     /// Names of supertypes of a symbol.
     pub fn sym_supers(&self, s: SymId) -> Vec<&str> {
@@ -415,8 +529,12 @@ impl Index {
     pub fn lookup(&self, name: &str) -> Vec<SymId> {
         let mut out = Vec::new();
         for (si, seg) in self.segments() {
-            let Some(sv) = seg.symbols.as_ref() else { continue };
-            let Some(nid) = sv.find_name(name) else { continue };
+            let Some(sv) = seg.symbols.as_ref() else {
+                continue;
+            };
+            let Some(nid) = sv.find_name(name) else {
+                continue;
+            };
             for &idx in sv.syms_named(nid) {
                 let file = seg.first_id + sv.syms[idx as usize].file;
                 if !self.tomb.contains(file) {
@@ -431,17 +549,28 @@ impl Index {
         let seg_i = self.seg_index(id)?;
         let seg = self.segment(seg_i);
         let sv = seg.symbols.as_ref()?;
-        sv.enclosing(id - seg.first_id, off).map(|idx| SymId { seg: seg_i, idx })
+        sv.enclosing(id - seg.first_id, off)
+            .map(|idx| SymId { seg: seg_i, idx })
     }
     /// Symbols whose supertypes include `name`.
     pub fn implementors(&self, name: &str) -> Vec<SymId> {
         let mut out = Vec::new();
         for (si, seg) in self.segments() {
-            let Some(sv) = seg.symbols.as_ref() else { continue };
-            let Some(nid) = sv.find_name(name) else { continue };
+            let Some(sv) = seg.symbols.as_ref() else {
+                continue;
+            };
+            let Some(nid) = sv.find_name(name) else {
+                continue;
+            };
             for (idx, r) in sv.syms.iter().enumerate() {
-                if r.super_len > 0 && sv.supers_of(r).contains(&nid) && !self.tomb.contains(seg.first_id + r.file) {
-                    out.push(SymId { seg: si, idx: idx as u32 });
+                if r.super_len > 0
+                    && sv.supers_of(r).contains(&nid)
+                    && !self.tomb.contains(seg.first_id + r.file)
+                {
+                    out.push(SymId {
+                        seg: si,
+                        idx: idx as u32,
+                    });
                 }
             }
         }
@@ -451,7 +580,9 @@ impl Index {
     pub fn names_with_tokens(&self, tokens: &[String], limit: usize) -> Vec<String> {
         let mut out: Vec<String> = Vec::new();
         for (_, seg) in self.segments() {
-            let Some(sv) = seg.symbols.as_ref() else { continue };
+            let Some(sv) = seg.symbols.as_ref() else {
+                continue;
+            };
             let mut acc: Option<Vec<u32>> = None;
             for t in tokens {
                 let Some(ids) = sv.find_token(t) else {
@@ -460,7 +591,11 @@ impl Index {
                 };
                 acc = Some(match acc {
                     None => ids.to_vec(),
-                    Some(a) => a.iter().copied().filter(|x| ids.binary_search(x).is_ok()).collect(),
+                    Some(a) => a
+                        .iter()
+                        .copied()
+                        .filter(|x| ids.binary_search(x).is_ok())
+                        .collect(),
                 });
             }
             for nid in acc.unwrap_or_default() {
@@ -480,7 +615,9 @@ impl Index {
         let mut out: Vec<(String, usize)> = Vec::new();
         let ql = q.len();
         for (_, seg) in self.segments() {
-            let Some(sv) = seg.symbols.as_ref() else { continue };
+            let Some(sv) = seg.symbols.as_ref() else {
+                continue;
+            };
             for i in 0..sv.n_names() {
                 let n = sv.name(i as u32);
                 if n.len() + d < ql || n.len() > ql + d {
@@ -512,7 +649,11 @@ impl Index {
     }
     pub fn imports_of(&self, id: u32) -> &[ImpRec] {
         match self.segment_for(id) {
-            Some(seg) => seg.spans.as_ref().map(|s| s.imports_of(id - seg.first_id)).unwrap_or(&[]),
+            Some(seg) => seg
+                .spans
+                .as_ref()
+                .map(|s| s.imports_of(id - seg.first_id))
+                .unwrap_or(&[]),
             None => &[],
         }
     }
@@ -531,7 +672,13 @@ impl Index {
                 if !self.manifest.phase2 {
                     return None;
                 }
-                let map = mmap(&self.dir.join(format!("graph.{}.bin", self.manifest.generation)), Advice::WillNeed).ok()?;
+                let map = mmap(
+                    &self
+                        .dir
+                        .join(format!("graph.{}.bin", self.manifest.generation)),
+                    Advice::WillNeed,
+                )
+                .ok()?;
                 let body = leak(format::check_header(&map, format::COMP_GRAPH).ok()?);
                 let view = GraphView::parse(body).ok()?;
                 Some((map, view))
