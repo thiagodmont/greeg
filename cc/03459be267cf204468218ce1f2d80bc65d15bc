@@ -1,0 +1,28 @@
+docs/PLAN.md
+  s_9b7c1735a1250e::t_8804d4e2a341c1 74-75
+.github/workflows/ci.yml
+  s_9b7c1735a1250e::t_3037eca675f4ae 20
+docs/DESIGN.md
+  s_9b7c1735a1250e::t_ecddad2f724ccb 362-363,980
+bench/bench.py
+  s_9b7c1735a1250e::t_f83c3feff10e9c 114
+  s_9b7c1735a1250e::t_8e9761a1ff5b0c 126-127,694
+crates/greeg-index/src/fresh.rs
+  s_9b7c1735a1250e::t_ecddad2f724ccb 69-73
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "cc03459be267cf204468218ce1f2d80bc65d15bc",
+  "prompts": {},
+  "sessions": {
+    "s_9b7c1735a1250e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e56b20a8-6686-4cba-b823-bddea6d1adfe",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
