@@ -1,4 +1,4 @@
-# greeg index on-disk format (version 2)
+# greeg index on-disk format (version 3)
 
 Location: `~/Library/Caches/greeg/<name>-<hash16>/` on macOS,
 `$XDG_CACHE_HOME/greeg/...` elsewhere (override: `GREEG_INDEX_DIR`,
@@ -7,15 +7,28 @@ canonical repository path.
 
 ```
 manifest            JSON (see Manifest in greeg-index/src/lib.rs)
+LOCK                flock target: every writer (build publish, delta apply) holds it exclusively
 BUILDING            marker with the pid of a running build (create_new; stale after 10 min)
 files.<gen>.bin     file table (republished by phase 2 with ranks and parse flags)
 grams.<gen>.bin     trigram dictionary + postings
 symbols.<gen>.bin   symbols, names, split tokens (phase 2)
 spans.<gen>.bin     noncode spans and imports per file (phase 2)
 graph.<gen>.bin     import graph CSR + PageRank (phase 2)
-delta/NNNN.bin      delta segments, applied in name order
+delta/NNNN.bin      delta segments 0001..manifest.deltas, applied in order
 session/<id>.jsonl  session memory (DESIGN.md §9)
 ```
+
+Every component is written to a unique temp name (`<name>.<pid>.<n>.tmp`)
+and renamed into place. A build publishes its components, then the manifest,
+and only then deletes `delta/` and the previous generation; a delta apply
+writes `delta/NNNN.bin`, then the manifest. Both run under `LOCK` and re-read
+the manifest first: an apply whose generation, phase or delta count no longer
+matches the index it was computed from is dropped (the query reopens the
+index instead); phase 2 keeps the delta count that queries added while it
+was parsing. Readers never lock: `Index::open` maps only the deltas the
+manifest names and ignores stray files, and any truncated section or corrupt
+tombstone bitmap fails the open (the query answers in scan mode and a rebuild
+is spawned).
 
 Every `.bin` starts with a 16-byte header: `"GREEG"`, format `u16` LE,
 component `u8` (1 files, 2 grams, 3 delta, 5 symbols, 6 spans, 7 graph),
@@ -32,6 +45,10 @@ FileRec[n_files]  32 bytes: path_off u32, path_len u16, lang u8, flags8 u8,
                   size u64, mtime_ns i64, dir u32, flags u16, rank u16
 DirRec[n_dirs]    16 bytes: path_off u32, path_len u16, pad u16, mtime_ns i64
 arena             UTF-8 relative paths ('/'-separated), padded to 8
+u32 n_huge, u32 n_hidden
+u32 huge[n_huge]      segment-local ids of files above 4 MiB (no grams; always a
+                      candidate so verification opens or counts them)
+u32 hidden[n_hidden]  segment-local ids of tracked-only files, padded to 8
 ```
 
 File ids are the position in `FileRec[]`, assigned in sorted-path order.
@@ -39,7 +56,10 @@ File ids are the position in `FileRec[]`, assigned in sorted-path order.
 minified, binary, lockfile, huge, parse_errors, ...). `rank` is the
 quantized PageRank: 0 unknown, else `1 + rank_norm × 65534`. Files flagged
 binary or huge have no grams but stay in the table so the freshness pass
-tracks them.
+tracks them. Tracked-only files are the ignore files (`.gitignore`,
+`.ignore`, `.rgignore`) the walker would otherwise skip as hidden: they are
+never candidates, but a change to one forces a rebuild so the ignore rules
+are re-evaluated.
 
 ## grams.<gen>.bin (component 2)
 
@@ -122,9 +142,11 @@ files section, grams section, symbols section, spans section (layouts as above;
 roaring bitmap of tombstoned ids (files superseded or deleted by this delta)
 ```
 
-A query evaluates `(base ∪ deltas) − tombstones`; symbol lookups visit the
-base then each delta. A full build removes `delta/` and starts a new
-generation; older generations are deleted after the manifest is written.
+A query evaluates `(base ∪ huge ∪ deltas) − tombstones − hidden`; symbol
+lookups visit the base then each delta. Every section length is checked
+against the payload and the tombstone bitmap is validated on open. A full
+build starts a new generation; `delta/` and older generations are deleted
+after the new manifest is written.
 
 ## Manifest fields
 
@@ -132,6 +154,6 @@ generation; older generations are deleted after the manifest is written.
 phase2_ms, files, dirs, source_bytes, built_unix_ms, build_ms, fsevents_id,
 verified_unix_ms, deltas, tombstones`. `fsevents_id` is the FSEvents event
 id captured before the walk began and refreshed after every successful
-check; `verified_unix_ms` drives the 100 ms TTL. `phase2 = false` means
-queries plan with grams and classify with the regex extractor until the
-build finishes.
+check; `verified_unix_ms` drives the 100 ms TTL; a check that finds nothing
+refreshes it at most once per second. `phase2 = false` means queries plan
+with grams and classify with the regex extractor until the build finishes.

@@ -6,6 +6,16 @@ coding agents, (b) more useful context per token. Items marked **verified**
 were reproduced by hand on the reference machine against the bench corpora;
 the rest come from code reading with `file:line` references.
 
+## Status (2026-09-02, branch `v0.2-review-fixes`)
+
+Everything in §7 steps 1–6 shipped except: the agent A/B/C run, the 24 h
+soak, the Kotlin oracle, the large-corpus rerun, `--sort` kinds other than
+`path` and `--count-matches`. Details per item in `PLAN.md` M7; the
+parity matrix in `bench/parity.py` encodes C1–C6, C12–C14 and the
+`.gitignore` case; C7/C8/C15/C16 have integration tests in
+`crates/greeg-index/tests/index.rs`; C17 has per-language byte-rule tables;
+C18/C19 have unit tests in `greeg-lang`.
+
 ## 0. Verdict
 
 * The index engine is real and fast: 3–10 ms warm on 60k-file trees, parity

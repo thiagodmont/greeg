@@ -9,6 +9,7 @@ pub mod format;
 pub mod fresh;
 pub mod gram;
 pub mod index;
+pub mod lock;
 pub mod plan;
 pub mod resolve;
 pub mod symtab;
@@ -19,7 +20,7 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
-pub const FORMAT_VERSION: u16 = 2;
+pub const FORMAT_VERSION: u16 = 3;
 
 /// Manifest: JSON, small, rewritten atomically on every publish/check.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -58,7 +59,8 @@ pub fn index_dir_for(root: &Path) -> Result<PathBuf> {
     if let Some(d) = std::env::var_os("GREEG_INDEX_DIR") {
         return Ok(PathBuf::from(d));
     }
-    let real = std::fs::canonicalize(root).with_context(|| format!("canonicalize {}", root.display()))?;
+    let real =
+        std::fs::canonicalize(root).with_context(|| format!("canonicalize {}", root.display()))?;
     let hash = blake3::hash(real.to_string_lossy().as_bytes());
     let hex = hash.to_hex();
     let base = if cfg!(target_os = "macos") {
@@ -68,16 +70,31 @@ pub fn index_dir_for(root: &Path) -> Result<PathBuf> {
     } else {
         PathBuf::from(std::env::var_os("HOME").context("HOME")?).join(".cache/greeg")
     };
-    let name = real.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "root".into());
+    let name = real
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "root".into());
     Ok(base.join(format!("{}-{}", sanitize(&name), &hex[..16])))
 }
 
 fn sanitize(s: &str) -> String {
-    s.chars().map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' }).take(40).collect()
+    s.chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .take(40)
+        .collect()
 }
 
 pub fn now_ms() -> u64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
 }
 
 pub fn read_manifest(dir: &Path) -> Option<Manifest> {
@@ -89,8 +106,9 @@ pub fn read_manifest(dir: &Path) -> Option<Manifest> {
     Some(m)
 }
 
+/// Rewrite the manifest atomically. Callers hold the writer lock (`lock::writer`).
 pub fn write_manifest(dir: &Path, m: &Manifest) -> Result<()> {
-    let tmp = dir.join("manifest.tmp");
+    let tmp = format::tmp_path(&dir.join("manifest"));
     std::fs::write(&tmp, serde_json::to_vec_pretty(m)?)?;
     std::fs::rename(&tmp, dir.join("manifest"))?;
     Ok(())

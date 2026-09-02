@@ -46,13 +46,20 @@ fn parse_spec(s: &str) -> Vec<(String, Vec<String>)> {
         if line.is_empty() || line.starts_with('#') || line.starts_with('[') {
             continue;
         }
-        let Some((k, v)) = line.split_once('=') else { continue };
-        let (k, v) = (k.trim().to_string(), v.trim());
-        let vals: Vec<String> = if let Some(inner) = v.strip_prefix('[').and_then(|x| x.strip_suffix(']')) {
-            inner.split(',').map(|x| unquote(x.trim())).filter(|x| !x.is_empty()).collect()
-        } else {
-            vec![unquote(v)]
+        let Some((k, v)) = line.split_once('=') else {
+            continue;
         };
+        let (k, v) = (k.trim().to_string(), v.trim());
+        let vals: Vec<String> =
+            if let Some(inner) = v.strip_prefix('[').and_then(|x| x.strip_suffix(']')) {
+                inner
+                    .split(',')
+                    .map(|x| unquote(x.trim()))
+                    .filter(|x| !x.is_empty())
+                    .collect()
+            } else {
+                vec![unquote(v)]
+            };
         out.push((k, vals));
     }
     out
@@ -60,7 +67,11 @@ fn parse_spec(s: &str) -> Vec<(String, Vec<String>)> {
 
 fn unquote(s: &str) -> String {
     let s = s.trim();
-    let s = s.strip_prefix('"').and_then(|x| x.strip_suffix('"')).or_else(|| s.strip_prefix('\'').and_then(|x| x.strip_suffix('\''))).unwrap_or(s);
+    let s = s
+        .strip_prefix('"')
+        .and_then(|x| x.strip_suffix('"'))
+        .or_else(|| s.strip_prefix('\'').and_then(|x| x.strip_suffix('\'')))
+        .unwrap_or(s);
     s.replace("\\\\", "\\").replace("\\\"", "\"")
 }
 
@@ -68,26 +79,68 @@ fn load_dir(dir: &Path) -> Option<ExtraLang> {
     let spec = std::fs::read_to_string(dir.join("spec.toml")).ok()?;
     let kv = parse_spec(&spec);
     let get = |k: &str| kv.iter().find(|(x, _)| x == k).map(|(_, v)| v.clone());
-    let name = get("name").and_then(|v| v.into_iter().next()).unwrap_or_else(|| dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default());
+    let name = get("name")
+        .and_then(|v| v.into_iter().next())
+        .unwrap_or_else(|| {
+            dir.file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default()
+        });
     if name.is_empty() {
         return None;
     }
-    let extensions = get("extensions").unwrap_or_default().into_iter().map(|e| e.trim_start_matches('.').to_string()).collect();
-    let symbol = get("symbol").and_then(|v| v.into_iter().next()).unwrap_or_else(|| format!("tree_sitter_{}", name.replace('-', "_")));
-    let line_comment = get("line_comment").and_then(|v| v.into_iter().next()).map(|s| s.into_bytes()).filter(|b| !b.is_empty());
-    let block_comment = get("block_comment").and_then(|v| if v.len() == 2 { Some((v[0].clone().into_bytes(), v[1].clone().into_bytes())) } else { None });
-    let strings: Vec<u8> = get("strings").unwrap_or_else(|| vec!["\"".into()]).into_iter().filter_map(|s| s.bytes().next()).collect();
+    let extensions = get("extensions")
+        .unwrap_or_default()
+        .into_iter()
+        .map(|e| e.trim_start_matches('.').to_string())
+        .collect();
+    let symbol = get("symbol")
+        .and_then(|v| v.into_iter().next())
+        .unwrap_or_else(|| format!("tree_sitter_{}", name.replace('-', "_")));
+    let line_comment = get("line_comment")
+        .and_then(|v| v.into_iter().next())
+        .map(|s| s.into_bytes())
+        .filter(|b| !b.is_empty());
+    let block_comment = get("block_comment").and_then(|v| {
+        if v.len() == 2 {
+            Some((v[0].clone().into_bytes(), v[1].clone().into_bytes()))
+        } else {
+            None
+        }
+    });
+    let strings: Vec<u8> = get("strings")
+        .unwrap_or_else(|| vec!["\"".into()])
+        .into_iter()
+        .filter_map(|s| s.bytes().next())
+        .collect();
     let imports = get("imports").unwrap_or_default();
-    Some(ExtraLang { name: Box::leak(name.into_boxed_str()), extensions, dir: dir.to_path_buf(), symbol, line_comment, block_comment, strings, imports })
+    Some(ExtraLang {
+        name: Box::leak(name.into_boxed_str()),
+        extensions,
+        dir: dir.to_path_buf(),
+        symbol,
+        line_comment,
+        block_comment,
+        strings,
+        imports,
+    })
 }
 
 /// All registered extra languages (index = `Lang::Extra(index)`).
 pub fn registry() -> &'static [ExtraLang] {
     static R: OnceLock<Vec<ExtraLang>> = OnceLock::new();
     R.get_or_init(|| {
-        let Some(dir) = lang_dir() else { return Vec::new() };
-        let Ok(rd) = std::fs::read_dir(&dir) else { return Vec::new() };
-        let mut v: Vec<ExtraLang> = rd.flatten().filter(|e| e.path().is_dir()).filter_map(|e| load_dir(&e.path())).collect();
+        let Some(dir) = lang_dir() else {
+            return Vec::new();
+        };
+        let Ok(rd) = std::fs::read_dir(&dir) else {
+            return Vec::new();
+        };
+        let mut v: Vec<ExtraLang> = rd
+            .flatten()
+            .filter(|e| e.path().is_dir())
+            .filter_map(|e| load_dir(&e.path()))
+            .collect();
         v.sort_by(|a, b| a.name.cmp(b.name));
         v.truncate(200);
         v
@@ -99,17 +152,26 @@ pub fn get(i: u8) -> Option<&'static ExtraLang> {
 }
 
 pub fn by_extension(ext: &str) -> Option<u8> {
-    registry().iter().position(|l| l.extensions.iter().any(|e| e == ext)).map(|i| i as u8)
+    registry()
+        .iter()
+        .position(|l| l.extensions.iter().any(|e| e == ext))
+        .map(|i| i as u8)
 }
 
 pub fn by_name(name: &str) -> Option<u8> {
-    registry().iter().position(|l| l.name == name || l.extensions.iter().any(|e| e == name)).map(|i| i as u8)
+    registry()
+        .iter()
+        .position(|l| l.name == name || l.extensions.iter().any(|e| e == name))
+        .map(|i| i as u8)
 }
 
 /// `dlopen` the grammar and return its `tree_sitter::Language` and the tags query text.
 pub fn grammar(i: u8) -> Option<(tree_sitter::Language, String)> {
     let l = get(i)?;
-    let so = ["grammar.dylib", "grammar.so"].iter().map(|n| l.dir.join(n)).find(|p| p.exists())?;
+    let so = ["grammar.dylib", "grammar.so"]
+        .iter()
+        .map(|n| l.dir.join(n))
+        .find(|p| p.exists())?;
     let query = std::fs::read_to_string(l.dir.join("tags.scm")).ok()?;
     let path = std::ffi::CString::new(so.to_string_lossy().as_bytes()).ok()?;
     let sym = std::ffi::CString::new(l.symbol.as_bytes()).ok()?;
@@ -127,7 +189,9 @@ pub fn grammar(i: u8) -> Option<(tree_sitter::Language, String)> {
         let f: unsafe extern "C" fn() -> *const () = std::mem::transmute(p);
         let lf = tree_sitter_language::LanguageFn::from_raw(f);
         let lang: tree_sitter::Language = lf.into();
-        if lang.abi_version() < tree_sitter::MIN_COMPATIBLE_LANGUAGE_VERSION || lang.abi_version() > tree_sitter::LANGUAGE_VERSION {
+        if lang.abi_version() < tree_sitter::MIN_COMPATIBLE_LANGUAGE_VERSION
+            || lang.abi_version() > tree_sitter::LANGUAGE_VERSION
+        {
             return None;
         }
         Some((lang, query))
@@ -139,7 +203,9 @@ mod tests {
     use super::*;
     #[test]
     fn spec_parsing() {
-        let kv = parse_spec("name = \"go\"\nextensions = [\".go\", \"gox\"]\nblock_comment = [\"/*\", \"*/\"]\n# c\n[x]\nstrings = [\"\\\"\", \"`\"]\n");
+        let kv = parse_spec(
+            "name = \"go\"\nextensions = [\".go\", \"gox\"]\nblock_comment = [\"/*\", \"*/\"]\n# c\n[x]\nstrings = [\"\\\"\", \"`\"]\n",
+        );
         assert_eq!(kv[0], ("name".into(), vec!["go".into()]));
         assert_eq!(kv[1].1, vec![".go", "gox"]);
         assert_eq!(kv[3].1, vec!["\"", "`"]);

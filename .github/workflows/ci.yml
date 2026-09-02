@@ -17,6 +17,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --release --workspace
       - run: cargo test --workspace
+      - run: cargo fmt --all --check
       - run: cargo clippy --all-targets -- -D warnings
       - name: binary size gate (< 25 MB)
         shell: bash
@@ -30,19 +31,30 @@ jobs:
           ./target/release/greeg -F "fn main" crates --no-index --budget 400
           ./target/release/greeg doctor --root . || true
   kernels:
-    # criterion kernels; the 5 % gate compares against bench/baselines/kernels-<host>.json
-    # when a baseline for this host exists (the reference machine), otherwise it records.
+    # criterion kernels. Hosted runners have no baseline under bench/baselines/, so they only
+    # record (the JSON is uploaded as an artifact); the 5 % gate runs on the reference machine
+    # in nightly.yml with --require-baseline.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo bench -p greeg-index --bench kernels -- --warm-up-time 1 --measurement-time 2 --noplot
-      - run: python3 bench/bench.py gate kernels --tolerance 5
+      - run: python3 bench/bench.py gate kernels --record-only
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kernels-${{ github.sha }}
+          path: bench/results/
   e2e:
-    # end-to-end on the small corpora (tokio, ktor, django) with a 10 % gate on greeg's
-    # search latency and index build time against bench/baselines/speed-<host>.json.
-    runs-on: ubuntu-latest
+    # end-to-end on the small corpora (tokio, ktor, django): parity with rg (set cases on the
+    # fetched corpora plus the behaviour matrix), the speed protocol, and edit-burst
+    # correctness. Hosted runners record the speed numbers (no baseline exists for their
+    # CPU); the 10 % gate is the reference machine's job in nightly.yml.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     env:
       GREEG_BENCH_CACHE: ${{ github.workspace }}/.bench-cache/corpora
     steps:
@@ -52,14 +64,29 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: .bench-cache
-          key: corpora-small-${{ hashFiles('bench/corpora.toml') }}
-      - run: sudo apt-get install -y -qq hyperfine ripgrep
+          key: corpora-small-${{ runner.os }}-${{ hashFiles('bench/corpora.toml') }}
+      - name: tools (hyperfine, ripgrep, GNU time)
+        shell: bash
+        run: |
+          if command -v apt-get >/dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq hyperfine ripgrep time
+          else
+            brew install hyperfine ripgrep
+          fi
+          hyperfine --version; rg --version | head -1
+          test -x /usr/bin/time || echo "::warning::/usr/bin/time missing: RSS columns will be n/a"
       - run: cargo build --release -p greeg
       - run: python3 bench/bench.py fetch tokio ktor django
-      - run: python3 bench/parity.py $GREEG_BENCH_CACHE target/release/greeg
-      - run: python3 bench/bench.py speed --corpora tokio,ktor,django --runs 5
-      - run: python3 bench/bench.py gate speed --tolerance 10
+      - name: parity vs rg (sets on fetched corpora + behaviour matrix)
+        run: python3 bench/parity.py "$GREEG_BENCH_CACHE" "$PWD/target/release/greeg" --corpora tokio,ktor,django
+      - name: edit burst
+        run: python3 bench/edits.py "$GREEG_BENCH_CACHE/tokio" "$PWD/target/release/greeg"
+      - name: speed (protocol 2, 5 runs)
+        run: python3 bench/bench.py speed --corpora tokio,ktor,django --runs 5 --no-splice
+      - run: python3 bench/bench.py gate speed --record-only
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: bench-results-${{ github.sha }}
+          name: bench-results-${{ runner.os }}-${{ github.sha }}
           path: bench/results/

@@ -27,6 +27,10 @@
 (export_statement declaration: (variable_declaration (variable_declarator name: (identifier) @name) @def.variable))
 (assignment_expression left: (member_expression property: (property_identifier) @name) right: [(arrow_function) (function_expression)]) @def.function
 (pair key: (property_identifier) @name value: [(arrow_function) (function_expression)]) @def.function
+; `declare const X` / `declare var X` (and `export declare …`); `declare function`,
+; `declare class` and `declare module 'x'` are matched by the unanchored patterns above
+(ambient_declaration [(lexical_declaration (variable_declarator name: (identifier) @name) @def.variable) (variable_declaration (variable_declarator name: (identifier) @name) @def.variable)])
+(export_statement declaration: (ambient_declaration [(lexical_declaration (variable_declarator name: (identifier) @name) @def.variable) (variable_declaration (variable_declarator name: (identifier) @name) @def.variable)]))
 (import_statement) @import
 (export_statement source: (string)) @import
 ((call_expression function: (identifier) @_req arguments: (arguments (string))) @import (#eq? @_req "require"))

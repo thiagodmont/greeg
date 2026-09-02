@@ -3,8 +3,13 @@
 (object_declaration (type_identifier) @name (delegation_specifier)* @supers) @def.object
 (companion_object) @def.object
 (function_declaration (simple_identifier) @name) @def.function
-(property_declaration (variable_declaration (simple_identifier) @name)) @def.variable
-(property_declaration (multi_variable_declaration (variable_declaration (simple_identifier) @name))) @def.variable
+; properties only at top level and directly in a class/object/enum body (locals in
+; function bodies, lambdas and init blocks are not symbols)
+(source_file (property_declaration (variable_declaration (simple_identifier) @name)) @def.variable)
+(class_body (property_declaration (variable_declaration (simple_identifier) @name)) @def.variable)
+(enum_class_body (property_declaration (variable_declaration (simple_identifier) @name)) @def.variable)
+(source_file (property_declaration (multi_variable_declaration (variable_declaration (simple_identifier) @name))) @def.variable)
+(class_body (property_declaration (multi_variable_declaration (variable_declaration (simple_identifier) @name))) @def.variable)
 (class_parameter (binding_pattern_kind) (simple_identifier) @name) @def.field
 (type_alias (type_identifier) @name) @def.typealias
 (enum_entry (simple_identifier) @name) @def.variant

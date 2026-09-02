@@ -9,7 +9,24 @@ use greeg_lang::lexer::SpanKind;
 use greeg_lang::sym::{Extract, Import};
 use hashbrown::HashMap;
 
-pub const KIND_NAMES: [&str; 16] = ["fn", "method", "class", "struct", "enum", "trait", "interface", "type", "mod", "object", "impl", "const", "var", "macro", "field", "variant"];
+pub const KIND_NAMES: [&str; 16] = [
+    "fn",
+    "method",
+    "class",
+    "struct",
+    "enum",
+    "trait",
+    "interface",
+    "type",
+    "mod",
+    "object",
+    "impl",
+    "const",
+    "var",
+    "macro",
+    "field",
+    "variant",
+];
 
 pub fn kind_code(k: DefKind) -> u8 {
     match k {
@@ -56,7 +73,13 @@ pub fn kind_from_code(c: u8) -> DefKind {
 /// Definition-kind weight used to order same-name symbols (best first).
 pub fn kind_weight(c: u8) -> f32 {
     match kind_from_code(c) {
-        DefKind::Class | DefKind::Struct | DefKind::Enum | DefKind::Trait | DefKind::Interface | DefKind::Object | DefKind::Module => 1.0,
+        DefKind::Class
+        | DefKind::Struct
+        | DefKind::Enum
+        | DefKind::Trait
+        | DefKind::Interface
+        | DefKind::Object
+        | DefKind::Module => 1.0,
         DefKind::Function => 0.95,
         DefKind::Method => 0.9,
         DefKind::TypeAlias | DefKind::Macro => 0.85,
@@ -86,8 +109,14 @@ pub fn split_tokens(name: &str) -> Vec<String> {
         }
         if c.is_ascii_uppercase() && i > 0 {
             let prev = b[i - 1];
-            let next_lower = b.get(i + 1).map(|n| n.is_ascii_lowercase()).unwrap_or(false);
-            if prev.is_ascii_lowercase() || prev.is_ascii_digit() || (prev.is_ascii_uppercase() && next_lower) {
+            let next_lower = b
+                .get(i + 1)
+                .map(|n| n.is_ascii_lowercase())
+                .unwrap_or(false);
+            if prev.is_ascii_lowercase()
+                || prev.is_ascii_digit()
+                || (prev.is_ascii_uppercase() && next_lower)
+            {
                 flush(&mut cur, &mut out);
             }
         }
@@ -141,17 +170,41 @@ pub struct FileExtract {
 
 impl FileExtract {
     pub fn from_extract(ex: Extract, src: &[u8]) -> FileExtract {
-        let names = ex.symbols.iter().map(|s| ex.name(s, src).to_string()).collect();
+        let names = ex
+            .symbols
+            .iter()
+            .map(|s| ex.name(s, src).to_string())
+            .collect();
         let supers = ex
             .symbols
             .iter()
-            .map(|s| s.supers.iter().map(|&(a, b)| String::from_utf8_lossy(&src[a as usize..b as usize]).into_owned()).collect())
+            .map(|s| {
+                s.supers
+                    .iter()
+                    .map(|&(a, b)| {
+                        String::from_utf8_lossy(&src[a as usize..b as usize]).into_owned()
+                    })
+                    .collect()
+            })
             .collect();
-        FileExtract { symbols: ex.symbols, names, supers, noncode: ex.noncode, imports: ex.imports, package: ex.package, parse_errors: ex.parse_errors, tree_sitter: ex.tree_sitter }
+        FileExtract {
+            symbols: ex.symbols,
+            names,
+            supers,
+            noncode: ex.noncode,
+            imports: ex.imports,
+            package: ex.package,
+            parse_errors: ex.parse_errors,
+            tree_sitter: ex.tree_sitter,
+        }
     }
     /// Exported top-level symbol names (for Kotlin import resolution).
     pub fn top_level_names(&self) -> impl Iterator<Item = &str> {
-        self.symbols.iter().zip(&self.names).filter(|(s, _)| s.parent.is_none()).map(|(_, n)| n.as_str())
+        self.symbols
+            .iter()
+            .zip(&self.names)
+            .filter(|(s, _)| s.parent.is_none())
+            .map(|(_, n)| n.as_str())
     }
 }
 
@@ -167,7 +220,11 @@ pub struct SymBuilder {
 
 impl SymBuilder {
     pub fn new(n_files: u32) -> Self {
-        SymBuilder { sym_off: Vec::with_capacity(n_files as usize + 1), n_files, ..Default::default() }
+        SymBuilder {
+            sym_off: Vec::with_capacity(n_files as usize + 1),
+            n_files,
+            ..Default::default()
+        }
     }
     fn intern(&mut self, s: &str) -> u32 {
         if let Some(&id) = self.interner.get(s) {
@@ -221,7 +278,11 @@ impl SymBuilder {
         }
         // sorted name ids
         let mut order: Vec<u32> = (0..self.names.len() as u32).collect();
-        order.sort_unstable_by(|&a, &b| self.names[a as usize].as_bytes().cmp(self.names[b as usize].as_bytes()));
+        order.sort_unstable_by(|&a, &b| {
+            self.names[a as usize]
+                .as_bytes()
+                .cmp(self.names[b as usize].as_bytes())
+        });
         let mut remap = vec![0u32; self.names.len()];
         for (new, &old) in order.iter().enumerate() {
             remap[old as usize] = new as u32;
@@ -232,15 +293,26 @@ impl SymBuilder {
         for s in &mut self.supers {
             *s = remap[*s as usize];
         }
-        let names: Vec<&str> = order.iter().map(|&o| self.names[o as usize].as_str()).collect();
+        let names: Vec<&str> = order
+            .iter()
+            .map(|&o| self.names[o as usize].as_str())
+            .collect();
         // by_name: group symbol ids by name id, best first
         let mut groups: Vec<Vec<u32>> = vec![Vec::new(); names.len()];
         for (i, s) in self.syms.iter().enumerate() {
             groups[s.name_id as usize].push(i as u32);
         }
         let score = |s: &SymRec| -> f32 {
-            let exported = if s.flags & greeg_lang::sym::SYM_EXPORTED != 0 { 1.0 } else { 0.8 };
-            let test = if s.flags & greeg_lang::sym::SYM_TEST != 0 { 0.5 } else { 1.0 };
+            let exported = if s.flags & greeg_lang::sym::SYM_EXPORTED != 0 {
+                1.0
+            } else {
+                0.8
+            };
+            let test = if s.flags & greeg_lang::sym::SYM_TEST != 0 {
+                0.5
+            } else {
+                1.0
+            };
             kind_weight(s.kind) * exported * test * (0.6 + 0.4 * rank_of(s.file))
         };
         let mut by_name_off: Vec<u32> = Vec::with_capacity(names.len() + 1);
@@ -248,7 +320,12 @@ impl SymBuilder {
         for g in groups.iter_mut() {
             by_name_off.push(by_name.len() as u32);
             if g.len() > 1 {
-                g.sort_by(|&a, &b| score(&self.syms[b as usize]).partial_cmp(&score(&self.syms[a as usize])).unwrap_or(std::cmp::Ordering::Equal).then(self.syms[a as usize].file.cmp(&self.syms[b as usize].file)));
+                g.sort_by(|&a, &b| {
+                    score(&self.syms[b as usize])
+                        .partial_cmp(&score(&self.syms[a as usize]))
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                        .then(self.syms[a as usize].file.cmp(&self.syms[b as usize].file))
+                });
             }
             by_name.extend_from_slice(g);
         }
@@ -268,8 +345,18 @@ impl SymBuilder {
         let arena_len: usize = names.iter().map(|n| n.len()).sum();
         let tok_arena_len: usize = toks.iter().map(|(t, _)| t.len()).sum();
         let n_tok_names: usize = toks.iter().map(|(_, v)| v.len()).sum();
-        let mut body = Vec::with_capacity(64 + self.syms.len() * 48 + arena_len * 2 + n_tok_names * 4);
-        for x in [self.n_files, self.syms.len() as u32, names.len() as u32, self.supers.len() as u32, toks.len() as u32, n_tok_names as u32, arena_len as u32, tok_arena_len as u32] {
+        let mut body =
+            Vec::with_capacity(64 + self.syms.len() * 48 + arena_len * 2 + n_tok_names * 4);
+        for x in [
+            self.n_files,
+            self.syms.len() as u32,
+            names.len() as u32,
+            self.supers.len() as u32,
+            toks.len() as u32,
+            n_tok_names as u32,
+            arena_len as u32,
+            tok_arena_len as u32,
+        ] {
             body.extend_from_slice(&x.to_le_bytes());
         }
         put_u32s(&mut body, &self.sym_off);
@@ -338,13 +425,25 @@ impl<'a> SymbolsView<'a> {
             bail!("short symbols section");
         }
         let h: &[u32] = bytemuck::cast_slice(&body[..32]);
-        let (n_files, n_syms, n_names, n_super, n_tokens, n_tok_names, arena_len, tok_arena_len) = (h[0] as usize, h[1] as usize, h[2] as usize, h[3] as usize, h[4] as usize, h[5] as usize, h[6] as usize, h[7] as usize);
+        let (n_files, n_syms, n_names, n_super, n_tokens, n_tok_names, arena_len, tok_arena_len) = (
+            h[0] as usize,
+            h[1] as usize,
+            h[2] as usize,
+            h[3] as usize,
+            h[4] as usize,
+            h[5] as usize,
+            h[6] as usize,
+            h[7] as usize,
+        );
         let mut off = 32;
         let sym_off = take_u32s(body, &mut off, n_files + 1)?;
-        let sb = body.get(off..off + n_syms * std::mem::size_of::<SymRec>()).context("syms truncated")?;
+        let sb = body
+            .get(off..off + n_syms * std::mem::size_of::<SymRec>())
+            .context("syms truncated")?;
         off += sb.len();
         off = (off + 7) & !7;
-        let syms: &[SymRec] = bytemuck::try_cast_slice(sb).map_err(|_| anyhow::anyhow!("unaligned syms"))?;
+        let syms: &[SymRec] =
+            bytemuck::try_cast_slice(sb).map_err(|_| anyhow::anyhow!("unaligned syms"))?;
         let supers = take_u32s(body, &mut off, n_super)?;
         let name_off = take_u32s(body, &mut off, n_names + 1)?;
         let arena = take_bytes(body, &mut off, arena_len)?;
@@ -354,7 +453,20 @@ impl<'a> SymbolsView<'a> {
         let tok_arena = take_bytes(body, &mut off, tok_arena_len)?;
         let tok_names_off = take_u32s(body, &mut off, n_tokens + 1)?;
         let tok_names = take_u32s(body, &mut off, n_tok_names)?;
-        Ok(SymbolsView { n_files: n_files as u32, sym_off, syms, supers, name_off, arena, by_name_off, by_name, tok_off, tok_arena, tok_names_off, tok_names })
+        Ok(SymbolsView {
+            n_files: n_files as u32,
+            sym_off,
+            syms,
+            supers,
+            name_off,
+            arena,
+            by_name_off,
+            by_name,
+            tok_off,
+            tok_arena,
+            tok_names_off,
+            tok_names,
+        })
     }
     pub fn n_names(&self) -> usize {
         self.name_off.len().saturating_sub(1)
@@ -373,7 +485,8 @@ impl<'a> SymbolsView<'a> {
         if i + 1 >= self.name_off.len() {
             return "";
         }
-        std::str::from_utf8(&self.arena[self.name_off[i] as usize..self.name_off[i + 1] as usize]).unwrap_or("")
+        std::str::from_utf8(&self.arena[self.name_off[i] as usize..self.name_off[i + 1] as usize])
+            .unwrap_or("")
     }
     pub fn find_name(&self, name: &str) -> Option<u32> {
         let n = self.n_names();
@@ -394,10 +507,19 @@ impl<'a> SymbolsView<'a> {
         let (mut lo, mut hi) = (0usize, n);
         while lo < hi {
             let mid = (lo + hi) / 2;
-            if self.name(mid as u32).as_bytes() < prefix.as_bytes() { lo = mid + 1 } else { hi = mid }
+            if self.name(mid as u32).as_bytes() < prefix.as_bytes() {
+                lo = mid + 1
+            } else {
+                hi = mid
+            }
         }
         let mut hi = lo;
-        while hi < n && self.name(hi as u32).as_bytes().starts_with(prefix.as_bytes()) {
+        while hi < n
+            && self
+                .name(hi as u32)
+                .as_bytes()
+                .starts_with(prefix.as_bytes())
+        {
             hi += 1;
         }
         lo as u32..hi as u32
@@ -411,11 +533,15 @@ impl<'a> SymbolsView<'a> {
         &self.by_name[self.by_name_off[i] as usize..self.by_name_off[i + 1] as usize]
     }
     pub fn supers_of(&self, s: &SymRec) -> &'a [u32] {
-        let (a, b) = (s.super_off as usize, s.super_off as usize + s.super_len as usize);
+        let (a, b) = (
+            s.super_off as usize,
+            s.super_off as usize + s.super_len as usize,
+        );
         self.supers.get(a..b).unwrap_or(&[])
     }
     pub fn token(&self, i: usize) -> &'a str {
-        std::str::from_utf8(&self.tok_arena[self.tok_off[i] as usize..self.tok_off[i + 1] as usize]).unwrap_or("")
+        std::str::from_utf8(&self.tok_arena[self.tok_off[i] as usize..self.tok_off[i + 1] as usize])
+            .unwrap_or("")
     }
     pub fn find_token(&self, tok: &str) -> Option<&'a [u32]> {
         let n = self.tok_off.len().saturating_sub(1);
@@ -425,7 +551,12 @@ impl<'a> SymbolsView<'a> {
             match self.token(mid).as_bytes().cmp(tok.as_bytes()) {
                 std::cmp::Ordering::Less => lo = mid + 1,
                 std::cmp::Ordering::Greater => hi = mid,
-                std::cmp::Ordering::Equal => return Some(&self.tok_names[self.tok_names_off[mid] as usize..self.tok_names_off[mid + 1] as usize]),
+                std::cmp::Ordering::Equal => {
+                    return Some(
+                        &self.tok_names[self.tok_names_off[mid] as usize
+                            ..self.tok_names_off[mid + 1] as usize],
+                    );
+                }
             }
         }
         None
@@ -434,7 +565,10 @@ impl<'a> SymbolsView<'a> {
     pub fn enclosing(&self, file_local: u32, off: u32) -> Option<u32> {
         let (base, syms) = self.symbols_of(file_local);
         let upto = syms.partition_point(|s| s.start <= off);
-        (0..upto).rev().find(|&i| syms[i].end > off).map(|i| base + i as u32)
+        (0..upto)
+            .rev()
+            .find(|&i| syms[i].end > off)
+            .map(|i| base + i as u32)
     }
 }
 
@@ -452,7 +586,10 @@ pub struct SpanBuilder {
 
 impl SpanBuilder {
     pub fn new(n_files: u32) -> Self {
-        SpanBuilder { n_files, ..Default::default() }
+        SpanBuilder {
+            n_files,
+            ..Default::default()
+        }
     }
     /// `targets[i]` is the resolved file id for `ex.imports[i]` (or NONE).
     pub fn add_file(&mut self, file_local: u32, ex: Option<&FileExtract>, targets: &[u32]) {
@@ -467,13 +604,23 @@ impl SpanBuilder {
                 SpanKind::String => 1,
                 SpanKind::Docstring => 2,
             };
-            self.nc.push(NcRec { start: sp.start, end_kind: (sp.end & 0x3fff_ffff) | (k << 30) });
+            self.nc.push(NcRec {
+                start: sp.start,
+                end_kind: (sp.end & 0x3fff_ffff) | (k << 30),
+            });
         }
         for (i, im) in ex.imports.iter().enumerate() {
             let raw_off = self.arena.len() as u32;
             self.arena.extend_from_slice(im.module.as_bytes());
             let info = (im.wildcard as u16) | ((im.names.len().min(0x7fff) as u16) << 1);
-            self.imps.push(ImpRec { start: im.start, end: im.end, target: targets.get(i).copied().unwrap_or(NONE), raw_off, raw_len: im.module.len().min(u16::MAX as usize) as u16, info });
+            self.imps.push(ImpRec {
+                start: im.start,
+                end: im.end,
+                target: targets.get(i).copied().unwrap_or(NONE),
+                raw_off,
+                raw_len: im.module.len().min(u16::MAX as usize) as u16,
+                info,
+            });
         }
     }
     pub fn finish(mut self) -> Vec<u8> {
@@ -481,8 +628,14 @@ impl SpanBuilder {
             self.nc_off.push(self.nc.len() as u32);
             self.imp_off.push(self.imps.len() as u32);
         }
-        let mut body = Vec::with_capacity(32 + self.nc.len() * 8 + self.imps.len() * 20 + self.arena.len());
-        for x in [self.n_files, self.nc.len() as u32, self.imps.len() as u32, self.arena.len() as u32] {
+        let mut body =
+            Vec::with_capacity(32 + self.nc.len() * 8 + self.imps.len() * 20 + self.arena.len());
+        for x in [
+            self.n_files,
+            self.nc.len() as u32,
+            self.imps.len() as u32,
+            self.arena.len() as u32,
+        ] {
             body.extend_from_slice(&x.to_le_bytes());
         }
         put_u32s(&mut body, &self.nc_off);
@@ -511,18 +664,27 @@ impl<'a> SpansView<'a> {
             bail!("short spans section");
         }
         let h: &[u32] = bytemuck::cast_slice(&body[..16]);
-        let (n_files, n_nc, n_imp, arena_len) = (h[0] as usize, h[1] as usize, h[2] as usize, h[3] as usize);
+        let (n_files, n_nc, n_imp, arena_len) =
+            (h[0] as usize, h[1] as usize, h[2] as usize, h[3] as usize);
         let mut off = 16;
         let nc_off = take_u32s(body, &mut off, n_files + 1)?;
         let b = body.get(off..off + n_nc * 8).context("nc truncated")?;
         off = (off + b.len() + 7) & !7;
-        let nc: &[NcRec] = bytemuck::try_cast_slice(b).map_err(|_| anyhow::anyhow!("unaligned nc"))?;
+        let nc: &[NcRec] =
+            bytemuck::try_cast_slice(b).map_err(|_| anyhow::anyhow!("unaligned nc"))?;
         let imp_off = take_u32s(body, &mut off, n_files + 1)?;
         let b = body.get(off..off + n_imp * 20).context("imps truncated")?;
         off = (off + b.len() + 7) & !7;
-        let imps: &[ImpRec] = bytemuck::try_cast_slice(b).map_err(|_| anyhow::anyhow!("unaligned imps"))?;
+        let imps: &[ImpRec] =
+            bytemuck::try_cast_slice(b).map_err(|_| anyhow::anyhow!("unaligned imps"))?;
         let arena = take_bytes(body, &mut off, arena_len)?;
-        Ok(SpansView { nc_off, nc, imp_off, imps, arena })
+        Ok(SpansView {
+            nc_off,
+            nc,
+            imp_off,
+            imps,
+            arena,
+        })
     }
     pub fn noncode_of(&self, file_local: u32) -> &'a [NcRec] {
         let f = file_local as usize;
@@ -539,7 +701,10 @@ impl<'a> SpansView<'a> {
         &self.imps[self.imp_off[f] as usize..self.imp_off[f + 1] as usize]
     }
     pub fn raw(&self, i: &ImpRec) -> &'a str {
-        std::str::from_utf8(&self.arena[i.raw_off as usize..i.raw_off as usize + i.raw_len as usize]).unwrap_or("")
+        std::str::from_utf8(
+            &self.arena[i.raw_off as usize..i.raw_off as usize + i.raw_len as usize],
+        )
+        .unwrap_or("")
     }
     /// Noncode span containing `off`, if any: (kind code, start, end).
     pub fn noncode_at(&self, file_local: u32, off: u32) -> Option<(u8, u32, u32)> {
@@ -549,7 +714,11 @@ impl<'a> SpansView<'a> {
             return None;
         }
         let n = &nc[i - 1];
-        if n.end() > off { Some((n.kind(), n.start, n.end())) } else { None }
+        if n.end() > off {
+            Some((n.kind(), n.start, n.end()))
+        } else {
+            None
+        }
     }
     pub fn import_at(&self, file_local: u32, off: u32) -> Option<&'a ImpRec> {
         let im = self.imports_of(file_local);
@@ -571,7 +740,10 @@ pub struct GraphBuilder {
 
 impl GraphBuilder {
     pub fn new(n: u32) -> Self {
-        GraphBuilder { n, edges: Vec::new() }
+        GraphBuilder {
+            n,
+            edges: Vec::new(),
+        }
     }
     pub fn add(&mut self, from: u32, to: u32, w: u16) {
         if from != to && to != NONE {
@@ -621,7 +793,13 @@ impl GraphBuilder {
         let mut rank = vec![1.0f32 / n.max(1) as f32; n];
         let mut next = vec![0f32; n];
         let d = 0.85f32;
-        let out_sum: Vec<f32> = (0..n).map(|i| (out_off[i]..out_off[i + 1]).map(|e| out_w[e as usize] as f32).sum()).collect();
+        let out_sum: Vec<f32> = (0..n)
+            .map(|i| {
+                (out_off[i]..out_off[i + 1])
+                    .map(|e| out_w[e as usize] as f32)
+                    .sum()
+            })
+            .collect();
         for _ in 0..20 {
             let mut dangling = 0f32;
             for i in 0..n {
@@ -684,12 +862,22 @@ impl<'a> GraphView<'a> {
         let out_off = take_u32s(body, &mut off, n + 1)?;
         let out_to = take_u32s(body, &mut off, m)?;
         let wb = take_bytes(body, &mut off, m * 2)?;
-        let out_w: &[u16] = bytemuck::try_cast_slice(wb).map_err(|_| anyhow::anyhow!("unaligned weights"))?;
+        let out_w: &[u16] =
+            bytemuck::try_cast_slice(wb).map_err(|_| anyhow::anyhow!("unaligned weights"))?;
         let in_off = take_u32s(body, &mut off, n + 1)?;
         let in_from = take_u32s(body, &mut off, m)?;
         let rb = take_bytes(body, &mut off, n * 4)?;
-        let rank: &[f32] = bytemuck::try_cast_slice(rb).map_err(|_| anyhow::anyhow!("unaligned ranks"))?;
-        Ok(GraphView { n: n as u32, out_off, out_to, out_w, in_off, in_from, rank })
+        let rank: &[f32] =
+            bytemuck::try_cast_slice(rb).map_err(|_| anyhow::anyhow!("unaligned ranks"))?;
+        Ok(GraphView {
+            n: n as u32,
+            out_off,
+            out_to,
+            out_w,
+            in_off,
+            in_from,
+            rank,
+        })
     }
     pub fn out(&self, f: u32) -> &'a [u32] {
         let i = f as usize;
@@ -714,8 +902,14 @@ mod tests {
     #[test]
     fn tokens() {
         assert_eq!(split_tokens("getUserName"), vec!["get", "user", "name"]);
-        assert_eq!(split_tokens("HTTPServerError"), vec!["http", "server", "error"]);
-        assert_eq!(split_tokens("parse_json2_fast"), vec!["parse", "json2", "fast"]);
+        assert_eq!(
+            split_tokens("HTTPServerError"),
+            vec!["http", "server", "error"]
+        );
+        assert_eq!(
+            split_tokens("parse_json2_fast"),
+            vec!["parse", "json2", "fast"]
+        );
         assert_eq!(split_tokens("ab"), Vec::<String>::new());
     }
 
