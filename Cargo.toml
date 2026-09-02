@@ -43,7 +43,12 @@ libc = "0.2"
 opt-level = 3
 lto = "fat"
 codegen-units = 1
+strip = "debuginfo"   # the shipped binary; Linux ELFs embed line tables otherwise (47 MB vs 16 MB)
+
+[profile.profiling]
+inherits = "release"
 debug = 1
+strip = "none"
 
 [profile.dev]
 opt-level = 1
