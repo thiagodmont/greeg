@@ -386,6 +386,7 @@ name = "greeg"
 version = "0.2.0"
 dependencies = [
  "anyhow",
+ "blake3",
  "bstr",
  "clap",
  "clap_mangen",
@@ -396,6 +397,7 @@ dependencies = [
  "ignore",
  "libc",
  "memchr",
+ "serde",
  "serde_json",
 ]
 

@@ -307,7 +307,7 @@ fn shell_words(s: &str) -> Option<Vec<String>> {
     Some(out)
 }
 
-fn quote(w: &str) -> String {
+pub(crate) fn quote(w: &str) -> String {
     if !w.is_empty()
         && w.bytes()
             .all(|b| b.is_ascii_alphanumeric() || b"-_./:=,@+".contains(&b))
@@ -488,7 +488,7 @@ impl Parsed {
 
 const VERBS: &[&str] = &[
     "def", "refs", "callers", "impls", "outline", "map", "impact", "index", "doctor", "man",
-    "hook", "lang",
+    "hook", "lang", "stats",
 ];
 
 fn parse(words: &[String], prog: Prog) -> Option<Parsed> {
@@ -623,8 +623,9 @@ fn bre_to_ere(pat: &str) -> Option<String> {
     Some(out)
 }
 
-/// Rewrite one pipeline segment; `None` = leave it alone.
-pub fn rewrite_segment(seg: &str) -> Option<String> {
+/// Rewrite one pipeline segment to argv: `(original words, greeg words)`;
+/// `None` = leave it alone.
+fn rewrite_words(seg: &str) -> Option<(Vec<String>, Vec<String>)> {
     let words = shell_words(seg.trim())?;
     let first = words.first()?;
     // env assignments and wrappers (`FOO=1 rg`, `timeout 5 rg`, `xargs rg`, `sudo rg`, `nice rg`)
@@ -673,7 +674,7 @@ pub fn rewrite_segment(seg: &str) -> Option<String> {
     };
 
     let mut out: Vec<String> = vec!["greeg".into()];
-    out.extend(p.flags);
+    out.extend(p.flags.clone());
     match p.unrestricted {
         0 => {}
         1 => out.push("--no-ignore".into()),
@@ -695,24 +696,42 @@ pub fn rewrite_segment(seg: &str) -> Option<String> {
         }
         out.push(w);
     }
-    Some(out.iter().map(|w| quote(w)).collect::<Vec<_>>().join(" "))
+    Some((words, out))
+}
+
+/// A rewritten Bash command and what changed in it (for the stats records).
+pub struct Rewrite {
+    pub command: String,
+    /// `DIR` of a leading `cd DIR &&`, which is where greeg will run.
+    pub cd: Option<String>,
+    pub original: Vec<String>,
+    pub rewritten: Vec<String>,
 }
 
 /// Rewrite a whole Bash command: only the first pipeline segment, optionally
 /// after a leading `cd DIR &&`; everything after the next operator is kept
 /// verbatim. A redirection on the rg segment means no rewrite.
+#[cfg(test)]
 pub fn rewrite_command(cmd: &str) -> Option<String> {
+    rewrite_full(cmd).map(|r| r.command)
+}
+
+pub fn rewrite_full(cmd: &str) -> Option<Rewrite> {
     let cmd = cmd.trim();
     let ops = scan_ops(cmd)?;
     let mut prefix = String::new();
+    let mut cd = None;
     let mut seg_start = 0;
     let mut idx = 0;
     if let Some(op) = ops.first()
         && op.text == "&&"
     {
         let head = cmd[..op.start].trim();
-        if head.starts_with("cd ") && shell_words(head).is_some_and(|w| w.len() == 2) {
+        if head.starts_with("cd ")
+            && let Some(w) = shell_words(head).filter(|w| w.len() == 2)
+        {
             prefix = format!("{head} && ");
+            cd = Some(w[1].clone());
             seg_start = op.end;
             idx = 1;
         }
@@ -725,11 +744,22 @@ pub fn rewrite_command(cmd: &str) -> Option<String> {
         ),
         None => (&cmd[seg_start..], None),
     };
-    let new = rewrite_segment(seg)?;
-    Some(match tail {
+    let (original, rewritten) = rewrite_words(seg)?;
+    let new = rewritten
+        .iter()
+        .map(|w| quote(w))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let command = match tail {
         Some((op, "")) => format!("{prefix}{new} {op}"),
         Some((op, rest)) => format!("{prefix}{new} {op} {rest}"),
         None => format!("{prefix}{new}"),
+    };
+    Some(Rewrite {
+        command,
+        cd,
+        original,
+        rewritten,
     })
 }
 
@@ -750,13 +780,26 @@ pub fn run() -> Result<()> {
     else {
         return Ok(());
     };
-    if let Some(new) = rewrite_command(cmd)
-        && new != cmd
+    if let Some(rw) = rewrite_full(cmd)
+        && rw.command != cmd
     {
-        let out = json!({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecisionReason": "greeg rewrite", "updatedInput": {"command": new}}});
+        let out = json!({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecisionReason": "greeg rewrite", "updatedInput": {"command": rw.command}}});
         let mut w = std::io::stdout().lock();
         serde_json::to_writer(&mut w, &out)?;
         writeln!(w)?;
+        // opt-in stats: where greeg will run is the hook's cwd, or the `cd DIR` in front
+        let base = v
+            .get("cwd")
+            .and_then(|c| c.as_str())
+            .map(PathBuf::from)
+            .or_else(|| std::env::current_dir().ok())
+            .unwrap_or_default();
+        let cwd = match &rw.cd {
+            Some(d) => base.join(d),
+            None => base,
+        };
+        let session = v.get("session_id").and_then(|s| s.as_str());
+        crate::stats::record_hook(&cwd, session, &rw.original, &rw.rewritten);
     }
     Ok(())
 }
@@ -992,6 +1035,29 @@ mod tests {
         same("rg 'a*b' src", "greeg 'a*b' src");
         same("rg -g '*.rs' foo", "greeg -g '*.rs' foo");
         untouched("rg foo 2>/dev/null | head");
+    }
+
+    #[test]
+    fn flags_that_run_commands_are_never_rewritten() {
+        // a replayed record must be a plain read-only search
+        untouched("rg --pre ./script foo src");
+        untouched("rg --pre=./script foo src");
+        untouched("rg --pre-glob '*.pdf' --pre cat foo");
+    }
+
+    #[test]
+    fn stats_is_a_verb_name() {
+        same("rg stats src", "greeg -e stats src");
+    }
+
+    #[test]
+    fn rewrite_full_reports_argv_and_cd() {
+        let r = rewrite_full("cd crates && rg -n 'fn main' src | head").unwrap();
+        assert_eq!(r.command, "cd crates && greeg 'fn main' src | head");
+        assert_eq!(r.cd.as_deref(), Some("crates"));
+        assert_eq!(r.original, ["rg", "-n", "fn main", "src"]);
+        assert_eq!(r.rewritten, ["greeg", "fn main", "src"]);
+        assert!(rewrite_full("rg foo").unwrap().cd.is_none());
     }
 
     #[test]
