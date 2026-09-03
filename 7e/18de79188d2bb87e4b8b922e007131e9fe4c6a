@@ -1,0 +1,23 @@
+Cargo.lock
+  s_a2e132675c7207::t_78ec7d784ea5f8 386,406,413,434,453
+Cargo.toml
+  s_a2e132675c7207::t_747ee41b34e9fc 7
+README.md
+  s_a2e132675c7207::t_1f5c5b4b9d1a77 34
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "7e18de79188d2bb87e4b8b922e007131e9fe4c6a",
+  "prompts": {},
+  "sessions": {
+    "s_a2e132675c7207": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fc3a7428-1999-41f2-9c8e-931091121ea9",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
