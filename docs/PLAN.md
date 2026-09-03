@@ -393,6 +393,18 @@ three corpora with zero incorrect results versus `rg` and zero crashes; binary
   (flags mapped, `--include` → `-g`, unsupported semantics such as `-v`,
   `-o`, `--files`, expansions and globs left untouched, only the first
   pipeline segment) and writes `~/.claude/skills/greeg/SKILL.md`.
+* `greeg stats` (opt-in: `greeg stats enable` writes `stats = true` to
+  `~/.config/greeg/config.toml`; `GREEG_STATS=1|0` overrides): the hook
+  appends a `hook` record per rewrite and every greeg run a `run` record
+  (wall from process start, scan/shape ms, output bytes and token estimate)
+  to `<cache>/stats/events.jsonl` (0600, rotates at 16 MB). The two join on
+  blake3(cwd, rewritten argv). `greeg stats replay` runs the original
+  rg/grep and the greeg rewrite in the recorded cwd (argv, never `sh -c`;
+  one warm-up, median of `--runs`, killed after `--timeout`; the index is
+  built first when missing) and the report prints avg/min/p50/p95/
+  p99/max latency and tokens per class plus savings against rg capped at
+  Claude Code's 30 000-character tool-output limit (`--cap`, `stats_cap`).
+  `--since`, `--repo`, `--json`, `--verbose`, `status`, `clear`.
 * Runtime grammars (D§11): `$GREEG_LANG_DIR` or `~/.config/greeg/lang/<name>/`
   with `spec.toml`, `grammar.so|dylib` and `tags.scm`; `dlopen` on first
   use, ABI-checked; generic comment/string lexer from the spec; `-t <name>`

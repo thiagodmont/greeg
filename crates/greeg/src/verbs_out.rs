@@ -11,8 +11,8 @@ use greeg_query::{HitKind, Options};
 use serde_json::json;
 use std::io::{BufWriter, Write};
 
-fn out() -> BufWriter<std::io::StdoutLock<'static>> {
-    BufWriter::with_capacity(64 * 1024, std::io::stdout().lock())
+fn out() -> BufWriter<crate::stats::Tee<std::io::StdoutLock<'static>>> {
+    BufWriter::with_capacity(64 * 1024, crate::stats::Tee(std::io::stdout().lock()))
 }
 
 /// ` · N ms` only with `--stats`.
@@ -203,8 +203,7 @@ pub fn run_def(
             writeln!(w, "next: greeg {name} --kind def | greeg -i {name}")?;
         }
         w.flush()?;
-        greeg_query::indexed::flush_pending_build();
-        std::process::exit(1);
+        crate::stats::exit_no_hits("def");
     }
     let rung = if r.rung != greeg_query::Rung::Exact {
         format!(" · matched {}", r.rung.describe())
@@ -319,8 +318,7 @@ pub fn run_refs(c: &Common, o: &Options, name: &str) -> Result<()> {
     if s.stats.total_hits == 0 {
         writeln!(w, "refs {name}  no references ({})", s.stats.source)?;
         w.flush()?;
-        greeg_query::indexed::flush_pending_build();
-        std::process::exit(1);
+        crate::stats::exit_no_hits("refs");
     }
     let rung = if s.rung != greeg_query::Rung::Exact {
         format!(" · matched {}", s.rung.describe())
@@ -435,8 +433,7 @@ pub fn run_callers(c: &Common, o: &Options, name: &str, depth: usize) -> Result<
     if r.callers.is_empty() {
         writeln!(w, "callers {}  no call sites ({})", r.name, r.source)?;
         w.flush()?;
-        greeg_query::indexed::flush_pending_build();
-        std::process::exit(1);
+        crate::stats::exit_no_hits("callers");
     }
     writeln!(
         w,
@@ -541,8 +538,7 @@ pub fn run_impls(c: &Common, o: &Options, name: &str) -> Result<()> {
     if r.direct.is_empty() && r.extras.is_empty() {
         writeln!(w, "impls {}  none found ({})", r.name, r.source)?;
         w.flush()?;
-        greeg_query::indexed::flush_pending_build();
-        std::process::exit(1);
+        crate::stats::exit_no_hits("impls");
     }
     writeln!(
         w,
@@ -884,8 +880,7 @@ pub fn run_impact(c: &Common, o: &Options, name: &str) -> Result<()> {
     if r.total_hits == 0 {
         writeln!(w, "impact {}  no references found", r.name)?;
         w.flush()?;
-        greeg_query::indexed::flush_pending_build();
-        std::process::exit(1);
+        crate::stats::exit_no_hits("impact");
     }
     writeln!(
         w,

@@ -54,6 +54,19 @@ pub struct Manifest {
     pub tombstones: u32,
 }
 
+/// The user cache directory greeg owns: `~/Library/Caches/greeg` on macOS,
+/// `$XDG_CACHE_HOME/greeg` or `~/.cache/greeg` elsewhere. Per-repo index
+/// directories and the opt-in stats live under it.
+pub fn cache_base() -> Result<PathBuf> {
+    Ok(if cfg!(target_os = "macos") {
+        PathBuf::from(std::env::var_os("HOME").context("HOME")?).join("Library/Caches/greeg")
+    } else if let Some(x) = std::env::var_os("XDG_CACHE_HOME") {
+        PathBuf::from(x).join("greeg")
+    } else {
+        PathBuf::from(std::env::var_os("HOME").context("HOME")?).join(".cache/greeg")
+    })
+}
+
 /// Where the index for `root` lives (DESIGN.md §2.2).
 pub fn index_dir_for(root: &Path) -> Result<PathBuf> {
     if let Some(d) = std::env::var_os("GREEG_INDEX_DIR") {
@@ -63,13 +76,7 @@ pub fn index_dir_for(root: &Path) -> Result<PathBuf> {
         std::fs::canonicalize(root).with_context(|| format!("canonicalize {}", root.display()))?;
     let hash = blake3::hash(real.to_string_lossy().as_bytes());
     let hex = hash.to_hex();
-    let base = if cfg!(target_os = "macos") {
-        PathBuf::from(std::env::var_os("HOME").context("HOME")?).join("Library/Caches/greeg")
-    } else if let Some(x) = std::env::var_os("XDG_CACHE_HOME") {
-        PathBuf::from(x).join("greeg")
-    } else {
-        PathBuf::from(std::env::var_os("HOME").context("HOME")?).join(".cache/greeg")
-    };
+    let base = cache_base()?;
     let name = real
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())

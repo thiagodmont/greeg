@@ -70,6 +70,33 @@ removes both files' entries.
 Other agents can call `greeg` directly; it prints to stdout, exits 0 on hits,
 1 on none and 2 on error, exactly like ripgrep.
 
+## Is it worth it? `greeg stats`
+
+Off by default. `greeg stats enable` (or `GREEG_STATS=1` in one shell) makes
+the hook record every `rg`/`grep` call it rewrote and every greeg run record
+its wall time and output size. `greeg stats` then prints latency and token
+distributions (avg, min, p50, p95, p99, max) for rewritten searches, direct
+searches and symbol verbs. `greeg stats replay` runs the original `rg`/`grep`
+commands and their greeg rewrites side by side, on the same machine and the
+same tree, and the report adds the counterfactual and the savings line:
+
+```
+greeg stats enable
+# ... work with the agent for a while ...
+greeg stats replay --runs 3          # on a quiet machine
+greeg stats --since 7d --repo .      # --json for machine output, --verbose to list commands
+```
+
+The records hold search patterns and paths, which is why this is opt-in.
+They live under the user cache dir (`~/Library/Caches/greeg/stats` on
+macOS, `~/.cache/greeg/stats` elsewhere), mode 0600, never leave the machine,
+rotate at 16 MB, and `greeg stats clear` deletes them. Output is never
+stored, only its size and token estimate. Claude Code truncates Bash output
+at 30 000 characters, so rg tokens are reported raw and capped at that size;
+the savings use the capped figure. `--cap N`, `greeg stats enable --cap N` or
+`stats_cap = N` in `~/.config/greeg/config.toml` change it. `GREEG_STATS=0`
+overrides the config file.
+
 ## How it works
 
 The first query in a repository is answered by a ripgrep-speed scan while a

@@ -2,6 +2,7 @@
 
 mod doctor;
 mod hook;
+mod stats;
 mod verbs_out;
 
 use anyhow::Result;
@@ -313,6 +314,56 @@ enum Cmd {
         #[command(subcommand)]
         which: LangCmd,
     },
+    /// Opt-in local usage stats: latency and token percentiles, savings vs the rg/grep calls the hook replaced
+    Stats {
+        #[command(subcommand)]
+        which: Option<StatsCmd>,
+        #[command(flatten)]
+        filter: StatsFilter,
+        /// rg output cap in bytes for the token comparison (default: `stats_cap` in the config file, else 30000, Claude Code's Bash output limit)
+        #[arg(long = "cap", global = true)]
+        cap: Option<usize>,
+        /// List the replayed commands one per line (never printed otherwise)
+        #[arg(long = "verbose")]
+        verbose: bool,
+    },
+}
+
+#[derive(Args, Debug, Clone)]
+struct StatsFilter {
+    /// Only records newer than this: 30m, 12h, 7d, 2w
+    #[arg(long = "since", value_name = "DURATION", global = true)]
+    since: Option<String>,
+    /// Only records from this repository (`.` for the current one)
+    #[arg(long = "repo", value_name = "PATH", global = true)]
+    repo: Option<PathBuf>,
+}
+
+#[derive(Subcommand, Debug)]
+enum StatsCmd {
+    /// Turn collection on (writes `stats = true` to ~/.config/greeg/config.toml)
+    Enable,
+    /// Turn collection off (records are kept)
+    Disable,
+    /// Whether collection is on, where the records are, how many there are
+    Status,
+    /// Delete every record
+    Clear,
+    /// Run the original rg/grep commands and their greeg rewrites under the same conditions
+    Replay {
+        /// Timed runs per command after one warm-up (median is kept)
+        #[arg(long = "runs", default_value_t = 3)]
+        runs: usize,
+        /// Replay at most this many distinct queries (newest first)
+        #[arg(long = "limit")]
+        limit: Option<usize>,
+        /// Re-run queries that already have a replay record
+        #[arg(long = "force")]
+        force: bool,
+        /// Kill a replayed command after this many seconds
+        #[arg(long = "timeout", default_value_t = 60)]
+        timeout: u64,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -600,35 +651,6 @@ fn build_options(c: &Common, pattern: String, paths: Vec<PathBuf>) -> Result<Opt
     })
 }
 
-/// `GREEG_DEBUG_START=1`: print time since process start at main entry and after argument parsing.
-fn since_start_us() -> Option<u64> {
-    #[cfg(target_os = "macos")]
-    {
-        let mut info: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
-        let size = std::mem::size_of::<libc::proc_bsdinfo>() as libc::c_int;
-        let r = unsafe {
-            libc::proc_pidinfo(
-                std::process::id() as libc::c_int,
-                libc::PROC_PIDTBSDINFO,
-                0,
-                &mut info as *mut _ as *mut libc::c_void,
-                size,
-            )
-        };
-        if r != size {
-            return None;
-        }
-        let start = std::time::UNIX_EPOCH
-            + std::time::Duration::new(info.pbi_start_tvsec, info.pbi_start_tvusec as u32 * 1000);
-        return std::time::SystemTime::now()
-            .duration_since(start)
-            .ok()
-            .map(|d| d.as_micros() as u64);
-    }
-    #[allow(unreachable_code)]
-    None
-}
-
 /// Join `-e` patterns the way ripgrep does: each becomes an alternative; with
 /// `-F` each is escaped and the joined pattern is a regex.
 fn join_patterns(pats: &[String], fixed: bool) -> (String, bool) {
@@ -668,16 +690,27 @@ fn run() -> Result<()> {
     if trace {
         eprintln!(
             "greeg: main entry at {:?} µs after process start",
-            since_start_us()
+            stats::since_start_us()
         );
     }
     let cli = Cli::parse();
     if trace {
-        eprintln!("greeg: args parsed at {:?} µs", since_start_us());
+        eprintln!("greeg: args parsed at {:?} µs", stats::since_start_us());
     }
     let c = &cli.common;
+    stats::begin();
     if let Some(cmd) = cli.cmd {
-        return match cmd {
+        let verb = match &cmd {
+            Cmd::Def { .. } => "def",
+            Cmd::Refs { .. } => "refs",
+            Cmd::Callers { .. } => "callers",
+            Cmd::Impls { .. } => "impls",
+            Cmd::Outline { .. } => "outline",
+            Cmd::Map { .. } => "map",
+            Cmd::Impact { .. } => "impact",
+            _ => "",
+        };
+        let r = match cmd {
             Cmd::Index {
                 root,
                 index_dir,
@@ -735,7 +768,20 @@ fn run() -> Result<()> {
             Cmd::Lang {
                 which: LangCmd::Check { dir },
             } => doctor::lang_check(&dir),
+            Cmd::Stats {
+                which,
+                filter,
+                cap,
+                verbose,
+            } => run_stats(c, which, filter, cap, verbose),
         };
+        if !verb.is_empty() && r.is_ok() {
+            stats::record_run(stats::RunInfo {
+                verb,
+                ..Default::default()
+            });
+        }
+        return r;
     }
     if c.after_sigbus {
         // the previous process died on a truncated index file: the index is unusable
@@ -847,11 +893,62 @@ fn run() -> Result<()> {
         );
     }
     // C14: exit 0 only when the pattern itself matched under the user's flags
-    if result.stats.total_hits == 0 || result.rung != greeg_query::Rung::Exact {
+    let exit = if result.stats.total_hits == 0 || result.rung != greeg_query::Rung::Exact {
+        1
+    } else {
+        0
+    };
+    stats::record_run(stats::RunInfo {
+        verb: "search",
+        scan_ms: Some(t_scan.as_secs_f64() * 1e3),
+        shape_ms: Some(t_shape.as_secs_f64() * 1e3),
+        source: Some(result.stats.source.to_string()),
+        hits: Some(result.stats.total_hits),
+        files: Some(result.stats.files_matched),
+        exit,
+    });
+    if exit != 0 {
         greeg_query::indexed::flush_pending_build();
         std::process::exit(1);
     }
     Ok(())
+}
+
+fn run_stats(
+    c: &Common,
+    which: Option<StatsCmd>,
+    f: StatsFilter,
+    cap: Option<usize>,
+    verbose: bool,
+) -> Result<()> {
+    let filter = stats::Filter {
+        since_ms: f.since.as_deref().map(stats::parse_since).transpose()?,
+        repo: f.repo,
+    };
+    match which {
+        None => stats::report(&stats::ReportOpts {
+            filter,
+            cap,
+            json: c.json,
+            verbose,
+        }),
+        Some(StatsCmd::Enable) => stats::enable(cap),
+        Some(StatsCmd::Disable) => stats::disable(),
+        Some(StatsCmd::Status) => stats::status(),
+        Some(StatsCmd::Clear) => stats::clear(),
+        Some(StatsCmd::Replay {
+            runs,
+            limit,
+            force,
+            timeout,
+        }) => stats::replay(&stats::ReplayOpts {
+            filter,
+            runs,
+            limit,
+            force,
+            timeout: std::time::Duration::from_secs(timeout),
+        }),
+    }
 }
 
 /// C6: no path given and stdin is a pipe or file: search it like ripgrep.
@@ -866,7 +963,14 @@ fn run_stdin(c: &Common, mut opts: Options, fmt: Fmt) -> Result<()> {
     let mut result = greeg_query::stdin::scan(&opts, data)?;
     let report = greeg_query::shape::shape(&mut result);
     emit(c, &result, &report, Fmt { stdin: true, ..fmt })?;
-    if result.stats.total_hits == 0 {
+    let exit = if result.stats.total_hits == 0 { 1 } else { 0 };
+    stats::record_run(stats::RunInfo {
+        verb: "search",
+        hits: Some(result.stats.total_hits),
+        exit,
+        ..Default::default()
+    });
+    if exit != 0 {
         std::process::exit(1);
     }
     Ok(())
@@ -876,7 +980,7 @@ fn run_stdin(c: &Common, mut opts: Options, fmt: Fmt) -> Result<()> {
 /// stderr for `-l`/`-c` and `--budget 0`, whose stdout stays pipe-safe).
 fn emit(c: &Common, result: &ScanResult, report: &Report, fmt: Fmt) -> Result<()> {
     let stdout = std::io::stdout();
-    let mut w = BufWriter::with_capacity(64 * 1024, stdout.lock());
+    let mut w = BufWriter::with_capacity(64 * 1024, stats::Tee(stdout.lock()));
     if c.json {
         render_json(&mut w, result, report)?;
         w.flush()?;
@@ -893,6 +997,7 @@ fn emit(c: &Common, result: &ScanResult, report: &Report, fmt: Fmt) -> Result<()
             let mut f = Vec::new();
             render_footer(&mut f, result, report, report.footer.est_tokens, fmt, false)?;
             std::io::stderr().write_all(&f)?;
+            stats::observe(&f);
         }
     } else {
         // measured estimate for the whole output: body plus the footer itself
