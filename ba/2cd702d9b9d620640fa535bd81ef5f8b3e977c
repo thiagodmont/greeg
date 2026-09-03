@@ -1,0 +1,19 @@
+crates/greeg/src/verbs_out.rs
+  s_a2e132675c7207::t_55a636fc2d9786 285
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "ba2cd702d9b9d620640fa535bd81ef5f8b3e977c",
+  "prompts": {},
+  "sessions": {
+    "s_a2e132675c7207": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fc3a7428-1999-41f2-9c8e-931091121ea9",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
