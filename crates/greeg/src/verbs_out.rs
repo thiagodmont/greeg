@@ -282,7 +282,7 @@ pub fn run_refs(c: &Common, o: &Options, name: &str) -> Result<()> {
             n
         } else {
             ((total_lines as f64 * (n as f64).sqrt() / weight_sum.max(1.0)).round() as usize)
-                .clamp(2, n)
+                .clamp(n.min(2), n)
         }
     };
     let resolved = if let Some(pct) = (r.resolved * 100).checked_div(r.classified) {
