@@ -258,7 +258,11 @@ next: refs JoinHandle | callers JoinHandle | outline tokio/src/runtime/task/join
 Rows: `line kind  [name  ]container › signature  [exported,test] : supertypes`;
 file flags live in the header. A doc first line follows in quotes. `reach`
 is printed only when `--from` was given. `impl` blocks are capped at three
-when other kinds exist. With no exact name the ladder tries case-insensitive,
+when other kinds exist. A file that *is* the module (`sleep.rs`,
+`sleep/mod.rs`, `pkg/__init__.py`, `x/index.ts`) is listed as `1 mod  mod sleep`
+with the first line of its leading doc comment, after functions and types and
+before fields; a Rust `mod x;` declaration is an import, not a definition.
+With no exact name the ladder tries case-insensitive,
 split tokens and fuzzy names and reports `matched fuzzy → spawn_blocking`.
 
 ### `greeg refs NAME`
@@ -310,8 +314,8 @@ section of type-position hits on definition lines (`struct Coop<F: Future>`).
 ### `greeg outline FILE [--imports]`
 
 The file's symbols as a tree: `kind name  :line  [pub,doc,test]`. The
-`imports` line is printed only with `--imports` or when there are at most
-three. When the tree exceeds the budget, deeper levels collapse into
+`imports` line is printed only with `--imports`, when there are at most
+three, or when the file has no symbols (a Rust `mod.rs` of declarations). When the tree exceeds the budget, deeper levels collapse into
 `(+N nested)`.
 
 ```

@@ -606,7 +606,9 @@ pub fn run_outline(c: &Common, o: &Options, file: &str, imports: bool) -> Result
             "  (file has parse errors; some definitions may come from the regex fallback)"
         )?;
     }
-    if !r.imports.is_empty() && (imports || r.imports.len() <= 3) {
+    // a file of declarations only (a Rust `mod.rs` of `mod x;` lines) has
+    // nothing else to show: its imports are the outline
+    if !r.imports.is_empty() && (imports || r.imports.len() <= 3 || r.defs.is_empty()) {
         let imps: Vec<&str> = r.imports.iter().map(|s| s.as_str()).take(40).collect();
         writeln!(
             w,

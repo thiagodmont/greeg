@@ -1611,7 +1611,6 @@ mod tests {
         assert!(ex.tree_sitter, "{ex:?}");
         let n = names(&ex, src);
         let want: Vec<(&str, &str, Option<&str>)> = vec![
-            ("sub", "mod", None),
             ("S", "struct", None),
             ("a", "field", Some("S")),
             ("S", "impl", None),
@@ -1641,10 +1640,11 @@ mod tests {
                 .map(|&(s, e)| std::str::from_utf8(&src[s as usize..e as usize]).unwrap())
                 .collect::<Vec<_>>()
         };
-        assert_eq!(sup(3), vec!["Debug"]);
-        assert_eq!(sup(7), vec!["Send", "Sync"]);
-        assert!(ex.symbols[1].flags & SYM_EXPORTED != 0 && ex.symbols[1].flags & SYM_HAS_DOC != 0);
-        assert!(ex.symbols[2].flags & SYM_EXPORTED == 0);
+        assert_eq!(sup(2), vec!["Debug"]);
+        assert_eq!(sup(6), vec!["Send", "Sync"]);
+        assert!(ex.symbols[0].flags & SYM_EXPORTED != 0 && ex.symbols[0].flags & SYM_HAS_DOC != 0);
+        assert!(ex.symbols[1].flags & SYM_EXPORTED == 0);
+        // `mod sub;` is an import (its definition is the file `sub.rs`), not a symbol
         let mods: Vec<&str> = ex.imports.iter().map(|i| i.module.as_str()).collect();
         assert_eq!(
             mods,

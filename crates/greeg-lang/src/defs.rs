@@ -405,6 +405,15 @@ fn unquoted(line: &[u8], s: usize, e: usize) -> (usize, usize) {
     }
 }
 
+/// Rust `mod x;` (no body) declares a module whose definition is the file
+/// `x.rs` / `x/mod.rs`: the tags query captures it as an import, and so does
+/// the fallback (`def` lists the file itself, DESIGN.md §7.3).
+fn rust_mod_declaration(line: &[u8], name_end: usize) -> bool {
+    line.get(name_end..)
+        .map(|rest| rest.trim_ascii_start().starts_with(b";"))
+        .unwrap_or(false)
+}
+
 /// Cheap per-line check: if `line` starts a definition, return the name range
 /// within the line. Used by scan mode before any file-level outline exists.
 pub fn def_name_on_line(lang: Lang, line: &[u8]) -> Option<(usize, usize)> {
@@ -426,6 +435,9 @@ pub fn def_name_on_line(lang: Lang, line: &[u8]) -> Option<(usize, usize)> {
         if JS_KEYWORDS.iter().any(|k| k.as_bytes() == nm) {
             return None;
         }
+    }
+    if lang == Lang::Rust && caps.name("mod").is_some() && rust_mod_declaration(line, m.end()) {
+        return None;
     }
     Some(unquoted(line, m.start(), m.end()))
 }
@@ -485,6 +497,9 @@ pub fn outline(lang: Lang, src: &[u8], lexed: &Lexed) -> Outline {
             if JS_KEYWORDS.iter().any(|k| k.as_bytes() == nm) {
                 continue;
             }
+        }
+        if lang == Lang::Rust && kind == DefKind::Module && rust_mod_declaration(line, name_end) {
+            continue;
         }
         let indent = crate::indent_of(line);
         if lang == Lang::Python && kind == DefKind::Constant && indent > 0 {

@@ -1018,14 +1018,18 @@ mod tests {
         };
         let mut r = result(vec![file("a.rs", hits.clone())], o.clone());
         let rep = shape(&mut r);
-        assert_eq!(rep.files[0].hits.len(), 2, "only the whole-word hits answer");
-        assert_eq!(rep.related, vec![("foo_bar".to_string(), 3)]);
-        assert_eq!(rep.footer.hits_total, 5, "the footer still counts every match");
-        // parity mode keeps ripgrep's match set
-        let mut r = result(
-            vec![file("a.rs", hits)],
-            Options { budget: 0, ..o },
+        assert_eq!(
+            rep.files[0].hits.len(),
+            2,
+            "only the whole-word hits answer"
         );
+        assert_eq!(rep.related, vec![("foo_bar".to_string(), 3)]);
+        assert_eq!(
+            rep.footer.hits_total, 5,
+            "the footer still counts every match"
+        );
+        // parity mode keeps ripgrep's match set
+        let mut r = result(vec![file("a.rs", hits)], Options { budget: 0, ..o });
         let rep = shape(&mut r);
         assert_eq!(rep.files[0].hits.len(), 5);
         assert!(rep.related.is_empty());

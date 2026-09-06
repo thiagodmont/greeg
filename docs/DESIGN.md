@@ -722,7 +722,12 @@ implemented.
    **As shipped:** `kind_w × exported(1.0 / 0.85) × nested(0.7 when the
    enclosing symbol is a function or method: a closure is not the
    definition an agent asks for while a top-level one exists) × loc_w ×
-   (0.6 + 0.4 × rank) × reach`.
+   (0.6 + 0.4 × rank) × reach`. File modules (`name.ext` in a language with
+   a grammar, `name/mod.rs`, `name/__init__.py`, `name/index.*`) join the
+   candidates at line 1 with weight 0.8, found by one `memmem` pass over the
+   path arena (M10); a Rust `mod x;` without a body is an import in the tags
+   query and the regex fallback, since its definition is that file, which is
+   also rust-analyzer's convention.
 3. Output the signature line, enclosing chain, doc comment first line, and
    caller count (from a cached reference count if computed in this session,
    else `?`).
@@ -989,6 +994,7 @@ Results and the rendered `docs/BENCH.md` are in the repository.
 | Concept search | optional feature, entity BM25 | built-in embeddings | evidence favours lexical for agents; keeps binary and startup small |
 | Name dictionaries | sorted string tables + binary search; bounded Levenshtein scan for fuzzy | `fst` maps with Levenshtein automata | zero dependencies and zero-copy; fuzzy only runs on the zero-hit path where 10 ms is invisible; revisit if profiles disagree |
 | Rust macro bodies | re-parse brace-bodied macro invocations that contain item keywords as items | treat macro bodies as opaque (tree-sitter default) | tokio hides its public API inside `cfg_*!`; without this `def JoinHandle` missed the real struct |
+| Rust `mod x;` | an import; `def` lists the module's file at weight 0.8 | a Module symbol at weight 1.0 | a hub `mod.rs` outranked `pub fn sleep` in ten of thirteen tokio `def` misses; rust-analyzer marks the declaration a reference and the file the definition |
 | Symbol line | line of the name | line of the declaration node | annotations and decorators start the node lines earlier; agents want the `fun`/`class` line (Kotlin agreement 62 % → 97 %) |
 | Delta symbols and edges | extracted inline; imports resolved against the base, rank carried over, edges folded at query time (§4.3) | leave deltas unresolved until the rebuild (v0.3) | the edited files are the agent's working set: `def --from`, `impact` and `map` on them lost every edge until a rebuild that fires only at 16 deltas or 5 % of the tree; the delta-time cost is ≈ 2 ms on the largest corpus |
 | Session identity | first non-shell ancestor pid | env-only ids | works with any agent harness without configuration; `--session` still overrides |

@@ -35,6 +35,8 @@ pub struct DefEntry {
     pub start: u32,
     pub end: u32,
     pub file_id: Option<u32>,
+    /// The file itself is the module (`sleep.rs`, `pkg/__init__.py`), line 1.
+    pub file_module: bool,
 }
 
 #[derive(Debug, Default)]
@@ -105,6 +107,45 @@ pub fn origin_ids(idx: &Index, from: &[String]) -> Vec<u32> {
         }
     }
     ids
+}
+
+/// Kind weight of a file module in `def` (`symtab::kind_weight` covers
+/// symbols): below functions and types, above constants and fields.
+const FILE_MODULE_W: f32 = 0.8;
+
+/// Signature and doc of a file module: the language's module keyword plus the
+/// name, and the first line of a leading `//!` / `/*!` / `/**` comment or
+/// module docstring.
+fn module_signature_and_doc(src: &[u8], lang: Lang, name: &str) -> (String, Option<String>) {
+    let kw = match lang {
+        Lang::Rust => "mod",
+        Lang::Kotlin => "file",
+        _ => "module",
+    };
+    let mut doc = None;
+    for line in src.split(|&b| b == b'\n').take(3) {
+        let t = line.trim_ascii();
+        if t.is_empty() || t.starts_with(b"#!") || t.starts_with(b"#![") || t.starts_with(b"# -*-")
+        {
+            continue;
+        }
+        let body = if let Some(r) = t.strip_prefix(b"//!") {
+            r
+        } else if let Some(r) = t.strip_prefix(b"/*!").or_else(|| t.strip_prefix(b"/**")) {
+            r.split(|&b| b == b'*').next().unwrap_or(b"")
+        } else if let Some(r) = t.strip_prefix(b"\"\"\"").or_else(|| t.strip_prefix(b"'''")) {
+            r.split(|&b| b == b'"' || b == b'\'').next().unwrap_or(b"")
+        } else {
+            break;
+        };
+        let s = String::from_utf8_lossy(body.trim_ascii()).to_string();
+        if !s.is_empty() {
+            let cut: String = s.chars().take(120).collect();
+            doc = Some(cut);
+        }
+        break;
+    }
+    (format!("{kw} {name}"), doc)
 }
 
 /// Signature line and doc first line for a definition at `start` in `src`.
@@ -260,8 +301,11 @@ pub fn def(
         res.source = "index";
         res.fresh = op.fresh_method;
         let mut syms = idx.lookup(name);
+        // the file that is the module: listed after functions and types, before
+        // fields; SCIP marks it as the definition and an agent wants to open it
+        let file_mods = idx.module_files(name, 64);
         let mut rung = Rung::Exact;
-        if syms.is_empty() && o.ladder {
+        if syms.is_empty() && file_mods.is_empty() && o.ladder {
             // ladder over names: case-insensitive, split tokens, fuzzy
             let lower = name.to_lowercase();
             let mut alts: Vec<String> = Vec::new();
@@ -313,7 +357,7 @@ pub fn def(
             res.suggestions = alts;
         }
         res.rung = rung;
-        res.total = syms.len();
+        res.total = syms.len() + file_mods.len();
         let origins = origin_ids(idx, from);
         let mut entries: Vec<DefEntry> = Vec::with_capacity(syms.len().min(64));
         for s in syms.iter().take(256) {
@@ -377,6 +421,36 @@ pub fn def(
                 start: r.start,
                 end: r.end,
                 file_id: Some(fid),
+                file_module: false,
+            });
+        }
+        for &fid in &file_mods {
+            if want_kind.is_some_and(|k| k != DefKind::Module) {
+                continue;
+            }
+            let rec = idx.rec(fid).context("file record")?;
+            let fflags = FileFlags(rec.flags);
+            let rel = idx.path(fid).unwrap_or("").to_string();
+            let rch = reach(idx, &origins, fid);
+            let score =
+                FILE_MODULE_W * loc_w(fflags, &rel, o.all) * (0.6 + 0.4 * idx.rank(fid)) * rch;
+            entries.push(DefEntry {
+                rel,
+                line: 1,
+                kind: DefKind::Module,
+                name: name.to_string(),
+                chain: Vec::new(),
+                signature: String::new(),
+                doc: None,
+                flags: SYM_EXPORTED,
+                file_flags: fflags,
+                supers: Vec::new(),
+                score,
+                reach: rch,
+                start: 0,
+                end: rec.size.min(u32::MAX as u64) as u32,
+                file_id: Some(fid),
+                file_module: true,
             });
         }
         entries.sort_by(|a, b| {
@@ -410,6 +484,13 @@ pub fn def(
                 .entry(e.rel.clone())
                 .or_insert_with(|| greeg_lang::read_text(o.root.join(&e.rel)).unwrap_or_default());
             if src.is_empty() || e.start as usize >= src.len() {
+                continue;
+            }
+            if e.file_module {
+                let (sig, doc) =
+                    module_signature_and_doc(src, Lang::from_path(Path::new(&e.rel)), &e.name);
+                e.signature = sig;
+                e.doc = doc;
                 continue;
             }
             let (sig, doc) = signature_and_doc(
@@ -471,6 +552,7 @@ pub fn def(
             }
             let _ = kind_filter_ok(&so.kinds, kind);
             entries.push(DefEntry {
+                file_module: false,
                 rel: f.rel.clone(),
                 line: h.line,
                 kind,
@@ -741,6 +823,7 @@ pub fn impls(o: &Options, name: &str) -> Result<ImplsResult> {
                 kind_weight(r.kind) * loc_w(fflags, &rel, o.all) * (0.6 + 0.4 * idx.rank(fid));
             have.push((rel.clone(), r.line));
             direct.push(DefEntry {
+                file_module: false,
                 rel,
                 line: r.line,
                 kind: kind_from_code(r.kind),
@@ -800,6 +883,7 @@ pub fn impls(o: &Options, name: &str) -> Result<ImplsResult> {
                     continue;
                 }
                 extras.push(DefEntry {
+                    file_module: false,
                     rel: f.rel.clone(),
                     line: h.line,
                     kind,

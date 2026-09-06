@@ -5,6 +5,7 @@ use crate::plan::Q;
 use crate::symtab::{DeltaGraphView, GraphView, SpansView, SymbolsView};
 use crate::{Manifest, read_manifest};
 use anyhow::{Context, Result, bail};
+use greeg_lang::Lang;
 use hashbrown::HashMap;
 use memmap2::{Advice, Mmap};
 use roaring::RoaringBitmap;
@@ -806,6 +807,77 @@ impl Index {
         v.sort_unstable();
         v.dedup();
         Cow::Owned(v)
+    }
+    /// Live files that *are* the module `name`: `…/name.ext` in a language
+    /// with a grammar, or a directory module `…/name/{mod.rs,__init__.py,index.*}`.
+    /// SCIP and agents both treat the file as the module's definition, so
+    /// `def` lists them (DESIGN.md §7.3). Generic stems never match. One
+    /// `memmem` pass over each segment's path arena, no per-file work.
+    pub fn module_files(&self, name: &str, limit: usize) -> Vec<u32> {
+        let mut out = Vec::new();
+        if name.is_empty()
+            || matches!(name, "mod" | "index" | "__init__" | "lib" | "main")
+            || name.bytes().any(|b| b == b'/' || b == b'.')
+        {
+            return out;
+        }
+        let nb = name.as_bytes();
+        let finder = memchr::memmem::Finder::new(nb);
+        for (_, seg) in self.segments() {
+            let fv = seg.files();
+            let arena = fv.arena;
+            for h in finder.find_iter(arena) {
+                let after = h + nb.len();
+                let Some(&sep) = arena.get(after) else {
+                    continue;
+                };
+                if sep != b'.' && sep != b'/' {
+                    continue;
+                }
+                // the file record holding this offset (records are in path order,
+                // so their arena offsets ascend; directory paths between them fail
+                // the range check)
+                let i = fv.files.partition_point(|r| (r.path_off as usize) <= h);
+                if i == 0 {
+                    continue;
+                }
+                let r = &fv.files[i - 1];
+                let (ps, pe) = (
+                    r.path_off as usize,
+                    r.path_off as usize + r.path_len as usize,
+                );
+                if h >= pe || (h > ps && arena[h - 1] != b'/') {
+                    continue;
+                }
+                let rest = &arena[after..pe];
+                let ok = if sep == b'.' {
+                    !rest.contains(&b'/') && Lang::from_path(Path::new(fv.path(r))).has_grammar()
+                } else {
+                    matches!(
+                        &rest[1..],
+                        b"mod.rs"
+                            | b"__init__.py"
+                            | b"index.ts"
+                            | b"index.tsx"
+                            | b"index.js"
+                            | b"index.jsx"
+                            | b"index.mjs"
+                            | b"index.cjs"
+                    )
+                };
+                if !ok {
+                    continue;
+                }
+                let id = seg.first_id + (i as u32 - 1);
+                if self.is_live(id) && !seg.hidden().contains(id) && !out.contains(&id) {
+                    out.push(id);
+                    if out.len() >= limit {
+                        return out;
+                    }
+                }
+            }
+        }
+        out
     }
     /// Normalized PageRank of a file (0.5 when unknown).
     pub fn rank(&self, id: u32) -> f32 {
