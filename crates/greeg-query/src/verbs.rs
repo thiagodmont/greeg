@@ -110,8 +110,10 @@ pub fn origin_ids(idx: &Index, from: &[String]) -> Vec<u32> {
 }
 
 /// Kind weight of a file module in `def` (`symtab::kind_weight` covers
-/// symbols): below functions and types, above constants and fields.
-const FILE_MODULE_W: f32 = 0.8;
+/// symbols): below every symbol kind, so the file is the answer only when
+/// nothing declares the name (scip-python and scip-typescript do not count a
+/// module file as a definition; rust-analyzer does).
+const FILE_MODULE_W: f32 = 0.3;
 
 /// Signature and doc of a file module: the language's module keyword plus the
 /// name, and the first line of a leading `//!` / `/*!` / `/**` comment or
@@ -301,8 +303,8 @@ pub fn def(
         res.source = "index";
         res.fresh = op.fresh_method;
         let mut syms = idx.lookup(name);
-        // the file that is the module: listed after functions and types, before
-        // fields; SCIP marks it as the definition and an agent wants to open it
+        // the file that is the module: listed after every symbol; an agent
+        // wants to open it when nothing else declares the name
         let file_mods = idx.module_files(name, 64);
         let mut rung = Rung::Exact;
         if syms.is_empty() && file_mods.is_empty() && o.ladder {

@@ -729,7 +729,7 @@ implemented.
    definition an agent asks for while a top-level one exists) × loc_w ×
    (0.6 + 0.4 × rank) × reach`. File modules (`name.ext` in a language with
    a grammar, `name/mod.rs`, `name/__init__.py`, `name/index.*`) join the
-   candidates at line 1 with weight 0.8, found by one `memmem` pass over the
+   candidates at line 1 with weight 0.3, below every symbol kind, found by one `memmem` pass over the
    path arena (M10); a Rust `mod x;` without a body is an import in the tags
    query and the regex fallback, since its definition is that file, which is
    also rust-analyzer's convention.
@@ -1001,7 +1001,7 @@ Results and the rendered `docs/BENCH.md` are in the repository.
 | Rust macro bodies | re-parse brace-bodied macro invocations that contain item keywords as items | treat macro bodies as opaque (tree-sitter default) | tokio hides its public API inside `cfg_*!`; without this `def JoinHandle` missed the real struct |
 | Delta durability | no fsync on delta segments; a torn delta fails to open and rebuilds | fsync every published file | `F_FULLFSYNC` was 4–5 ms of the 28 ms a tokio edit cost the next query; the index is a cache |
 | Python attributes | `self.x = …` / `cls.x = …` inside a method is a field of the class, first assignment wins | class-body assignments only | all seven django `def` misses were such attributes; scip-python marks every assignment a definition, an agent wants the `__init__` site |
-| Rust `mod x;` | an import; `def` lists the module's file at weight 0.8 | a Module symbol at weight 1.0 | a hub `mod.rs` outranked `pub fn sleep` in ten of thirteen tokio `def` misses; rust-analyzer marks the declaration a reference and the file the definition |
+| Rust `mod x;` | an import; `def` lists the module's file at weight 0.3, after every symbol | a Module symbol at weight 1.0 | a hub `mod.rs` outranked `pub fn sleep` in ten of thirteen tokio `def` misses; rust-analyzer marks the declaration a reference and the file the definition |
 | Symbol line | line of the name | line of the declaration node | annotations and decorators start the node lines earlier; agents want the `fun`/`class` line (Kotlin agreement 62 % → 97 %) |
 | Delta symbols and edges | extracted inline; imports resolved against the base, rank carried over, edges folded at query time (§4.3) | leave deltas unresolved until the rebuild (v0.3) | the edited files are the agent's working set: `def --from`, `impact` and `map` on them lost every edge until a rebuild that fires only at 16 deltas or 5 % of the tree; the delta-time cost is ≈ 2 ms on the largest corpus |
 | Session identity | first non-shell ancestor pid | env-only ids | works with any agent harness without configuration; `--session` still overrides |
