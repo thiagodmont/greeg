@@ -1,0 +1,38 @@
+crates/greeg-index/src/index.rs
+  s_ed36146e569a20::t_215673be2c753a 8,811-875
+  s_ed36146e569a20::t_de468d14dee5ec 876-881
+crates/greeg-lang/queries/rust.scm
+  s_ed36146e569a20::t_215673be2c753a 10
+crates/greeg-query/src/verbs.rs
+  s_ed36146e569a20::t_215673be2c753a 38-39,112-150,304-306,308,360,424-453,489-493
+  s_ed36146e569a20::t_1c21f3b7f759be 494-495,555,826,886
+crates/greeg-lang/src/sym.rs
+  s_ed36146e569a20::t_b806c464ed2460 1643-1647
+crates/greeg-lang/src/defs.rs
+  s_ed36146e569a20::t_215673be2c753a 408-416,439-441,501-502
+  s_ed36146e569a20::t_da51a988fa6a7b 503
+crates/greeg-query/src/shape.rs
+  s_ed36146e569a20::t_545c54f289370e 1021-1025,1027-1029,1031-1032
+crates/greeg/src/verbs_out.rs
+  s_ed36146e569a20::t_2d62cac4453e44 609-611
+docs/DESIGN.md
+  s_ed36146e569a20::t_bb0cf42813e345 725-730,997
+docs/OUTPUT.md
+  s_ed36146e569a20::t_aeb14b27f2dec3 261-265,317-318
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "062f811d0cc57358c4b389af3b41ca8fe302d1a6",
+  "prompts": {},
+  "sessions": {
+    "s_ed36146e569a20": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "136e3c48-27e3-4f0c-95e0-81a5cdbbc029",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
