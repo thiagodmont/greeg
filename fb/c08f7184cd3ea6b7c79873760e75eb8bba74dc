@@ -1,0 +1,30 @@
+crates/greeg-index/src/fresh.rs
+  s_ed36146e569a20::t_34ff7fc0943a05 399-409
+crates/greeg-query/src/indexed.rs
+  s_ed36146e569a20::t_f3a15a92a13115 885-926,929-943,948-965
+  s_ed36146e569a20::t_34ff7fc0943a05 11,25-28,36,40-51,54-55,59-76,78-83,86-87,97-99,114-156,240-242,249-257,265,275,297,317-321,338,345,373,375-392,445-448,450,456,463,472,475,483,485,491-506,508,513,520-529,550-551,553-562,567,570-578,854
+  s_ed36146e569a20::t_4d4ea352582caa 927-928,944-947
+crates/greeg-query/src/lib.rs
+  s_ed36146e569a20::t_34ff7fc0943a05 407-408
+docs/DESIGN.md
+  s_ed36146e569a20::t_b7bdca750f4591 68-69,406-423,1021
+crates/greeg/src/main.rs
+  s_ed36146e569a20::t_4d4ea352582caa 414-418
+  s_ed36146e569a20::t_34ff7fc0943a05 268-271,407,413,419,735,737,885,889-893
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "fbc08f7184cd3ea6b7c79873760e75eb8bba74dc",
+  "prompts": {},
+  "sessions": {
+    "s_ed36146e569a20": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "136e3c48-27e3-4f0c-95e0-81a5cdbbc029",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
