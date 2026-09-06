@@ -1,4 +1,4 @@
-# greeg index on-disk format (version 3)
+# greeg index on-disk format (version 4)
 
 Location: `~/Library/Caches/greeg/<name>-<hash16>/` on macOS,
 `$XDG_CACHE_HOME/greeg/...` elsewhere (override: `GREEG_INDEX_DIR`,
@@ -99,7 +99,7 @@ u32 tok_names[n_tok_names]   name ids containing each token
 
 `kind` codes: 0 fn, 1 method, 2 class, 3 struct, 4 enum, 5 trait,
 6 interface, 7 type, 8 mod, 9 object, 10 impl, 11 const, 12 var, 13 macro,
-14 field, 15 variant. `flags`: 1 exported, 2 has_doc, 4 test. `[start, end)`
+14 field, 15 variant. `flags`: 1 exported, 2 has_doc, 4 test, 8 object-literal member (JS/TS). `[start, end)`
 is the declaration node (annotations and decorators included); `line` is the
 line of the name. The per-file slice doubles as the `defs` span table of
 DESIGN.md §3.4: the enclosing symbol of an offset is a `partition_point` on
@@ -135,12 +135,31 @@ path reads ranks from `files.bin`; `graph.bin` is mapped lazily by verbs.
 ## delta/NNNN.bin (component 3)
 
 ```
-u32 first_id, n_files, files_len, grams_len, symbols_len, spans_len   (24 bytes)
+u32 first_id, n_files, files_len, grams_len, symbols_len, spans_len, graph_len, pad  (32 bytes)
 files section, grams section, symbols section, spans section (layouts as above;
-  file ids are first_id + position; symbol `file` fields are segment-local;
-  imports in deltas are unresolved and ranks are 0)
+  file ids are first_id + position; symbol `file` fields are segment-local)
+graph section:
+  u32 n_files, u32 n_edges, u32 pad, u32 pad
+  u32 prev[n_files]                    id of the file version this one supersedes (NONE = new file)
+  u32 out_off[n_files+1]; u32 out_to[n_edges]; u16 out_w[n_edges]   imports, absolute target ids
 roaring bitmap of tombstoned ids (files superseded or deleted by this delta)
 ```
+
+Delta imports are resolved when the delta is written, against the live base
+plus the delta's own files (which shadow the versions they replace), so
+`ImpRec.target` and the graph section carry real ids; targets are the ids
+current at that time and may themselves be superseded by a later delta. A
+modified file keeps the `rank` of the record it supersedes (and delta symbols
+are ordered by it); new files have rank 0 (unknown). PageRank is not
+recomputed until the next build.
+
+The query path never reads `graph.bin` or a delta graph section directly:
+`Index::out_edges` and `Index::in_edges` fold them together. `prev` builds the
+version chains (`canon` = oldest id of a path, `latest` = newest); an
+outgoing edge is mapped to the newest live version of its target, and the
+importers of a file are the live base importers of its oldest version (an
+importer edited since carries its own edges in its delta) plus every live
+delta file with an edge to any id on the chain.
 
 A query evaluates `(base ∪ huge ∪ deltas) − tombstones − hidden`; symbol
 lookups visit the base then each delta. Every section length is checked

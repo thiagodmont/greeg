@@ -13,6 +13,7 @@ use greeg_index::fresh::{self, Mode as Fresh};
 use greeg_index::index::SymId;
 use greeg_index::symtab::kind_from_code;
 use greeg_index::{Index, index_dir_for, lock, plan, read_manifest};
+use greeg_lang::sym::SYM_OBJ_MEMBER;
 use greeg_lang::{DefKind, FileFlags, Lang};
 use grep_searcher::{BinaryDetection, SearcherBuilder};
 use std::fs;
@@ -519,7 +520,6 @@ pub(crate) fn classify_from_index(
     let mut kinds = [0u32; 9];
     let mut hits: Vec<Hit> = Vec::with_capacity(f.hits.len());
     for mut h in f.hits.drain(..) {
-        let (ms, me) = (h.match_start, h.match_end);
         let (kind, di) = classify_hit(idx, id, first, syms, f.lang, src, &h);
         if !o.kinds.is_empty() && !o.kinds.contains(&kind) {
             continue;
@@ -537,8 +537,7 @@ pub(crate) fn classify_from_index(
                 )
             })
             .unwrap_or_default();
-        h.score =
-            kind.weight() * f.prior * crate::exact_boost(kind, crate::is_exact(o, src, ms, me));
+        h.score = kind.weight() * f.prior * crate::exact_boost(kind, h.exact);
         kinds[kind.idx()] += 1;
         hits.push(h);
     }
@@ -614,6 +613,10 @@ fn classify_hit(
         let s = &syms[i];
         let ne = s.name_start + s.name_len as u32;
         if s.name_start < me && ms < ne {
+            // an object-literal member implements a typed member: `member`, not `def`
+            if s.flags & SYM_OBJ_MEMBER != 0 {
+                return (HitKind::Member, Some(i as u32));
+            }
             return (HitKind::Def, Some(i as u32));
         }
         if s.start + 512 < ms {

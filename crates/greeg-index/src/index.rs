@@ -2,11 +2,13 @@
 
 use crate::format::{self, FileRec, FilesView, GramsView, ImpRec, NONE, SymRec};
 use crate::plan::Q;
-use crate::symtab::{GraphView, SpansView, SymbolsView};
+use crate::symtab::{DeltaGraphView, GraphView, SpansView, SymbolsView};
 use crate::{Manifest, read_manifest};
 use anyhow::{Context, Result, bail};
+use hashbrown::HashMap;
 use memmap2::{Advice, Mmap};
 use roaring::RoaringBitmap;
+use std::borrow::Cow;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
@@ -20,6 +22,8 @@ pub struct Segment {
     grams: GramsView<'static>,
     symbols: Option<SymbolsView<'static>>,
     spans: Option<SpansView<'static>>,
+    /// Import edges and superseded ids (delta segments only).
+    dgraph: Option<DeltaGraphView<'static>>,
     pub first_id: u32,
     pub n_files: u32,
     /// Absolute ids of files above `MAX_FILE`: no grams, always candidates.
@@ -52,7 +56,7 @@ fn ids_bitmap(first_id: u32, local: &[u32]) -> RoaringBitmap {
     b
 }
 
-/// Parse a delta body: header, four sections, tombstone bitmap. Every slice is
+/// Parse a delta body: header, five sections, tombstone bitmap. Every slice is
 /// checked so a truncated or corrupt file fails `Index::open` (→ rebuild)
 /// instead of panicking or silently dropping tombstones.
 struct DeltaParts {
@@ -60,17 +64,20 @@ struct DeltaParts {
     grams: GramsView<'static>,
     symbols: Option<SymbolsView<'static>>,
     spans: Option<SpansView<'static>>,
+    dgraph: Option<DeltaGraphView<'static>>,
     first_id: u32,
     tomb: RoaringBitmap,
 }
 
 fn parse_delta(body: &'static [u8]) -> Result<DeltaParts> {
-    let hb = body.get(..24).context("delta header truncated")?;
-    let h: Vec<usize> = (0..6)
+    let hb = body
+        .get(..format::DELTA_HEADER)
+        .context("delta header truncated")?;
+    let h: Vec<usize> = (0..7)
         .map(|i| u32::from_le_bytes(hb[i * 4..i * 4 + 4].try_into().unwrap()) as usize)
         .collect();
     let first_id = h[0] as u32;
-    let mut off: usize = 24;
+    let mut off: usize = format::DELTA_HEADER;
     let mut section = |len: usize, what: &str| -> Result<&'static [u8]> {
         let b = body
             .get(off..off.checked_add(len).context("delta section overflow")?)
@@ -82,6 +89,7 @@ fn parse_delta(body: &'static [u8]) -> Result<DeltaParts> {
     let gb = section(h[3], "grams")?;
     let sb = section(h[4], "symbols")?;
     let pb = section(h[5], "spans")?;
+    let db = section(h[6], "graph")?;
     let tb = body.get(off..).context("delta tombstones truncated")?;
     let tomb = RoaringBitmap::deserialize_from(tb).context("delta tombstone bitmap corrupt")?;
     let files = FilesView::parse(fb)?;
@@ -99,11 +107,21 @@ fn parse_delta(body: &'static [u8]) -> Result<DeltaParts> {
     } else {
         Some(SpansView::parse(pb)?)
     };
+    let dgraph = if db.is_empty() {
+        None
+    } else {
+        let g = DeltaGraphView::parse(db)?;
+        if g.n as usize != h[1] {
+            bail!("delta graph file count mismatch");
+        }
+        Some(g)
+    };
     Ok(DeltaParts {
         files,
         grams,
         symbols,
         spans,
+        dgraph,
         first_id,
         tomb,
     })
@@ -231,6 +249,10 @@ pub struct Index {
     pub deltas: Vec<Segment>,
     pub tomb: RoaringBitmap,
     graph: OnceLock<Option<(Mmap, GraphView<'static>)>>,
+    /// Delta file id → id of the version it superseded (from the delta graph sections).
+    prev: HashMap<u32, u32>,
+    /// Superseded id → the delta file id that replaced it.
+    next: HashMap<u32, u32>,
 }
 
 impl Index {
@@ -278,6 +300,7 @@ impl Index {
             grams,
             symbols,
             spans,
+            dgraph: None,
             first_id: 0,
             n_files: n,
             huge,
@@ -289,6 +312,8 @@ impl Index {
         let mut deltas = Vec::with_capacity(manifest.deltas as usize);
         let mut tomb = RoaringBitmap::new();
         let mut next = n;
+        let mut prev_map: HashMap<u32, u32> = HashMap::new();
+        let mut next_map: HashMap<u32, u32> = HashMap::new();
         for i in 1..=manifest.deltas {
             let p = dir.join("delta").join(format!("{i:04}.bin"));
             let map = mmap(&p, Advice::WillNeed)?;
@@ -301,6 +326,7 @@ impl Index {
                 grams,
                 symbols,
                 spans,
+                dgraph,
                 first_id,
                 tomb: t,
             } = parse_delta(body).with_context(|| format!("delta {}", p.display()))?;
@@ -313,6 +339,15 @@ impl Index {
             let n = files.files.len() as u32;
             next = first_id + n;
             tomb |= t;
+            if let Some(g) = &dgraph {
+                for (local, &old) in g.prev.iter().enumerate() {
+                    if old != NONE {
+                        let id = first_id + local as u32;
+                        prev_map.insert(id, old);
+                        next_map.insert(old, id);
+                    }
+                }
+            }
             let huge = ids_bitmap(first_id, files.huge);
             let hidden = ids_bitmap(first_id, files.hidden);
             deltas.push(Segment {
@@ -321,6 +356,7 @@ impl Index {
                 grams,
                 symbols,
                 spans,
+                dgraph,
                 first_id,
                 n_files: n,
                 huge,
@@ -335,6 +371,8 @@ impl Index {
             deltas,
             tomb,
             graph: OnceLock::new(),
+            prev: prev_map,
+            next: next_map,
         })
     }
 
@@ -682,6 +720,92 @@ impl Index {
             })
             .as_ref()
             .map(|(_, v)| v)
+    }
+    /// The oldest id in a file's version chain: the base id for a file that was
+    /// edited since the build, else the id itself. Ids on one chain name the
+    /// same path.
+    pub fn canon(&self, mut id: u32) -> u32 {
+        let mut guard = 0;
+        while let Some(&p) = self.prev.get(&id) {
+            id = p;
+            guard += 1;
+            if guard > 64 {
+                break;
+            }
+        }
+        id
+    }
+    /// The newest id in a file's version chain (live unless the file was deleted).
+    pub fn latest(&self, mut id: u32) -> u32 {
+        let mut guard = 0;
+        while let Some(&n) = self.next.get(&id) {
+            id = n;
+            guard += 1;
+            if guard > 64 {
+                break;
+            }
+        }
+        id
+    }
+    /// Live files imported by `id`: base edges for base files, the delta's
+    /// own resolved edges for edited files, every target mapped to its newest
+    /// live version. Borrows the CSR slice when no delta has been applied.
+    pub fn out_edges(&self, id: u32) -> Cow<'_, [u32]> {
+        let raw: &[u32] = if id < self.base.n_files {
+            self.graph().map(|g| g.out(id)).unwrap_or(&[])
+        } else {
+            match self.segment_for(id) {
+                Some(seg) => seg
+                    .dgraph
+                    .as_ref()
+                    .map(|g| g.out(id - seg.first_id))
+                    .unwrap_or(&[]),
+                None => &[],
+            }
+        };
+        if self.deltas.is_empty() {
+            return Cow::Borrowed(raw);
+        }
+        let mut v: Vec<u32> = raw
+            .iter()
+            .map(|&t| self.latest(t))
+            .filter(|&t| self.is_live(t))
+            .collect();
+        v.sort_unstable();
+        v.dedup();
+        Cow::Owned(v)
+    }
+    /// Live files importing `id`: base importers of its oldest version that
+    /// were not edited since (their edited versions carry their own edges),
+    /// plus every delta file whose edges reach any version of `id`.
+    pub fn in_edges(&self, id: u32) -> Cow<'_, [u32]> {
+        let root = self.canon(id);
+        let base_in: &[u32] = if root < self.base.n_files {
+            self.graph().map(|g| g.incoming(root)).unwrap_or(&[])
+        } else {
+            &[]
+        };
+        if self.deltas.is_empty() {
+            return Cow::Borrowed(base_in);
+        }
+        let mut v: Vec<u32> = base_in
+            .iter()
+            .copied()
+            .filter(|&f| self.is_live(f))
+            .collect();
+        for d in &self.deltas {
+            if let Some(g) = &d.dgraph {
+                for (local, to) in g.edges() {
+                    let from = d.first_id + local;
+                    if self.canon(to) == root && self.is_live(from) {
+                        v.push(from);
+                    }
+                }
+            }
+        }
+        v.sort_unstable();
+        v.dedup();
+        Cow::Owned(v)
     }
     /// Normalized PageRank of a file (0.5 when unknown).
     pub fn rank(&self, id: u32) -> f32 {

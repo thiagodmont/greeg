@@ -3,7 +3,7 @@
 //! a delta segment plus tombstones.
 
 use crate::build::{WalkedDir, WalkedFile, build_delta, mtime_ns, walker};
-use crate::format::{self, FileRec, is_ignore_file};
+use crate::format::{self, FileRec, NONE, is_ignore_file};
 use crate::{Index, now_ms, read_manifest, write_manifest};
 use anyhow::Result;
 use hashbrown::{HashMap, HashSet};
@@ -462,9 +462,11 @@ pub fn apply(idx: &Index, root: &Path, ch: &Changes) -> Result<usize> {
     }
     let first_id = idx.next_id();
     let mut files: Vec<WalkedFile> = Vec::with_capacity(ch.modified.len() + ch.added.len());
+    let mut prev: Vec<u32> = Vec::with_capacity(files.capacity());
     let mut tomb = RoaringBitmap::new();
     for (id, w) in &ch.modified {
         tomb.insert(*id);
+        prev.push(*id);
         files.push(WalkedFile {
             rel: w.rel.clone(),
             size: w.size,
@@ -476,6 +478,7 @@ pub fn apply(idx: &Index, root: &Path, ch: &Changes) -> Result<usize> {
         tomb.insert(*id);
     }
     for w in &ch.added {
+        prev.push(NONE);
         files.push(WalkedFile {
             rel: w.rel.clone(),
             size: w.size,
@@ -496,7 +499,7 @@ pub fn apply(idx: &Index, root: &Path, ch: &Changes) -> Result<usize> {
         mtime_ns: d.mtime_ns,
     }));
     // extraction runs outside the lock; only the publish is serialized
-    let body = build_delta(root, first_id, &files, &dirs, &tomb)?;
+    let body = build_delta(idx, root, first_id, &files, &prev, &dirs, &tomb)?;
     let _lock = crate::lock::writer(&idx.dir)?;
     let Some(mut m) = read_manifest(&idx.dir) else {
         return Ok(0);
@@ -535,4 +538,136 @@ pub fn needs_rebuild(idx: &Index, ch: &Changes) -> bool {
         || ch.count() > 2000
         || idx.deltas.len() >= 16
         || (idx.tomb.len() + ch.count() as u64) * 20 > idx.base.n_files as u64
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::build::{BuildOpts, build};
+    use crate::format::NONE;
+
+    fn tree(name: &str) -> (std::path::PathBuf, std::path::PathBuf, std::path::PathBuf) {
+        let base = std::env::temp_dir().join(format!("greeg-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        let root = base.join("tree");
+        let dir = base.join("index");
+        fs::create_dir_all(root.join("pkg")).unwrap();
+        fs::create_dir_all(root.join(".git")).unwrap();
+        (base, root, dir)
+    }
+
+    fn id_of(idx: &Index, rel: &str) -> u32 {
+        idx.live_files()
+            .find(|(_, r, _)| *r == rel)
+            .map(|(id, _, _)| id)
+            .unwrap_or_else(|| panic!("{rel} not live"))
+    }
+
+    fn edit_and_apply(idx: &Index, root: &Path, dir: &Path) -> Index {
+        let ch = check_stat(idx, root, 1);
+        assert!(!ch.is_empty());
+        assert!(!needs_rebuild(idx, &ch));
+        assert!(apply(idx, root, &ch).unwrap() > 0);
+        Index::open(dir).unwrap()
+    }
+
+    /// Edited files keep their rank and their import edges in both directions
+    /// (DESIGN.md §4.3): the delta resolves imports against the base, and the
+    /// base's edges to the superseded id follow the file to its new id.
+    #[test]
+    fn delta_keeps_rank_and_edges() {
+        let (base, root, dir) = tree("delta-graph");
+        fs::write(root.join("pkg/__init__.py"), "").unwrap();
+        fs::write(
+            root.join("pkg/a.py"),
+            "from pkg.b import helper\n\ndef use():\n    helper()\n",
+        )
+        .unwrap();
+        fs::write(root.join("pkg/b.py"), "def helper():\n    pass\n").unwrap();
+        fs::write(root.join("pkg/c.py"), "from pkg.a import use\n").unwrap();
+        // enough files that a few edits stay below the inline-apply threshold
+        for i in 0..60 {
+            fs::write(
+                root.join(format!("pkg/f{i}.py")),
+                format!("def filler_{i}():\n    pass\n"),
+            )
+            .unwrap();
+        }
+        build(
+            &root,
+            &dir,
+            &BuildOpts {
+                reader_threads: 1,
+                quiet: true,
+                phase1_only: false,
+            },
+        )
+        .unwrap();
+        let idx = Index::open(&dir).unwrap();
+        assert!(idx.manifest.phase2);
+        let (a0, b0, c0) = (
+            id_of(&idx, "pkg/a.py"),
+            id_of(&idx, "pkg/b.py"),
+            id_of(&idx, "pkg/c.py"),
+        );
+        assert_eq!(idx.out_edges(a0).as_ref(), &[b0]);
+        assert_eq!(idx.in_edges(b0).as_ref(), &[a0]);
+        assert_eq!(idx.in_edges(a0).as_ref(), &[c0]);
+        let rank_b = idx.rec(b0).unwrap().rank;
+        assert!(rank_b > 0, "phase 2 ranks every file");
+
+        // 1. edit the imported file: same rank, importers still reach it
+        std::thread::sleep(Duration::from_millis(20));
+        fs::write(
+            root.join("pkg/b.py"),
+            "def helper():\n    pass\n\ndef helper_two():\n    pass\n",
+        )
+        .unwrap();
+        let idx = edit_and_apply(&idx, &root, &dir);
+        let b1 = id_of(&idx, "pkg/b.py");
+        assert_ne!(b1, b0);
+        assert_eq!(idx.canon(b1), b0);
+        assert_eq!(idx.latest(b0), b1);
+        assert_eq!(idx.rec(b1).unwrap().rank, rank_b, "rank carried over");
+        assert_eq!(
+            idx.out_edges(a0).as_ref(),
+            &[b1],
+            "base edge follows the edit"
+        );
+        assert_eq!(idx.in_edges(b1).as_ref(), &[a0]);
+        assert_eq!(idx.out_edges(b1).len(), 0);
+        assert_eq!(idx.lookup("helper_two").len(), 1, "delta symbols");
+
+        // 2. edit the importer to import elsewhere: its delta edges replace the base ones
+        std::thread::sleep(Duration::from_millis(20));
+        fs::write(root.join("pkg/a.py"), "from pkg.c import use\n").unwrap();
+        let idx = edit_and_apply(&idx, &root, &dir);
+        let a1 = id_of(&idx, "pkg/a.py");
+        assert_eq!(
+            idx.out_edges(a1).as_ref(),
+            &[c0],
+            "delta imports resolve against the base"
+        );
+        assert_eq!(idx.in_edges(b1).len(), 0, "the stale base edge is gone");
+        let mut in_c: Vec<u32> = idx.in_edges(c0).to_vec();
+        in_c.sort_unstable();
+        assert_eq!(in_c, vec![a1]);
+        // c still imports a, now at its new id
+        assert_eq!(idx.out_edges(c0).as_ref(), &[a1]);
+        assert_eq!(idx.in_edges(a1).as_ref(), &[c0]);
+
+        // 3. a new file importing the twice-edited target: neutral rank, resolved edge
+        std::thread::sleep(Duration::from_millis(20));
+        fs::write(root.join("pkg/d.py"), "from pkg.b import helper_two\n").unwrap();
+        let idx = edit_and_apply(&idx, &root, &dir);
+        let d = id_of(&idx, "pkg/d.py");
+        assert_eq!(idx.canon(d), d);
+        assert_eq!(idx.rec(d).unwrap().rank, 0);
+        assert_eq!(idx.out_edges(d).as_ref(), &[b1]);
+        assert_eq!(idx.in_edges(b1).as_ref(), &[d]);
+        assert_eq!(idx.manifest.deltas, 3);
+        assert!(idx.deltas.iter().all(|s| s.n_files == 1));
+        let _ = NONE;
+        let _ = fs::remove_dir_all(&base);
+    }
 }

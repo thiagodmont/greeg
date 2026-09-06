@@ -80,6 +80,7 @@ pub fn scan(o: &Options, data: Vec<u8>) -> Result<ScanResult> {
             chain: Vec::new(),
             def_idx: None,
             score: 1.0,
+            exact: crate::is_exact(o, bytes, ms, me),
             text,
             text_match: (tm.0 as u32, tm.1 as u32),
             clipped,

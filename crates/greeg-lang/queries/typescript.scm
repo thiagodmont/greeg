@@ -25,6 +25,15 @@
 (program (variable_declaration (variable_declarator name: (identifier) @name) @def.variable))
 (export_statement declaration: (lexical_declaration (variable_declarator name: (identifier) @name) @def.variable))
 (export_statement declaration: (variable_declaration (variable_declarator name: (identifier) @name) @def.variable))
+; namespace-level declarations (`module M { var x … }`, `namespace N { const f = () => … }`)
+(module body: (statement_block (lexical_declaration (variable_declarator name: (identifier) @name value: [(arrow_function) (function_expression) (generator_function)]) @def.function)))
+(module body: (statement_block (variable_declaration (variable_declarator name: (identifier) @name value: [(arrow_function) (function_expression) (generator_function)]) @def.function)))
+(module body: (statement_block (lexical_declaration (variable_declarator name: (identifier) @name) @def.variable)))
+(module body: (statement_block (variable_declaration (variable_declarator name: (identifier) @name) @def.variable)))
+(internal_module body: (statement_block (lexical_declaration (variable_declarator name: (identifier) @name value: [(arrow_function) (function_expression) (generator_function)]) @def.function)))
+(internal_module body: (statement_block (variable_declaration (variable_declarator name: (identifier) @name value: [(arrow_function) (function_expression) (generator_function)]) @def.function)))
+(internal_module body: (statement_block (lexical_declaration (variable_declarator name: (identifier) @name) @def.variable)))
+(internal_module body: (statement_block (variable_declaration (variable_declarator name: (identifier) @name) @def.variable)))
 (assignment_expression left: (member_expression property: (property_identifier) @name) right: [(arrow_function) (function_expression)]) @def.function
 (pair key: (property_identifier) @name value: [(arrow_function) (function_expression)]) @def.function
 ; `declare const X` / `declare var X` (and `export declare …`); `declare function`,
@@ -34,6 +43,8 @@
 (import_statement) @import
 (export_statement source: (string)) @import
 ((call_expression function: (identifier) @_req arguments: (arguments (string))) @import (#eq? @_req "require"))
+; dynamic `import("./x")` (lazy routes, code splitting)
+((call_expression function: (import) arguments: (arguments (string))) @import)
 (comment) @noncode.comment
 (string) @noncode.string
 (template_string) @noncode.string

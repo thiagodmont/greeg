@@ -18,6 +18,8 @@
 (import_statement) @import
 (export_statement source: (string)) @import
 ((call_expression function: (identifier) @_req arguments: (arguments (string))) @import (#eq? @_req "require"))
+; dynamic `import("./x")` (lazy routes, code splitting)
+((call_expression function: (import) arguments: (arguments (string))) @import)
 (comment) @noncode.comment
 (string) @noncode.string
 (template_string) @noncode.string

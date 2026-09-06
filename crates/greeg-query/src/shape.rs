@@ -90,6 +90,9 @@ pub struct Report {
     pub layout: Layout,
     pub files: Vec<ShownFile>,
     pub facets: Option<Facets>,
+    /// Identifiers that merely contain the query (`fooBar` for `foo`), with hit
+    /// counts, best first: the near-misses left out of the answer.
+    pub related: Vec<(String, usize)>,
     pub footer: Footer,
 }
 
@@ -234,12 +237,11 @@ fn top_k(v: &mut [Ranked], k: usize, r: &ScanResult) {
 }
 
 /// Facets and the ranked definition / top-hit lists; `ranked` need not be sorted.
-/// Returns the facets and the number of whole-word exact matches (for the `-w` hint).
+/// Returns the facets and the number of whole-word matches (for the `-w` hint).
 fn facets(r: &ScanResult, ranked: &[Ranked]) -> (Facets, usize) {
     let mut by_lang: BTreeMap<String, usize> = BTreeMap::new();
     let mut by_flag: BTreeMap<&'static str, usize> = BTreeMap::new();
     let mut word_hits = 0usize;
-    let pat_len = r.opts.pattern.len() as u32;
     let all = r.opts.all;
     for f in &r.files {
         *by_lang.entry(f.lang.short().to_string()).or_default() += f.total;
@@ -247,7 +249,7 @@ fn facets(r: &ScanResult, ranked: &[Ranked]) -> (Facets, usize) {
             *by_flag.entry(demote_group(f)).or_default() += f.total;
         }
         for h in &f.hits {
-            if h.match_end - h.match_start == pat_len {
+            if h.exact {
                 word_hits += 1;
             }
         }
@@ -343,6 +345,61 @@ fn header_cost(r: &ScanResult, fi: usize) -> usize {
     tokens::path(r.files[fi].rel.as_bytes()) + 2 + MORE_COST
 }
 
+/// The pattern is a bare identifier searched literally and case-sensitively, so
+/// every match either is that identifier or sits inside a longer one.
+fn identifier_query(o: &crate::Options) -> bool {
+    is_identifier(&o.pattern)
+        && !o.case_insensitive
+        && !o.line_regexp
+        && !(o.smart_case && !o.pattern.bytes().any(|b| b.is_ascii_uppercase()))
+}
+
+/// Identifiers that merely contain the query, with hit counts: best first, top 4.
+fn related_names(r: &ScanResult, ranked: &[Ranked]) -> Vec<(String, usize)> {
+    let mut by_name: BTreeMap<&str, usize> = BTreeMap::new();
+    for &(fi, hi, _) in ranked {
+        let h = &r.files[fi].hits[hi];
+        if h.exact {
+            continue;
+        }
+        let raw = &h.raw;
+        let from = h.column() as usize;
+        let to = (from + (h.match_end - h.match_start) as usize).min(raw.len());
+        if from >= to {
+            continue; // a multi-line match: its word does not lie on this line
+        }
+        let mut s = from;
+        while s > 0 && crate::is_word_byte(raw[s - 1]) {
+            s -= 1;
+        }
+        let mut e = to;
+        while e < raw.len() && crate::is_word_byte(raw[e]) {
+            e += 1;
+        }
+        if let Ok(w) = std::str::from_utf8(&raw[s..e])
+            && w != r.opts.pattern
+        {
+            *by_name.entry(w).or_default() += 1;
+        }
+    }
+    let mut v: Vec<(String, usize)> = by_name
+        .into_iter()
+        .map(|(n, c)| (n.to_string(), c))
+        .collect();
+    v.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+    v.truncate(4);
+    v
+}
+
+/// Display cost of the `related` line.
+fn related_cost(related: &[(String, usize)]) -> usize {
+    if related.is_empty() {
+        0
+    } else {
+        related.iter().map(|(n, _)| n.len() / 3 + 3).sum::<usize>() + 3
+    }
+}
+
 /// Build the report. `budget == 0` means unlimited content in path/line order (parity mode).
 pub fn shape(r: &mut ScanResult) -> Report {
     let o = r.opts.clone();
@@ -395,7 +452,8 @@ pub fn shape(r: &mut ScanResult) -> Report {
             footer.files_shown = files.len();
             footer.hits_shown = files.iter().map(|s| s.more).sum();
             footer.est_tokens = est + 20;
-            hints(&mut footer, r, None, 0);
+            let all_hits = footer.hits_total;
+            hints(&mut footer, r, None, 0, all_hits);
             return Report {
                 layout: if o.mode == Mode::Files {
                     Layout::Files
@@ -404,6 +462,7 @@ pub fn shape(r: &mut ScanResult) -> Report {
                 },
                 files,
                 facets: None,
+                related: vec![],
                 footer,
             };
         }
@@ -417,6 +476,32 @@ pub fn shape(r: &mut ScanResult) -> Report {
             ranked.push((fi, hi, h.score));
         }
     }
+    // A bare identifier query with at least one whole-word match is about that
+    // word: hits inside longer identifiers (`fooBar` for `foo`) are collapsed to
+    // the `related` line instead of spending answer lines on them (OUTPUT.md).
+    let mut related: Vec<(String, usize)> = Vec::new();
+    let mut near_misses_left = false;
+    if !parity && identifier_query(o) {
+        let exact = ranked
+            .iter()
+            .filter(|&&(fi, hi, _)| r.files[fi].hits[hi].exact)
+            .count();
+        if exact > 0 && exact < ranked.len() {
+            related = related_names(r, &ranked);
+            ranked.retain(|&(fi, hi, _)| r.files[fi].hits[hi].exact);
+            near_misses_left = true;
+        }
+    }
+    // Hits the answer may draw on: `r.stats.total_hits` still counts the near-misses.
+    let hit_total = ranked.len();
+    // Per file, for `+N more`: it must not promise hits that left the answer.
+    let mut eligible: BTreeMap<usize, usize> = BTreeMap::new();
+    if near_misses_left {
+        for &(fi, _, _) in &ranked {
+            *eligible.entry(fi).or_default() += 1;
+        }
+    }
+
     // Estimated cost of rendering everything in content layout.
     let full_cost: usize = ranked
         .iter()
@@ -428,8 +513,7 @@ pub fn shape(r: &mut ScanResult) -> Report {
             .map(|(fi, _)| header_cost(r, fi))
             .sum::<usize>()
         + FOOTER_COST;
-    let broad =
-        !parity && o.mode == Mode::Content && full_cost > o.budget && r.stats.total_hits > 12;
+    let broad = !parity && o.mode == Mode::Content && full_cost > o.budget && hit_total > 12;
 
     let mut layout = match o.mode {
         Mode::Outline => Layout::Outline,
@@ -438,12 +522,13 @@ pub fn shape(r: &mut ScanResult) -> Report {
     };
     let mut facets_out = None;
     let mut word_hits = 0usize;
-    let mut est = FOOTER_COST;
+    let mut est = FOOTER_COST + related_cost(&related);
     let mut selected: Vec<(usize, usize)> = Vec::new();
     if broad {
         layout = Layout::Facets;
         let (mut fc, wh) = facets(r, &ranked);
-        word_hits = wh;
+        // near-misses already left the answer: `-w` would change nothing
+        word_hits = if related.is_empty() { wh } else { 0 };
         // facets header: two lines
         est += 14
             + fc.by_kind.len() * 4
@@ -608,7 +693,12 @@ pub fn shape(r: &mut ScanResult) -> Report {
     }
     for sf in &mut files {
         let f = &r.files[sf.file];
-        sf.more = f.total.saturating_sub(sf.hits.len());
+        let in_file = if near_misses_left {
+            eligible.get(&sf.file).copied().unwrap_or(0)
+        } else {
+            f.total
+        };
+        sf.more = in_file.saturating_sub(sf.hits.len());
         if parity {
             sf.hits.sort_by_key(|h| f.hits[h.hit].line);
         } else {
@@ -627,7 +717,7 @@ pub fn shape(r: &mut ScanResult) -> Report {
 
     // adaptive context (content layout only) and blocks
     let total_shown: usize = files.iter().map(|f| f.hits.len()).sum();
-    let single_def = r.stats.total_hits == 1
+    let single_def = hit_total == 1
         && files
             .first()
             .and_then(|sf| sf.hits.first())
@@ -640,13 +730,13 @@ pub fn shape(r: &mut ScanResult) -> Report {
         (o.before, o.after)
     } else if !adaptive {
         (0, 0)
-    } else if r.stats.total_hits == 1 {
+    } else if hit_total == 1 {
         if single_def { (20, 20) } else { (2, 4) }
-    } else if r.stats.total_hits <= 3 {
+    } else if hit_total <= 3 {
         (2, 2)
-    } else if r.stats.total_hits <= 10 {
-        (1, 1)
     } else {
+        // 4 hits or more: the lines around a hit cost more than they carry, and
+        // the reader has several hits to triangulate from (PLAN.md M9).
         (0, 0)
     };
     if before + after > 0
@@ -666,7 +756,7 @@ pub fn shape(r: &mut ScanResult) -> Report {
                     if let Some(end_line) = end_line_of(f, di as usize) {
                         to = to.min(end_line);
                     }
-                    if r.stats.total_hits == 1
+                    if hit_total == 1
                         && !single_def
                         && dl < from
                         && let Some((_, mut l)) = read_lines(f, dl, dl)
@@ -731,11 +821,12 @@ pub fn shape(r: &mut ScanResult) -> Report {
     footer.hits_shown = total_shown;
     footer.files_shown = files.len();
     footer.est_tokens = est;
-    hints(&mut footer, r, facets_out.as_ref(), word_hits);
+    hints(&mut footer, r, facets_out.as_ref(), word_hits, hit_total);
     Report {
         layout,
         files,
         facets: facets_out,
+        related,
         footer,
     }
 }
@@ -754,7 +845,13 @@ fn is_identifier(p: &str) -> bool {
 }
 
 /// Footer hints: flags only, never a demoted area, never a pattern repetition.
-fn hints(footer: &mut Footer, r: &ScanResult, facets: Option<&Facets>, word_hits: usize) {
+fn hints(
+    footer: &mut Footer,
+    r: &ScanResult,
+    facets: Option<&Facets>,
+    word_hits: usize,
+    hit_total: usize,
+) {
     let o = &r.opts;
     if r.stats.total_hits == 0 {
         if let Some((files, hits)) = r.ignored_only {
@@ -786,7 +883,8 @@ fn hints(footer: &mut Footer, r: &ScanResult, facets: Option<&Facets>, word_hits
         if r.stats.demoted_hits > 0 && !o.no_tests {
             footer.hints.push("--no-tests".into());
         }
-    } else if footer.hits_shown < footer.hits_total {
+    } else if footer.hits_shown < hit_total {
+        // near-misses are not hidden by the budget: a bigger one would not show them
         footer.hints.push(format!("--budget {}", o.budget * 2));
         if r.stats.by_kind[HitKind::Def.idx()] > 0 && o.kinds.is_empty() {
             footer.hints.push("--kind def".into());
@@ -821,6 +919,7 @@ mod tests {
             chain: vec![],
             def_idx: None,
             score,
+            exact: true,
             text: b"foo bar".to_vec(),
             text_match: (0, 3),
             clipped: false,
@@ -876,6 +975,77 @@ mod tests {
             ignored_only: None,
             ignored_partial: false,
         }
+    }
+
+    /// A hit on `raw` whose match is the pattern at `col`, exact when the
+    /// surrounding bytes are not word bytes.
+    fn word_hit(line: u32, raw: &str, col: usize, pat: &str, kind: HitKind) -> Hit {
+        let (s, e) = (col as u32, (col + pat.len()) as u32);
+        let b = raw.as_bytes();
+        let exact = (col == 0 || !crate::is_word_byte(b[col - 1]))
+            && (e as usize >= b.len() || !crate::is_word_byte(b[e as usize]));
+        Hit {
+            line,
+            line_start: 0,
+            match_start: s,
+            match_end: e,
+            submatches: vec![(s, e)],
+            kind,
+            chain: vec![],
+            def_idx: None,
+            score: kind.weight() * crate::exact_boost(kind, exact),
+            exact,
+            text: raw.as_bytes().to_vec(),
+            text_match: (s, e),
+            clipped: false,
+            raw: raw.as_bytes().to_vec(),
+        }
+    }
+
+    #[test]
+    fn near_misses_leave_the_answer_for_the_related_line() {
+        let hits = vec![
+            word_hit(1, "fn foo() {}", 3, "foo", HitKind::Def),
+            word_hit(2, "    foo();", 4, "foo", HitKind::Call),
+            word_hit(3, "fn foo_bar() {}", 3, "foo", HitKind::Def),
+            word_hit(4, "    foo_bar();", 4, "foo", HitKind::Call),
+            word_hit(5, "    foo_bar();", 4, "foo", HitKind::Call),
+        ];
+        let o = Options {
+            pattern: "foo".into(),
+            budget: 2000,
+            ..Default::default()
+        };
+        let mut r = result(vec![file("a.rs", hits.clone())], o.clone());
+        let rep = shape(&mut r);
+        assert_eq!(rep.files[0].hits.len(), 2, "only the whole-word hits answer");
+        assert_eq!(rep.related, vec![("foo_bar".to_string(), 3)]);
+        assert_eq!(rep.footer.hits_total, 5, "the footer still counts every match");
+        // parity mode keeps ripgrep's match set
+        let mut r = result(
+            vec![file("a.rs", hits)],
+            Options { budget: 0, ..o },
+        );
+        let rep = shape(&mut r);
+        assert_eq!(rep.files[0].hits.len(), 5);
+        assert!(rep.related.is_empty());
+    }
+
+    #[test]
+    fn a_regex_query_has_no_near_misses() {
+        let hits = vec![
+            word_hit(1, "fn foo_bar() {}", 3, "foo", HitKind::Def),
+            word_hit(2, "    foo();", 4, "foo", HitKind::Call),
+        ];
+        let o = Options {
+            pattern: r"foo\w*".into(),
+            budget: 2000,
+            ..Default::default()
+        };
+        let mut r = result(vec![file("a.rs", hits)], o);
+        let rep = shape(&mut r);
+        assert_eq!(rep.files[0].hits.len(), 2);
+        assert!(rep.related.is_empty());
     }
 
     #[test]

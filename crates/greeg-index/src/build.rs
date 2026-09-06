@@ -1,10 +1,11 @@
 //! Phase-1 build (DESIGN.md §4.1): walk, read with a small reader pool,
 //! extract trigrams, merge per-thread maps, write roaring postings, publish.
 
+use crate::Index;
 use crate::format::{self, DirRec, FileRec, FileTable, NONE, is_ignore_file};
 use crate::gram::{Dedup, fold_buf};
 use crate::resolve::Resolver;
-use crate::symtab::{FileExtract, GraphBuilder, SpanBuilder, SymBuilder};
+use crate::symtab::{DeltaGraphBuilder, FileExtract, GraphBuilder, SpanBuilder, SymBuilder};
 use crate::{Manifest, now_ms, read_manifest, write_manifest};
 use anyhow::{Result, bail};
 use greeg_lang::sym;
@@ -668,12 +669,18 @@ fn greeg_fsevents_id() -> u64 {
     }
 }
 
-/// Build a delta segment for `files` (absolute ids assigned by the caller).
-/// Returns the serialized segment body.
+/// Build a delta segment for `files` (absolute ids assigned by the caller,
+/// starting at `first_id`). `prev[i]` is the id of the file version that
+/// `files[i]` supersedes (`NONE` for a new file): its rank is carried over,
+/// and `tomb` holds every id this delta retires. Imports are resolved against
+/// the live base plus the delta's own files, so the edited files keep their
+/// graph edges (DESIGN.md §4.3). Returns the serialized segment body.
 pub fn build_delta(
+    idx: &Index,
     root: &Path,
     first_id: u32,
     files: &[WalkedFile],
+    prev: &[u32],
     dirs: &[WalkedDir],
     tomb: &RoaringBitmap,
 ) -> Result<Vec<u8>> {
@@ -682,8 +689,12 @@ pub fn build_delta(
     let mut grams = Vec::with_capacity(8192);
     let mut map: HashMap<u32, Vec<u32>> = HashMap::new();
     let mut ft = FileTable::default();
-    let mut sb = SymBuilder::new(files.len() as u32);
-    let mut pb = SpanBuilder::new(files.len() as u32);
+    let n = files.len() as u32;
+    let mut sb = SymBuilder::new(n);
+    let mut pb = SpanBuilder::new(n);
+    let mut dg = DeltaGraphBuilder::new(n);
+    let mut extracts: Vec<Option<FileExtract>> = Vec::with_capacity(files.len());
+    let mut ranks: Vec<u16> = Vec::with_capacity(files.len());
     for (i, w) in files.iter().enumerate() {
         let id = first_id + i as u32;
         // one read serves both extractors: symbols see the unfolded bytes, then grams
@@ -714,12 +725,17 @@ pub fn build_delta(
         {
             flags |= FileFlags::PARSE_ERRORS;
         }
+        let prev_id = prev.get(i).copied().unwrap_or(NONE);
+        dg.set_prev(i as u32, prev_id);
+        // a modified file keeps the rank of the version it replaces; new files are neutral
+        let rank = if prev_id == NONE {
+            0
+        } else {
+            idx.rec(prev_id).map(|r| r.rank).unwrap_or(0)
+        };
+        ranks.push(rank);
         sb.add_file(i as u32, fx.as_ref());
-        let no_targets: Vec<u32> = fx
-            .as_ref()
-            .map(|f| vec![NONE; f.imports.len()])
-            .unwrap_or_default();
-        pb.add_file(i as u32, fx.as_ref(), &no_targets);
+        extracts.push(fx);
         let (off, len) = ft.intern(&w.rel);
         ft.push_file(
             &w.rel,
@@ -732,9 +748,85 @@ pub fn build_delta(
                 mtime_ns: w.mtime_ns,
                 dir: w.dir,
                 flags,
-                rank: 0,
+                rank,
             },
         );
+    }
+    // imports: resolve against live base files (minus this delta's tombstones)
+    // plus the delta's own files, which shadow the versions they replace
+    let needs_resolver = extracts
+        .iter()
+        .flatten()
+        .any(|fx| !fx.imports.is_empty() || fx.package.is_some());
+    let targets: Vec<Vec<u32>> = if needs_resolver {
+        let mut rels: Vec<(u32, &str)> =
+            Vec::with_capacity(idx.base.n_files as usize + files.len());
+        rels.extend(
+            idx.live_files()
+                .filter(|(id, _, _)| !tomb.contains(*id))
+                .map(|(id, rel, _)| (id, rel)),
+        );
+        rels.extend(
+            files
+                .iter()
+                .enumerate()
+                .map(|(i, w)| (first_id + i as u32, w.rel.as_str())),
+        );
+        let kt = extracts.iter().enumerate().filter_map(|(i, ex)| {
+            let ex = ex.as_ref()?;
+            let pkg = ex.package.as_deref()?;
+            Some((
+                first_id + i as u32,
+                pkg,
+                ex.top_level_names().collect::<Vec<_>>(),
+            ))
+        });
+        let resolver = Resolver::new(root, &rels, kt);
+        let kt_base = KotlinBase::new(idx, tomb, &extracts);
+        extracts
+            .iter()
+            .enumerate()
+            .map(|(i, ex)| {
+                let Some(ex) = ex else {
+                    return Vec::new();
+                };
+                let rel = files[i].rel.as_str();
+                let lang = Lang::from_path(Path::new(rel));
+                let ctx = resolver.file_ctx(lang, rel);
+                let me = first_id + i as u32;
+                let mut t = Vec::with_capacity(ex.imports.len());
+                for im in &ex.imports {
+                    let mut ids = resolver.resolve_with(lang, rel, &ctx, im);
+                    if ids.is_empty() && lang == Lang::Kotlin {
+                        ids = kt_base.resolve(&im.module, im.wildcard, me);
+                    }
+                    t.push(ids.first().copied().unwrap_or(NONE));
+                    let w = (im.names.len().max(1) * 10).min(u16::MAX as usize) as u16;
+                    for id in ids {
+                        dg.add(i as u32, id, w);
+                    }
+                }
+                if lang == Lang::Kotlin
+                    && let Some(pkg) = &ex.package
+                {
+                    for id in resolver.kotlin_package_peers(pkg, me) {
+                        dg.add(i as u32, id, 1);
+                    }
+                    for id in kt_base.peers(pkg, me) {
+                        dg.add(i as u32, id, 1);
+                    }
+                }
+                t
+            })
+            .collect()
+    } else {
+        extracts
+            .iter()
+            .map(|ex| vec![NONE; ex.as_ref().map(|f| f.imports.len()).unwrap_or(0)])
+            .collect()
+    };
+    for (i, ex) in extracts.iter().enumerate() {
+        pb.add_file(i as u32, ex.as_ref(), &targets[i]);
     }
     for d in dirs {
         let (off, len) = ft.intern(&d.rel);
@@ -758,27 +850,122 @@ pub fn build_delta(
     entries.sort_unstable_by_key(|(k, _, _)| *k);
     let fb = ft.serialize();
     let gb = format::serialize_grams(&entries);
-    let sbb = sb.finish(&|_| 0.5);
+    let sbb = sb.finish(&|f| {
+        ranks
+            .get(f as usize)
+            .filter(|&&r| r > 0)
+            .map(|&r| (r - 1) as f32 / 65534.0)
+            .unwrap_or(0.5)
+    });
     let pbb = pb.finish();
+    let gbb = dg.finish();
     let mut tb = Vec::new();
     tomb.serialize_into(&mut tb)?;
-    let mut body = Vec::with_capacity(24 + fb.len() + gb.len() + sbb.len() + pbb.len() + tb.len());
+    let mut body = Vec::with_capacity(
+        format::DELTA_HEADER + fb.len() + gb.len() + sbb.len() + pbb.len() + gbb.len() + tb.len(),
+    );
     for x in [
         first_id,
-        files.len() as u32,
+        n,
         fb.len() as u32,
         gb.len() as u32,
         sbb.len() as u32,
         pbb.len() as u32,
+        gbb.len() as u32,
+        0,
     ] {
         body.extend_from_slice(&x.to_le_bytes());
     }
+    debug_assert_eq!(body.len(), format::DELTA_HEADER);
     body.extend_from_slice(&fb);
     body.extend_from_slice(&gb);
     body.extend_from_slice(&sbb);
     body.extend_from_slice(&pbb);
+    body.extend_from_slice(&gbb);
     body.extend_from_slice(&tb);
     Ok(body)
+}
+
+/// Kotlin resolution against the base at delta time. The base does not store
+/// packages, so `import a.b.C` is matched by a top-level symbol `C` in a live
+/// Kotlin file whose directory ends with `a/b` (the source-root convention),
+/// and `a.b.*` or same-package peers by the directory suffix alone.
+struct KotlinBase<'a> {
+    idx: &'a Index,
+    tomb: &'a RoaringBitmap,
+    /// Live base Kotlin files as (id, rel); empty when the delta has no Kotlin file.
+    files: Vec<(u32, &'a str)>,
+}
+
+impl<'a> KotlinBase<'a> {
+    fn new(idx: &'a Index, tomb: &'a RoaringBitmap, extracts: &[Option<FileExtract>]) -> Self {
+        let wanted = extracts.iter().flatten().any(|fx| fx.package.is_some());
+        let files = if wanted {
+            idx.live_files()
+                .filter(|(id, rel, _)| !tomb.contains(*id) && rel.ends_with(".kt"))
+                .map(|(id, rel, _)| (id, rel))
+                .collect()
+        } else {
+            Vec::new()
+        };
+        KotlinBase { idx, tomb, files }
+    }
+    fn dir_matches(rel: &str, pkg_path: &str) -> bool {
+        let dir = rel.rsplit_once('/').map(|(d, _)| d).unwrap_or("");
+        dir == pkg_path
+            || (dir.len() > pkg_path.len()
+                && dir.ends_with(pkg_path)
+                && dir.as_bytes()[dir.len() - pkg_path.len() - 1] == b'/')
+    }
+    fn in_package(&self, pkg: &str, exclude: u32) -> Vec<u32> {
+        let pkg_path = pkg.replace('.', "/");
+        self.files
+            .iter()
+            .filter(|(id, rel)| *id != exclude && Self::dir_matches(rel, &pkg_path))
+            .map(|(id, _)| *id)
+            .collect()
+    }
+    fn resolve(&self, module: &str, wildcard: bool, me: u32) -> Vec<u32> {
+        if self.files.is_empty() {
+            return Vec::new();
+        }
+        if wildcard {
+            return self.in_package(module, me);
+        }
+        // longest package prefix whose next segment is a top-level symbol
+        let segs: Vec<&str> = module.split('.').collect();
+        for k in (1..segs.len()).rev() {
+            let pkg_path = segs[..k].join("/");
+            let name = segs[k];
+            let mut out: Vec<u32> = self
+                .idx
+                .lookup(name)
+                .into_iter()
+                .filter(|s| self.idx.sym_parent(*s).is_none())
+                .map(|s| self.idx.sym_file(s))
+                .filter(|&id| {
+                    id != me
+                        && !self.tomb.contains(id)
+                        && self
+                            .idx
+                            .path(id)
+                            .map(|rel| rel.ends_with(".kt") && Self::dir_matches(rel, &pkg_path))
+                            .unwrap_or(false)
+                })
+                .collect();
+            if !out.is_empty() {
+                out.sort_unstable();
+                out.dedup();
+                return out;
+            }
+        }
+        Vec::new()
+    }
+    /// Files sharing package `pkg` by directory suffix, capped as in the base build.
+    fn peers(&self, pkg: &str, me: u32) -> Vec<u32> {
+        let v = self.in_package(pkg, me);
+        if v.len() <= 30 { v } else { Vec::new() }
+    }
 }
 
 pub fn root_of(p: &Path) -> PathBuf {

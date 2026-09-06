@@ -68,6 +68,8 @@ pub const COMP_TOMB: u8 = 4;
 pub const COMP_SYMBOLS: u8 = 5;
 pub const COMP_SPANS: u8 = 6;
 pub const COMP_GRAPH: u8 = 7;
+/// Delta segment header: eight u32 (first_id, n_files, five section lengths, pad).
+pub const DELTA_HEADER: usize = 32;
 
 pub const NONE: u32 = u32::MAX;
 

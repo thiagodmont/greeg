@@ -16,6 +16,10 @@ use tree_sitter::{Language, Node, ParseOptions, Parser, Query, QueryCursor};
 pub const SYM_EXPORTED: u8 = 1;
 pub const SYM_HAS_DOC: u8 = 2;
 pub const SYM_TEST: u8 = 4;
+/// JS/TS: a member of an object literal (`{ watchFile: () => … }`, `{ get(k) {…} }`).
+/// Usually an implementation of a typed member rather than the definition an
+/// agent asks for: hits on its name classify as `member`, and `def` ranks it low.
+pub const SYM_OBJ_MEMBER: u8 = 8;
 
 pub const PARSE_TIMEOUT: Duration = Duration::from_millis(200);
 /// Files whose `ERROR` nodes cover more than this fraction fall back to regexes.
@@ -446,6 +450,11 @@ fn extract_raw(lang: Lang, tsx: bool, src: &[u8], depth: u8) -> Extract {
                 if is_test(lang, node, src, name_bytes) {
                     flags |= SYM_TEST;
                 }
+                if matches!(lang, Lang::JavaScript | Lang::TypeScript)
+                    && node.parent().map(|p| p.kind() == "object").unwrap_or(false)
+                {
+                    flags |= SYM_OBJ_MEMBER;
+                }
                 // line = the name's line (annotations, decorators and modifiers may precede the
                 // declaration on earlier lines; `start` still covers them for block extraction)
                 let line = node.start_position().row as u32
@@ -749,13 +758,26 @@ fn exported(lang: Lang, node: Node, name: Option<Node>, src: &[u8], name_bytes: 
             {
                 return false;
             }
-            // declarator → declaration → (ambient_declaration) → export_statement
+            // declarator → declaration → (ambient_declaration) → export_statement;
+            // never through a function or class body (a nested declaration is not
+            // exported because its enclosing function is)
             let mut p = Some(node);
             for _ in 0..4 {
                 match p {
                     Some(n) if n.kind() == "export_statement" => return true,
-                    Some(n) => p = n.parent(),
-                    None => break,
+                    Some(n)
+                        if n.id() == node.id()
+                            || matches!(
+                                n.kind(),
+                                "variable_declarator"
+                                    | "lexical_declaration"
+                                    | "variable_declaration"
+                                    | "ambient_declaration"
+                            ) =>
+                    {
+                        p = n.parent()
+                    }
+                    _ => break,
                 }
             }
             matches!(
@@ -1085,6 +1107,21 @@ impl Parsed {
             .child_by_field_name("name")
             .map(|n| n.id() == node.id())
             .unwrap_or(false);
+        // JS/TS object-literal members implement a typed member more often than
+        // they define one (SCIP: a reference to the interface property)
+        if matches!(pk, "pair" | "method_definition")
+            && parent
+                .parent()
+                .map(|g| g.kind() == "object")
+                .unwrap_or(false)
+            && (is_name_of_parent
+                || parent
+                    .child_by_field_name("key")
+                    .map(|n| n.id() == node.id())
+                    .unwrap_or(false))
+        {
+            return NodeKind::Member;
+        }
         if is_name_of_parent
             && (pk.ends_with("_declaration")
                 || pk.ends_with("_definition")
@@ -1439,6 +1476,68 @@ fn join_path(a: &str, b: &str) -> String {
 mod tests {
     use super::*;
 
+    /// `GREEG_DUMP=path cargo test -p greeg-lang dump_parse_errors -- --ignored --nocapture`:
+    /// print every ERROR/MISSING node of a file with its line, for grammar triage.
+    /// `GREEG_SEXP='code' GREEG_SEXP_LANG=ts cargo test -p greeg-lang dump_sexp -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn dump_sexp() {
+        let Ok(code) = std::env::var("GREEG_SEXP") else {
+            return;
+        };
+        let lang = match std::env::var("GREEG_SEXP_LANG").as_deref() {
+            Ok("js") => Lang::JavaScript,
+            Ok("py") => Lang::Python,
+            Ok("rs") => Lang::Rust,
+            Ok("kt") => Lang::Kotlin,
+            _ => Lang::TypeScript,
+        };
+        let parsed = parse(lang, false, code.as_bytes()).unwrap();
+        println!("{}", parsed.tree.root_node().to_sexp());
+    }
+
+    #[test]
+    #[ignore]
+    fn dump_parse_errors() {
+        let Ok(path) = std::env::var("GREEG_DUMP") else {
+            return;
+        };
+        let src = std::fs::read(&path).unwrap();
+        let lang = Lang::from_path(std::path::Path::new(&path));
+        let parsed = parse(lang, is_tsx(&path), &src).unwrap();
+        let mut cur = parsed.tree.walk();
+        let mut stack = vec![parsed.tree.root_node()];
+        let mut n = 0;
+        while let Some(node) = stack.pop() {
+            if node.is_error() || node.is_missing() {
+                let line = node.start_position().row + 1;
+                let s = node.start_byte();
+                let e = node.end_byte().min(s + 80);
+                println!(
+                    "{line}: {} {:?}",
+                    node.kind(),
+                    String::from_utf8_lossy(&src[s..e])
+                );
+                n += 1;
+                if n > 40 {
+                    break;
+                }
+                continue;
+            }
+            if node.has_error() {
+                for ch in node
+                    .children(&mut cur)
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .rev()
+                {
+                    stack.push(ch);
+                }
+            }
+        }
+        println!("{n} error nodes");
+    }
+
     fn names(ex: &Extract, src: &[u8]) -> Vec<(String, &'static str, Option<String>)> {
         ex.symbols
             .iter()
@@ -1731,7 +1830,12 @@ mod tests {
     fn flags_of<'a>(ex: &Extract, src: &'a [u8]) -> Vec<(&'a str, u8)> {
         ex.symbols
             .iter()
-            .map(|s| (ex.name(s, src), s.flags & (SYM_EXPORTED | SYM_TEST)))
+            .map(|s| {
+                (
+                    ex.name(s, src),
+                    s.flags & (SYM_EXPORTED | SYM_TEST | SYM_OBJ_MEMBER),
+                )
+            })
             .collect()
     }
 
@@ -1971,6 +2075,103 @@ mod tests {
         assert_eq!(v[0], ("X", false));
         assert_eq!(v[6], ("EX", true));
         assert_eq!(v[7], ("ef", true));
+    }
+
+    /// `exported` never leaks through a function or class body: a helper
+    /// declared inside `export function f` is a closure, not an export.
+    #[test]
+    fn ts_exported_stops_at_function_body() {
+        let src = b"export function outer() {\n  function inner() {}\n  const arrow = () => 1;\n  return { inner, arrow };\n}\nexport const top = () => 2;\nexport class C {\n  m() { function deep() {} return deep; }\n}\n";
+        let ex = extract(Lang::TypeScript, false, src);
+        assert!(ex.tree_sitter, "{ex:?}");
+        let v: Vec<(&str, bool)> = flags_of(&ex, src)
+            .iter()
+            .map(|(n, f)| (*n, f & SYM_EXPORTED != 0))
+            .collect();
+        assert!(v.contains(&("outer", true)), "{v:?}");
+        assert!(v.contains(&("inner", false)), "{v:?}");
+        assert!(v.contains(&("top", true)), "{v:?}");
+        assert!(v.contains(&("C", true)), "{v:?}");
+        assert!(v.contains(&("m", true)), "{v:?}");
+        assert!(v.contains(&("deep", false)), "{v:?}");
+    }
+
+    #[test]
+    fn js_import_shapes() {
+        let src = b"import type { A } from './a';\nimport B, { c as d } from \"./b\";\nexport * from './e';\nexport { f } from './f';\nconst g = require('./g');\nconst Lazy = React.lazy(() => import('./lazy'));\nasync function load() { const { h } = await import(\"@/h\"); return h; }\n";
+        let ex = extract(Lang::TypeScript, false, src);
+        assert!(ex.tree_sitter && !ex.parse_errors, "{ex:?}");
+        let mods: Vec<(&str, bool)> = ex
+            .imports
+            .iter()
+            .map(|i| (i.module.as_str(), i.wildcard))
+            .collect();
+        assert_eq!(
+            mods,
+            vec![
+                ("./a", false),
+                ("./b", false),
+                ("./e", true),
+                ("./f", false),
+                ("./g", false),
+                ("./lazy", false),
+                ("@/h", false)
+            ]
+        );
+        assert_eq!(ex.imports[0].names, vec!["A"]);
+        assert_eq!(ex.imports[1].names, vec!["B", "c"]);
+        assert!(ex.imports[5].names.is_empty());
+    }
+
+    #[test]
+    fn ts_namespace_level_declarations() {
+        let src = b"module M {\n  var a = 1;\n  export var b = 2;\n  const c = () => 1;\n  function f() { var local = 3; }\n}\nnamespace N { let d: string; }\n";
+        let ex = extract(Lang::TypeScript, false, src);
+        assert!(ex.tree_sitter && !ex.parse_errors, "{ex:?}");
+        let n = names(&ex, src);
+        assert_eq!(
+            n.iter()
+                .map(|(a, b, c)| (a.as_str(), *b, c.as_deref()))
+                .collect::<Vec<_>>(),
+            vec![
+                ("M", "mod", None),
+                ("a", "var", Some("M")),
+                ("b", "var", Some("M")),
+                ("c", "fn", Some("M")),
+                ("f", "fn", Some("M")),
+                ("N", "mod", None),
+                ("d", "var", Some("N")),
+            ]
+        );
+    }
+
+    #[test]
+    fn ts_object_literal_members_are_flagged() {
+        let src = b"export const host = {\n  watchFile: (f: string) => 1,\n  getEnv(name: string) { return name; },\n  plain: 3,\n};\nclass K { m() {} }\nfunction top() {}\nmodule.exports.run = function () {};\n";
+        let ex = extract(Lang::TypeScript, false, src);
+        assert!(ex.tree_sitter && !ex.parse_errors, "{ex:?}");
+        let v: Vec<(&str, bool)> = flags_of(&ex, src)
+            .iter()
+            .map(|(n, f)| (*n, f & SYM_OBJ_MEMBER != 0))
+            .collect();
+        assert!(v.contains(&("host", false)), "{v:?}");
+        assert!(v.contains(&("watchFile", true)), "{v:?}");
+        assert!(v.contains(&("getEnv", true)), "{v:?}");
+        assert!(v.contains(&("m", false)), "{v:?}");
+        assert!(v.contains(&("top", false)), "{v:?}");
+        assert!(v.contains(&("run", false)), "{v:?}");
+        let p = parse(Lang::TypeScript, false, src).unwrap();
+        let at = |needle: &str, len: usize| {
+            let i = src
+                .windows(needle.len())
+                .position(|w| w == needle.as_bytes())
+                .unwrap();
+            p.kind_at(i, i + len)
+        };
+        assert_eq!(at("watchFile", 9), NodeKind::Member);
+        assert_eq!(at("getEnv", 6), NodeKind::Member);
+        assert_eq!(at("top", 3), NodeKind::Def);
+        assert_eq!(at("m()", 1), NodeKind::Def);
     }
 
     #[test]

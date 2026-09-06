@@ -261,14 +261,16 @@ binary search rather than FSTs (prefix and exact lookups are one binary
 search; the fuzzy rung is a bounded Levenshtein scan over the name table,
 ≈ 10 ms on 400k names, acceptable for a zero-hit rung); `graph.bin` edges
 come only from imports (no index-time reference pass, as designed); delta
-segments carry symbols and spans but their imports are unresolved and their
-files keep a neutral rank until the next rebuild; `tsconfig.json` `paths`
-are not honoured yet (external imports are unresolved); session ids come
-from the first non-shell ancestor process (`proc_pidinfo` on macOS,
+segments carried symbols and spans but unresolved imports and a neutral rank
+until M8; `tsconfig.json` `paths` were not honoured until M8; session ids
+come from the first non-shell ancestor process (`proc_pidinfo` on macOS,
 `/proc` on Linux) or `--session`/`GREEG_SESSION`; SCIP-based precision
-measurement moves to M6. Deferred: compressed span tables, FST-backed fuzzy
-search if the scan ever shows up in a profile, `locals.scm` (locals are
-suppressed by query shape instead), `greeg lang check`.
+measurement moves to M6. Deferred: compressed span tables (the tables are
+mmapped and answered by binary search per hit; compression would add a
+decode to that path to save 15 MB of a 90 MB index on rust-lang/rust),
+FST-backed fuzzy search if the scan ever shows up in a profile (it only runs
+on the zero-hit rung), `locals.scm` (locals are suppressed by query shape
+instead), `greeg lang check`.
 
 ### M4 · Sparse grams and compaction tuning (2 weeks, gated)
 
@@ -524,13 +526,13 @@ Quality, SCIP oracle (75 sampled names per corpus, `docs/BENCH.md`):
 
 | | tokio (rust-analyzer) | django (scip-python) | TypeScript v5.9.2 (scip-typescript) |
 |---|---|---|---|
-| `greeg def` Acc@1 / @5 / @10 | 93 / 99 / 99 % | 96 / 96 / 96 % | 56 / 88 / 91 % |
-| same, ambiguity 1 | 96 / 100 / 100 % | 92 / 92 / 92 % | 60 / 100 / 100 % |
-| `rg -nw` first lines Acc@1 / @5 / @10 | 45 / 71 / 73 % | 56 / 76 / 79 % | 40 / 76 / 85 % |
-| `grep -rnw` Acc@1 / @5 / @10 | 43 / 65 / 72 % | 56 / 75 / 80 % | 63 / 76 / 89 % |
-| reference recall (`refs --budget 0`) | 98 % | 100 % | 95 % |
-| definition recall | 98 % | 100 % | 89 % |
-| def precision vs SCIP roles (spans / `--precise`) | 95 / 95 % | 100 / 100 % | 96 / 94 % |
+| `greeg def` Acc@1 / @5 / @10 | 93 / 99 / 99 % | 96 / 96 / 96 % | 96 / 100 / 100 % (M8; 69 / 89 / 96 % before) |
+| same, ambiguity 1 | 96 / 100 / 100 % | 92 / 92 / 92 % | 100 / 100 / 100 % |
+| `rg -nw` first lines Acc@1 / @5 / @10 | 45 / 71 / 73 % | 56 / 76 / 79 % | 27 / 52 / 72 % |
+| `grep -rnw` Acc@1 / @5 / @10 | 43 / 65 / 72 % | 56 / 75 / 80 % | 47 / 61 / 71 % |
+| reference recall (`refs --budget 0`) | 98 % | 100 % | 97 % |
+| definition recall | 98 % | 100 % | 88 % |
+| def precision vs SCIP roles (spans / `--precise`) | 95 / 95 % | 100 / 100 % | 96 / 88 % |
 | noncode precision | 100 % | 99 % | 100 % |
 | tokens per bare-name query, greeg / rg (first 500 lines) | 700 / 2,813 | 609 / 4,420 | 778 / 10,894 |
 | tokens to first true definition, median, greeg / rg | 41 / 48 | 38 / 31 | 124 / 77 |
@@ -630,6 +632,151 @@ Source: `docs/REVIEW.md` (2026-09-02), executed in its §7 order.
 Not done: the agent A/B/C protocol run (manual, API cost), the 24 h soak,
 the Kotlin SCIP oracle, the eight large corpora, `--sort` kinds other than
 `path`, `--count-matches`.
+
+### M8 · Graph freshness and tsconfig paths (2 days)
+
+Two of the M3 deferrals turned out to cost the agent exactly where it looks:
+an edited file lost every import edge until a rebuild, and TypeScript
+repositories built on path aliases had almost no graph at all.
+
+Tasks:
+
+1. A modified file keeps the rank of the version it replaces; new files stay
+   neutral.
+2. Delta segments resolve imports against the live base plus their own
+   files and store the edges plus the superseded id per file (format v4,
+   `FORMAT.md`).
+3. Queries fold the base graph and the deltas: edges to a superseded id
+   follow the file to its newest version; importers of a file are its
+   unedited base importers plus the delta files that reach any version.
+4. Gate: an index-level test that edits an imported file, an importer and
+   adds a new importer, checking ranks and edges in both directions after
+   each delta; `bench/edits.py` checks `def --from` on an edited importer
+   still reports reach 1.0; the delta stays within the M2 budget.
+5. `tsconfig.json`/`jsconfig.json` (nearest by directory, `extends` chain,
+   JSON with comments) supply `paths` and `baseUrl`; probing falls through
+   to the existing extension and index rules.
+6. Gate: an alias-heavy corpus (shadcn-ui/ui) before and after.
+7. Workspace packages (`package.json` `workspaces`, `pnpm-workspace.yaml`)
+   resolve by name.
+
+8. TypeScript/JavaScript accuracy against the SCIP oracle (`bench.py oracle
+   TypeScript-5.9`, same 85 sampled names): `tests/baselines/reference/*.js`
+   (compiler output that embeds the test source) flagged generated by
+   directory name and by the `//// [` header; `exported` no longer leaks
+   through function and class bodies; `def` ranks a declaration nested in a
+   function at 0.7; object-literal members (`{ watchFile: () => … }`) carry
+   symbol flag 8, classify as `member` (indexed and `--precise`) and rank at
+   0.6, since scip-typescript records them as references to the typed member
+   they implement; `var`/`let`/`const` inside `module`/`namespace` blocks are
+   extracted; dynamic `import("…")` is an import. Triage tools: the ignored
+   tests `dump_parse_errors` and `dump_sexp` in `greeg-lang`.
+
+**Status: done 2026-09-03.** Format v4. Delta apply on rust-lang/rust with a
+100 KB file: 15.5 → 17 ms (a path map over 62k files plus 384 `Cargo.toml`
+reads on four threads); tokio unchanged at ≈ 15 ms. shadcn-ui/ui (3,875 TS
+files, 10.3k `@/…` imports, 610 relative): 631 → 7,723 edges, phase 2
+266 → 272 ms. Kotlin deltas resolve against the base by directory suffix
+because the base stores no packages. `bench/edits.py` PASS on tokio with
+the graph check. TypeScript-5.9 oracle: `def` Acc@1/5/10 69/89/96 % →
+96/100/100 % (ambiguity 6+: 64 → 92 % at rank 1), definition precision
+93 → 96 % (spans) and 86 → 88 % (`--precise`), definition recall 98 →
+100 % on the classified hits, context useful lines 40 → 51 %, first
+definition reached 85 → 97 % of queries. Remaining rank-1 misses are `.d.ts`
+library names whose SCIP definition is the copy under `tests/lib` and names
+with ten or more fixture definitions. Not done: Java, `exports` maps in
+`package.json`, recomputing PageRank incrementally (a rebuild still does
+that), and the tree-sitter-typescript bug on labeled tuple elements named
+`symbol` (`[symbol: Symbol, …]`, one error node in `src/compiler/types.ts`).
+
+### M9 · The answer is the whole word (1 day)
+
+Source: the M8 oracle run. Half of what the digest printed for a bare
+identifier could not be an occurrence of it. Measured over the 75 ranked
+TypeScript-5.9 names, of 1,466 location-bearing lines: 499 (34 %) matched the
+name inside a *longer* identifier (`createSourceFileWithText` for
+`createSourceFile`, which also made the block claim "definitions (9 of 9)"
+when SCIP knows 7), 242 (17 %) were the adaptive context lines of the ≤ 10-hit
+rung, and 0 were duplicates. Useful lines were 51 %.
+
+Tasks:
+
+1. A hit carries `exact` (`is_exact`: the match is the whole pattern as a
+   word, exact case), set where it is already computed; `indexed.rs` and the
+   `-w` hint read it instead of recomputing or comparing match lengths.
+2. A bare identifier searched literally and case-sensitively with at least one
+   whole-word match answers about that word: near-misses leave the ranked
+   answer and collapse to one `related` line naming up to four identifiers
+   with counts (text and `--json` footer). Never in parity mode (`--budget 0`,
+   `-l`, `-c`), never when nothing matches the whole word.
+3. `+N more` and the `--budget` hint count only the hits the answer may draw
+   on, so neither promises lines a larger budget would not show.
+4. The `≤ 10 hits → 1 before, 1 after` adaptive-context rung becomes none:
+   from four hits on the answer is hit lines only. One hit and ≤ 3 hits keep
+   their context, `-A/-B/-C` are untouched.
+5. Gate: `bench.py oracle TypeScript-5.9`, `bench/parity.py`, unit tests for
+   the near-miss split and for parity keeping ripgrep's match set.
+6. Protocol 3: 64 % of the non-useful lines that remain lie in files
+   `scip-typescript` does not index (`lib.dom.d.ts`, `tests/baselines/**`,
+   fixture `.js`). The oracle scores those as not-useful although it cannot
+   adjudicate them, while the classification metric already skips them
+   (`bench.py`, "only files SCIP covers say anything about roles").
+   `context_metrics` gains a second ratio over the SCIP-covered lines only,
+   reported **beside** the old one, never replacing it: the strict column
+   keeps charging every tool for what it printed, the new one measures
+   ranking on the lines the ground truth can judge.
+
+**Status: done 2026-09-04.** TypeScript-5.9 oracle, same 75 names, greeg
+0.3.0 + these changes:
+
+| | M8 | M9 |
+|---|---|---|
+| context useful lines | 51 % | **77 %** |
+| same over SCIP-covered lines only (protocol 3) | – | **93 % [90–96]** |
+| first definition reached | 97 % | 100 % |
+| coverage of true locations | 55 % | 63 % |
+| tokens per bare-name query, mean / median | 628 / 528 | 531 / 517 |
+| distinct true locations per 1k tokens | 16.3 | 22.3 (rg 20.3) |
+| same at `--budget 6000` | 46 % | 72 % |
+
+`def` Acc@1/5/10 (96/100/100 %), reference recall (97 %), definition recall
+(88 %) and classification precision (96 % spans, 88 % `--precise`) are
+unchanged: the verbs and the `--budget 0` paths never see the split.
+`bench/parity.py` PASS (16 queries, 14-row matrix).
+
+Protocol 3 drops 21 % of greeg's location lines from the denominator but
+65 % of `rg`'s and 77 % of `grep`'s, which dump every match in the baseline
+and fixture trees: it moves rg 55 → 84 % and grep 35 → 83 %, so it narrows
+greeg's lead (77 vs 55 → 93 vs 84) rather than flattering it. That asymmetry
+is the point — what is left is ranking, not who read fewer un-adjudicable
+files. The 95 % bootstrap interval is [89.6, 95.6] at n = 75: the estimate
+clears 90 %, the interval's lower bound sits just under it.
+
+django and tokio were re-run on 2026-09-04 to test the near-miss split
+against the naming conventions most likely to break it — Python's leading
+underscore and Rust's `_mut`/`_ref` suffixes. Neither regressed; the split
+puts them on the `related` line, named and counted:
+
+| | tokio | django |
+|---|---|---|
+| useful lines, strict / SCIP-covered | 56 % → 76 % / 81 % [76–86] | 51 % → 73 % / 84 % [79–89] |
+| coverage | 55 → 60 % | 50 → 52 % |
+| tokens per query, mean / median | 726 → 612 / 577 → 528 | 649 → 525 / 523 → 478 |
+| `def` Acc@1/5/10 | 83/97/99 %, unchanged | 91/91/91 %, unchanged |
+| reference / definition recall | 98 / 95 %, unchanged | 99 / 100 %, unchanged |
+
+Those two deltas span greeg 0.2.0 → 0.3.0 + M8 + M9, not M9 alone: their
+2026-09-02 rows predate both milestones. The covered ratio is lower than
+TypeScript's 93 % because the ground truth is sparser — rust-analyzer marks
+55 % of greeg's code hits as occurrences and scip-python 43 %, against
+scip-typescript's 86 % — so the covered denominator is a per-indexer number
+and only comparable within one corpus.
+
+`bench/bench.py fetch` now deepens an existing depth-1 clone before checking
+out a pinned commit; without it a re-fetch of a corpus whose pin moved fails.
+
+Not done: the wider sample (`--per-bucket 50`) that would halve the ±3 pp
+interval, and the agent A/B/C protocol.
 
 ## 4. Testing strategy
 

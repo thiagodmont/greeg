@@ -139,7 +139,7 @@ pub fn run(c: &Common) -> Result<()> {
             if greeg_index::now_ms().saturating_sub(m.built_unix_ms) > 7 * 86400 * 1000
                 && m.deltas > 0
             {
-                advice.push("index is older than a week with deltas applied; `greeg index` rebuilds it with resolved imports and fresh ranks".into());
+                advice.push("index is older than a week with deltas applied; `greeg index` rebuilds it with fresh PageRank (deltas keep edges but never recompute ranks)".into());
             }
             if !m.phase2 && !building {
                 advice.push("phase 2 (symbols) never completed; run `greeg index`".into());
