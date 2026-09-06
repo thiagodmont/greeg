@@ -1,0 +1,23 @@
+docs/DESIGN.md
+  s_ed36146e569a20::t_62aa2b368d8690 89-92,1002
+crates/greeg-index/src/fresh.rs
+  s_ed36146e569a20::t_9eddea47377c2c 513-520
+crates/greeg-index/src/format.rs
+  s_ed36146e569a20::t_9eddea47377c2c 395-402,409-411
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "fa2fc12302cd812006ecbf2cbb5a8f7c13bbd491",
+  "prompts": {},
+  "sessions": {
+    "s_ed36146e569a20": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "136e3c48-27e3-4f0c-95e0-81a5cdbbc029",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
