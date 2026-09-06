@@ -392,13 +392,23 @@ pub fn tmp_path(path: &Path) -> std::path::PathBuf {
 
 /// Write a component file atomically (unique temp + rename).
 pub fn write_atomic(path: &Path, comp: u8, body: &[u8]) -> Result<()> {
+    write_atomic_with(path, comp, body, true)
+}
+
+/// `write_atomic` with the fsync optional. Base components are published
+/// durably (a build is seconds anyway); a delta segment skips it because
+/// `F_FULLFSYNC` costs 4–5 ms of every post-edit query on APFS, and a delta
+/// torn by a crash fails `Index::open` and triggers a rebuild (DESIGN.md §2.2).
+pub fn write_atomic_with(path: &Path, comp: u8, body: &[u8], durable: bool) -> Result<()> {
     let tmp = tmp_path(path);
     {
         let mut f = std::io::BufWriter::with_capacity(1 << 20, std::fs::File::create(&tmp)?);
         write_header(&mut f, comp, body.len() as u64)?;
         f.write_all(body)?;
         f.flush()?;
-        f.get_ref().sync_all()?;
+        if durable {
+            f.get_ref().sync_all()?;
+        }
     }
     std::fs::rename(&tmp, path)?;
     Ok(())

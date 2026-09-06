@@ -86,7 +86,10 @@ Single writer, many readers. Writers take an exclusive `flock` on `LOCK`.
 Readers never lock: every on-disk structure is immutable once published and
 publication is an atomic `rename` of a new file over the old name; readers that
 already mapped the old file keep a valid view until they exit. A `manifest`
-file names the current generation of every component.
+file names the current generation of every component. Base components are
+fsynced before the rename; delta segments are not (M10): `F_FULLFSYNC` cost
+4–5 ms of every post-edit query on APFS, and a delta torn by a crash fails
+`Index::open`, which rebuilds.
 
 ### 2.3 Files
 
@@ -996,6 +999,7 @@ Results and the rendered `docs/BENCH.md` are in the repository.
 | Concept search | optional feature, entity BM25 | built-in embeddings | evidence favours lexical for agents; keeps binary and startup small |
 | Name dictionaries | sorted string tables + binary search; bounded Levenshtein scan for fuzzy | `fst` maps with Levenshtein automata | zero dependencies and zero-copy; fuzzy only runs on the zero-hit path where 10 ms is invisible; revisit if profiles disagree |
 | Rust macro bodies | re-parse brace-bodied macro invocations that contain item keywords as items | treat macro bodies as opaque (tree-sitter default) | tokio hides its public API inside `cfg_*!`; without this `def JoinHandle` missed the real struct |
+| Delta durability | no fsync on delta segments; a torn delta fails to open and rebuilds | fsync every published file | `F_FULLFSYNC` was 4–5 ms of the 28 ms a tokio edit cost the next query; the index is a cache |
 | Python attributes | `self.x = …` / `cls.x = …` inside a method is a field of the class, first assignment wins | class-body assignments only | all seven django `def` misses were such attributes; scip-python marks every assignment a definition, an agent wants the `__init__` site |
 | Rust `mod x;` | an import; `def` lists the module's file at weight 0.8 | a Module symbol at weight 1.0 | a hub `mod.rs` outranked `pub fn sleep` in ten of thirteen tokio `def` misses; rust-analyzer marks the declaration a reference and the file the definition |
 | Symbol line | line of the name | line of the declaration node | annotations and decorators start the node lines earlier; agents want the `fun`/`class` line (Kotlin agreement 62 % → 97 %) |

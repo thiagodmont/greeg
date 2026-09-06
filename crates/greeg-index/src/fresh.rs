@@ -510,7 +510,14 @@ pub fn apply(idx: &Index, root: &Path, ch: &Changes) -> Result<usize> {
     let ddir = idx.dir.join("delta");
     fs::create_dir_all(&ddir)?;
     let n = idx.deltas.len() as u32 + 1;
-    format::write_atomic(&ddir.join(format!("{n:04}.bin")), format::COMP_DELTA, &body)?;
+    // not fsynced: a torn delta fails `Index::open` and rebuilds, and the
+    // F_FULLFSYNC was 4–5 ms of every post-edit query (M10)
+    format::write_atomic_with(
+        &ddir.join(format!("{n:04}.bin")),
+        format::COMP_DELTA,
+        &body,
+        false,
+    )?;
     m.deltas = n;
     m.tombstones += tomb.len() as u32;
     m.verified_unix_ms = now_ms();
