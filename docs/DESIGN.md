@@ -1,6 +1,6 @@
 # greeg — Technical Design
 
-Status: v1.4, 2026-09-02, updated through M7 (v0.2 review fixes; the shipped output contract is `OUTPUT.md`) (implementation notes are marked "As shipped"). Companion to `PLAN.md`. Every number in this
+Status: v1.5, 2026-09-06, updated through M10 (word postings, answer-first deltas; the shipped output contract is `OUTPUT.md`) (implementation notes are marked "As shipped"). Companion to `PLAN.md`. Every number in this
 document is either measured on the reference machine (Apple M4 Pro, 12 cores,
 24 GB, macOS 25.5, APFS) or marked as a target.
 
