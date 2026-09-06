@@ -214,8 +214,10 @@ when shown); `line` is the name's line. Per-name symbol lists are ordered
 best-first at build time from kind weight, visibility, test flag and file
 rank. Extraction covers 16 kinds (the table above plus `field` and
 `variant`); locals are suppressed by the query shapes themselves (function-
-valued `const`s only at program or export level, Python assignments only at
-module and class level) rather than by a `locals.scm`.
+valued `const`s only at program or export level, Python assignments at
+module and class level plus `self.x = …` / `cls.x = …` attributes assigned in
+methods, moved to the class and kept once per name, and module-level names
+under `if`/`try` one level deep, M10) rather than by a `locals.scm`.
 
 ### 3.4 Span tables (`spans.bin`)
 
@@ -994,6 +996,7 @@ Results and the rendered `docs/BENCH.md` are in the repository.
 | Concept search | optional feature, entity BM25 | built-in embeddings | evidence favours lexical for agents; keeps binary and startup small |
 | Name dictionaries | sorted string tables + binary search; bounded Levenshtein scan for fuzzy | `fst` maps with Levenshtein automata | zero dependencies and zero-copy; fuzzy only runs on the zero-hit path where 10 ms is invisible; revisit if profiles disagree |
 | Rust macro bodies | re-parse brace-bodied macro invocations that contain item keywords as items | treat macro bodies as opaque (tree-sitter default) | tokio hides its public API inside `cfg_*!`; without this `def JoinHandle` missed the real struct |
+| Python attributes | `self.x = …` / `cls.x = …` inside a method is a field of the class, first assignment wins | class-body assignments only | all seven django `def` misses were such attributes; scip-python marks every assignment a definition, an agent wants the `__init__` site |
 | Rust `mod x;` | an import; `def` lists the module's file at weight 0.8 | a Module symbol at weight 1.0 | a hub `mod.rs` outranked `pub fn sleep` in ten of thirteen tokio `def` misses; rust-analyzer marks the declaration a reference and the file the definition |
 | Symbol line | line of the name | line of the declaration node | annotations and decorators start the node lines earlier; agents want the `fun`/`class` line (Kotlin agreement 62 % → 97 %) |
 | Delta symbols and edges | extracted inline; imports resolved against the base, rank carried over, edges folded at query time (§4.3) | leave deltas unresolved until the rebuild (v0.3) | the edited files are the agent's working set: `def --from`, `impact` and `map` on them lost every edge until a rebuild that fires only at 16 deltas or 5 % of the tree; the delta-time cost is ≈ 2 ms on the largest corpus |

@@ -351,7 +351,7 @@ fn identifier_query(o: &crate::Options) -> bool {
     is_identifier(&o.pattern)
         && !o.case_insensitive
         && !o.line_regexp
-        && !(o.smart_case && !o.pattern.bytes().any(|b| b.is_ascii_uppercase()))
+        && (!o.smart_case || o.pattern.bytes().any(|b| b.is_ascii_uppercase()))
 }
 
 /// Identifiers that merely contain the query, with hit counts: best first, top 4.

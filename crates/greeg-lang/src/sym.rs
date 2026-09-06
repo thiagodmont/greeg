@@ -906,6 +906,9 @@ fn finish(ex: &mut Extract, lang: Lang, src: &[u8]) {
         let _ = e;
         stack.push(i as u32);
     }
+    if lang == Lang::Python {
+        python_attributes(ex, src);
+    }
     // noncode: sort, drop nested duplicates, prefer docstring on equal start
     ex.noncode
         .sort_by(|a, b| a.start.cmp(&b.start).then(b.end.cmp(&a.end)));
@@ -976,6 +979,75 @@ fn finish(ex: &mut Extract, lang: Lang, src: &[u8]) {
         }
     }
     ex.imports.sort_by_key(|i| i.start);
+}
+
+/// Python: a `self.x = …` / `cls.x = …` field captured inside a method belongs
+/// to the enclosing class (scip-python's convention, and where an agent expects
+/// `def x` to point), once per (class, name) at the first assignment; class-body
+/// assignments count as the first. One without a class ancestor is a local and
+/// is dropped. Parents are remapped after the removal.
+fn python_attributes(ex: &mut Extract, src: &[u8]) {
+    let n = ex.symbols.len();
+    let mut keep = vec![true; n];
+    let mut seen: std::collections::HashSet<(u32, &[u8])> = std::collections::HashSet::new();
+    for i in 0..n {
+        if ex.symbols[i].kind != DefKind::Field {
+            continue;
+        }
+        let mut anc = ex.symbols[i].parent;
+        let mut inside_fn = false;
+        while let Some(a) = anc {
+            let k = ex.symbols[a as usize].kind;
+            if k == DefKind::Class {
+                break;
+            }
+            inside_fn |= matches!(k, DefKind::Function | DefKind::Method);
+            anc = ex.symbols[a as usize].parent;
+        }
+        let Some(class) = anc else {
+            if inside_fn {
+                keep[i] = false;
+            }
+            continue;
+        };
+        if inside_fn {
+            ex.symbols[i].parent = Some(class);
+        }
+        let name = &src[ex.symbols[i].name_start as usize..ex.symbols[i].name_end as usize];
+        if !seen.insert((class, name)) {
+            keep[i] = false;
+        }
+    }
+    if keep.iter().all(|&k| k) {
+        return;
+    }
+    let mut new_idx = vec![u32::MAX; n];
+    let mut next = 0u32;
+    for i in 0..n {
+        if keep[i] {
+            new_idx[i] = next;
+            next += 1;
+        }
+    }
+    // parents point at the nearest kept ancestor, renumbered
+    let parents: Vec<Option<u32>> = (0..n)
+        .map(|i| {
+            let mut p = ex.symbols[i].parent;
+            while let Some(j) = p
+                && !keep[j as usize]
+            {
+                p = ex.symbols[j as usize].parent;
+            }
+            p.map(|j| new_idx[j as usize])
+        })
+        .collect();
+    let old = std::mem::take(&mut ex.symbols);
+    for (i, mut s) in old.into_iter().enumerate() {
+        if keep[i] {
+            s.parent = parents[i];
+            ex.symbols.push(s);
+        }
+    }
 }
 
 /// Regex-based fallback (DESIGN.md §7.5): outline + byte lexer + import lines.
@@ -1940,6 +2012,42 @@ mod tests {
                 ("m", "method", Some("C"))
             ]
         );
+    }
+
+    #[test]
+    fn python_attributes_and_module_blocks() {
+        let src = b"class A:\n    x = 1\n    def __init__(self, v):\n        self.x = v\n        if v:\n            self.y: int = 2\n        self.a = self.b = 0\n    def reset(self):\n        self.x = 0\n    @classmethod\n    def setup(cls):\n        cls.z = 3\ndef free(self):\n    self.w = 1\nif TYPE_CHECKING:\n    Foo = int\nelse:\n    Foo = str\ntry:\n    import ujson as json\nexcept ImportError:\n    json = None\nif __name__ == \"__main__\":\n    parser = ArgumentParser()\n";
+        let ex = extract(Lang::Python, false, src);
+        assert!(ex.tree_sitter);
+        let n = names(&ex, src);
+        assert_eq!(
+            n.iter()
+                .map(|(a, b, c)| (a.as_str(), *b, c.as_deref()))
+                .collect::<Vec<_>>(),
+            vec![
+                ("A", "class", None),
+                ("x", "field", Some("A")),
+                ("__init__", "method", Some("A")),
+                ("y", "field", Some("A")),
+                ("a", "field", Some("A")),
+                ("b", "field", Some("A")),
+                ("reset", "method", Some("A")),
+                ("setup", "method", Some("A")),
+                ("z", "field", Some("A")),
+                ("free", "fn", None),
+                ("Foo", "var", None),
+                ("Foo", "var", None),
+                ("json", "var", None),
+                ("parser", "var", None),
+            ]
+        );
+        // the field's range is the `self.y` target itself, so a hit on the
+        // assigned value still has the method as its container
+        let y = ex.symbols.iter().find(|s| ex.name(s, src) == "y").unwrap();
+        assert_eq!(&src[y.start as usize..y.end as usize], b"self.y");
+        let off = src.windows(3).position(|w| w == b"= 2").unwrap() as u32 + 2;
+        let enc = ex.enclosing(off).unwrap();
+        assert_eq!(ex.name(&ex.symbols[enc as usize], src), "__init__");
     }
 
     #[test]
