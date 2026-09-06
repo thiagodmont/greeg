@@ -65,7 +65,8 @@ requirement.
   number of changed files, answers, exits. No daemon needed.
 * `greeg index [--wait]`: builds or rebuilds the index. On first query in a repo
   without an index, the query process forks a detached `greeg index` and answers
-  the current query in scan mode. Subsequent queries use whatever phase has
+  the current query in scan mode. `greeg index --refresh` is the detached step
+  of a search that answered around changed files (§4.5): it publishes the delta. Subsequent queries use whatever phase has
   completed (phase 1 grams enable candidate pruning before phase 2 symbols
   exist).
 * `greeg watch`: optional resident process using `notify` (FSEvents/inotify)
@@ -401,6 +402,24 @@ burst; ≈ 5–100 ms), otherwise grams-only inline (`count ≤ 2000`) with symb
 extraction deferred to a detached background process, otherwise the query runs
 in scan mode for the changed subset while a full re-index is spawned. In every
 case the answer reflects the working tree at query time.
+
+**As shipped (M10): a search answers first.** When the check finds changes
+below the rebuild threshold (`needs_rebuild`: an ignore file, more than
+2,000 files, 16 segments, or 5 % of the tree), the query drops the changed
+files' indexed versions from the candidates, reads and searches the changed
+files itself with scan-mode classification (an edited file keeps its rank, a
+new one is neutral), writes the answer, and only then spawns a detached
+`greeg index --refresh`, which runs the check again without the TTL and
+publishes the delta (one refresher per index behind a `REFRESHING` marker, a
+full build past the threshold). The answer is still the working tree at
+query time; what leaves the critical path is the extraction, whose fixed cost
+is the tree-sitter query compile (Rust 8 ms, Python 7, TypeScript 36, Kotlin
+34) plus the parse and the resolver's path map (7–23 ms on 74k files).
+Measured: a search after touching the 3 MB `src/compiler/checker.ts` on
+TypeScript-5.9 went from 273 ms to 35 ms, and the 200-file edit burst of
+`bench/edits.py` answers in 21 ms with the delta published within the
+second. Verbs still apply the delta inline: `def`, `refs` and `outline` need
+the changed files' symbols and spans.
 
 Git awareness: if `.git/HEAD` or the index file changed, the freshness check
 reads the git index (via `gix`) to get oids for tracked files and uses the blob
@@ -999,6 +1018,7 @@ Results and the rendered `docs/BENCH.md` are in the repository.
 | Concept search | optional feature, entity BM25 | built-in embeddings | evidence favours lexical for agents; keeps binary and startup small |
 | Name dictionaries | sorted string tables + binary search; bounded Levenshtein scan for fuzzy | `fst` maps with Levenshtein automata | zero dependencies and zero-copy; fuzzy only runs on the zero-hit path where 10 ms is invisible; revisit if profiles disagree |
 | Rust macro bodies | re-parse brace-bodied macro invocations that contain item keywords as items | treat macro bodies as opaque (tree-sitter default) | tokio hides its public API inside `cfg_*!`; without this `def JoinHandle` missed the real struct |
+| Post-edit search | answer from the changed files read from disk, publish the delta from a detached process after the output | apply the delta inline before answering | the inline delta cost every search after an edit 28–150 ms (query compile, parse, resolver map, fsync) and the speed bench never measured it; verbs keep the inline apply for their symbols |
 | Delta durability | no fsync on delta segments; a torn delta fails to open and rebuilds | fsync every published file | `F_FULLFSYNC` was 4–5 ms of the 28 ms a tokio edit cost the next query; the index is a cache |
 | Python attributes | `self.x = …` / `cls.x = …` inside a method is a field of the class, first assignment wins | class-body assignments only | all seven django `def` misses were such attributes; scip-python marks every assignment a definition, an agent wants the `__init__` site |
 | Rust `mod x;` | an import; `def` lists the module's file at weight 0.3, after every symbol | a Module symbol at weight 1.0 | a hub `mod.rs` outranked `pub fn sleep` in ten of thirteen tokio `def` misses; rust-analyzer marks the declaration a reference and the file the definition |

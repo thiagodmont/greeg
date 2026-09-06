@@ -396,6 +396,17 @@ pub fn check_fsevents(idx: &Index, root: &Path, threads: usize) -> Option<Change
     Some(ch)
 }
 
+/// The check to run when `Auto` must not trust the TTL stamp: a retry after
+/// another writer published, or the detached refresh of an answer-first
+/// query. FSEvents on large macOS trees, else the stat pass.
+pub fn explicit_mode(idx: &Index) -> Mode {
+    if cfg!(target_os = "macos") && idx.base.n_files >= 8000 {
+        Mode::FsEvents
+    } else {
+        Mode::Stat
+    }
+}
+
 /// Decide and run the check for `mode`. `threads` is the stat pool size.
 pub fn check(idx: &Index, root: &Path, mode: Mode, threads: usize) -> Option<Changes> {
     match mode {

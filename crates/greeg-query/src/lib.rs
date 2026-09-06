@@ -404,6 +404,8 @@ pub struct Stats {
     pub fresh_method: &'static str,
     pub fresh_ms: f64,
     pub fresh_changed: usize,
+    /// Changed files answered from disk this query; the delta follows the answer.
+    pub fresh_deferred: usize,
     pub plan: String,
 }
 
