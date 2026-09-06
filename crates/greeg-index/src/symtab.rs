@@ -895,6 +895,132 @@ impl<'a> GraphView<'a> {
     }
 }
 
+/// Import edges of a delta segment (FORMAT.md, delta graph section):
+/// per delta-local file, the absolute ids it imports, plus the id of the
+/// file version it supersedes (`NONE` for a new file). No PageRank: ranks are
+/// carried over from the superseded record.
+#[derive(Default)]
+pub struct DeltaGraphBuilder {
+    n: u32,
+    prev: Vec<u32>,
+    edges: Vec<(u32, u32, u16)>,
+}
+
+impl DeltaGraphBuilder {
+    pub fn new(n_files: u32) -> Self {
+        DeltaGraphBuilder {
+            n: n_files,
+            prev: vec![NONE; n_files as usize],
+            edges: Vec::new(),
+        }
+    }
+    pub fn set_prev(&mut self, file_local: u32, prev_id: u32) {
+        if let Some(p) = self.prev.get_mut(file_local as usize) {
+            *p = prev_id;
+        }
+    }
+    /// `from` is delta-local, `to` absolute.
+    pub fn add(&mut self, from: u32, to: u32, w: u16) {
+        if to != NONE && from < self.n {
+            self.edges.push((from, to, w));
+        }
+    }
+    pub fn n_edges(&self) -> usize {
+        self.edges.len()
+    }
+    pub fn finish(mut self) -> Vec<u8> {
+        let n = self.n as usize;
+        self.edges.sort_unstable();
+        self.edges.dedup_by(|b, a| {
+            if a.0 == b.0 && a.1 == b.1 {
+                a.2 = a.2.saturating_add(b.2);
+                true
+            } else {
+                false
+            }
+        });
+        let m = self.edges.len();
+        let mut out_off = vec![0u32; n + 1];
+        for &(f, _, _) in &self.edges {
+            out_off[f as usize + 1] += 1;
+        }
+        for i in 0..n {
+            out_off[i + 1] += out_off[i];
+        }
+        let out_to: Vec<u32> = self.edges.iter().map(|e| e.1).collect();
+        let out_w: Vec<u16> = self.edges.iter().map(|e| e.2).collect();
+        let mut body = Vec::with_capacity(16 + n * 8 + m * 6 + 16);
+        for x in [self.n, m as u32, 0, 0] {
+            body.extend_from_slice(&x.to_le_bytes());
+        }
+        put_u32s(&mut body, &self.prev);
+        put_u32s(&mut body, &out_off);
+        put_u32s(&mut body, &out_to);
+        body.extend_from_slice(bytemuck::cast_slice(&out_w));
+        pad8(&mut body);
+        body
+    }
+}
+
+pub struct DeltaGraphView<'a> {
+    pub n: u32,
+    /// Superseded file id per delta-local file (`NONE` for new files).
+    pub prev: &'a [u32],
+    pub out_off: &'a [u32],
+    pub out_to: &'a [u32],
+    pub out_w: &'a [u16],
+}
+
+impl<'a> DeltaGraphView<'a> {
+    pub fn parse(body: &'a [u8]) -> Result<Self> {
+        if body.len() < 16 {
+            bail!("short delta graph section");
+        }
+        let h: &[u32] = bytemuck::cast_slice(&body[..16]);
+        let (n, m) = (h[0] as usize, h[1] as usize);
+        let mut off = 16;
+        let prev = take_u32s(body, &mut off, n)?;
+        let out_off = take_u32s(body, &mut off, n + 1)?;
+        let out_to = take_u32s(body, &mut off, m)?;
+        let wb = take_bytes(body, &mut off, m * 2)?;
+        let out_w: &[u16] =
+            bytemuck::try_cast_slice(wb).map_err(|_| anyhow::anyhow!("unaligned weights"))?;
+        if out_off.last().copied().unwrap_or(0) as usize != m
+            || out_off.windows(2).any(|w| w[0] > w[1])
+        {
+            bail!("delta graph offsets corrupt");
+        }
+        Ok(DeltaGraphView {
+            n: n as u32,
+            prev,
+            out_off,
+            out_to,
+            out_w,
+        })
+    }
+    pub fn prev(&self, local: u32) -> u32 {
+        self.prev.get(local as usize).copied().unwrap_or(NONE)
+    }
+    /// Absolute ids imported by delta-local file `local`.
+    pub fn out(&self, local: u32) -> &'a [u32] {
+        let i = local as usize;
+        if i + 1 >= self.out_off.len() {
+            return &[];
+        }
+        &self.out_to[self.out_off[i] as usize..self.out_off[i + 1] as usize]
+    }
+    /// Every edge as (delta-local from, absolute to).
+    pub fn edges(&self) -> impl Iterator<Item = (u32, u32)> + 'a {
+        let out_off = self.out_off;
+        let out_to = self.out_to;
+        (0..self.n as usize).flat_map(move |f| {
+            out_to[out_off[f] as usize..out_off[f + 1] as usize]
+                .iter()
+                .map(move |&t| (f as u32, t))
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

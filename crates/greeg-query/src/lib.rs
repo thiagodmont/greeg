@@ -216,6 +216,8 @@ pub struct Hit {
     pub chain: Vec<(DefKind, String)>,
     pub def_idx: Option<u32>,
     pub score: f32,
+    /// The match is the whole pattern as a word, exact case (`is_exact`).
+    pub exact: bool,
     /// Line text without the terminator, trimmed at the start and clipped to
     /// `max_columns` around the match (display form).
     pub text: Vec<u8>,
@@ -1571,6 +1573,7 @@ pub(crate) fn process_file(
             chain: Vec::new(),
             def_idx: None,
             score,
+            exact,
             text,
             text_match: (tm.0 as u32, tm.1 as u32),
             clipped,

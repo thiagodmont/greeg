@@ -20,7 +20,7 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
-pub const FORMAT_VERSION: u16 = 3;
+pub const FORMAT_VERSION: u16 = 4;
 
 /// Manifest: JSON, small, rewritten atomically on every publish/check.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]

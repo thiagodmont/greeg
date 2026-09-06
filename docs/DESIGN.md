@@ -291,8 +291,8 @@ all cores, parses, runs the tags query, resolves imports, computes PageRank,
 and republishes `files.bin` with ranks and `PARSE_ERRORS` flags together
 with the three new components. Phase 2 is 3.8 s on rust-lang/rust (38,848
 files, 136 MB; 7–10 MB/s per core), 1.3 s on TypeScript, 0.3 s on django.
-Delta segments run both stages inline for the changed files; their imports
-stay unresolved until the next rebuild.
+Delta segments run both stages inline for the changed files and resolve
+their imports against the base (§4.3).
 
 Two thread pools are deliberate: file reading on macOS degrades past 4 threads
 (measured: 1 thread 1.27 s, 4 threads 0.92 s, 12 threads 2–3 s on 66k files),
@@ -326,6 +326,22 @@ candidates = (base_postings(q) \ tombstones) ∪ delta_postings(q)
 Deleted files are tombstoned only. New files get fresh ids at the end of the id
 space (which breaks the sorted-path range property for them; path filters fall
 back to a per-file glob check for delta files, which are few).
+
+**Graph freshness (as shipped).** The files an agent edits are exactly the
+ones it asks about next, so a delta must not drop them out of the import
+graph. A delta records, per file, the id it supersedes and its resolved
+outgoing edges (imports resolved against the live base plus the delta's own
+files; `FORMAT.md`), and a modified file keeps the rank of the version it
+replaces. Queries see one graph: an edge from a base file to a superseded id
+follows the file to its newest live version, and the importers of a file are
+the base importers of its oldest version that were not themselves edited
+(their edited versions carry their own edges) plus the delta files with an
+edge to any version of it. PageRank itself is recomputed only by a build.
+Kotlin imports in a delta resolve against the base by directory suffix
+(`import a.b.C` → a live Kotlin file under `…/a/b/` declaring `C`), since the
+base does not store packages. Cost: ≈ 2 ms per delta on rust-lang/rust (a
+path map over 62k files and 384 `Cargo.toml` reads on four threads), nothing
+measurable on tokio.
 
 Compaction: when `|delta files| > max(200, 5 % of files)` or `|delta segments| >
 16`, a background `greeg index --compact` rebuilds base components from base
@@ -540,7 +556,11 @@ Given a hit at byte offset `o` in file `f`:
 
 1. `defs[f]` binary search for the innermost def span containing `o` gives the
    enclosing symbol chain (parent pointers) and, if `o` falls inside that
-   symbol's name range, kind `def`.
+   symbol's name range, kind `def`. Exception: a JS/TS object-literal member
+   (`{ watchFile: () => … }`, `{ get(k) {…} }`, symbol flag 8) classifies as
+   `member`; it implements a typed member far more often than it defines one
+   (scip-typescript records it as a reference to the interface property), and
+   `def` ranks it at 0.6. `--precise` applies the same rule from the tree.
 2. `noncode[f]` binary search gives `comment` / `string` / `docstring`.
 3. `imports[f]` binary search gives `import`.
 4. Otherwise a byte-context rule decides: skip whitespace after the match; `(`
@@ -590,7 +610,9 @@ milliseconds.
 **As shipped (v0.2).** `kind_w` is def 1.0, call 0.6, type 0.5, import 0.45,
 member 0.45, ident 0.4, docstring 0.3, comment 0.25, string 0.25; a
 definition whose symbol name equals the query (whole word, exact case) gets
-× 1.3; files under `mock(s)`, `__mocks__`, `stub(s)`, `fake(s)` are demoted
+× 1.3 (and from M9 a bare identifier query keeps only whole-word matches
+while any exist, so `exact_w` decides ordering only under `-i`, `-F` and
+regex queries); files under `mock(s)`, `__mocks__`, `stub(s)`, `fake(s)` are demoted
 to 0.45 like tests; `recency_w` was removed (every file in a fresh clone is
 "today"); the per-file cap is budget-driven when at most three files match
 or a single file is named.
@@ -607,6 +629,14 @@ Shaping algorithm:
 1. If total hits ≤ budget-equivalent lines: emit content mode with adaptive
    context (`1 hit → 40 lines, ≤ 3 → 12, ≤ 10 → 4, else 0` around each hit,
    clipped to the enclosing symbol's range).
+
+   *As shipped (M9, unreleased).* The `≤ 10 → 4` rung is gone: from four hits on, the
+   answer is hit lines only. The context lines around a hit are the largest
+   block of an answer that carries no location of its own, and with several
+   hits on the page the reader can already triangulate; measured on the SCIP
+   oracle they cost more lines than they earn (PLAN.md M9). A bare identifier
+   query also answers about the whole word only: hits inside longer
+   identifiers collapse to the `related` line (OUTPUT.md).
 2. Else emit *facets first* (§10.3): counts by kind, by top-level directory
    (top 6), by language, by flag, plus the top definitions and the top 10 hits
    by score, all within the budget.
@@ -665,7 +695,7 @@ Per-language resolvers map an import statement to a `FileId`:
 | Language | Rule |
 |---|---|
 | Python | `from a.b import c` / `import a.b` → `a/b.py`, `a/b/__init__.py`, relative dots resolved from the importing file's package; search roots: repo root, any dir containing `pyproject.toml`/`setup.py`, `src/` |
-| TypeScript/JavaScript | `from './x'` → `x.ts .tsx .js .jsx .mjs .cjs d.ts`, `x/index.*`; `tsconfig.json` `paths` and `baseUrl` honoured (parsed once per tsconfig); package-name imports unresolved (external) |
+| TypeScript/JavaScript | `from './x'` → `x.ts .tsx .js .jsx .mjs .cjs d.ts`, `x/index.*`; the nearest `tsconfig.json`/`jsconfig.json` (with its `extends` chain) supplies `paths` (longest matching pattern first) and `baseUrl`; workspace packages named by the root `package.json` `workspaces` or `pnpm-workspace.yaml` resolve by `name[/sub]`; other package-name imports unresolved (external) |
 | Rust | `use crate::a::b` → `src/a/b.rs`, `src/a/b/mod.rs`, `src/a.rs` containing `mod b`; `mod x;` declarations; workspace crates by name from `Cargo.toml` members |
 | Kotlin | `import a.b.C` → any file whose `package a.b` declares `C` (symbol table lookup); same-package implicit visibility → edge to every file with the same package (weighted 0.1) |
 | Java (later) | as Kotlin, plus `import static` |
@@ -676,7 +706,10 @@ Unresolved imports keep their raw text for `--external` queries.
 table (Rust also honours `mod x;` declarations and workspace crate names
 from `Cargo.toml`, looked up per file by walking the directory chain);
 Kotlin uses the package table plus a `package.Name → file` map built from
-top-level symbols. `tsconfig.json` `paths` and Java are not implemented.
+top-level symbols. JS/TS honours `tsconfig.json` as in the table: on
+shadcn-ui/ui (3,875 TS files, 10.3k `@/…` imports against 610 relative ones)
+edges went from 631 to 7,723 and phase 2 from 266 to 272 ms. Java is not
+implemented.
 
 ### 7.3 Definition lookup (`greeg def NAME [--from FILE]`)
 
@@ -686,6 +719,10 @@ top-level symbols. `tsconfig.json` `paths` and Java are not implemented.
    (1.0 if the candidate's file is directly imported by `--from`, 0.8 if
    within 2 hops, 0.6 same package/directory, 0.4 otherwise). Without
    `--from`, the session's recently seen files act as the origin.
+   **As shipped:** `kind_w × exported(1.0 / 0.85) × nested(0.7 when the
+   enclosing symbol is a function or method: a closure is not the
+   definition an agent asks for while a top-level one exists) × loc_w ×
+   (0.6 + 0.4 × rank) × reach`.
 3. Output the signature line, enclosing chain, doc comment first line, and
    caller count (from a cached reference count if computed in this session,
    else `?`).
@@ -754,7 +791,7 @@ Computed once per file at extraction (stage A) from the first 64 KiB:
 |---|---|
 | `BINARY` | NUL byte in the first 8 KiB |
 | `MINIFIED` | `max_line_len > 1000` and `avg_line_len > 200` in the first 64 KiB, or no newline in the first 2 KiB, or a `.min.` in the name / `*.bundle.js`, or a `sourceMappingURL=` directive in the first 64 KiB with `avg_line_len > 120` |
-| `GENERATED` | header within first 2 KiB matching `@generated`, `DO NOT EDIT` (any case), `Code generated by`, `autogenerated`, `auto-generated`, `automatically generated`, `This file was/is generated`; or path segment `generated`, `__generated__`, `_gen`, `autogen`, `compiled`, `dist`, `.next`, `target`; or name `*_pb2.py`, `*.pb.go`, `*.g.dart`, `*.g.cs`, `*.g.ts`, `*.designer.cs`, `*.generated.ts`, or `*.d.ts` under a `generated` directory. `build`, `out` and `gen` are not signals on their own (Go `pkg/build`, `src/gen`). |
+| `GENERATED` | header within first 2 KiB matching `@generated`, `DO NOT EDIT` (any case), `Code generated by`, `autogenerated`, `auto-generated`, `automatically generated`, `This file was/is generated`; or a first line starting with `//// [` (TypeScript compiler baselines: the test source and its emit in one file); or path segment `generated`, `__generated__`, `_gen`, `autogen`, `compiled`, `dist`, `.next`, `target`, `baselines`, `baseline`, `golden` (recorded tool output checked in for comparison); or name `*_pb2.py`, `*.pb.go`, `*.g.dart`, `*.g.cs`, `*.g.ts`, `*.designer.cs`, `*.generated.ts`, or `*.d.ts` under a `generated` directory. `build`, `out` and `gen` are not signals on their own (Go `pkg/build`, `src/gen`). |
 | `VENDORED` | path segment `vendor`, `vendored`, `_vendor`, `third_party`, `thirdparty`, `third-party`, `node_modules`, `.yarn`, `bower_components`, `site-packages`. `external` and `deps` are not signals on their own. |
 | `LOCKFILE` | `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, `Cargo.lock`, `poetry.lock`, `uv.lock`, `Pipfile.lock`, `gradle.lockfile`, `pixi.lock`, `composer.lock`, `Gemfile.lock`, `bun.lock`, `bun.lockb`, `flake.lock` |
 | `TEST` | path segment `test`, `tests`, `__tests__`, `specs`, `testing`, `testdata`, `test_data`, `fixtures`, `snapshots`, `__snapshots__`, `e2e`, `integration-tests`, `mock`, `mocks`, `__mocks__`, `stub`, `stubs`, `fake`, `fakes`; or name matching `test_*`, `*_test.*`, `*.test.*`, `*.spec.*`, `conftest.py`, `*Test.kt`, `*Tests.kt` (uppercase `T`: `Latest.kt` is not a test); or `*_spec.*` under a `spec` directory (`spec/` alone is not a signal: API specs). Segments match case-insensitively. |
@@ -953,7 +990,7 @@ Results and the rendered `docs/BENCH.md` are in the repository.
 | Name dictionaries | sorted string tables + binary search; bounded Levenshtein scan for fuzzy | `fst` maps with Levenshtein automata | zero dependencies and zero-copy; fuzzy only runs on the zero-hit path where 10 ms is invisible; revisit if profiles disagree |
 | Rust macro bodies | re-parse brace-bodied macro invocations that contain item keywords as items | treat macro bodies as opaque (tree-sitter default) | tokio hides its public API inside `cfg_*!`; without this `def JoinHandle` missed the real struct |
 | Symbol line | line of the name | line of the declaration node | annotations and decorators start the node lines earlier; agents want the `fun`/`class` line (Kotlin agreement 62 % → 97 %) |
-| Delta symbols | extracted inline, imports unresolved, neutral rank | resolve against the base at delta time | correctness of `def`/`outline` on edited files matters immediately; graph freshness can wait for the rebuild |
+| Delta symbols and edges | extracted inline; imports resolved against the base, rank carried over, edges folded at query time (§4.3) | leave deltas unresolved until the rebuild (v0.3) | the edited files are the agent's working set: `def --from`, `impact` and `map` on them lost every edge until a rebuild that fires only at 16 deltas or 5 % of the tree; the delta-time cost is ≈ 2 ms on the largest corpus |
 | Session identity | first non-shell ancestor pid | env-only ids | works with any agent harness without configuration; `--session` still overrides |
 | Sparse grams | rejected after the M4 A/B (trigrams stay, no opt-in) | shipping as default or as a flag | every variant is larger (1.3–3.4× postings) and slower to build; the only 2× candidate cut is the superset scheme; verification of trigram false positives costs 1–3 ms |
 | FSEvents linkage | `dlopen` CoreFoundation/CoreServices on first use | link the frameworks | loading them cost ≈ 1 ms of every process start (2.3 → 1.7 ms); only large trees use FSEvents |

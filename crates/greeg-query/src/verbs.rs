@@ -9,7 +9,7 @@ use anyhow::{Context, Result, bail};
 use greeg_index::Index;
 use greeg_index::index::SymId;
 use greeg_index::symtab::{kind_from_code, kind_weight};
-use greeg_lang::sym::{SYM_EXPORTED, SYM_HAS_DOC, SYM_TEST};
+use greeg_lang::sym::{SYM_EXPORTED, SYM_HAS_DOC, SYM_OBJ_MEMBER, SYM_TEST};
 use greeg_lang::{DefKind, FileFlags, Lang};
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -65,26 +65,26 @@ pub fn reach(idx: &Index, origins: &[u32], target: u32) -> f32 {
         return 0.6;
     }
     let trel = idx.path(target).unwrap_or("");
+    let target = idx.latest(target);
     let mut best = 0.4f32;
     for &o in origins {
         if o == target {
             return 1.0;
         }
-        if let Some(g) = idx.graph() {
-            let out = g.out(o);
-            if out.contains(&target) {
-                return 1.0;
-            }
-            for &mid in out.iter().take(64) {
-                if g.out(mid).contains(&target) {
-                    best = best.max(0.8);
-                    break;
-                }
-            }
-            // reverse direction: the target imports the origin (siblings that share code)
-            if g.incoming(o).contains(&target) {
+        // edges follow edits: an edited origin or target keeps its imports (DESIGN.md §4.3)
+        let out = idx.out_edges(o);
+        if out.contains(&target) {
+            return 1.0;
+        }
+        for &mid in out.iter().take(64) {
+            if idx.out_edges(mid).contains(&target) {
                 best = best.max(0.8);
+                break;
             }
+        }
+        // reverse direction: the target imports the origin (siblings that share code)
+        if best < 0.8 && idx.in_edges(o).contains(&target) {
+            best = best.max(0.8);
         }
         if dir_of(idx.path(o).unwrap_or("")) == dir_of(trel) {
             best = best.max(0.6);
@@ -335,14 +335,32 @@ pub fn def(
             } else {
                 0.85
             };
-            let score =
-                kw * exported * loc_w(fflags, &rel, o.all) * (0.6 + 0.4 * idx.rank(fid)) * rch;
             let chain: Vec<(DefKind, String)> = idx
                 .sym_chain(*s)
                 .into_iter()
                 .map(|(k, n)| (kind_from_code(k), n.to_string()))
                 .collect();
             let chain = chain[..chain.len().saturating_sub(1)].to_vec();
+            // a declaration inside a function body is a closure, not the
+            // definition an agent asks for when a top-level one exists
+            let nested = if r.flags & SYM_OBJ_MEMBER != 0 {
+                // an object-literal member: usually an implementation of a typed member
+                0.6
+            } else if chain
+                .last()
+                .map(|(k, _)| matches!(k, DefKind::Function | DefKind::Method))
+                .unwrap_or(false)
+            {
+                0.7
+            } else {
+                1.0
+            };
+            let score = kw
+                * exported
+                * nested
+                * loc_w(fflags, &rel, o.all)
+                * (0.6 + 0.4 * idx.rank(fid))
+                * rch;
             entries.push(DefEntry {
                 rel,
                 line: r.line,
@@ -941,6 +959,7 @@ pub fn map(o: &Options, dir: &str) -> Result<MapResult> {
     let dir = dir
         .trim_start_matches("./")
         .trim_end_matches('/')
+        .trim_end_matches('.')
         .to_string();
     let Some(op) = (if o.use_index {
         indexed::open_fresh(o, threads)?
@@ -1030,7 +1049,7 @@ pub fn map(o: &Options, dir: &str) -> Result<MapResult> {
                 .then(a.2.cmp(&b.2))
         });
         top.truncate(5);
-        let imported_by = idx.graph().map(|g| g.incoming(id).len()).unwrap_or(0);
+        let imported_by = idx.in_edges(id).len();
         files.push(MapFile {
             rel: rel.to_string(),
             rank,

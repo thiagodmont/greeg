@@ -195,8 +195,10 @@ def fetch(names):
         print(f"{name}: fetching {ref} from {spec['url']}")
         r = subprocess.run(["git", "fetch", "-q", "--depth", "1", "origin", ref], cwd=dst)
         if r.returncode != 0 and ref == sha:
-            # servers that refuse fetch-by-SHA: fall back to a full fetch of the default branch
-            subprocess.run(["git", "fetch", "-q", "origin"], cwd=dst, check=True)
+            # servers that refuse fetch-by-SHA: fall back to a full fetch of the default branch,
+            # deepening an earlier depth-1 clone or the pinned commit stays unreachable
+            deep = ["--unshallow"] if os.path.exists(os.path.join(dst, ".git", "shallow")) else []
+            subprocess.run(["git", "fetch", "-q", *deep, "origin"], cwd=dst, check=True)
         subprocess.run(["git", "checkout", "-q", "--detach", "FETCH_HEAD" if r.returncode == 0 else sha], cwd=dst, check=True)
         print(f"{name}: {out_of(['git', 'rev-parse', '--short', 'HEAD'], dst).strip()}")
 
@@ -691,7 +693,7 @@ def rg_def_cmd(lang, nm):
 
 
 # greeg text lines that summarise rather than locate: neutral in the context metric
-NEUTRAL_RE = re.compile(r"^(?:by (?:kind|area|lang|flag)\b|areas  |langs  |definitions \(|top hits\b|imported by \d|next:|\s*\+\d[\d,]* (?:more|test|vendored|generated|demoted|mock)\b|[\d,]+ of [\d,]+ hits\b|[\d,]+/[\d,]+ hits\b|\S.*  [\d,]+ (?:matches|hits) · |see also\b|hint:|matched \w|defined at\b|\w+ \(\d+\)$|\s*\.\.\.$|\S.*  \d+ of \d+ definitions\b|(?:WILL|MAY) BREAK\b|REVIEW\b|refs \S+  |callers \S+  |impact \S+  |def \S+  )")
+NEUTRAL_RE = re.compile(r"^(?:by (?:kind|area|lang|flag)\b|areas  |langs  |definitions \(|top hits\b|imported by \d|next:|\s*\+\d[\d,]* (?:more|test|vendored|generated|demoted|mock)\b|[\d,]+ of [\d,]+ hits\b|[\d,]+/[\d,]+ hits\b|\S.*  [\d,]+ (?:matches|hits) · |see also\b|hint:|matched \w|defined at\b|related  |\w+ \(\d+\)$|\s*\.\.\.$|\S.*  \d+ of \d+ definitions\b|(?:WILL|MAY) BREAK\b|REVIEW\b|refs \S+  |callers \S+  |impact \S+  |def \S+  )")
 
 
 def greeg_line_classes(text):
@@ -710,9 +712,15 @@ def plain_line_classes(text):
     return [(loc, loc is None and (not line.strip() or line == "--")) for line, loc in zip(text.splitlines(), text_hits(text))]
 
 
-def context_metrics(emitted, classes, truth_all, truth_def):
+def context_metrics(emitted, classes, truth_all, truth_def, docs):
     """Context@500 for one tool: distinct true locations, coverage, tokens, tokens until the first
-    and until every true definition has been printed (None when not reached within the window)."""
+    and until every true definition has been printed (None when not reached within the window).
+
+    Two useful-line ratios (protocol 3): `useful_ratio` over every line that names a location, and
+    `useful_ratio_covered` over the lines in files the SCIP index actually holds. The oracle knows
+    nothing about the other files — `lib.dom.d.ts`, `tests/baselines/**`, fixture `.js` — so it
+    scores a line there as not-useful by default, though it cannot adjudicate it; the classification
+    metric already skips them for exactly that reason."""
     seen, useful_lines = set(), 0
     first_def_tokens = all_defs_tokens = None
     covered_defs = set()
@@ -729,7 +737,8 @@ def context_metrics(emitted, classes, truth_all, truth_def):
     tk = tokens("\n".join(emitted))
     neutral = sum(1 for _, n in classes if n)
     denom = max(1, len(classes) - neutral)
-    return {"lines": len(classes), "neutral": neutral, "useful": len(seen), "useful_lines": useful_lines, "useful_ratio": len(seen) / denom, "coverage": len(seen) / max(1, len(truth_all)), "tokens": tk, "useful_per_ktok": len(seen) / max(1, tk) * 1000, "tokens_to_def": first_def_tokens, "tokens_to_all_defs": all_defs_tokens, "defs_covered": len(covered_defs) / max(1, len(truth_def))}
+    adjudicable = max(1, sum(1 for loc, n in classes if not n and loc and loc[0] in docs))
+    return {"lines": len(classes), "neutral": neutral, "useful": len(seen), "useful_lines": useful_lines, "useful_ratio": len(seen) / denom, "lines_covered": adjudicable, "useful_ratio_covered": len(seen) / adjudicable, "coverage": len(seen) / max(1, len(truth_all)), "tokens": tk, "useful_per_ktok": len(seen) / max(1, tk) * 1000, "tokens_to_def": first_def_tokens, "tokens_to_all_defs": all_defs_tokens, "defs_covered": len(covered_defs) / max(1, len(truth_def))}
 
 
 def scip_tool_version(name, lang):
@@ -824,7 +833,7 @@ def oracle(args):
                 text = out_of(cmd, cwd)
                 emitted = text.splitlines()[:500]
                 classes = (greeg_line_classes if tool.startswith("greeg") else plain_line_classes)("\n".join(emitted))
-                row[f"ctx_{tool}"] = context_metrics(emitted, classes, truth_all, truth_def)
+                row[f"ctx_{tool}"] = context_metrics(emitted, classes, truth_all, truth_def, docs)
             rows.append(row)
             if (i + 1) % 15 == 0:
                 print(f"   … {i+1}/{len(samples)}")
@@ -877,6 +886,8 @@ def summarize_oracle(rows, seed=0, light=False):
         c = [r[f"ctx_{tool}"] for r in rows]
         s[f"{tool}_ctx_useful_per_ktok"] = mean([x["useful_per_ktok"] for x in c])
         s[f"{tool}_ctx_useful_ratio"] = mean([x["useful_ratio"] for x in c])
+        s[f"{tool}_ctx_useful_ratio_covered"] = mean([x["useful_ratio_covered"] for x in c]) if "useful_ratio_covered" in c[0] else None
+        s[f"{tool}_ctx_useful_ratio_covered_ci"] = bootstrap_ci([x["useful_ratio_covered"] for x in c], seed=seed) if "useful_ratio_covered" in c[0] else None
         s[f"{tool}_ctx_neutral_ratio"] = mean([x["neutral"] / x["lines"] for x in c if x["lines"]])
         s[f"{tool}_ctx_coverage"] = mean([x["coverage"] for x in c])
         s[f"{tool}_tokens"] = mean([x["tokens"] for x in c])
@@ -935,7 +946,7 @@ def print_oracle(name, s, zero=None):
         c = s[f"cls_{key}"]
         print(f"   classification [{key}]: def precision {pct(c['def_precision'])} ({pct(c['def_precision_with_impl'])} counting {c['impl_headers']} impl headers as errors) recall {pct(c['def_recall'])}; code hits on a SCIP occurrence {pct(c['code_on_scip'])}; noncode precision {pct(c['noncode_precision'])} ({c['noncode_hits']} noncode / {c['code_hits']} code hits)")
     for tool in CTX_TOOLS:
-        print(f"   context@500 {tool:7}: useful lines {pct(s[f'{tool}_ctx_useful_ratio'])} (neutral {pct(s.get(f'{tool}_ctx_neutral_ratio'))})  coverage {pct(s[f'{tool}_ctx_coverage'])}  tokens mean {round(s[f'{tool}_tokens'] or 0):,} median {round(s.get(f'{tool}_tokens_median') or 0):,}{ci_n(s.get(f'{tool}_tokens_median_ci'))}  distinct true/ktok {s[f'{tool}_ctx_useful_per_ktok']:.1f}  tokens→first def {s[f'{tool}_tokens_to_def'] and round(s[f'{tool}_tokens_to_def'])} (reached {pct(s[f'{tool}_def_reached'])})  tokens→all defs {s.get(f'{tool}_tokens_to_all_defs') and round(s[f'{tool}_tokens_to_all_defs'])} (reached {pct(s.get(f'{tool}_all_defs_reached'))})")
+        print(f"   context@500 {tool:7}: useful lines {pct(s[f'{tool}_ctx_useful_ratio'])} / {pct(s.get(f'{tool}_ctx_useful_ratio_covered'))} of SCIP-covered{ci_pp(s.get(f'{tool}_ctx_useful_ratio_covered_ci'))} (neutral {pct(s.get(f'{tool}_ctx_neutral_ratio'))})  coverage {pct(s[f'{tool}_ctx_coverage'])}  tokens mean {round(s[f'{tool}_tokens'] or 0):,} median {round(s.get(f'{tool}_tokens_median') or 0):,}{ci_n(s.get(f'{tool}_tokens_median_ci'))}  distinct true/ktok {s[f'{tool}_ctx_useful_per_ktok']:.1f}  tokens→first def {s[f'{tool}_tokens_to_def'] and round(s[f'{tool}_tokens_to_def'])} (reached {pct(s[f'{tool}_def_reached'])})  tokens→all defs {s.get(f'{tool}_tokens_to_all_defs') and round(s[f'{tool}_tokens_to_all_defs'])} (reached {pct(s.get(f'{tool}_all_defs_reached'))})")
 
 
 # ───────────────────────────── gate ─────────────────────────────
@@ -1049,7 +1060,7 @@ def mb(x):
 def report(args):
     speed_res = load_json(os.path.join(RESULTS, "speed.json"))
     oracle_res = load_json(os.path.join(RESULTS, "oracle.json"), {}) or {}
-    out = ["# Benchmarks", "", "Generated by `bench/bench.py report` from `bench/results/`. Protocol: PLAN.md M6, DESIGN.md §13; the honesty fixes of REVIEW.md §3 are protocol 2 (2026-09-02).", ""]
+    out = ["# Benchmarks", "", "Generated by `bench/bench.py report` from `bench/results/`. Protocol: PLAN.md M6, DESIGN.md §13; the honesty fixes of REVIEW.md §3 are protocol 2 (2026-09-02); protocol 3 (PLAN.md M9, 2026-09-04) adds the SCIP-covered useful-line ratio next to the strict one, changing no earlier number.", ""]
     if speed_res:
         h = speed_res["host"]
         corpora = speed_res["corpora"]
@@ -1114,7 +1125,9 @@ def report(args):
         out.append("")
     if oracle_res:
         toks = {r.get("tokenizer", "unknown (results predate the tokenizer record)") for r in oracle_res.values()}
-        out += ["## Quality (SCIP oracle)", "", f"Ground truth: SCIP occurrences from `rust-analyzer scip`, `scip-python`, `scip-typescript` (indexer name and version recorded per corpus below). Names are sampled from symbols defined in the repository, stratified by ambiguity (number of definitions with that name); within a bucket names are drawn with probability ∝ log(1 + reference count) and need at least {MIN_REFS} references, so the sample leans toward names an agent asks about. A separate bucket of zero-reference names is reported on its own. Acc@k: a true definition is among the first k locations the tool prints. Columns: `greeg def NAME`; `rg -nw NAME` (thread order, first lines); `rg-def` = `rg -n --sort path` with the language's definition regex for NAME (what an agent types when it wants the definition); `grep -rnw NAME`. Brackets are 95 % bootstrap intervals of Acc@1 (n ≈ 75 → ±10 pp). Reference recall: SCIP reference occurrences found by `greeg refs NAME --budget 0`. Classification: `greeg -w NAME --json` hit kinds vs SCIP roles on the same line, from stored spans and with `--precise`. Context@500: the first 500 lines of each tool's output for the bare name; useful = distinct lines that carry a SCIP occurrence of the name, over the lines that name a location (summary lines — header, facets, file headers, `+N more`, footer — are neutral and leave the denominator); tokens are {' / '.join(sorted(toks))} counts.", ""]
+        out += ["## Quality (SCIP oracle)", "", f"Ground truth: SCIP occurrences from `rust-analyzer scip`, `scip-python`, `scip-typescript` (indexer name and version recorded per corpus below). Names are sampled from symbols defined in the repository, stratified by ambiguity (number of definitions with that name); within a bucket names are drawn with probability ∝ log(1 + reference count) and need at least {MIN_REFS} references, so the sample leans toward names an agent asks about. A separate bucket of zero-reference names is reported on its own. Acc@k: a true definition is among the first k locations the tool prints. Columns: `greeg def NAME`; `rg -nw NAME` (thread order, first lines); `rg-def` = `rg -n --sort path` with the language's definition regex for NAME (what an agent types when it wants the definition); `grep -rnw NAME`. Brackets are 95 % bootstrap intervals of Acc@1 (n ≈ 75 → ±10 pp). Reference recall: SCIP reference occurrences found by `greeg refs NAME --budget 0`. Classification: `greeg -w NAME --json` hit kinds vs SCIP roles on the same line, from stored spans and with `--precise`. Context@500: the first 500 lines of each tool's output for the bare name; useful = distinct lines that carry a SCIP occurrence of the name, over the lines that name a location (summary lines — header, facets, file headers, `+N more`, footer — are neutral and leave the denominator); tokens are {' / '.join(sorted(toks))} counts. **useful lines, SCIP-covered** (protocol 3, both columns reported side by side) narrows that denominator to the lines in files the SCIP index holds: the oracle cannot adjudicate a line in `lib.dom.d.ts`, `tests/baselines/**` or a fixture `.js`, and scoring those as not-useful charges every tool for reading files the ground truth skipped — the classification metric already drops them for the same reason. It is the stricter measure of ranking, not a licence to print un-adjudicable lines: they still cost tokens, which the token columns keep counting.", ""]
+        runs = "; ".join(f"`{c}` {r.get('date', '?')[:10]} with {r.get('greeg', '?')}" for c, r in oracle_res.items())
+        out += [f"Runs: {runs}. A corpus is re-measured only when it is re-run, so rows carrying different dates can straddle a change to the shaper: compare the answer shape across corpora only within one date.", ""]
         out += ["| corpus | indexer | n | greeg Acc@1/5/10 | rg -nw Acc@1/5/10 | rg-def Acc@1/5/10 | grep Acc@1/5/10 | ref recall | def precision (spans / precise) | noncode precision |", "|---|---|---:|---|---|---|---|---:|---|---:|"]
         for c, r in oracle_res.items():
             s = r["summary"]
@@ -1126,13 +1139,13 @@ def report(args):
             s = r["summary"]
             z = r.get("summary_zero_ref")
             out.append(f"| {c} | " + " | ".join(f"{'/'.join(pct(x) for x in s[f'greeg_acc_bucket_{b}'])} (n={s[f'n_bucket_{b}']})" if f"greeg_acc_bucket_{b}" in s else "–" for b in ("1", "2-5", "6+")) + f" | {(accs(z, 'greeg') + ' / ' + accs(z, 'rg') + ' / ' + accs(z, 'rgdef') + f' (n={z['n']})') if z else '–'} |")
-        out += ["", "| corpus | tool | useful lines | neutral lines | coverage | tokens/query mean | tokens/query median [95 % CI] | distinct true locations per 1k tokens | tokens to first def (median) | def reached | tokens until all defs covered (median) | all defs reached |", "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|"]
+        out += ["", "| corpus | tool | useful lines | useful lines, SCIP-covered [95 % CI] | neutral lines | coverage | tokens/query mean | tokens/query median [95 % CI] | distinct true locations per 1k tokens | tokens to first def (median) | def reached | tokens until all defs covered (median) | all defs reached |", "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|"]
         for c, r in oracle_res.items():
             s = r["summary"]
             for t in CTX_TOOLS:
                 if f"{t}_tokens" not in s:
                     continue
-                out.append(f"| {c} | {t} | {pct(s[f'{t}_ctx_useful_ratio'])} | {pct(s.get(f'{t}_ctx_neutral_ratio'))} | {pct(s[f'{t}_ctx_coverage'])} | {round(s[f'{t}_tokens'] or 0):,} | {round(s[f'{t}_tokens_median']) if s.get(f'{t}_tokens_median') else '–'}{ci_n(s.get(f'{t}_tokens_median_ci'))} | {s[f'{t}_ctx_useful_per_ktok']:.1f} | {round(s[f'{t}_tokens_to_def']) if s[f'{t}_tokens_to_def'] else '–'} | {pct(s[f'{t}_def_reached'])} | {round(s[f'{t}_tokens_to_all_defs']) if s.get(f'{t}_tokens_to_all_defs') else '–'} | {pct(s.get(f'{t}_all_defs_reached'))} |")
+                out.append(f"| {c} | {t} | {pct(s[f'{t}_ctx_useful_ratio'])} | {pct(s.get(f'{t}_ctx_useful_ratio_covered'))}{ci_pp(s.get(f'{t}_ctx_useful_ratio_covered_ci'))} | {pct(s.get(f'{t}_ctx_neutral_ratio'))} | {pct(s[f'{t}_ctx_coverage'])} | {round(s[f'{t}_tokens'] or 0):,} | {round(s[f'{t}_tokens_median']) if s.get(f'{t}_tokens_median') else '–'}{ci_n(s.get(f'{t}_tokens_median_ci'))} | {s[f'{t}_ctx_useful_per_ktok']:.1f} | {round(s[f'{t}_tokens_to_def']) if s[f'{t}_tokens_to_def'] else '–'} | {pct(s[f'{t}_def_reached'])} | {round(s[f'{t}_tokens_to_all_defs']) if s.get(f'{t}_tokens_to_all_defs') else '–'} | {pct(s.get(f'{t}_all_defs_reached'))} |")
         older = [c for c, r in oracle_res.items() if "tokenizer" not in r]
         if older:
             out += ["", f"⚠ {', '.join(older)}: measured before protocol 2 (uniform sampling over definitions including zero-reference names, useful-line ratio with layout lines in the denominator and duplicate locations counted, no rg-def column, no intervals); rerun pending (`bench/bench.py oracle {' '.join(older)}`)."]

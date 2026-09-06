@@ -188,6 +188,11 @@ const GENERATED_SEGMENTS: &[&str] = &[
     "dist",
     ".next",
     "target",
+    // recorded tool output checked in for comparison (TypeScript's
+    // `tests/baselines/reference` duplicates every test source as emitted JS)
+    "baselines",
+    "baseline",
+    "golden",
 ];
 const LOCKFILES: &[&str] = &[
     "package-lock.json",
@@ -299,6 +304,10 @@ pub fn content_flags(head: &[u8], total_len: u64) -> FileFlags {
         f.set(FileFlags::MINIFIED);
     }
     let first2k = &head[..head.len().min(2048)];
+    // TypeScript compiler baselines: `//// [tests/cases/x.ts] ////` then the source and its emit
+    if head.starts_with(b"//// [") {
+        f.set(FileFlags::GENERATED);
+    }
     const MARKERS: &[&[u8]] = &[
         b"@generated",
         b"DO NOT EDIT",
@@ -459,6 +468,19 @@ pub fn read_text(path: impl AsRef<std::path::Path>) -> std::io::Result<Vec<u8>> 
 #[cfg(test)]
 mod flag_tests {
     use super::*;
+
+    /// Recorded tool output checked in for comparison is generated, not source.
+    #[test]
+    fn baselines_are_generated() {
+        assert!(path_flags("tests/baselines/reference/x.js").has(FileFlags::GENERATED));
+        assert!(path_flags("tests/baselines/reference/x.js").has(FileFlags::TEST));
+        assert!(path_flags("testdata/golden/out.txt").has(FileFlags::GENERATED));
+        assert!(!path_flags("tests/cases/compiler/x.ts").has(FileFlags::GENERATED));
+        let head = b"//// [tests/cases/compiler/x.ts] ////\ninterface A {}\n";
+        assert!(content_flags(head, head.len() as u64).has(FileFlags::GENERATED));
+        let plain = b"// [not a baseline]\ninterface A {}\n";
+        assert!(!content_flags(plain, plain.len() as u64).has(FileFlags::GENERATED));
+    }
 
     fn has(rel: &str, bit: u16) -> bool {
         path_flags(rel).has(bit)

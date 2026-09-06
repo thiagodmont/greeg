@@ -1338,6 +1338,14 @@ fn render_body(w: &mut impl Write, r: &ScanResult, rep: &Report, fmt: Fmt) -> Re
             }
         }
     }
+    if !rep.related.is_empty() {
+        let names: Vec<String> = rep
+            .related
+            .iter()
+            .map(|(n, c)| format!("{} {}", n, fmt_n(*c)))
+            .collect();
+        writeln!(w, "related  {}", names.join("  "))?;
+    }
     Ok(())
 }
 
@@ -1726,6 +1734,7 @@ fn render_json(w: &mut impl Write, r: &ScanResult, rep: &Report) -> Result<()> {
             "hits_shown":ft.hits_shown,"hits_total":ft.hits_total,"files_shown":ft.files_shown,"files_total":ft.files_total,
             "demoted_files":ft.demoted_files,"demoted_hits":ft.demoted_hits,"skipped_binary":ft.skipped_binary,"skipped_huge":ft.skipped_huge,
             "rung":ft.rung.name(),"rung_names":match &ft.rung { greeg_query::Rung::SplitTokens(v) | greeg_query::Rung::Fuzzy(v) => v.clone(), _ => vec![] },"ignored_only":ft.ignored_only,"est_tokens":ft.est_tokens,"elapsed_ms":ft.elapsed_ms,"hints":ft.hints,
+            "related":rep.related.iter().map(|(n,c)| json!([n, c])).collect::<Vec<_>>(),
             "layout":format!("{:?}", rep.layout).to_lowercase()
         }}),
     )?;

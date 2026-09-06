@@ -30,7 +30,8 @@ Files in rank order, hits by score inside the file, then `+N more (…)`.
 Adaptive context (never with `-A/-B/-C`, always clipped to the enclosing
 definition): one **definition** hit → 20 lines; one call/ident hit → the
 enclosing definition's signature line plus 6 lines; ≤ 3 hits → 2 before and
-2 after; ≤ 10 → 1 and 1; more → none.
+2 after; more → none. The hits counted here are the ones the answer is about,
+after near-misses left it (see **related**).
 
 ```
 tokio/src/net/windows/named_pipe.rs
@@ -113,6 +114,25 @@ next: --kind def | -g 'docs/topics/**' | --no-tests
   sync/mod.rs, bounded.rs, … (+11)` (up to six short names; the full path when
   a short name would repeat), and calls/types take the freed slots.
 
+### related (near-misses)
+
+A bare identifier searched literally and case-sensitively — no regex
+metacharacters, no `-i`, no case-insensitive `-S` — is a question about that
+identifier. When at least one match is the whole word, matches that sit inside
+a *longer* identifier stop competing for answer lines and collapse to one line,
+in every ranked layout, before the footer:
+
+```
+related  createSourceFileAndAssertInvariants 3  createSourceFileLike 2  createSourceFileWithText 2
+```
+
+Up to four identifiers, most hits first. The header and footer counts still
+describe every match (`15/97 hits`), so the near-misses are visible as the
+difference, and querying one of the named identifiers reaches them. Nothing is
+suppressed when no match is a whole word (the near-misses are then the answer),
+under `-w` (there are none), or in parity mode (`--budget 0`, `-l`, `-c`),
+which keeps ripgrep's match set exactly.
+
 ### Outline layout (`--mode outline`)
 
 Grouped by file: `  <line> <kind>  container › text`, then `+N more`.
@@ -192,8 +212,8 @@ next: --kind def | -g 'docs/topics/**' | --no-tests
 
 Every emitted line is charged: file headers (plus a reserve for `+N more`),
 hit rows (text, line number, kind, container), context and signature lines,
-collapsed-definition lines, the `imported by` line, the facets header, and
-the footer with its hints. Block bodies are charged line by line and cut to
+collapsed-definition lines, the `imported by` and `related` lines, the facets
+header, and the footer with its hints. Block bodies are charged line by line and cut to
 fit. The `-l`/`-c` lists are exempt.
 
 ### Token estimate
@@ -356,7 +376,7 @@ ripgrep's schema: `begin`, `match`, `context`, `end` per file, then
   (submatches printed), `bytes_searched` (file size), `shown`.
 * `summary`: `{"type":"summary","data":{"elapsed_total":{secs,nanos,human},"stats":{elapsed,searches,searches_with_match,bytes_searched,bytes_printed,matched_lines,matches,matched_lines_shown}}}`.
 * `facets`: `{total, files, by_kind, by_dir, by_lang, by_flag, definitions_total, demoted_definitions, imported_by}` emitted before the shown files in facets layout.
-* `footer`: `{hits_shown, hits_total, files_shown, files_total, demoted_files, demoted_hits, skipped_binary, skipped_huge, rung, rung_names, ignored_only, est_tokens, elapsed_ms, hints, layout}`.
+* `footer`: `{hits_shown, hits_total, files_shown, files_total, demoted_files, demoted_hits, skipped_binary, skipped_huge, rung, rung_names, ignored_only, est_tokens, elapsed_ms, hints, related, layout}`; `related` is `[[identifier, hits], …]`, the near-misses of the **related** section (empty in parity mode).
 
 `--budget 0 --json` prints every hit in path order with the same record
 count and (path, line) set as `rg --json`, which `bench/parity.py` checks.
