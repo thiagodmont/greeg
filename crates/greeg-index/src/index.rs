@@ -3,6 +3,7 @@
 use crate::format::{self, FileRec, FilesView, GramsView, ImpRec, NONE, SymRec};
 use crate::plan::Q;
 use crate::symtab::{DeltaGraphView, GraphView, SpansView, SymbolsView};
+use crate::words::WordsView;
 use crate::{Manifest, read_manifest};
 use anyhow::{Context, Result, bail};
 use greeg_lang::Lang;
@@ -23,6 +24,8 @@ pub struct Segment {
     grams: GramsView<'static>,
     symbols: Option<SymbolsView<'static>>,
     spans: Option<SpansView<'static>>,
+    /// Word postings (DESIGN.md §3.2): whole-word queries read these instead of the grams.
+    words: Option<WordsView<'static>>,
     /// Import edges and superseded ids (delta segments only).
     dgraph: Option<DeltaGraphView<'static>>,
     pub first_id: u32,
@@ -66,6 +69,7 @@ struct DeltaParts {
     symbols: Option<SymbolsView<'static>>,
     spans: Option<SpansView<'static>>,
     dgraph: Option<DeltaGraphView<'static>>,
+    words: Option<WordsView<'static>>,
     first_id: u32,
     tomb: RoaringBitmap,
 }
@@ -74,7 +78,7 @@ fn parse_delta(body: &'static [u8]) -> Result<DeltaParts> {
     let hb = body
         .get(..format::DELTA_HEADER)
         .context("delta header truncated")?;
-    let h: Vec<usize> = (0..7)
+    let h: Vec<usize> = (0..8)
         .map(|i| u32::from_le_bytes(hb[i * 4..i * 4 + 4].try_into().unwrap()) as usize)
         .collect();
     let first_id = h[0] as u32;
@@ -91,6 +95,7 @@ fn parse_delta(body: &'static [u8]) -> Result<DeltaParts> {
     let sb = section(h[4], "symbols")?;
     let pb = section(h[5], "spans")?;
     let db = section(h[6], "graph")?;
+    let wb = section(h[7], "words")?;
     let tb = body.get(off..).context("delta tombstones truncated")?;
     let tomb = RoaringBitmap::deserialize_from(tb).context("delta tombstone bitmap corrupt")?;
     let files = FilesView::parse(fb)?;
@@ -117,12 +122,18 @@ fn parse_delta(body: &'static [u8]) -> Result<DeltaParts> {
         }
         Some(g)
     };
+    let words = if wb.is_empty() {
+        None
+    } else {
+        Some(WordsView::parse(wb)?)
+    };
     Ok(DeltaParts {
         files,
         grams,
         symbols,
         spans,
         dgraph,
+        words,
         first_id,
         tomb,
     })
@@ -179,6 +190,25 @@ impl Segment {
     }
     pub fn corrupt(&self) -> bool {
         self.corrupt.load(std::sync::atomic::Ordering::Relaxed)
+    }
+    /// Union of the word postings of `alts` (DESIGN.md §3.2); `None` when this
+    /// segment has no word section. An absent word contributes nothing; an
+    /// unreadable posting list reads as every file, as for grams.
+    pub fn eval_words(&self, alts: &[Vec<u8>]) -> Option<RoaringBitmap> {
+        let wv = self.words.as_ref()?;
+        let mut acc = RoaringBitmap::new();
+        for w in alts {
+            let Some(i) = wv.find(w) else { continue };
+            match RoaringBitmap::deserialize_from(wv.posting_bytes(i)) {
+                Ok(bm) => acc |= bm,
+                Err(_) => {
+                    self.corrupt
+                        .store(true, std::sync::atomic::Ordering::Relaxed);
+                    return Some(self.all());
+                }
+            }
+        }
+        Some(acc)
     }
     /// Evaluate a plan against this segment. `None` = every file (All).
     pub fn eval(&self, q: &Q) -> Option<RoaringBitmap> {
@@ -269,12 +299,15 @@ impl Index {
             Advice::WillNeed,
         )?;
         let gmap = mmap(&dir.join(format!("grams.{generation}.bin")), Advice::Random)?;
+        let wmap = mmap(&dir.join(format!("words.{generation}.bin")), Advice::Random)?;
         let fbody = leak(format::check_header(&fmap, format::COMP_FILES)?);
         let gbody = leak(format::check_header(&gmap, format::COMP_GRAMS)?);
+        let wbody = leak(format::check_header(&wmap, format::COMP_WORDS)?);
         let files = FilesView::parse(fbody)?;
         let grams = GramsView::parse(gbody)?;
+        let words = Some(WordsView::parse(wbody)?);
         let n = files.files.len() as u32;
-        let mut maps = vec![fmap, gmap];
+        let mut maps = vec![fmap, gmap, wmap];
         let (mut symbols, mut spans) = (None, None);
         if manifest.phase2 {
             let smap = mmap(
@@ -301,6 +334,7 @@ impl Index {
             grams,
             symbols,
             spans,
+            words,
             dgraph: None,
             first_id: 0,
             n_files: n,
@@ -328,6 +362,7 @@ impl Index {
                 symbols,
                 spans,
                 dgraph,
+                words,
                 first_id,
                 tomb: t,
             } = parse_delta(body).with_context(|| format!("delta {}", p.display()))?;
@@ -357,6 +392,7 @@ impl Index {
                 grams,
                 symbols,
                 spans,
+                words,
                 dgraph,
                 first_id,
                 n_files: n,
@@ -440,14 +476,68 @@ impl Index {
     /// Huge files have no grams and are always included so verification opens
     /// them (and counts them when they exceed the query's size limit).
     pub fn candidates(&self, q: &Q) -> RoaringBitmap {
-        let mut acc = self.base.eval(q).unwrap_or_else(|| self.base.all());
+        self.candidates_with(q, None)
+    }
+
+    /// `candidates`, answering from the word postings wherever a segment has
+    /// them when `words` names the whole-word alternatives of the pattern
+    /// (`plan::word_plan`); the trigram plan covers the rest.
+    pub fn candidates_with(&self, q: &Q, words: Option<&[Vec<u8>]>) -> RoaringBitmap {
+        let seg_cands = |seg: &Segment| -> RoaringBitmap {
+            if let Some(alts) = words
+                && let Some(bm) = seg.eval_words(alts)
+            {
+                return bm;
+            }
+            seg.eval(q).unwrap_or_else(|| seg.all())
+        };
+        let mut acc = seg_cands(&self.base);
         acc |= &self.base.huge;
         for d in &self.deltas {
-            acc |= d.eval(q).unwrap_or_else(|| d.all());
+            acc |= seg_cands(d);
             acc |= &d.huge;
         }
         acc -= &self.tomb;
         acc
+    }
+
+    /// Indexed words that contain `needle` as a strict substring, with their
+    /// document counts, most files first: the `related` line of a bare
+    /// identifier query, without opening a file. One `memmem` pass over each
+    /// segment's dictionary.
+    pub fn words_containing(&self, needle: &str, limit: usize) -> Vec<(String, usize)> {
+        let nb = needle.as_bytes();
+        if nb.is_empty() {
+            return Vec::new();
+        }
+        let finder = memchr::memmem::Finder::new(nb);
+        let mut counts: HashMap<&[u8], usize> = HashMap::new();
+        for (_, seg) in self.segments() {
+            let Some(wv) = seg.words.as_ref() else {
+                continue;
+            };
+            for h in finder.find_iter(wv.arena) {
+                let Some(i) = wv.word_at_offset(h) else {
+                    continue;
+                };
+                // the hit must lie inside this word, and the word must be longer
+                if h + nb.len() > wv.word_off[i + 1] as usize {
+                    continue;
+                }
+                let w = wv.word(i);
+                if w == nb {
+                    continue;
+                }
+                *counts.entry(w).or_default() += wv.counts[i] as usize;
+            }
+        }
+        let mut v: Vec<(String, usize)> = counts
+            .into_iter()
+            .map(|(w, c)| (String::from_utf8_lossy(w).into_owned(), c))
+            .collect();
+        v.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+        v.truncate(limit);
+        v
     }
 
     /// All live (searchable) file ids.

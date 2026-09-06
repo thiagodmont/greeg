@@ -363,14 +363,30 @@ pub(crate) fn try_index(cx: &Ctx, threads: usize, t0: Instant) -> Result<Option<
         ..Default::default()
     };
 
-    // plan
-    let q = plan::plan(
-        &o.pattern,
-        o.fixed_strings,
-        o.case_insensitive || (o.smart_case && !o.pattern.chars().any(|c| c.is_uppercase())),
-    )?;
-    stats.plan = format!("{q:?}");
-    let mut cands = idx.candidates(&q);
+    // plan: whole-word queries open only the files that hold the word (the
+    // word postings, DESIGN.md §3.2); everything else takes the trigram plan
+    let casei =
+        o.case_insensitive || (o.smart_case && !o.pattern.chars().any(|c| c.is_uppercase()));
+    let q = plan::plan(&o.pattern, o.fixed_strings, casei)?;
+    let identifier = o.budget != 0
+        && !matches!(o.mode, Mode::Files | Mode::Count)
+        && crate::shape::identifier_query(o);
+    let wq = plan::word_plan(&o.pattern, o.fixed_strings, casei, o.word, identifier);
+    stats.plan = match &wq {
+        Some(alts) => format!(
+            "words {:?} · {q:?}",
+            alts.iter()
+                .map(|a| String::from_utf8_lossy(a).into_owned())
+                .collect::<Vec<_>>()
+        ),
+        None => format!("{q:?}"),
+    };
+    let mut cands = idx.candidates_with(&q, wq.as_deref());
+    let related_index = if identifier && wq.is_some() {
+        idx.words_containing(&o.pattern, 4)
+    } else {
+        Vec::new()
+    };
     stats.files_walked = idx.live_count() as usize;
     // answer first (DESIGN.md §4.5): files the freshness check found changed
     // are searched from disk below with scan-mode classification, their
@@ -604,7 +620,6 @@ pub(crate) fn try_index(cx: &Ctx, threads: usize, t0: Instant) -> Result<Option<
         eprintln!("greeg: index component unreadable; rebuilding in the background");
         mark_corrupt(o);
     }
-    let _ = Mode::Files;
     Ok(Some(ScanResult {
         opts: o.clone(),
         files,
@@ -612,6 +627,7 @@ pub(crate) fn try_index(cx: &Ctx, threads: usize, t0: Instant) -> Result<Option<
         rung: Rung::Exact,
         ignored_only: None,
         ignored_partial: false,
+        related_index,
     }))
 }
 
@@ -960,6 +976,90 @@ mod tests {
         assert!(r.files.iter().all(|f| f.file_id.is_some()));
         // the queued refresh must not leak into other tests as a real spawn
         let _ = PENDING_BUILD.lock().unwrap().take();
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    /// Whole-word queries plan from the word postings: only the files holding
+    /// the word are opened, the near-misses come from the dictionary, and
+    /// parity mode keeps the trigram plan (DESIGN.md §3.2).
+    #[test]
+    fn word_plan_opens_only_the_files_with_the_word() {
+        use greeg_index::build::{BuildOpts, build};
+        let base = std::env::temp_dir().join(format!("greeg-words-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        let root = base.join("tree");
+        let dir = base.join("index");
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::create_dir_all(root.join(".git")).unwrap();
+        fs::write(root.join("src/a.rs"), "fn alpha() {}\n").unwrap();
+        fs::write(root.join("src/b.rs"), "fn alpha_beta() { alphabet(); }\n").unwrap();
+        fs::write(
+            root.join("src/c.rs"),
+            "fn alphabet() {}\nfn other() { alpha(); }\n",
+        )
+        .unwrap();
+        fs::write(root.join("src/d.rs"), "// nothing here\n").unwrap();
+        build(
+            &root,
+            &dir,
+            &BuildOpts {
+                reader_threads: 1,
+                quiet: true,
+                phase1_only: true,
+            },
+        )
+        .unwrap();
+        let o = Options {
+            root: root.clone(),
+            index_dir: Some(dir.clone()),
+            fresh: Fresh::None,
+            pattern: "alpha".to_string(),
+            word: true,
+            ..Default::default()
+        };
+        let rels =
+            |r: &ScanResult| -> Vec<String> { r.files.iter().map(|f| f.rel.clone()).collect() };
+        let r = crate::scan(&o).unwrap();
+        assert!(
+            r.stats.plan.starts_with("words [\"alpha\"]"),
+            "{}",
+            r.stats.plan
+        );
+        assert_eq!(r.stats.candidates, 2, "a.rs and c.rs hold the word");
+        assert_eq!(rels(&r), ["src/a.rs", "src/c.rs"]);
+
+        // a bare identifier in a ranked layout: the whole word, plus the
+        // dictionary's near-misses with file counts
+        let o2 = Options {
+            word: false,
+            ..o.clone()
+        };
+        let r = crate::scan(&o2).unwrap();
+        assert!(r.stats.plan.starts_with("words"), "{}", r.stats.plan);
+        assert_eq!(rels(&r), ["src/a.rs", "src/c.rs"]);
+        assert_eq!(
+            r.related_index,
+            vec![("alphabet".to_string(), 2), ("alpha_beta".to_string(), 1)]
+        );
+
+        // parity mode keeps ripgrep's substring semantics through the grams
+        let o3 = Options {
+            budget: 0,
+            ..o2.clone()
+        };
+        let r = crate::scan(&o3).unwrap();
+        assert!(!r.stats.plan.starts_with("words"), "{}", r.stats.plan);
+        assert_eq!(rels(&r), ["src/a.rs", "src/b.rs", "src/c.rs"]);
+        assert!(r.related_index.is_empty());
+
+        // an unindexed word opens nothing
+        let o4 = Options {
+            pattern: "gamma".to_string(),
+            ..o.clone()
+        };
+        let r = crate::scan(&o4).unwrap();
+        assert_eq!(r.stats.candidates, 0);
+        assert!(r.files.is_empty());
         let _ = fs::remove_dir_all(&base);
     }
 

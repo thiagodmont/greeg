@@ -187,6 +187,25 @@ What is indexed: files with `lang != 0` or a text mime guess, `size ≤ 4 MiB`
 `--include-huge`), not `BINARY`. `MINIFIED`/`GENERATED`/`VENDORED` files *are*
 indexed (renames need them) but carry flags that demote and summarize them.
 
+**Word index (`words.bin`, format v5, M10).** Next to the trigrams, one
+posting list per distinct word of a file: a maximal run of `[A-Za-z0-9_]`
+of 2–64 bytes, case preserved, with bytes ≥ 0x80 as separators so that
+every whole-word match of ripgrep's `\b` on an ASCII word is such a run
+(the candidate set stays a superset). The trigram plan cannot tell
+`createSourceFile` from `createSourceFileWithText` and opened 486 files on
+TypeScript-5.9 for 30 with a match; `-w node` opened 6,086 for 1,877. A
+whole-word query (`-w NAME`, a bare identifier in a ranked layout, `refs`,
+`\bNAME\b` and alternations of those) reads one bitmap per word instead:
+486 → 31 and 6,086 → 1,879 candidates, `createSourceFile` 8.8 → 4.3 ms and
+`-w node` 90 → 30 ms end to end. `-i`, non-ASCII words and parity mode
+(`--budget 0`, `-l`, `-c`, ripgrep's substring semantics) keep the grams.
+The `related` line of a bare identifier comes from the dictionary (words
+containing the query, with file counts) without opening a file. Cost: the
+dictionary and its short bitmaps are 0.4–0.6× the gram section (TypeScript-5.9
+13.8 MB next to 35.1 MB of grams, rust 24 next to 41) and ≈ 10 % of phase 1;
+the M4 sparse-gram verdict stands for *substring* queries, which this index
+does not serve.
+
 ### 3.3 Symbols (`symbols.bin`)
 
 ```
@@ -476,6 +495,17 @@ long identifiers (219 candidates for 19 true files for `createSourceFile` on
 the 66k-file tree), which verification absorbs in ≈ 15 ms; §5.3 exists to cut
 that.
 
+**Word plan (M10).** Before the gram plan is evaluated, `plan::word_plan`
+asks whether the pattern denotes whole words: the HIR is expanded into its
+token sequences (literals, `\b` looks, alternations and captures only, at
+most 64 sequences; regex-syntax factors a shared `\b` out of an alternation,
+so the tree shape is not trusted) and every sequence must be a bare literal
+under `-w` or `\b literal \b` otherwise, each literal a word the index
+holds. A bare identifier in a ranked layout qualifies on its own (the answer
+is the whole word, §6.4). The candidates are then the union of the words'
+postings per segment; a segment without a word section falls back to its
+grams, so the answer is always a superset of the matches.
+
 ### 5.3 Sparse grams (format v2)
 
 Definition. Let `w(x, y) ∈ [0, 255]` be a weight for the byte bigram `xy`,
@@ -660,7 +690,10 @@ Shaping algorithm:
    hits on the page the reader can already triangulate; measured on the SCIP
    oracle they cost more lines than they earn (PLAN.md M9). A bare identifier
    query also answers about the whole word only: hits inside longer
-   identifiers collapse to the `related` line (OUTPUT.md).
+   identifiers collapse to the `related` line (OUTPUT.md). With the word
+   index (M10) such a query never reads the near-miss files: the header and
+   footer count whole-word hits, and `related` names the identifiers that
+   contain the query with their file counts, from the dictionary.
 2. Else emit *facets first* (§10.3): counts by kind, by top-level directory
    (top 6), by language, by flag, plus the top definitions and the top 10 hits
    by score, all within the budget.
@@ -1025,6 +1058,7 @@ Results and the rendered `docs/BENCH.md` are in the repository.
 | Symbol line | line of the name | line of the declaration node | annotations and decorators start the node lines earlier; agents want the `fun`/`class` line (Kotlin agreement 62 % → 97 %) |
 | Delta symbols and edges | extracted inline; imports resolved against the base, rank carried over, edges folded at query time (§4.3) | leave deltas unresolved until the rebuild (v0.3) | the edited files are the agent's working set: `def --from`, `impact` and `map` on them lost every edge until a rebuild that fires only at 16 deltas or 5 % of the tree; the delta-time cost is ≈ 2 ms on the largest corpus |
 | Session identity | first non-shell ancestor pid | env-only ids | works with any agent harness without configuration; `--session` still overrides |
+| Word postings | one bitmap per distinct word of a file, next to the grams (format v5); whole-word plans read them, everything else the grams | sparse grams, positional postings | the false trigram candidates were 94 % of the reads of a rare identifier on the 74k-file tree and every whole-word query pays them; the word section costs 0.4–0.6× the grams and answers the identifier queries agents ask exactly |
 | Sparse grams | rejected after the M4 A/B (trigrams stay, no opt-in) | shipping as default or as a flag | every variant is larger (1.3–3.4× postings) and slower to build; the only 2× candidate cut is the superset scheme; verification of trigram false positives costs 1–3 ms |
 | FSEvents linkage | `dlopen` CoreFoundation/CoreServices on first use | link the frameworks | loading them cost ≈ 1 ms of every process start (2.3 → 1.7 ms); only large trees use FSEvents |
 | SIGBUS handling | re-exec with `--no-index` from the signal handler | sigsetjmp/longjmp, or crashing | execv is async-signal-safe and the re-run answers correctly; longjmp out of a Rust frame is unsound |

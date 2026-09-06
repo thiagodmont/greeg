@@ -133,6 +133,7 @@ pub fn scan(o: &Options, data: Vec<u8>) -> Result<ScanResult> {
         rung: Rung::Exact,
         ignored_only: None,
         ignored_partial: false,
+        related_index: Vec::new(),
     })
 }
 

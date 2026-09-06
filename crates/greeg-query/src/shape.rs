@@ -347,16 +347,16 @@ fn header_cost(r: &ScanResult, fi: usize) -> usize {
 
 /// The pattern is a bare identifier searched literally and case-sensitively, so
 /// every match either is that identifier or sits inside a longer one.
-fn identifier_query(o: &crate::Options) -> bool {
+pub(crate) fn identifier_query(o: &crate::Options) -> bool {
     is_identifier(&o.pattern)
         && !o.case_insensitive
         && !o.line_regexp
         && (!o.smart_case || o.pattern.bytes().any(|b| b.is_ascii_uppercase()))
 }
 
-/// Identifiers that merely contain the query, with hit counts: best first, top 4.
+/// Identifiers that merely contain the query, with file counts: best first, top 4.
 fn related_names(r: &ScanResult, ranked: &[Ranked]) -> Vec<(String, usize)> {
-    let mut by_name: BTreeMap<&str, usize> = BTreeMap::new();
+    let mut by_name: BTreeMap<&str, std::collections::BTreeSet<usize>> = BTreeMap::new();
     for &(fi, hi, _) in ranked {
         let h = &r.files[fi].hits[hi];
         if h.exact {
@@ -379,12 +379,12 @@ fn related_names(r: &ScanResult, ranked: &[Ranked]) -> Vec<(String, usize)> {
         if let Ok(w) = std::str::from_utf8(&raw[s..e])
             && w != r.opts.pattern
         {
-            *by_name.entry(w).or_default() += 1;
+            by_name.entry(w).or_default().insert(fi);
         }
     }
     let mut v: Vec<(String, usize)> = by_name
         .into_iter()
-        .map(|(n, c)| (n.to_string(), c))
+        .map(|(n, c)| (n.to_string(), c.len()))
         .collect();
     v.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
     v.truncate(4);
@@ -490,6 +490,10 @@ pub fn shape(r: &mut ScanResult) -> Report {
             related = related_names(r, &ranked);
             ranked.retain(|&(fi, hi, _)| r.files[fi].hits[hi].exact);
             near_misses_left = true;
+        } else if exact > 0 {
+            // the word postings answered the whole word only: the dictionary
+            // names the identifiers that contain it
+            related = r.related_index.clone();
         }
     }
     // Hits the answer may draw on: `r.stats.total_hits` still counts the near-misses.
@@ -974,6 +978,7 @@ mod tests {
             rung: Rung::Exact,
             ignored_only: None,
             ignored_partial: false,
+            related_index: Vec::new(),
         }
     }
 
@@ -1023,7 +1028,11 @@ mod tests {
             2,
             "only the whole-word hits answer"
         );
-        assert_eq!(rep.related, vec![("foo_bar".to_string(), 3)]);
+        assert_eq!(
+            rep.related,
+            vec![("foo_bar".to_string(), 1)],
+            "one file holds it"
+        );
         assert_eq!(
             rep.footer.hits_total, 5,
             "the footer still counts every match"

@@ -6,7 +6,7 @@
 
 use crate::gram::literal_keys;
 use anyhow::Result;
-use regex_syntax::hir::{Class, Hir, HirKind};
+use regex_syntax::hir::{Class, Hir, HirKind, Look};
 use std::collections::BTreeSet;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -421,6 +421,100 @@ pub fn plan(pattern: &str, fixed: bool, casei: bool) -> Result<Q> {
     Ok(flatten(q))
 }
 
+/// Whole-word plan (DESIGN.md §5.2, M10): the words a file must contain for
+/// the pattern to match as a whole word, as alternatives, or `None` when the
+/// trigram plan must answer. `identifier` is the bare-identifier answer mode
+/// (the answer is the whole word); `word` is `-w`; a `\bWORD\b` regex, or an
+/// alternation of such, qualifies on its own. Case-insensitive queries and
+/// words the index does not hold (non-ASCII bytes, 1 or > 64 bytes) keep the
+/// trigram plan.
+pub fn word_plan(
+    pattern: &str,
+    fixed: bool,
+    casei: bool,
+    word: bool,
+    identifier: bool,
+) -> Option<Vec<Vec<u8>>> {
+    use crate::words::is_query_word;
+    if casei {
+        return None;
+    }
+    if identifier && is_query_word(pattern.as_bytes()) {
+        return Some(vec![pattern.as_bytes().to_vec()]);
+    }
+    if fixed {
+        return (word && is_query_word(pattern.as_bytes()))
+            .then(|| vec![pattern.as_bytes().to_vec()]);
+    }
+    // The pattern must denote a finite set of token sequences built from word
+    // boundaries and literals (regex-syntax factors shared `\b`s out of an
+    // alternation, so the shape is recovered from the sequences, not the tree).
+    #[derive(Clone, PartialEq)]
+    enum Tok {
+        Bound,
+        Lit(Vec<u8>),
+    }
+    const MAX_SEQS: usize = 64;
+    fn seqs(h: &Hir) -> Option<Vec<Vec<Tok>>> {
+        match h.kind() {
+            HirKind::Empty => Some(vec![vec![]]),
+            HirKind::Look(Look::WordAscii | Look::WordUnicode) => Some(vec![vec![Tok::Bound]]),
+            HirKind::Literal(l) => Some(vec![vec![Tok::Lit(l.0.to_vec())]]),
+            HirKind::Capture(c) => seqs(&c.sub),
+            HirKind::Alternation(alts) => {
+                let mut out = Vec::new();
+                for a in alts {
+                    out.extend(seqs(a)?);
+                    if out.len() > MAX_SEQS {
+                        return None;
+                    }
+                }
+                Some(out)
+            }
+            HirKind::Concat(parts) => {
+                let mut acc: Vec<Vec<Tok>> = vec![vec![]];
+                for p in parts {
+                    let ps = seqs(p)?;
+                    let mut next = Vec::with_capacity(acc.len() * ps.len());
+                    for a in &acc {
+                        for s in &ps {
+                            let mut v = a.clone();
+                            v.extend(s.iter().cloned());
+                            next.push(v);
+                        }
+                    }
+                    if next.len() > MAX_SEQS {
+                        return None;
+                    }
+                    acc = next;
+                }
+                Some(acc)
+            }
+            _ => None,
+        }
+    }
+    let hir = regex_syntax::ParserBuilder::new()
+        .build()
+        .parse(pattern)
+        .ok()?;
+    let mut out = Vec::new();
+    for s in seqs(&hir)? {
+        // `-w` supplies the boundaries; otherwise the pattern must carry them
+        let lit = match s.as_slice() {
+            [Tok::Lit(l)] if word => l,
+            [Tok::Bound, Tok::Lit(l), Tok::Bound] => l,
+            _ => return None,
+        };
+        if !is_query_word(lit) {
+            return None;
+        }
+        if !out.contains(lit) {
+            out.push(lit.clone());
+        }
+    }
+    (!out.is_empty()).then_some(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -435,6 +529,62 @@ mod tests {
     fn literal() {
         let q = plan("createSourceFile", false, false).unwrap();
         assert_eq!(grams(&q), 14);
+    }
+    #[test]
+    fn word_plans() {
+        let w = |s: &str| s.as_bytes().to_vec();
+        assert_eq!(
+            word_plan("node", false, false, true, false),
+            Some(vec![w("node")])
+        );
+        assert_eq!(
+            word_plan("node", true, false, true, false),
+            Some(vec![w("node")])
+        );
+        assert_eq!(
+            word_plan("node", false, false, false, true),
+            Some(vec![w("node")])
+        );
+        assert_eq!(
+            word_plan("node", false, false, false, false),
+            None,
+            "substring semantics"
+        );
+        assert_eq!(
+            word_plan("node", false, true, true, false),
+            None,
+            "-i keeps the grams"
+        );
+        assert_eq!(
+            word_plan("foo|bar_baz", false, false, true, false),
+            Some(vec![w("foo"), w("bar_baz")])
+        );
+        assert_eq!(
+            word_plan("(?:foo)|(?:bar)", false, false, true, false),
+            Some(vec![w("foo"), w("bar")])
+        );
+        assert_eq!(
+            word_plan(r"\bfoo\b", false, false, false, false),
+            Some(vec![w("foo")])
+        );
+        assert_eq!(
+            word_plan(r"\b(foo|bar)\b", false, false, false, false),
+            Some(vec![w("foo"), w("bar")])
+        );
+        assert_eq!(
+            word_plan(r"(?:\bfoo\b)|(?:\bbar\b)", false, false, false, false),
+            Some(vec![w("foo"), w("bar")])
+        );
+        assert_eq!(word_plan(r"\bfoo", false, false, false, false), None);
+        assert_eq!(word_plan(r"get_\w+", false, false, true, false), None);
+        assert_eq!(word_plan("foo bar", false, false, true, false), None);
+        assert_eq!(word_plan("caf\u{e9}", false, false, true, false), None);
+        assert_eq!(word_plan("x", false, false, true, false), None, "one byte");
+        assert_eq!(
+            word_plan("a|bc", false, false, true, false),
+            None,
+            "one alternative too short"
+        );
     }
     #[test]
     fn fixed_and_short() {

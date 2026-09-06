@@ -1,4 +1,4 @@
-# greeg index on-disk format (version 4)
+# greeg index on-disk format (version 5)
 
 Location: `~/Library/Caches/greeg/<name>-<hash16>/` on macOS,
 `$XDG_CACHE_HOME/greeg/...` elsewhere (override: `GREEG_INDEX_DIR`,
@@ -11,6 +11,7 @@ LOCK                flock target: every writer (build publish, delta apply) hold
 BUILDING            marker with the pid of a running build (create_new; stale after 10 min)
 files.<gen>.bin     file table (republished by phase 2 with ranks and parse flags)
 grams.<gen>.bin     trigram dictionary + postings
+words.<gen>.bin     word dictionary + postings (whole-word queries)
 symbols.<gen>.bin   symbols, names, split tokens (phase 2)
 spans.<gen>.bin     noncode spans and imports per file (phase 2)
 graph.<gen>.bin     import graph CSR + PageRank (phase 2)
@@ -31,7 +32,7 @@ tombstone bitmap fails the open (the query answers in scan mode and a rebuild
 is spawned).
 
 Every `.bin` starts with a 16-byte header: `"GREEG"`, format `u16` LE,
-component `u8` (1 files, 2 grams, 3 delta, 5 symbols, 6 spans, 7 graph),
+component `u8` (1 files, 2 grams, 3 delta, 5 symbols, 6 spans, 7 graph, 8 words),
 payload length `u64` LE. A format mismatch means rebuild; there is no
 migration. All integers are little-endian; every array is padded to 8 bytes
 so the tables can be viewed as `&[u32]`/`&[Rec]` directly from the mmap
@@ -73,6 +74,25 @@ postings               roaring bitmap (portable serialization) per gram, file id
 
 Grams never span a line terminator. Lookups binary-search `keys` and
 deserialize one bitmap.
+
+## words.<gen>.bin (component 8)
+
+```
+u32 n_words, u32 arena_len, u64 postings_len
+u32 word_off[n_words+1]   into arena; words sorted bytewise, case preserved
+u8  arena                 padded to 8
+u32 counts[n_words]       documents per word, padded to 8
+u64 offsets[n_words+1]    byte offsets into postings
+postings                  roaring bitmap (portable serialization) per word, file ids
+```
+
+A word is a maximal run of `[A-Za-z0-9_]` of 2 to 64 bytes; bytes ≥ 0x80
+separate words. Written in phase 1 next to the grams (DESIGN.md §3.2). A
+whole-word query (`-w NAME`, a bare identifier in a ranked layout, `refs`,
+`\bNAME\b`) binary-searches the dictionary and reads one bitmap per
+alternative instead of intersecting trigram lists; `-i` and words the
+dictionary cannot hold keep the trigram plan. The `related` line of a bare
+identifier is a `memmem` pass over the arena for words containing the query.
 
 ## symbols.<gen>.bin (component 5)
 
@@ -135,13 +155,14 @@ path reads ranks from `files.bin`; `graph.bin` is mapped lazily by verbs.
 ## delta/NNNN.bin (component 3)
 
 ```
-u32 first_id, n_files, files_len, grams_len, symbols_len, spans_len, graph_len, pad  (32 bytes)
+u32 first_id, n_files, files_len, grams_len, symbols_len, spans_len, graph_len, words_len  (32 bytes)
 files section, grams section, symbols section, spans section (layouts as above;
   file ids are first_id + position; symbol `file` fields are segment-local)
 graph section:
   u32 n_files, u32 n_edges, u32 pad, u32 pad
   u32 prev[n_files]                    id of the file version this one supersedes (NONE = new file)
   u32 out_off[n_files+1]; u32 out_to[n_edges]; u16 out_w[n_edges]   imports, absolute target ids
+words section (layout as above; postings hold absolute file ids)
 roaring bitmap of tombstoned ids (files superseded or deleted by this delta)
 ```
 
@@ -161,8 +182,9 @@ importers of a file are the live base importers of its oldest version (an
 importer edited since carries its own edges in its delta) plus every live
 delta file with an edge to any id on the chain.
 
-A query evaluates `(base ∪ huge ∪ deltas) − tombstones − hidden`; symbol
-lookups visit the base then each delta. Every section length is checked
+A query evaluates `(base ∪ huge ∪ deltas) − tombstones − hidden`, each
+segment answering from its word postings when the plan is a whole word and
+from its grams otherwise; symbol lookups visit the base then each delta. Every section length is checked
 against the payload and the tombstone bitmap is validated on open. A full
 build starts a new generation; `delta/` and older generations are deleted
 after the new manifest is written.

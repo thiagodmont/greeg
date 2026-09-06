@@ -44,10 +44,11 @@
 //!   u32 in_off[n_files + 1];  u32 in_from[n_edges]
 //!   f32 rank[n_files]
 //!
+//! words.<gen>.bin: word dictionary + postings (`words.rs`)
+//!
 //! delta/NNNN.bin: u32 first_id, n_files, files_len, grams_len, symbols_len,
-//! spans_len (24 bytes), then a files section, a grams section, a symbols
-//! section and a spans section (same layouts; FileRec ids are absolute:
-//! first_id + local offset; imports in deltas are unresolved), plus a
+//! spans_len, graph_len, words_len (32 bytes), then the sections in that order
+//! (same layouts; FileRec ids are absolute: first_id + local offset), plus a
 //! tombstone bitmap of superseded ids at the end.
 //!
 //! Writers (build publish, delta apply) hold an exclusive `flock` on `LOCK`;
@@ -68,7 +69,8 @@ pub const COMP_TOMB: u8 = 4;
 pub const COMP_SYMBOLS: u8 = 5;
 pub const COMP_SPANS: u8 = 6;
 pub const COMP_GRAPH: u8 = 7;
-/// Delta segment header: eight u32 (first_id, n_files, five section lengths, pad).
+pub const COMP_WORDS: u8 = 8;
+/// Delta segment header: eight u32 (first_id, n_files, six section lengths).
 pub const DELTA_HEADER: usize = 32;
 
 pub const NONE: u32 = u32::MAX;
