@@ -1,0 +1,54 @@
+crates/greeg-query/src/lib.rs
+  s_ed36146e569a20::t_cd68a9b7e8a53b 455-458,1969
+crates/greeg-index/src/lib.rs
+  s_ed36146e569a20::t_2fe01a3e092e54 2,16,24
+crates/greeg-index/src/format.rs
+  s_ed36146e569a20::t_2fe01a3e092e54 47-48,50-51,72-73
+crates/greeg/src/doctor.rs
+  s_ed36146e569a20::t_cd68a9b7e8a53b 83,86,92,109,112
+crates/greeg-index/src/build.rs
+  s_ed36146e569a20::t_2fe01a3e092e54 2-3,10,256-286,302-303,308,314,320-322,329,343,346-347,350-351,363-371,388,432-436,465,469,476-477,745,764,909,922-929,939,949
+crates/greeg-index/src/words.rs
+  s_ed36146e569a20::t_04cccf6fc2e61a 130-132,203-206,219-223
+  s_ed36146e569a20::t_d7d933101ae3a2 1-129,133-202,207-218,224-242
+crates/greeg-index/src/plan.rs
+  s_ed36146e569a20::t_22745f8b02fa75 449-455,457-463,467-470,474-489,491,500-515,588
+  s_ed36146e569a20::t_fa767b6856333c 9,424-445,448,456,464-466,471-473,490,492-499,516-517,534-536,559-566,571-582
+  s_ed36146e569a20::t_04cccf6fc2e61a 446-447,537-558,567-570,583-587
+  s_ed36146e569a20::t_c5e4ce7081eb15 589
+crates/greeg-index/src/index.rs
+  s_ed36146e569a20::t_04cccf6fc2e61a 516-518,520-522
+  s_ed36146e569a20::t_fa767b6856333c 6,27-28,72,81,98,125-129,136,194-212,302,305,308,310,337,365,395,479-494,497,504-515,519,523-541
+  s_ed36146e569a20::t_1f9db53819aeeb 542
+crates/greeg-query/src/indexed.rs
+  s_ed36146e569a20::t_87303ead2d6d99 982-1057
+  s_ed36146e569a20::t_cd68a9b7e8a53b 366-389,630
+  s_ed36146e569a20::t_c5d698236ba946 1058-1065
+crates/greeg-query/src/shape.rs
+  s_ed36146e569a20::t_04cccf6fc2e61a 1031-1035
+  s_ed36146e569a20::t_cd68a9b7e8a53b 350,357,359,382,387,493-496,981
+crates/greeg-query/src/stdin.rs
+  s_ed36146e569a20::t_04cccf6fc2e61a 136
+docs/DESIGN.md
+  s_ed36146e569a20::t_dc0f067f49a380 190-208,498-508,693-696,1061
+docs/FORMAT.md
+  s_ed36146e569a20::t_84f253ce18a4f4 1,14,35,78-96,158,165,185-187
+docs/OUTPUT.md
+  s_ed36146e569a20::t_da106207e3b945 126,129-138,387
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "0132adf2c9fa6f45f055a00471ffa6d8df9d80e5",
+  "prompts": {},
+  "sessions": {
+    "s_ed36146e569a20": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "136e3c48-27e3-4f0c-95e0-81a5cdbbc029",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
