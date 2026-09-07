@@ -133,7 +133,12 @@ impl<'a> WordsView<'a> {
         let offsets: &[u64] = bytemuck::try_cast_slice(pb)
             .map_err(|_| anyhow::anyhow!("unaligned posting offsets"))?;
         off += (n + 1) * 8;
-        let postings = body.get(off..off + plen).context("word postings")?;
+        // `plen` is a u64 from the file: slice in two steps so a torn header
+        // cannot overflow the range arithmetic
+        let postings = body
+            .get(off..)
+            .and_then(|b| b.get(..plen))
+            .context("word postings")?;
         if word_off.last().copied().unwrap_or(0) as usize != arena_len
             || offsets.last().copied().unwrap_or(0) as usize != plen
         {
@@ -238,5 +243,40 @@ mod tests {
         assert!(v.find(b"NODE").is_none(), "case-sensitive keys");
         assert_eq!(v.word_at_offset(v.word_off[i] as usize + 2), Some(i));
         assert_eq!(v.find(b"Node").map(|i| v.counts[i]), Some(2));
+    }
+
+    /// A word section with no words parses, and a body cut anywhere (a delta
+    /// is published without fsync) fails to parse instead of panicking.
+    #[test]
+    fn empty_and_truncated_sections() {
+        let body = serialize(&[]);
+        let v = WordsView::parse(&body).unwrap();
+        assert!(v.is_empty());
+        assert!(v.find(b"node").is_none());
+        assert!(v.word_at_offset(0).is_none());
+
+        let mut entries: Vec<(Vec<u8>, u32, Vec<u8>)> = Vec::new();
+        for (w, ids) in [("alpha", vec![1u32, 5]), ("beta", vec![2])] {
+            let bm: roaring::RoaringBitmap = ids.iter().copied().collect();
+            let mut b = Vec::new();
+            bm.serialize_into(&mut b).unwrap();
+            entries.push((w.as_bytes().to_vec(), ids.len() as u32, b));
+        }
+        let body = serialize(&entries);
+        assert!(WordsView::parse(&body).is_ok());
+        for cut in 0..body.len() {
+            // the trailing padding is the only part a cut can spare
+            if cut + 8 <= body.len() {
+                assert!(WordsView::parse(&body[..cut]).is_err(), "cut at {cut}");
+            } else {
+                let _ = WordsView::parse(&body[..cut]);
+            }
+        }
+        // a torn header claiming more postings than any body holds
+        let mut torn = body.clone();
+        torn[8..16].copy_from_slice(&u64::MAX.to_le_bytes());
+        assert!(WordsView::parse(&torn).is_err());
+        torn[8..16].copy_from_slice(&0u64.to_le_bytes());
+        assert!(WordsView::parse(&torn).is_err(), "lengths disagree");
     }
 }

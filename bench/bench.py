@@ -367,7 +367,8 @@ def speed(args):
         slept = hyperfine([cmd], os.getcwd(), runs=20, warmup=3, prepare=PREPARE_SLEEP)[0]
         wake[label] = {"hot_ms": hot["median"] * 1e3 if hot else None, "prepared_ms": slept["median"] * 1e3 if slept else None}
     result["wakeup"] = wake
-    print("wake-up penalty: " + "  ".join(f"{k} --version {v['hot_ms']:.1f} ms hot → {v['prepared_ms']:.1f} ms after the sleep" for k, v in wake.items()))
+    fmt_ms = lambda x: f"{x:.1f} ms" if x is not None else "n/a"
+    print("wake-up penalty: " + "  ".join(f"{k} --version {fmt_ms(v['hot_ms'])} hot → {fmt_ms(v['prepared_ms'])} after the sleep" for k, v in wake.items()))
     prev = load_json(os.path.join(RESULTS, f"speed-{host_key()}.json"))
     if prev and args.corpora and not args.no_splice:
         # a subset run refreshes only its corpora; rows kept from an earlier run are marked when
@@ -1082,7 +1083,8 @@ def report(args):
         out += ["## Speed", "", f"Host `{h['key']}` ({h['cpus']} CPUs), {speed_res['date']}. `{speed_res['greeg']}`, `{speed_res['rg']}`, `{speed_res['grep'][:40]}`, {speed_res.get('hyperfine', 'hyperfine')}. hyperfine `-N --warmup 3 --runs {speed_res['runs']}` with `--prepare '{speed_res.get('prepare', PREPARE_SLEEP)}'` before every timing run, warm page cache. Cells are **medians** with min–max in parentheses.", ""]
         wk = speed_res.get("wakeup")
         if wk:
-            out += ["The `sleep` before every run also costs a CPU wake-up (idle state and frequency ramp) that the hot latency does not include: on this host " + ", ".join(f"`{k} --version` {v['hot_ms']:.1f} ms hot → {v['prepared_ms']:.1f} ms after the sleep" for k, v in wk.items()) + ". It inflates every cell by a few milliseconds, so it hardly moves the ratios on the large trees but reads as 30–50 % of the small-tree greeg cells; subtract it to read them as hot latencies.", ""]
+            fmt_ms = lambda x: f"{x:.1f} ms" if x is not None else "n/a"
+            out += ["The `sleep` before every run also costs a CPU wake-up (idle state and frequency ramp) that the hot latency does not include: on this host " + ", ".join(f"`{k} --version` {fmt_ms(v['hot_ms'])} hot → {fmt_ms(v['prepared_ms'])} after the sleep" for k, v in wk.items()) + ". It inflates every cell by a few milliseconds, so it hardly moves the ratios on the large trees but reads as 30–50 % of the small-tree greeg cells; subtract it to read them as hot latencies.", ""]
         out += ["What each column prints:", ""]
         out += [f"* `{t}`: {TOOL_SHAPE[t]}" for t in TOOLS]
         out += ["* `fresh`: the index freshness check every `greeg`/`greeg-full` run pays under this protocol (median of `--stats` samples, mode in parentheses: `fsevents` or `stat` walk); `--fresh none` skips it (JSON column `greeg-nofresh`).", "", "Match sets: `rg --json` is the reference. `greeg-full` is verified from the text the timed command prints; the budgeted `greeg` digest cannot be verified from its own output, so it is checked as `--json --budget 0` with the same query. Rows marked ⚠ in the matches column failed one of these checks. grep has no `.gitignore` support, so its count can exceed rg's.", ""]

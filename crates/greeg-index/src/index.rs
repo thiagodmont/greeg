@@ -501,6 +501,20 @@ impl Index {
         acc
     }
 
+    /// Live files holding any of `alts` as a whole word, from the word postings
+    /// alone (no huge files, no trigram fallback): empty when no indexed file
+    /// has the word.
+    pub fn word_candidates(&self, alts: &[Vec<u8>]) -> RoaringBitmap {
+        let mut acc = RoaringBitmap::new();
+        for (_, seg) in self.segments() {
+            if let Some(bm) = seg.eval_words(alts) {
+                acc |= bm;
+            }
+        }
+        acc -= &self.tomb;
+        acc
+    }
+
     /// Indexed words that contain `needle` as a strict substring, with their
     /// document counts, most files first: the `related` line of a bare
     /// identifier query, without opening a file. One `memmem` pass over each

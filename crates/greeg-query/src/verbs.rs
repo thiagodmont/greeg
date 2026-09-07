@@ -1260,3 +1260,112 @@ pub fn impact(o: &Options, name: &str) -> Result<ImpactResult> {
         elapsed_ms: t0.elapsed().as_secs_f64() * 1e3,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use greeg_index::build::{BuildOpts, build};
+    use greeg_index::fresh::Mode as Fresh;
+    use std::fs;
+
+    /// `def NAME` lists the file that *is* the module after every symbol
+    /// (DESIGN.md §7.3): `sleep.rs` follows `fn sleep`, `net/mod.rs` and
+    /// `pkg/__init__.py` answer on their own, and generic stems never match.
+    #[test]
+    fn def_lists_file_modules_after_symbols() {
+        let base = std::env::temp_dir().join(format!("greeg-def-modules-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        let root = base.join("tree");
+        let dir = base.join("index");
+        fs::create_dir_all(root.join("src/net")).unwrap();
+        fs::create_dir_all(root.join("pkg")).unwrap();
+        fs::create_dir_all(root.join(".git")).unwrap();
+        fs::write(
+            root.join("src/lib.rs"),
+            "//! crate root\nmod sleep;\nmod net;\npub fn run() { sleep::sleep(); }\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("src/sleep.rs"),
+            "//! Sleep future.\npub fn sleep() {}\n",
+        )
+        .unwrap();
+        fs::write(root.join("src/net/mod.rs"), "pub fn connect() {}\n").unwrap();
+        fs::write(
+            root.join("pkg/__init__.py"),
+            "\"\"\"The pkg package.\"\"\"\n",
+        )
+        .unwrap();
+        // a file without a grammar is never a module
+        fs::create_dir_all(root.join("docs")).unwrap();
+        fs::write(root.join("docs/sleep.md"), "# sleep\n").unwrap();
+        build(
+            &root,
+            &dir,
+            &BuildOpts {
+                reader_threads: 1,
+                quiet: true,
+                phase1_only: false,
+            },
+        )
+        .unwrap();
+        let o = Options {
+            root: root.clone(),
+            index_dir: Some(dir.clone()),
+            fresh: Fresh::None,
+            ..Default::default()
+        };
+        let d = |name: &str| def(&o, name, &[], None).unwrap();
+
+        let r = d("sleep");
+        assert_eq!(r.source, "index");
+        let rows: Vec<(&str, u32, bool)> = r
+            .entries
+            .iter()
+            .map(|e| (e.rel.as_str(), e.line, e.file_module))
+            .collect();
+        assert_eq!(
+            rows,
+            vec![("src/sleep.rs", 2, false), ("src/sleep.rs", 1, true)],
+            "the symbol first, the file module last; `mod sleep;` is not a definition"
+        );
+        assert_eq!(r.total, 2);
+        let m = &r.entries[1];
+        assert_eq!(m.kind, DefKind::Module);
+        assert_eq!(m.signature, "mod sleep");
+        assert_eq!(m.doc.as_deref(), Some("Sleep future."));
+
+        let r = d("net");
+        let rows: Vec<(&str, bool)> = r
+            .entries
+            .iter()
+            .map(|e| (e.rel.as_str(), e.file_module))
+            .collect();
+        assert_eq!(rows, vec![("src/net/mod.rs", true)]);
+
+        let r = d("pkg");
+        let rows: Vec<(&str, bool)> = r
+            .entries
+            .iter()
+            .map(|e| (e.rel.as_str(), e.file_module))
+            .collect();
+        assert_eq!(rows, vec![("pkg/__init__.py", true)]);
+        assert_eq!(r.entries[0].signature, "module pkg");
+        assert_eq!(r.entries[0].doc.as_deref(), Some("The pkg package."));
+
+        // a kind filter other than module drops the file entries
+        let r = def(&o, "net", &[], Some(DefKind::Function)).unwrap();
+        assert!(r.entries.iter().all(|e| !e.file_module));
+
+        // generic stems and names with no module file
+        for name in ["mod", "lib", "__init__", "connect"] {
+            let r = d(name);
+            assert!(
+                r.entries.iter().all(|e| !e.file_module),
+                "{name}: {:?}",
+                r.entries.iter().map(|e| &e.rel).collect::<Vec<_>>()
+            );
+        }
+        let _ = fs::remove_dir_all(&base);
+    }
+}

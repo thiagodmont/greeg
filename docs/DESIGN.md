@@ -198,7 +198,10 @@ whole-word query (`-w NAME`, a bare identifier in a ranked layout, `refs`,
 `\bNAME\b` and alternations of those) reads one bitmap per word instead:
 486 → 31 and 6,086 → 1,879 candidates, `createSourceFile` 8.8 → 4.3 ms and
 `-w node` 90 → 30 ms end to end. `-i`, non-ASCII words and parity mode
-(`--budget 0`, `-l`, `-c`, ripgrep's substring semantics) keep the grams.
+(`--budget 0`, `-l`, `-c`, ripgrep's substring semantics) keep the grams, and
+so does a bare identifier that no live file holds as a whole word (its
+near-misses are that rung's answer, as before; `-w` keeps the empty answer
+and lets the ladder climb).
 The `related` line of a bare identifier comes from the dictionary (words
 containing the query, with file counts) without opening a file. Cost: the
 dictionary and its short bitmaps are 0.4–0.6× the gram section (TypeScript-5.9

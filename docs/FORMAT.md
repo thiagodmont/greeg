@@ -9,6 +9,7 @@ canonical repository path.
 manifest            JSON (see Manifest in greeg-index/src/lib.rs)
 LOCK                flock target: every writer (build publish, delta apply) holds it exclusively
 BUILDING            marker with the pid of a running build (create_new; stale after 10 min)
+REFRESHING          marker with the pid of a running `index --refresh` (create_new; stale after 30 s)
 files.<gen>.bin     file table (republished by phase 2 with ranks and parse flags)
 grams.<gen>.bin     trigram dictionary + postings
 words.<gen>.bin     word dictionary + postings (whole-word queries)

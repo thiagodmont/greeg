@@ -747,6 +747,22 @@ mod tests {
         );
     }
 
+    /// Rust `mod x;` declares a module defined in another file: neither the
+    /// outline nor the per-line scan check reports it as a definition, while
+    /// `mod x {` (inline body) still is one.
+    #[test]
+    fn rust_mod_declaration_is_not_a_definition() {
+        let src =
+            b"pub mod sleep;\nmod inner {\n    pub fn free() {}\n}\n#[cfg(test)]\nmod tests ;\n";
+        let v = names(Lang::Rust, src);
+        let n: Vec<_> = v.iter().map(|x| (x.0.as_str(), x.1, x.2)).collect();
+        assert_eq!(n, vec![("inner", "mod", None), ("free", "fn", Some(0))]);
+        assert!(def_name_on_line(Lang::Rust, b"pub mod sleep;").is_none());
+        assert!(def_name_on_line(Lang::Rust, b"mod tests ;").is_none());
+        assert!(def_name_on_line(Lang::Rust, b"mod inner {").is_some());
+        assert!(def_name_on_line(Lang::Rust, b"pub(crate) mod inner {").is_some());
+    }
+
     #[test]
     fn ts_outline() {
         let src = b"export class C extends B {\n  private x = 1;\n  constructor() { super(); }\n  async run(a: number): Promise<void> {\n    if (a) { return; }\n  }\n}\nexport const go = async (x) => {\n  return x;\n};\nfunction plain() {}\n";

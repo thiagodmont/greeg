@@ -130,6 +130,9 @@ pub fn refresh_now(root: &Path, dir: &Path, threads: usize) -> Result<()> {
             if marker_younger_than(&marker, 30) {
                 return Ok(());
             }
+            // a stale marker (its refresher died): take it over, and renew it so
+            // the next spawn sees a live refresher instead of joining in
+            let _ = fs::write(&marker, format!("{}\n", std::process::id()));
         }
     }
     let r = refresh_inner(root, dir, threads);
@@ -371,7 +374,19 @@ pub(crate) fn try_index(cx: &Ctx, threads: usize, t0: Instant) -> Result<Option<
     let identifier = o.budget != 0
         && !matches!(o.mode, Mode::Files | Mode::Count)
         && crate::shape::identifier_query(o);
-    let wq = plan::word_plan(&o.pattern, o.fixed_strings, casei, o.word, identifier);
+    let mut wq = plan::word_plan(&o.pattern, o.fixed_strings, casei, o.word, identifier);
+    // a bare identifier no live file holds as a whole word: its near-misses
+    // (`zeta` inside `zeta_new`) are this rung's answer, as before the word
+    // postings, so the trigram plan opens them instead of the ladder climbing
+    // to a mislabelled case-insensitive rung
+    if identifier
+        && !o.word
+        && wq
+            .as_deref()
+            .is_some_and(|alts| idx.word_candidates(alts).is_empty())
+    {
+        wq = None;
+    }
     stats.plan = match &wq {
         Some(alts) => format!(
             "words {:?} · {q:?}",
@@ -945,6 +960,11 @@ mod tests {
         let r = crate::scan(&o).unwrap();
         assert_eq!(r.stats.source, "index");
         assert_eq!(rels(&r), ["src/lib.rs"]);
+        assert_eq!(
+            r.rung,
+            Rung::Exact,
+            "near-misses of a bare identifier answer on rung 1"
+        );
         assert_eq!(r.stats.fresh_deferred, 0);
 
         std::thread::sleep(std::time::Duration::from_millis(20));
@@ -1060,6 +1080,154 @@ mod tests {
         let r = crate::scan(&o4).unwrap();
         assert_eq!(r.stats.candidates, 0);
         assert!(r.files.is_empty());
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    /// The delta a refresh publishes carries word postings: a whole-word query
+    /// answers a word that exists only in the edited files from the delta, the
+    /// superseded version's words are gone, and the dictionary's near-misses
+    /// include the delta's words.
+    #[test]
+    fn delta_word_postings_answer_after_refresh() {
+        use greeg_index::build::{BuildOpts, build};
+        let base = std::env::temp_dir().join(format!("greeg-delta-words-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        let root = base.join("tree");
+        let dir = base.join("index");
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::create_dir_all(root.join(".git")).unwrap();
+        fs::write(root.join("src/main.rs"), "fn main() { helper_alpha(); }\n").unwrap();
+        fs::write(root.join("src/lib.rs"), "pub fn helper_alpha() {}\n").unwrap();
+        for i in 0..60 {
+            fs::write(
+                root.join(format!("src/f{i}.rs")),
+                format!("pub fn filler_{i}() {{}}\n"),
+            )
+            .unwrap();
+        }
+        build(
+            &root,
+            &dir,
+            &BuildOpts {
+                reader_threads: 1,
+                quiet: true,
+                phase1_only: true,
+            },
+        )
+        .unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        fs::write(root.join("src/main.rs"), "fn main() { zeta_new(); }\n").unwrap();
+        fs::write(root.join("src/new.rs"), "fn zeta_other() {}\n").unwrap();
+        refresh_now(&root, &dir, 1).unwrap();
+        assert_eq!(read_manifest(&dir).unwrap().deltas, 1);
+
+        let o = Options {
+            root: root.clone(),
+            index_dir: Some(dir.clone()),
+            fresh: Fresh::None,
+            pattern: "zeta_new".to_string(),
+            word: true,
+            ..Default::default()
+        };
+        let rels =
+            |r: &ScanResult| -> Vec<String> { r.files.iter().map(|f| f.rel.clone()).collect() };
+        let r = crate::scan(&o).unwrap();
+        assert!(r.stats.plan.starts_with("words"), "{}", r.stats.plan);
+        assert_eq!(
+            r.stats.candidates, 1,
+            "the delta's postings name main.rs only"
+        );
+        assert_eq!(rels(&r), ["src/main.rs"]);
+        assert!(r.files[0].file_id.is_some(), "answered from the delta");
+
+        // the superseded main.rs held `helper_alpha`; its postings are tombstoned
+        let r = crate::scan(&Options {
+            pattern: "helper_alpha".to_string(),
+            ..o.clone()
+        })
+        .unwrap();
+        assert_eq!(r.stats.candidates, 1);
+        assert_eq!(rels(&r), ["src/lib.rs"]);
+
+        // a bare identifier no file holds as a whole word: the trigram plan
+        // opens the near-misses on this rung (base and delta), no ladder climb
+        let r = crate::scan(&Options {
+            pattern: "zeta".to_string(),
+            word: false,
+            ..o.clone()
+        })
+        .unwrap();
+        assert!(!r.stats.plan.starts_with("words"), "{}", r.stats.plan);
+        assert_eq!(r.rung, Rung::Exact);
+        assert_eq!(rels(&r), ["src/main.rs", "src/new.rs"]);
+        assert!(r.related_index.is_empty());
+        // `-w` keeps the whole-word answer: nothing opened, the ladder's
+        // next rung finds the near-misses
+        let r = crate::scan(&Options {
+            pattern: "zeta".to_string(),
+            ..o.clone()
+        })
+        .unwrap();
+        assert_eq!(r.rung, Rung::NoWord);
+        assert_eq!(rels(&r), ["src/main.rs", "src/new.rs"]);
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    /// One refresher per index: a live `REFRESHING` marker makes `refresh_now`
+    /// a no-op, a stale one (its refresher died) is taken over and removed.
+    #[test]
+    fn refresh_marker_serializes_refreshers() {
+        use greeg_index::build::{BuildOpts, build};
+        let base =
+            std::env::temp_dir().join(format!("greeg-refresh-marker-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        let root = base.join("tree");
+        let dir = base.join("index");
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::create_dir_all(root.join(".git")).unwrap();
+        for i in 0..60 {
+            fs::write(
+                root.join(format!("src/f{i}.rs")),
+                format!("pub fn filler_{i}() {{}}\n"),
+            )
+            .unwrap();
+        }
+        build(
+            &root,
+            &dir,
+            &BuildOpts {
+                reader_threads: 1,
+                quiet: true,
+                phase1_only: true,
+            },
+        )
+        .unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        fs::write(root.join("src/f0.rs"), "pub fn filler_changed() {}\n").unwrap();
+        let marker = dir.join("REFRESHING");
+        fs::write(&marker, "1\n").unwrap();
+        refresh_now(&root, &dir, 1).unwrap();
+        assert_eq!(
+            read_manifest(&dir).unwrap().deltas,
+            0,
+            "another refresher owns it"
+        );
+        assert!(marker.exists());
+        // the owner died: a marker older than thirty seconds is taken over
+        let old = std::time::SystemTime::now() - std::time::Duration::from_secs(120);
+        fs::OpenOptions::new()
+            .write(true)
+            .open(&marker)
+            .unwrap()
+            .set_modified(old)
+            .unwrap();
+        refresh_now(&root, &dir, 1).unwrap();
+        assert_eq!(read_manifest(&dir).unwrap().deltas, 1);
+        assert!(!marker.exists(), "released after the publish");
+        // nothing pending: a second refresh publishes nothing and releases again
+        refresh_now(&root, &dir, 1).unwrap();
+        assert_eq!(read_manifest(&dir).unwrap().deltas, 1);
+        assert!(!marker.exists());
         let _ = fs::remove_dir_all(&base);
     }
 
