@@ -37,8 +37,15 @@ Symbol questions are cheaper than searches:
     greeg callers NAME --depth 2
     greeg impls NAME            implementations / subclasses
     greeg outline FILE          definitions of a file as a tree
+    greeg show FILE:LINE        the definition enclosing a line, whole and dedented
     greeg map DIR               important files by import PageRank
     greeg impact NAME           WILL / MAY BREAK / REVIEW if NAME changes
+
+To read a definition's body, `greeg show FILE:LINE` prints the whole definition around a
+hit and `greeg def NAME --mode block` prints every definition of NAME with its body, both
+dedented and bounded by the definition's span (`--mode block` on a search does the same
+for its definition hits). Prefer them to guessing a `sed -n 'A,Bp'` range; `-A/-B/-C N`
+give fixed context around hits. Answers are rows only: `N hits · M files` means complete.
 
 Use `-e PATTERN` when the pattern is a verb name (`greeg -e def src`). When the pattern
 or a path starts with `-`, put `--` before it: `greeg -- -x src`, `greeg foo -- -weird`.
@@ -84,6 +91,40 @@ fn is_ours(v: &Value) -> bool {
             })
         })
         .unwrap_or(false)
+}
+
+/// Commands of the other PreToolUse hooks that see Bash calls (matcher empty,
+/// `*`, or naming `Bash`), for `greeg stats`: when several hooks rewrite the
+/// same call, the last `updatedInput` to finish wins and the greeg run never
+/// happens.
+pub fn other_bash_hooks() -> Vec<String> {
+    let Some(v) = settings_path()
+        .ok()
+        .and_then(|p| std::fs::read_to_string(p).ok())
+        .and_then(|s| serde_json::from_str::<Value>(&s).ok())
+    else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    let entries = v
+        .get("hooks")
+        .and_then(|h| h.get("PreToolUse"))
+        .and_then(|a| a.as_array());
+    for entry in entries.into_iter().flatten() {
+        let matcher = entry.get("matcher").and_then(|m| m.as_str()).unwrap_or("");
+        if !(matcher.is_empty() || matcher == "*" || matcher.contains("Bash")) {
+            continue;
+        }
+        let hooks = entry.get("hooks").and_then(|h| h.as_array());
+        for h in hooks.into_iter().flatten() {
+            if let Some(c) = h.get("command").and_then(|c| c.as_str())
+                && !c.starts_with("greeg hook")
+            {
+                out.push(c.to_string());
+            }
+        }
+    }
+    out
 }
 
 pub fn install_claude(uninstall: bool, dry_run: bool) -> Result<()> {
@@ -487,8 +528,8 @@ impl Parsed {
 }
 
 const VERBS: &[&str] = &[
-    "def", "refs", "callers", "impls", "outline", "map", "impact", "index", "doctor", "man",
-    "hook", "lang", "stats",
+    "def", "refs", "callers", "impls", "outline", "show", "map", "impact", "index", "doctor",
+    "man", "hook", "lang", "stats",
 ];
 
 fn parse(words: &[String], prog: Prog) -> Option<Parsed> {

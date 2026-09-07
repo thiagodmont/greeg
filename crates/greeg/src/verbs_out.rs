@@ -90,12 +90,52 @@ fn digits(n: u32) -> usize {
 
 /// Definition entries grouped by file in order of first appearance:
 /// `  <line> <kind>  [name  ]container › signature   [flags] : supers [reach]`.
+/// A body beneath its row, dedented by its first line's indentation as the
+/// block layout prints it (`  NNN  text`), then what was cut.
+fn write_body(w: &mut impl Write, b: &verbs::Body, lw: usize) -> Result<()> {
+    let lead = |l: &[u8]| {
+        l.iter()
+            .position(|c| !matches!(c, b' ' | b'\t'))
+            .unwrap_or(l.len())
+    };
+    let indent = b.lines.first().map(|l| lead(l)).unwrap_or(0);
+    for (i, l) in b.lines.iter().enumerate() {
+        let cut = lead(l).min(indent);
+        writeln!(
+            w,
+            "  {:>lw$}  {}",
+            b.first + i as u32,
+            String::from_utf8_lossy(&l[cut..]).trim_end()
+        )?;
+    }
+    let shown_to = b.first + b.lines.len().saturating_sub(1) as u32;
+    if b.clipped {
+        writeln!(
+            w,
+            "  … {} more lines to {} (raise --budget)",
+            b.last - shown_to,
+            b.last
+        )?;
+    } else if b.last > shown_to {
+        writeln!(
+            w,
+            "  … {} more lines to {} (--budget 0 lifts the {}-line cap)",
+            b.last - shown_to,
+            b.last,
+            verbs::BODY_CAP
+        )?;
+    }
+    Ok(())
+}
+
+/// `bodies`, when given, runs parallel to `entries` (`def --mode block`).
 fn write_def_groups(
     w: &mut impl Write,
     entries: &[&DefEntry],
     show_name: bool,
     show_reach: bool,
     full_chain: bool,
+    bodies: Option<&[Option<verbs::Body>]>,
 ) -> Result<()> {
     let mut order: Vec<&str> = Vec::new();
     for e in entries {
@@ -104,12 +144,31 @@ fn write_def_groups(
         }
     }
     for rel in order {
-        let group: Vec<&DefEntry> = entries.iter().filter(|e| e.rel == rel).copied().collect();
-        writeln!(w, "{}{}", rel, file_flag_suffix(rel, group[0].file_flags))?;
-        let lw = group.iter().map(|e| digits(e.line)).max().unwrap_or(1);
-        let kw = group.iter().map(|e| e.kind.name().len()).max().unwrap_or(0);
-        let file_test = group[0].file_flags.has(FileFlags::TEST);
-        for e in group {
+        let group: Vec<(usize, &DefEntry)> = entries
+            .iter()
+            .enumerate()
+            .filter(|(_, e)| e.rel == rel)
+            .map(|(i, e)| (i, *e))
+            .collect();
+        writeln!(w, "{}{}", rel, file_flag_suffix(rel, group[0].1.file_flags))?;
+        let lw = group
+            .iter()
+            .map(|(i, e)| {
+                let body_last = bodies
+                    .and_then(|bs| bs[*i].as_ref())
+                    .map(|b| b.first + b.lines.len() as u32)
+                    .unwrap_or(0);
+                digits(e.line.max(body_last))
+            })
+            .max()
+            .unwrap_or(1);
+        let kw = group
+            .iter()
+            .map(|(_, e)| e.kind.name().len())
+            .max()
+            .unwrap_or(0);
+        let file_test = group[0].1.file_flags.has(FileFlags::TEST);
+        for (i, e) in group {
             let ch = container_of(&e.chain, false, full_chain);
             let sig = if e.signature.is_empty() {
                 e.name.clone()
@@ -156,6 +215,9 @@ fn write_def_groups(
             )?;
             if let Some(d) = &e.doc {
                 writeln!(w, "  {:lw$} {:kw$}  \"{d}\"", "", "")?;
+            }
+            if let Some(b) = bodies.and_then(|bs| bs[i].as_ref()) {
+                write_body(w, b, lw)?;
             }
         }
     }
@@ -222,7 +284,39 @@ pub fn run_def(
     )?;
     let multi_name = r.entries.iter().any(|e| e.name != r.name);
     let entries: Vec<&DefEntry> = r.entries.iter().collect();
-    write_def_groups(&mut w, &entries, multi_name, explicit_from, c.chain)?;
+    // `--mode block`: each definition's body follows its row, the budget
+    // shared in order (a module file has no body of its own)
+    let bodies: Option<Vec<Option<verbs::Body>>> = if o.mode == greeg_query::Mode::Block {
+        let mut est = 0usize;
+        let mut sources: std::collections::HashMap<&str, greeg_query::Source> = Default::default();
+        let mut v = Vec::with_capacity(entries.len());
+        for e in &entries {
+            if e.file_module {
+                v.push(None);
+                continue;
+            }
+            if !sources.contains_key(e.rel.as_str())
+                && let Ok(src) = verbs::source_of(o, &e.rel)
+            {
+                sources.insert(e.rel.as_str(), src);
+            }
+            v.push(sources.get(e.rel.as_str()).map(|src| {
+                let end = src.end_line(e.start, e.end);
+                verbs::body(o, src, e.line, end, &mut est)
+            }));
+        }
+        Some(v)
+    } else {
+        None
+    };
+    write_def_groups(
+        &mut w,
+        &entries,
+        multi_name,
+        explicit_from,
+        c.chain,
+        bodies.as_deref(),
+    )?;
     if r.total > r.entries.len() {
         writeln!(w, "  +{} more (raise --budget)", r.total - r.entries.len())?;
     }
@@ -232,6 +326,63 @@ pub fn run_def(
             "next: refs {} | callers {} | outline {}",
             r.name, r.name, top.rel
         )?;
+    }
+    w.flush()?;
+    Ok(())
+}
+
+pub fn run_show(c: &Common, o: &Options, locs: &[(String, u32)]) -> Result<()> {
+    let r = verbs::show(o, locs)?;
+    let mut w = out();
+    if c.json {
+        for it in &r.items {
+            let shown_to = it.body.first + it.body.lines.len().saturating_sub(1) as u32;
+            let text = it
+                .body
+                .lines
+                .iter()
+                .map(|l| String::from_utf8_lossy(l).into_owned())
+                .collect::<Vec<_>>()
+                .join("\n");
+            let symbol = it.def.as_ref().map(|d| {
+                json!({"name":d.name,"kind":d.kind.name(),"container":chain_str(&d.chain[..d.chain.len().saturating_sub(1)])})
+            });
+            serde_json::to_writer(
+                &mut w,
+                &json!({"type":"show","data":{"path":it.rel,"line":it.asked,"symbol":symbol,"start_line":it.body.first,"end_line":it.body.last,"shown_to":shown_to,"clipped":it.body.clipped,"text":text}}),
+            )?;
+            writeln!(w)?;
+        }
+        serde_json::to_writer(
+            &mut w,
+            &json!({"type":"footer","data":{"verb":"show","items":r.items.len(),"source":r.source,"elapsed_ms":r.elapsed_ms}}),
+        )?;
+        writeln!(w)?;
+        w.flush()?;
+        return Ok(());
+    }
+    for (n, it) in r.items.iter().enumerate() {
+        let what = match &it.def {
+            Some(d) => format!("{} {}", d.kind.name(), chain_str(&d.chain)),
+            None => "no enclosing definition".to_string(),
+        };
+        writeln!(
+            w,
+            "show {}:{}  {} · lines {}–{} · {}{}",
+            it.rel,
+            it.asked,
+            what,
+            it.body.first,
+            it.body.last,
+            r.source,
+            if n == 0 {
+                ms(c, r.elapsed_ms)
+            } else {
+                String::new()
+            }
+        )?;
+        let lw = digits(it.body.first + it.body.lines.len() as u32);
+        write_body(&mut w, &it.body, lw)?;
     }
     w.flush()?;
     Ok(())
@@ -554,7 +705,7 @@ pub fn run_impls(c: &Common, o: &Options, name: &str) -> Result<()> {
         ms(c, r.elapsed_ms)
     )?;
     let direct: Vec<&DefEntry> = r.direct.iter().take(limit).collect();
-    write_def_groups(&mut w, &direct, true, false, c.chain)?;
+    write_def_groups(&mut w, &direct, true, false, c.chain, None)?;
     if r.direct.len() > limit {
         writeln!(w, "  +{} more", r.direct.len() - limit)?;
     }
@@ -565,7 +716,7 @@ pub fn run_impls(c: &Common, o: &Options, name: &str) -> Result<()> {
             r.name
         )?;
         let extras: Vec<&DefEntry> = r.extras.iter().take(limit / 2 + 1).collect();
-        write_def_groups(&mut w, &extras, true, false, c.chain)?;
+        write_def_groups(&mut w, &extras, true, false, c.chain, None)?;
     }
     w.flush()?;
     Ok(())
@@ -894,7 +1045,7 @@ pub fn run_impact(c: &Common, o: &Options, name: &str) -> Result<()> {
         ms(c, r.elapsed_ms)
     )?;
     let defs: Vec<&DefEntry> = r.defs.iter().take(3).collect();
-    write_def_groups(&mut w, &defs, false, false, c.chain)?;
+    write_def_groups(&mut w, &defs, false, false, c.chain, None)?;
     write_group(
         &mut w,
         "WILL BREAK",

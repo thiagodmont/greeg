@@ -13,7 +13,8 @@ Row anatomy:
 * `text` — the line, leading indentation removed, clipped to `--max-columns`
   around the match with `…`.
 * `‹ container` — the enclosing `Class.method` (last two links of the chain; a
-  definition's own name is already in the text). Printed only when it differs
+  definition's own name is already in the text, so a row on a definition line
+  links to the parent, whatever the hit's kind). Printed only when it differs
   from the previous row's. `--chain` prints the full `Outer › Inner › fn` chain.
 * File header: `path` plus `[test]`, `[vendored]`, `[generated]`, `[mock]` when
   the file is demoted. No size, no age.
@@ -27,11 +28,13 @@ Chosen by the shaper (DESIGN.md §6.4) from the mode and the budget.
 ### Content layout
 
 Files in rank order, hits by score inside the file, then `+N more (…)`.
-Adaptive context (never with `-A/-B/-C`, always clipped to the enclosing
-definition): one **definition** hit → 20 lines; one call/ident hit → the
-enclosing definition's signature line plus 6 lines; ≤ 3 hits → 2 before and
-2 after; more → none. The hits counted here are the ones the answer is about,
-after near-misses left it (see **related**).
+Adaptive context (never with `-A/-B/-C`, clipped to the enclosing definition)
+appears in exactly one case: a bare identifier whose answer is a single
+**definition** hit, after near-misses left it (see **related**) — 20 lines each
+way, the "where is X defined and what does it take" question. Every other
+answer is rows only: the lines around small answers were measured to triple
+them without replacing the read that followed (PLAN.md M11); `-A/-B/-C` and
+`--mode block` give context on request.
 
 ```
 tokio/src/net/windows/named_pipe.rs
@@ -52,7 +55,7 @@ tokio/tests/tcp_stream.rs  [test]
   231 def  async fn poll_read_ready() {
   232      let (mut client, mut server) = create_pair().await;
 
-10/10 hits · 8/8 files · 2 files demoted (2) · ~572 tokens
+10 hits · 8 files
 ```
 
 `(shown before)` after a row means its context was printed earlier in this
@@ -170,7 +173,7 @@ $ greeg -l -w poll_read_ready
 tokio/src/net/windows/named_pipe.rs
 tokio/src/net/udp.rs
 …
-16/16 hits · 16/16 files · 4 files demoted (4) · ~242 tokens        (stderr)
+16 hits · 16 files        (stderr)
 ```
 
 ### `--budget 0` (parity mode)
@@ -187,9 +190,11 @@ tokio/src/net/tcp/stream.rs-557-        self.io.registration().poll_read_ready(c
 
 ### stdin
 
-With no path argument and a readable non-tty stdin (pipe, socket, or a
-regular file with data — `grep_cli::is_readable_stdin`), greeg searches stdin
-like ripgrep: lines only (`-n` adds `N:`), `-c` prints the count, `-l` prints
+With no path argument and a readable non-tty stdin (a pipe or a regular file
+with data — `grep_cli::is_readable_stdin`), greeg searches stdin like ripgrep.
+A Unix socket on stdin, which some agent harnesses attach and never close, is
+not searched (ripgrep would block on it): the tree is searched instead.
+Stdin search: lines only (`-n` adds `N:`), `-c` prints the count, `-l` prints
 `<stdin>`, `--json` uses `"path":{"text":"<stdin>"}`. No index, no ladder, no
 facets, no footer. `printf 'a\nb\n' | greeg a` prints `a`.
 
@@ -200,17 +205,23 @@ facets, no footer. `printf 'a\nb\n' | greeg a` prints `a`.
 next: --kind def | -g 'docs/topics/**' | --no-tests
 ```
 
-* `shown/total hits · shown/total files`, `N files demoted (hits)`, `skipped`
-  only when non-zero, `matched <rung>` when the escalation ladder relaxed the
-  query (`without word boundary`, `case-insensitive`, `split tokens → names`,
-  `fuzzy → names`) or hits exist only in ignored/hidden files.
-* `~N tokens` is the estimate for the whole output including the footer.
+* A whole answer — every hit and file shown, nothing skipped, matched as
+  asked — ends with just `N hits · M files`: the counts say the output is
+  complete and was not cut by the caller's output limit, and nothing else
+  in the footer would change what the reader does next. `no hits` is bare.
+* Otherwise `shown/total hits · shown/total files`, `N files demoted (hits)`,
+  `skipped` only when non-zero, `matched <rung>` when the escalation ladder
+  relaxed the query (`without word boundary`, `case-insensitive`, `split
+  tokens → names`, `fuzzy → names`) or hits exist only in ignored/hidden
+  files, and `~N tokens`, the estimate for the whole output including the
+  footer.
 * `· N ms` only with `--stats`.
 * `next:` lists **flags only**, never the pattern: `-w`, `--kind def`,
   `-g '<area>/**'` (never a test or vendored area), `--no-tests`, `--budget
   2N` when hits were cut. `no definition in searched files (a dependency or
-  generated code?)` appears only when the pattern is an identifier and no
-  definition matched.
+  generated code?)` appears only when the pattern is an identifier, no
+  definition matched, and the search was not confined to files named on the
+  command line.
 
 ### Budget accounting
 
@@ -268,6 +279,30 @@ with the first line of its leading doc comment, after every symbol that
 declares the name; a Rust `mod x;` declaration is an import, not a definition.
 With no exact name the ladder tries case-insensitive,
 split tokens and fuzzy names and reports `matched fuzzy → spawn_blocking`.
+`--mode block` prints each definition's body beneath its row, dedented by its
+signature's indentation and numbered, the budget shared in order; a body
+longer than 200 lines is cut with `… N more lines to L (--budget 0 lifts the
+200-line cap)`, one the budget cuts with `… N more lines to L (raise
+--budget)`. A module file has no body of its own.
+
+### `greeg show FILE:LINE [FILE:LINE …]`
+
+The whole definition around a line, so a search hit turns into one exact read
+instead of a guessed `sed -n 'A,Bp'` range (in four days of agent transcripts
+8 % of such reads were corrected by a second read within two calls). The
+innermost definition whose span holds the line is printed from its signature
+line to its last line, dedented and numbered, under a header that names it;
+when nothing encloses the line (a file without a grammar, a line between
+definitions) 20 lines each way are printed instead. Bodies obey the same
+200-line cap and budget as `--mode block`; a trailing `:column` is ignored.
+
+```
+show crates/greeg/src/main.rs:1147  fn own_def · lines 1145–1148 · parse
+  1145  fn own_def(f: &greeg_query::FileResult, h: &greeg_query::Hit) -> bool {
+  1146      h.def_idx
+  1147          .is_some_and(|di| f.defs.get(di as usize).is_some_and(|d| d.line == h.line))
+  1148  }
+```
 
 ### `greeg refs NAME`
 
@@ -357,8 +392,9 @@ tokio-util/src/sync/poll_semaphore.rs  import 1, type 6, doc 9
 (`path, line, kind, name, container, signature, doc, flags, supertypes,
 score, reach, start, end`), `ref` (`kind, path, line, text, symbol,
 file_flags, score`), `caller` (`path, symbol, kind, def_line, count, lines,
-called_by`), `symbol` (outline), `dir`/`file` (map) and a single `impact`
-record.
+called_by`), `symbol` (outline), `show` (`path, line, symbol{name, kind,
+container} or null, start_line, end_line, shown_to, clipped, text`),
+`dir`/`file` (map) and a single `impact` record.
 
 ## JSON Lines (`--json`)
 

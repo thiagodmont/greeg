@@ -1002,6 +1002,132 @@ pub fn outline(o: &Options, file: &str) -> Result<OutlineResult> {
     })
 }
 
+/// Lines of a definition body (or a window), as `show` and `def --mode block`
+/// print them.
+#[derive(Clone, Debug)]
+pub struct Body {
+    pub first: u32,
+    pub lines: Vec<Vec<u8>>,
+    /// The line the body (or window) runs to; past the last line shown when cut.
+    pub last: u32,
+    /// Cut by the token budget.
+    pub clipped: bool,
+}
+
+/// Bodies longer than this are cut unless `--budget 0` asks for everything.
+pub const BODY_CAP: u32 = 200;
+/// Lines each way when no definition encloses the asked line.
+pub const WINDOW: u32 = 20;
+
+/// Read one file for bodies.
+pub fn source_of(o: &Options, rel: &str) -> Result<crate::Source> {
+    let path = o.root.join(rel);
+    let bytes = greeg_lang::read_text(&path).with_context(|| format!("read {}", path.display()))?;
+    Ok(crate::Source::new(bytes))
+}
+
+/// Lines `from..=to`, capped at [`BODY_CAP`] (lifted by `--budget 0`) and
+/// charged against `est` up to `o.budget`; at least three lines are kept.
+pub fn body(o: &Options, src: &crate::Source, from: u32, to: u32, est: &mut usize) -> Body {
+    let cap = if o.budget == 0 { u32::MAX } else { BODY_CAP };
+    let from = from.max(1);
+    // a trailing newline does not start a line (ripgrep prints nothing after it)
+    let n = src.line_count();
+    let n = if src.bytes.ends_with(b"\n") {
+        n.saturating_sub(1)
+    } else {
+        n
+    };
+    let last = to.min(n).max(from);
+    let stop = last.min(from.saturating_add(cap - 1));
+    let (first, all) = src.lines(from, stop);
+    let mut lines = Vec::with_capacity(all.len());
+    let mut clipped = false;
+    for (i, l) in all.into_iter().enumerate() {
+        let cost = crate::tokens::code(&l) + 2;
+        if o.budget > 0 && i >= 3 && *est + cost > o.budget {
+            clipped = true;
+            break;
+        }
+        *est += cost;
+        lines.push(l);
+    }
+    Body {
+        first,
+        lines,
+        last,
+        clipped,
+    }
+}
+
+/// One location's answer: the innermost definition enclosing the line, or
+/// [`WINDOW`] lines each way when nothing does (a file without a grammar, a
+/// line between definitions).
+#[derive(Clone, Debug)]
+pub struct ShowItem {
+    pub rel: String,
+    pub asked: u32,
+    pub def: Option<DefSummary>,
+    pub body: Body,
+}
+
+pub struct ShowResult {
+    pub items: Vec<ShowItem>,
+    pub source: &'static str,
+    pub elapsed_ms: f64,
+}
+
+/// `greeg show FILE:LINE …`: the whole definition around a line, so a search
+/// hit turns into one exact read instead of a guessed `sed -n` range.
+pub fn show(o: &Options, locs: &[(String, u32)]) -> Result<ShowResult> {
+    let t0 = Instant::now();
+    let mut items = Vec::with_capacity(locs.len());
+    let mut source = "text";
+    let mut est = 0usize;
+    for (file, asked) in locs {
+        let rel = file.trim_start_matches("./").to_string();
+        let src = source_of(o, &rel)?;
+        let asked = (*asked).clamp(1, src.line_count().max(1));
+        let defs = if Lang::from_path(&o.root.join(&rel)).has_grammar() {
+            let ol = outline(o, &rel)?;
+            source = ol.source;
+            ol.defs
+        } else {
+            Vec::new()
+        };
+        // innermost: of the definitions enclosing the line, the one that starts last
+        let mut best: Option<(DefSummary, u32)> = None;
+        for d in defs {
+            let end = src.end_line(d.start, d.end);
+            if d.line <= asked
+                && asked <= end
+                && best.as_ref().is_none_or(|(b, _)| d.line >= b.line)
+            {
+                best = Some((d, end));
+            }
+        }
+        let (def, from, to) = match best {
+            Some((d, end)) => {
+                let from = d.line;
+                (Some(d), from, end)
+            }
+            None => (None, asked.saturating_sub(WINDOW).max(1), asked + WINDOW),
+        };
+        let body = body(o, &src, from, to, &mut est);
+        items.push(ShowItem {
+            rel,
+            asked,
+            def,
+            body,
+        });
+    }
+    Ok(ShowResult {
+        items,
+        source,
+        elapsed_ms: t0.elapsed().as_secs_f64() * 1e3,
+    })
+}
+
 /// One file in a `map`.
 #[derive(Clone, Debug)]
 pub struct MapFile {
@@ -1366,6 +1492,104 @@ mod tests {
                 r.entries.iter().map(|e| &e.rel).collect::<Vec<_>>()
             );
         }
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn show_prints_the_innermost_definition_or_a_window() {
+        let base = std::env::temp_dir().join(format!("greeg-show-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        let root = base.join("tree");
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(
+            root.join("src/a.rs"),
+            "// top\npub struct S {\n    x: u32,\n}\nimpl S {\n    pub fn m(&self) -> u32 {\n        let y = self.x;\n        y + 1\n    }\n}\nfn tail() {}\n",
+        )
+        .unwrap();
+        let long: String = (0..250).map(|i| format!("    let v{i} = {i};\n")).collect();
+        fs::write(root.join("src/long.rs"), format!("fn big() {{\n{long}}}\n")).unwrap();
+        fs::write(root.join("notes.md"), "line\n".repeat(50)).unwrap();
+        let o = Options {
+            root: root.clone(),
+            use_index: false,
+            ..Default::default()
+        };
+        let one = |file: &str, line: u32, o: &Options| {
+            let r = show(o, &[(file.to_string(), line)]).unwrap();
+            assert_eq!(r.items.len(), 1);
+            r.items.into_iter().next().unwrap()
+        };
+        // inside a method: the method, not the impl block around it
+        let it = one("src/a.rs", 7, &o);
+        assert_eq!(it.def.as_ref().map(|d| d.name.as_str()), Some("m"));
+        assert_eq!(
+            (it.body.first, it.body.last, it.body.lines.len()),
+            (6, 9, 4)
+        );
+        assert_eq!(it.body.lines[0], b"    pub fn m(&self) -> u32 {");
+        assert!(!it.body.clipped);
+        // a comment above everything: a window, clamped to the file's last line
+        let it = one("src/a.rs", 1, &o);
+        assert!(it.def.is_none());
+        assert_eq!((it.body.first, it.body.last), (1, 11));
+        // no grammar: a window around the line
+        let it = one("notes.md", 30, &o);
+        assert!(it.def.is_none());
+        assert_eq!(
+            (it.body.first, it.body.last, it.body.lines.len()),
+            (10, 50, 41)
+        );
+        // the default budget cuts first; a large one reaches the 200-line cap; 0 lifts it
+        let it = one("src/long.rs", 100, &o);
+        assert_eq!(it.def.as_ref().map(|d| d.name.as_str()), Some("big"));
+        assert!(it.body.clipped && it.body.lines.len() < 200 && it.body.last == 252);
+        let it = one(
+            "src/long.rs",
+            100,
+            &Options {
+                budget: 100_000,
+                ..o.clone()
+            },
+        );
+        assert_eq!(
+            (it.body.first, it.body.last, it.body.lines.len()),
+            (1, 252, 200)
+        );
+        assert!(!it.body.clipped);
+        let all = one(
+            "src/long.rs",
+            100,
+            &Options {
+                budget: 0,
+                ..o.clone()
+            },
+        );
+        assert_eq!(all.body.lines.len(), 252);
+        // the budget keeps at least three lines and says so
+        let tight = one(
+            "src/long.rs",
+            100,
+            &Options {
+                budget: 10,
+                ..o.clone()
+            },
+        );
+        assert_eq!(tight.body.lines.len(), 3);
+        assert!(tight.body.clipped);
+        // several locations share one budget
+        let r = show(
+            &Options {
+                budget: 60,
+                ..o.clone()
+            },
+            &[("src/a.rs".into(), 7), ("src/long.rs".into(), 5)],
+        )
+        .unwrap();
+        assert_eq!(r.items.len(), 2);
+        assert!(
+            r.items[1].body.clipped,
+            "the second body pays for the first"
+        );
         let _ = fs::remove_dir_all(&base);
     }
 }
