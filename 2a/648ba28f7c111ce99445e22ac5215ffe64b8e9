@@ -1,0 +1,40 @@
+bench/bench.py
+  s_2e2fa253809e05::t_64049204802711 370-371,1086-1087
+crates/greeg-query/src/verbs.rs
+  s_2e2fa253809e05::t_32178b4cdbb3fe 1299-1301
+  s_2e2fa253809e05::t_09902bd41a6fce 1288-1292,1294-1298,1339-1343,1347-1351
+  s_2e2fa253809e05::t_2e858e6497de1f 1263-1287,1293,1302-1338,1344-1346,1352-1371
+crates/greeg-query/src/indexed.rs
+  s_2e2fa253809e05::t_64049204802711 133-135
+  s_2e2fa253809e05::t_f901f06116578c 377-389,1152-1153,1160-1172
+  s_2e2fa253809e05::t_09902bd41a6fce 963-967,1136-1139,1181-1182,1210-1214
+  s_2e2fa253809e05::t_2e858e6497de1f 1086-1135,1140-1151,1154-1159,1173-1180,1183-1209,1215-1233
+docs/FORMAT.md
+  s_2e2fa253809e05::t_64049204802711 12
+crates/greeg-index/src/words.rs
+  s_2e2fa253809e05::t_4d76f231424150 136-141,247-280
+  s_2e2fa253809e05::t_9e247a1d93517e 281
+crates/greeg-index/src/index.rs
+  s_2e2fa253809e05::t_f901f06116578c 504-517
+docs/DESIGN.md
+  s_2e2fa253809e05::t_f901f06116578c 201-204
+crates/greeg-lang/src/defs.rs
+  s_2e2fa253809e05::t_4d76f231424150 750-754,757-765
+  s_2e2fa253809e05::t_09902bd41a6fce 755-756
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "2a648ba28f7c111ce99445e22ac5215ffe64b8e9",
+  "prompts": {},
+  "sessions": {
+    "s_2e2fa253809e05": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "12a88058-7ea4-4dd3-ba43-35572dcb7638",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
