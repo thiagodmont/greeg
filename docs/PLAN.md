@@ -1,6 +1,6 @@
 # greeg — Implementation Plan
 
-Status: v1.6, 2026-09-02. M0–M7 done (status blocks under each milestone). Companion to `DESIGN.md` (referenced as D§n).
+Status: v1.7, 2026-09-06. M0–M10 done (status blocks under each milestone). Companion to `DESIGN.md` (referenced as D§n).
 Performance is the primary requirement; every milestone has a measured gate
 and nothing merges that regresses a gate.
 
@@ -777,6 +777,151 @@ out a pinned commit; without it a re-fetch of a corpus whose pin moved fails.
 
 Not done: the wider sample (`--per-bucket 50`) that would halve the ±3 pp
 interval, and the agent A/B/C protocol.
+
+### M10 · Accuracy and post-edit latency (2 days)
+
+Source: an exploration of what the M9 numbers hid, run on 2026-09-06 against
+the oracle rows and `--stats`, so every item below started from a measured
+cause. Ten of the thirteen tokio `def` misses ranked a bodiless `mod x;`
+above the real function (Module weighs 1.0 like a struct, the parent `mod.rs`
+is a PageRank hub, and rust-analyzer calls the declaration a reference). All
+seven django misses were `self.x = …` attributes greeg never extracted. The
+verification reads of a rare identifier on the 74k-file tree were 94 % false
+trigram candidates (`createSourceFile`: 486 files opened, 30 with a match),
+and every search after an edit paid the delta inline — 28–31 ms on tokio, 88–150
+ms on TypeScript-5.9, 273 ms after touching the 3 MB `checker.ts` — which the
+speed bench never measured. The protocol's `sleep 0.15` also charges a CPU
+wake-up: `greeg --version` 2.3 ms hot, 4.9–7.2 ms after the sleep, `rg
+--version` 2.6 → 7.8 ms, so the small greeg cells read about twice their hot
+latency (a user-interactive QoS class does not help; tested). Real usage from
+`greeg stats` framed the priorities: 133 hook-rewritten queries in three days,
+p50 15 ms and 322 tokens, 86 % of time and 25 % of tokens saved against rg,
+and 113 of 192 rewritten commands grep alternations of the form `a\|b`.
+
+Done in this order on branch `m10-accuracy-deltas` (on top of M8 + M9):
+
+1. **Rust `mod x;` is an import** in the tags query and the regex fallback;
+   `def` lists the file that *is* the module (`name.ext`, `name/mod.rs`,
+   `name/__init__.py`, `name/index.*`) at line 1 with weight 0.3, after every
+   symbol that declares the name, found by one `memmem` pass over the path
+   arena (scip-python and scip-typescript do not count a module file as a
+   definition, rust-analyzer does; at weight 0.8 the file outranked a demoted
+   method on django `session` and `person`). `outline` prints the imports of
+   a file with no symbols (a `mod.rs` of declarations).
+2. **Python attributes**: `self.x = …` / `cls.x = …` anywhere inside a method
+   is a field of the enclosing class, once per (class, name) at the first
+   assignment, its range the target itself so a hit on the value keeps the
+   method as its container; module-level names under `if` / `elif` / `else` /
+   `try` / `except` one level deep are variables. Tree-sitter/regex agreement
+   on django stays 100 % (the fallback never knew attributes).
+3. **No fsync on delta segments**: `F_FULLFSYNC` was 5–34 ms of every
+   post-edit query on APFS (tokio, one touched file: 12.7 and 41.6 ms before,
+   7.7 ms after); a delta torn by a crash fails `Index::open` and rebuilds.
+4. **Answer first** (D§4.5): a search whose check finds changes below the
+   rebuild threshold drops the changed files' indexed versions from the
+   candidates, searches those files from disk with scan-mode classification
+   (an edited file keeps its rank), answers, and only then spawns a detached
+   `greeg index --refresh` that re-checks without the TTL and publishes the
+   delta (one refresher per index behind a `REFRESHING` marker). Verbs keep
+   the inline apply: they need the changed files' symbols. The extraction's
+   fixed cost — the tree-sitter query compile, Rust 8 ms, Python 7,
+   TypeScript 36, Kotlin 34, plus the resolver's 74k-entry path map, 7–23 ms —
+   leaves the critical path.
+5. **Word postings** (format v5, D§3.2): one roaring bitmap per distinct
+   `[A-Za-z0-9_]{2,64}` word of a file, case preserved, next to the grams;
+   `-w NAME`, a bare identifier in a ranked layout, `refs` / `callers` /
+   `impact` and `\bNAME\b` forms (alternations included, expanded from the
+   HIR's token sequences because regex-syntax factors a shared `\b` out of an
+   alternation) read them; `-i`, non-ASCII words and parity mode keep the
+   grams, so the candidate set is always a superset. The `related` line of a
+   bare identifier comes from the dictionary with file counts (scan mode now
+   counts files too, OUTPUT.md).
+6. **Protocol 4** (`bench.py`): a SCIP density column beside the covered
+   useful-line ratio (the share of greeg's code hits the indexer marks as an
+   occurrence at all, ≈ 86 / 55 / 43 % for scip-typescript / rust-analyzer /
+   scip-python: the covered ratio is a per-indexer number), the CPU wake-up
+   of the `sleep` measured on `--version` and printed with the speed table,
+   and a same-day baseline of the previous binary
+   (`bench/results/oracle-main-0.3.0.json`: main's greeg 0.3.0 on its own
+   format-3 index) so a before/after no longer spans releases.
+
+**Status: done 2026-09-06.** The binary is greeg 0.3.0 + M8–M10 (a branch
+build; the version string did not move). Every number below was measured on
+the same day under protocol 4; the *before* columns are main's greeg 0.3.0 on
+its own format-3 index (`bench/results/oracle-main-0.3.0.json`), so the
+comparison no longer spans a release, and the M9 rows of 2026-09-04 sit in
+between.
+
+SCIP oracle, 75 names per corpus:
+
+| | tokio before | tokio M9 | tokio M10 | django before | django M9 | django M10 | TS-5.9 M9 | TS-5.9 M10 |
+|---|---|---|---|---|---|---|---|---|
+| `def` Acc@1/5/10 | 83/97/99 % | 83/97/99 % | **96/100/100 %** | 91/91/91 % | 91/91/91 % | **100/100/100 %** | 96/100/100 % | 96/100/100 % |
+| same, ambiguity 6+ at rank 1 | 64 % | 64 % | 88 % | 100 % | 100 % | 100 % | 92 % | 92 % |
+| reference / definition recall | 98 / 95 % | 98 / 95 % | 98 / 100 % | 99 / 100 % | 99 / 100 % | 99 / 100 % | 97 / 88 % | 97 / 88 % |
+| def precision, spans / `--precise` | 92 / 92 % | 92 / 92 % | 95 / 95 % | 100 / 100 % | 100 / 100 % | 99 / 99 % | 96 / 88 % | 96 / 88 % |
+| useful lines, strict / SCIP-covered | 56 / 60 % | 76 / 81 % | 75 / 80 % | 51 / 58 % | 73 / 84 % | 74 / 84 % | 77 / 93 % | 77 / 93 % |
+| tokens per query, mean / median | 726 / 577 | 612 / 528 | 618 / 525 | 649 / 523 | 525 / 478 | 555 / 487 | 531 / 517 | 524 / 509 |
+| tokens to first definition (reached) | 34 (97 %) | 32 (97 %) | 30 (99 %) | 28 (97 %) | 26 (99 %) | 25 (100 %) | 29 (100 %) | 29 (100 %) |
+
+The three tokio names still missed at rank 1 (`from`, `deref`,
+`poll_write_ready`) are cfg-gated code rust-analyzer never indexed (loom,
+windows, tokio_unstable); the TypeScript misses are `lib.dom` copies under
+`tests/lib` and zero-reference names. The context metrics did not move with
+M10, as expected: the word postings change which files are *read*, not what
+is printed, except that `related` now counts files.
+
+Speed, protocol 4 (medians, the `sleep` wake-up included; rg -j4 itself
+measured 25–30 % faster on the large trees today than on 2026-09-02, so the
+two days' ratios are not comparable, only greeg's own cells):
+
+| query | greeg 2026-09-02 | greeg M10 | rg -j4 today |
+|---|---:|---:|---:|
+| TypeScript-5.9 `createSourceFile` | 36.8 ms | 30.5 ms | 672 ms |
+| TypeScript-5.9 `-w node` | 105.4 ms | 42.8 ms | 882 ms |
+| TypeScript `createSourceFile` | 33.0 ms | 28.4 ms | 574 ms |
+| TypeScript `-w node` | 88.3 ms | 63.2 ms | 573 ms |
+| rust `mir_borrowck` | 31.3 ms | 27.2 ms | 551 ms |
+| rust `-w HirId` | 38.2 ms | 35.6 ms | 558 ms |
+| django `-w request` | 42.2 ms | 36.9 ms | 96 ms |
+| tokio `spawn_blocking` | 17.4 ms | 13.6 ms | 24 ms |
+
+Hot, without the sleep (hyperfine, TypeScript-5.9, `--fresh none`):
+`createSourceFile` 8.8 → 4.3 ms (31 files opened instead of 486), `-w node`
+90 → 30 ms (1,879 instead of 6,086), `refs SyntaxKind` 9.0 → 8.6 ms (the
+classification of 14,904 hits dominates). Geometric means against `rg -j4`
+over the seven corpora: ident 5.8×, word 5.2×, phrase 5.4×, regex 4.8×
+(against default `rg`: 12.0×, 10.4×, 11.5×, 10.1×).
+
+Index, phase 1 gained the word section:
+
+| corpus | index 2026-09-02 → M10 | ratio to source | build |
+|---|---|---|---|
+| TypeScript-5.9 | 80.8 → 94.8 MB | 0.24× → 0.28× | 6.56 → 5.90 s |
+| rust | 86.1 → 109.8 MB | 0.48× → 0.61× | 5.04 → 4.93 s |
+| django | 20.4 → 28.7 MB | 0.56× → 0.79× | 0.72 → 0.76 s |
+| tokio | 4.1 → 5.1 MB | 0.71× → 0.88× | 0.21 → 0.24 s |
+
+Post-edit search (touch one file, then query; `--stats`):
+
+| edit | before | M10 |
+|---|---:|---:|
+| tokio `join.rs`, stat mode | 28–31 ms | 12–15 ms |
+| TypeScript-5.9 `corePublic.ts` (1.3 KB), FSEvents | 88–99 ms | 35–38 ms |
+| TypeScript-5.9 `utilities.ts` (510 KB) | 130–150 ms | 36 ms |
+| TypeScript-5.9 `checker.ts` (3 MB) | 273 ms | 34 ms |
+| django 200-file burst (`bench/edits.py`) | – | 21 ms, delta published within the second |
+
+Gates: `bench/parity.py` PASS (16 queries, 14-row matrix), `bench/edits.py`
+PASS on tokio and django with the graph check, 131 unit and integration
+tests, clippy `-D warnings`, fmt.
+
+Not done: incremental PageRank; a front-coded word dictionary (rust's
+380k words are 24 MB, most of the section); the Kotlin oracle and a
+`callers` / `impls` oracle from SCIP enclosing ranges and relationships;
+harness-driven freshness (an Edit/Write hook applying the delta so queries
+can trust a longer window); a `greeg watch` for Linux, where every query on a
+large tree still pays a stat pass; the wider `--per-bucket 50` sample.
 
 ## 4. Testing strategy
 

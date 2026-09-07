@@ -358,6 +358,17 @@ def speed(args):
     cold = cold_available(args.cold)
     gver = version_of([greeg, "--version"])
     result = {"protocol": PROTOCOL, "prepare": PREPARE_SLEEP, "host": host_info(), "date": datetime.datetime.now().isoformat(timespec="seconds"), "greeg": gver, "rg": version_of(["rg", "--version"]), "grep": version_of(["grep", "--version"]), "hyperfine": version_of(["hyperfine", "--version"]), "runs": args.runs, "corpora": {}}
+    # CPU wake-up penalty of the protocol: every timed command starts after `sleep 0.15`, which
+    # on Apple Silicon adds a few ms of idle-state and frequency ramp to every process. Measured
+    # once per run on `--version` hot and after the sleep, so the small rows can be read either way.
+    wake = {}
+    for label, cmd in (("greeg", [greeg, "--version"]), ("rg", ["rg", "--version"])):
+        hot = hyperfine([cmd], os.getcwd(), runs=20, warmup=3)[0]
+        slept = hyperfine([cmd], os.getcwd(), runs=20, warmup=3, prepare=PREPARE_SLEEP)[0]
+        wake[label] = {"hot_ms": hot["median"] * 1e3 if hot else None, "prepared_ms": slept["median"] * 1e3 if slept else None}
+    result["wakeup"] = wake
+    fmt_ms = lambda x: f"{x:.1f} ms" if x is not None else "n/a"
+    print("wake-up penalty: " + "  ".join(f"{k} --version {fmt_ms(v['hot_ms'])} hot → {fmt_ms(v['prepared_ms'])} after the sleep" for k, v in wake.items()))
     prev = load_json(os.path.join(RESULTS, f"speed-{host_key()}.json"))
     if prev and args.corpora and not args.no_splice:
         # a subset run refreshes only its corpora; rows kept from an earlier run are marked when
@@ -1070,6 +1081,10 @@ def report(args):
         if old or stale:
             out += ["> **Protocol changed on 2026-09-02** (sleep between runs so every greeg run pays the freshness check, medians, `fresh` column, speedups vs `rg -j4`). Rows marked ⚠ were measured with the old protocol or another binary and are stale: rerun pending (`bench/bench.py speed`). Their greeg columns are flattered by the 100 ms TTL (the freshness check was skipped, no `fresh` column) and they are excluded from the geometric means.", ""]
         out += ["## Speed", "", f"Host `{h['key']}` ({h['cpus']} CPUs), {speed_res['date']}. `{speed_res['greeg']}`, `{speed_res['rg']}`, `{speed_res['grep'][:40]}`, {speed_res.get('hyperfine', 'hyperfine')}. hyperfine `-N --warmup 3 --runs {speed_res['runs']}` with `--prepare '{speed_res.get('prepare', PREPARE_SLEEP)}'` before every timing run, warm page cache. Cells are **medians** with min–max in parentheses.", ""]
+        wk = speed_res.get("wakeup")
+        if wk:
+            fmt_ms = lambda x: f"{x:.1f} ms" if x is not None else "n/a"
+            out += ["The `sleep` before every run also costs a CPU wake-up (idle state and frequency ramp) that the hot latency does not include: on this host " + ", ".join(f"`{k} --version` {fmt_ms(v['hot_ms'])} hot → {fmt_ms(v['prepared_ms'])} after the sleep" for k, v in wk.items()) + ". It inflates every cell by a few milliseconds, so it hardly moves the ratios on the large trees but reads as 30–50 % of the small-tree greeg cells; subtract it to read them as hot latencies.", ""]
         out += ["What each column prints:", ""]
         out += [f"* `{t}`: {TOOL_SHAPE[t]}" for t in TOOLS]
         out += ["* `fresh`: the index freshness check every `greeg`/`greeg-full` run pays under this protocol (median of `--stats` samples, mode in parentheses: `fsevents` or `stat` walk); `--fresh none` skips it (JSON column `greeg-nofresh`).", "", "Match sets: `rg --json` is the reference. `greeg-full` is verified from the text the timed command prints; the budgeted `greeg` digest cannot be verified from its own output, so it is checked as `--json --budget 0` with the same query. Rows marked ⚠ in the matches column failed one of these checks. grep has no `.gitignore` support, so its count can exceed rg's.", ""]
@@ -1128,12 +1143,13 @@ def report(args):
         out += ["## Quality (SCIP oracle)", "", f"Ground truth: SCIP occurrences from `rust-analyzer scip`, `scip-python`, `scip-typescript` (indexer name and version recorded per corpus below). Names are sampled from symbols defined in the repository, stratified by ambiguity (number of definitions with that name); within a bucket names are drawn with probability ∝ log(1 + reference count) and need at least {MIN_REFS} references, so the sample leans toward names an agent asks about. A separate bucket of zero-reference names is reported on its own. Acc@k: a true definition is among the first k locations the tool prints. Columns: `greeg def NAME`; `rg -nw NAME` (thread order, first lines); `rg-def` = `rg -n --sort path` with the language's definition regex for NAME (what an agent types when it wants the definition); `grep -rnw NAME`. Brackets are 95 % bootstrap intervals of Acc@1 (n ≈ 75 → ±10 pp). Reference recall: SCIP reference occurrences found by `greeg refs NAME --budget 0`. Classification: `greeg -w NAME --json` hit kinds vs SCIP roles on the same line, from stored spans and with `--precise`. Context@500: the first 500 lines of each tool's output for the bare name; useful = distinct lines that carry a SCIP occurrence of the name, over the lines that name a location (summary lines — header, facets, file headers, `+N more`, footer — are neutral and leave the denominator); tokens are {' / '.join(sorted(toks))} counts. **useful lines, SCIP-covered** (protocol 3, both columns reported side by side) narrows that denominator to the lines in files the SCIP index holds: the oracle cannot adjudicate a line in `lib.dom.d.ts`, `tests/baselines/**` or a fixture `.js`, and scoring those as not-useful charges every tool for reading files the ground truth skipped — the classification metric already drops them for the same reason. It is the stricter measure of ranking, not a licence to print un-adjudicable lines: they still cost tokens, which the token columns keep counting.", ""]
         runs = "; ".join(f"`{c}` {r.get('date', '?')[:10]} with {r.get('greeg', '?')}" for c, r in oracle_res.items())
         out += [f"Runs: {runs}. A corpus is re-measured only when it is re-run, so rows carrying different dates can straddle a change to the shaper: compare the answer shape across corpora only within one date.", ""]
-        out += ["| corpus | indexer | n | greeg Acc@1/5/10 | rg -nw Acc@1/5/10 | rg-def Acc@1/5/10 | grep Acc@1/5/10 | ref recall | def precision (spans / precise) | noncode precision |", "|---|---|---:|---|---|---|---|---:|---|---:|"]
+        out += ["| corpus | indexer | n | greeg Acc@1/5/10 | rg -nw Acc@1/5/10 | rg-def Acc@1/5/10 | grep Acc@1/5/10 | ref recall | def precision (spans / precise) | noncode precision | SCIP density |", "|---|---|---:|---|---|---|---|---:|---|---:|---:|"]
         for c, r in oracle_res.items():
             s = r["summary"]
             ti = r.get("scip_tool") or {}
             indexer = f"{ti.get('tool') or r.get('scip', '?')} {ti.get('version') or ''}".strip() if ti else (r.get("scip_tool_cli") or r.get("scip", "?"))
-            out.append(f"| {c} | {indexer} | {r['sampled']} | {accs(s, 'greeg')} | {accs(s, 'rg')} | {accs(s, 'rgdef')} | {accs(s, 'grep')} | {pct(s['ref_recall'])} | {pct(s['cls_spans']['def_precision'])} / {pct(s['cls_precise']['def_precision'])} | {pct(s['cls_spans']['noncode_precision'])} |")
+            out.append(f"| {c} | {indexer} | {r['sampled']} | {accs(s, 'greeg')} | {accs(s, 'rg')} | {accs(s, 'rgdef')} | {accs(s, 'grep')} | {pct(s['ref_recall'])} | {pct(s['cls_spans']['def_precision'])} / {pct(s['cls_precise']['def_precision'])} | {pct(s['cls_spans']['noncode_precision'])} | {pct(s['cls_spans']['code_on_scip'])} |")
+        out += ["", "**SCIP density** is the share of greeg's code hits on the sampled names that the indexer marks as an occurrence at all: what the ground truth can see. It differs per indexer far more than per tool (scip-typescript ≈ 86 %, rust-analyzer ≈ 55 %, scip-python ≈ 43 %), so the SCIP-covered useful-line ratio below is a per-indexer number: compare it within a corpus, never across.", ""]
         out += ["", "| corpus | ambiguity 1 | ambiguity 2–5 | ambiguity 6+ | zero-reference names: greeg / rg -nw / rg-def Acc@1/5/10 |", "|---|---|---|---|---|"]
         for c, r in oracle_res.items():
             s = r["summary"]

@@ -396,6 +396,17 @@ pub fn check_fsevents(idx: &Index, root: &Path, threads: usize) -> Option<Change
     Some(ch)
 }
 
+/// The check to run when `Auto` must not trust the TTL stamp: a retry after
+/// another writer published, or the detached refresh of an answer-first
+/// query. FSEvents on large macOS trees, else the stat pass.
+pub fn explicit_mode(idx: &Index) -> Mode {
+    if cfg!(target_os = "macos") && idx.base.n_files >= 8000 {
+        Mode::FsEvents
+    } else {
+        Mode::Stat
+    }
+}
+
 /// Decide and run the check for `mode`. `threads` is the stat pool size.
 pub fn check(idx: &Index, root: &Path, mode: Mode, threads: usize) -> Option<Changes> {
     match mode {
@@ -510,7 +521,14 @@ pub fn apply(idx: &Index, root: &Path, ch: &Changes) -> Result<usize> {
     let ddir = idx.dir.join("delta");
     fs::create_dir_all(&ddir)?;
     let n = idx.deltas.len() as u32 + 1;
-    format::write_atomic(&ddir.join(format!("{n:04}.bin")), format::COMP_DELTA, &body)?;
+    // not fsynced: a torn delta fails `Index::open` and rebuilds, and the
+    // F_FULLFSYNC was 4–5 ms of every post-edit query (M10)
+    format::write_atomic_with(
+        &ddir.join(format!("{n:04}.bin")),
+        format::COMP_DELTA,
+        &body,
+        false,
+    )?;
     m.deltas = n;
     m.tombstones += tomb.len() as u32;
     m.verified_unix_ms = now_ms();

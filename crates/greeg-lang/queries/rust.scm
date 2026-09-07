@@ -7,7 +7,7 @@
 (trait_item name: (type_identifier) @name bounds: (trait_bounds)? @supers) @def.trait
 (type_item name: (type_identifier) @name) @def.typealias
 (associated_type name: (type_identifier) @name) @def.typealias
-(mod_item name: (identifier) @name) @def.module
+(mod_item name: (identifier) @name body: (declaration_list)) @def.module
 (const_item name: (identifier) @name) @def.constant
 (static_item name: (identifier) @name) @def.constant
 (macro_definition name: (identifier) @name) @def.macro

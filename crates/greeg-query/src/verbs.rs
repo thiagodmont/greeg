@@ -35,6 +35,8 @@ pub struct DefEntry {
     pub start: u32,
     pub end: u32,
     pub file_id: Option<u32>,
+    /// The file itself is the module (`sleep.rs`, `pkg/__init__.py`), line 1.
+    pub file_module: bool,
 }
 
 #[derive(Debug, Default)]
@@ -105,6 +107,47 @@ pub fn origin_ids(idx: &Index, from: &[String]) -> Vec<u32> {
         }
     }
     ids
+}
+
+/// Kind weight of a file module in `def` (`symtab::kind_weight` covers
+/// symbols): below every symbol kind, so the file is the answer only when
+/// nothing declares the name (scip-python and scip-typescript do not count a
+/// module file as a definition; rust-analyzer does).
+const FILE_MODULE_W: f32 = 0.3;
+
+/// Signature and doc of a file module: the language's module keyword plus the
+/// name, and the first line of a leading `//!` / `/*!` / `/**` comment or
+/// module docstring.
+fn module_signature_and_doc(src: &[u8], lang: Lang, name: &str) -> (String, Option<String>) {
+    let kw = match lang {
+        Lang::Rust => "mod",
+        Lang::Kotlin => "file",
+        _ => "module",
+    };
+    let mut doc = None;
+    for line in src.split(|&b| b == b'\n').take(3) {
+        let t = line.trim_ascii();
+        if t.is_empty() || t.starts_with(b"#!") || t.starts_with(b"#![") || t.starts_with(b"# -*-")
+        {
+            continue;
+        }
+        let body = if let Some(r) = t.strip_prefix(b"//!") {
+            r
+        } else if let Some(r) = t.strip_prefix(b"/*!").or_else(|| t.strip_prefix(b"/**")) {
+            r.split(|&b| b == b'*').next().unwrap_or(b"")
+        } else if let Some(r) = t.strip_prefix(b"\"\"\"").or_else(|| t.strip_prefix(b"'''")) {
+            r.split(|&b| b == b'"' || b == b'\'').next().unwrap_or(b"")
+        } else {
+            break;
+        };
+        let s = String::from_utf8_lossy(body.trim_ascii()).to_string();
+        if !s.is_empty() {
+            let cut: String = s.chars().take(120).collect();
+            doc = Some(cut);
+        }
+        break;
+    }
+    (format!("{kw} {name}"), doc)
 }
 
 /// Signature line and doc first line for a definition at `start` in `src`.
@@ -260,8 +303,11 @@ pub fn def(
         res.source = "index";
         res.fresh = op.fresh_method;
         let mut syms = idx.lookup(name);
+        // the file that is the module: listed after every symbol; an agent
+        // wants to open it when nothing else declares the name
+        let file_mods = idx.module_files(name, 64);
         let mut rung = Rung::Exact;
-        if syms.is_empty() && o.ladder {
+        if syms.is_empty() && file_mods.is_empty() && o.ladder {
             // ladder over names: case-insensitive, split tokens, fuzzy
             let lower = name.to_lowercase();
             let mut alts: Vec<String> = Vec::new();
@@ -313,7 +359,7 @@ pub fn def(
             res.suggestions = alts;
         }
         res.rung = rung;
-        res.total = syms.len();
+        res.total = syms.len() + file_mods.len();
         let origins = origin_ids(idx, from);
         let mut entries: Vec<DefEntry> = Vec::with_capacity(syms.len().min(64));
         for s in syms.iter().take(256) {
@@ -377,6 +423,36 @@ pub fn def(
                 start: r.start,
                 end: r.end,
                 file_id: Some(fid),
+                file_module: false,
+            });
+        }
+        for &fid in &file_mods {
+            if want_kind.is_some_and(|k| k != DefKind::Module) {
+                continue;
+            }
+            let rec = idx.rec(fid).context("file record")?;
+            let fflags = FileFlags(rec.flags);
+            let rel = idx.path(fid).unwrap_or("").to_string();
+            let rch = reach(idx, &origins, fid);
+            let score =
+                FILE_MODULE_W * loc_w(fflags, &rel, o.all) * (0.6 + 0.4 * idx.rank(fid)) * rch;
+            entries.push(DefEntry {
+                rel,
+                line: 1,
+                kind: DefKind::Module,
+                name: name.to_string(),
+                chain: Vec::new(),
+                signature: String::new(),
+                doc: None,
+                flags: SYM_EXPORTED,
+                file_flags: fflags,
+                supers: Vec::new(),
+                score,
+                reach: rch,
+                start: 0,
+                end: rec.size.min(u32::MAX as u64) as u32,
+                file_id: Some(fid),
+                file_module: true,
             });
         }
         entries.sort_by(|a, b| {
@@ -410,6 +486,13 @@ pub fn def(
                 .entry(e.rel.clone())
                 .or_insert_with(|| greeg_lang::read_text(o.root.join(&e.rel)).unwrap_or_default());
             if src.is_empty() || e.start as usize >= src.len() {
+                continue;
+            }
+            if e.file_module {
+                let (sig, doc) =
+                    module_signature_and_doc(src, Lang::from_path(Path::new(&e.rel)), &e.name);
+                e.signature = sig;
+                e.doc = doc;
                 continue;
             }
             let (sig, doc) = signature_and_doc(
@@ -471,6 +554,7 @@ pub fn def(
             }
             let _ = kind_filter_ok(&so.kinds, kind);
             entries.push(DefEntry {
+                file_module: false,
                 rel: f.rel.clone(),
                 line: h.line,
                 kind,
@@ -741,6 +825,7 @@ pub fn impls(o: &Options, name: &str) -> Result<ImplsResult> {
                 kind_weight(r.kind) * loc_w(fflags, &rel, o.all) * (0.6 + 0.4 * idx.rank(fid));
             have.push((rel.clone(), r.line));
             direct.push(DefEntry {
+                file_module: false,
                 rel,
                 line: r.line,
                 kind: kind_from_code(r.kind),
@@ -800,6 +885,7 @@ pub fn impls(o: &Options, name: &str) -> Result<ImplsResult> {
                     continue;
                 }
                 extras.push(DefEntry {
+                    file_module: false,
                     rel: f.rel.clone(),
                     line: h.line,
                     kind,
@@ -1173,4 +1259,113 @@ pub fn impact(o: &Options, name: &str) -> Result<ImpactResult> {
         total_hits: total,
         elapsed_ms: t0.elapsed().as_secs_f64() * 1e3,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use greeg_index::build::{BuildOpts, build};
+    use greeg_index::fresh::Mode as Fresh;
+    use std::fs;
+
+    /// `def NAME` lists the file that *is* the module after every symbol
+    /// (DESIGN.md §7.3): `sleep.rs` follows `fn sleep`, `net/mod.rs` and
+    /// `pkg/__init__.py` answer on their own, and generic stems never match.
+    #[test]
+    fn def_lists_file_modules_after_symbols() {
+        let base = std::env::temp_dir().join(format!("greeg-def-modules-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        let root = base.join("tree");
+        let dir = base.join("index");
+        fs::create_dir_all(root.join("src/net")).unwrap();
+        fs::create_dir_all(root.join("pkg")).unwrap();
+        fs::create_dir_all(root.join(".git")).unwrap();
+        fs::write(
+            root.join("src/lib.rs"),
+            "//! crate root\nmod sleep;\nmod net;\npub fn run() { sleep::sleep(); }\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("src/sleep.rs"),
+            "//! Sleep future.\npub fn sleep() {}\n",
+        )
+        .unwrap();
+        fs::write(root.join("src/net/mod.rs"), "pub fn connect() {}\n").unwrap();
+        fs::write(
+            root.join("pkg/__init__.py"),
+            "\"\"\"The pkg package.\"\"\"\n",
+        )
+        .unwrap();
+        // a file without a grammar is never a module
+        fs::create_dir_all(root.join("docs")).unwrap();
+        fs::write(root.join("docs/sleep.md"), "# sleep\n").unwrap();
+        build(
+            &root,
+            &dir,
+            &BuildOpts {
+                reader_threads: 1,
+                quiet: true,
+                phase1_only: false,
+            },
+        )
+        .unwrap();
+        let o = Options {
+            root: root.clone(),
+            index_dir: Some(dir.clone()),
+            fresh: Fresh::None,
+            ..Default::default()
+        };
+        let d = |name: &str| def(&o, name, &[], None).unwrap();
+
+        let r = d("sleep");
+        assert_eq!(r.source, "index");
+        let rows: Vec<(&str, u32, bool)> = r
+            .entries
+            .iter()
+            .map(|e| (e.rel.as_str(), e.line, e.file_module))
+            .collect();
+        assert_eq!(
+            rows,
+            vec![("src/sleep.rs", 2, false), ("src/sleep.rs", 1, true)],
+            "the symbol first, the file module last; `mod sleep;` is not a definition"
+        );
+        assert_eq!(r.total, 2);
+        let m = &r.entries[1];
+        assert_eq!(m.kind, DefKind::Module);
+        assert_eq!(m.signature, "mod sleep");
+        assert_eq!(m.doc.as_deref(), Some("Sleep future."));
+
+        let r = d("net");
+        let rows: Vec<(&str, bool)> = r
+            .entries
+            .iter()
+            .map(|e| (e.rel.as_str(), e.file_module))
+            .collect();
+        assert_eq!(rows, vec![("src/net/mod.rs", true)]);
+
+        let r = d("pkg");
+        let rows: Vec<(&str, bool)> = r
+            .entries
+            .iter()
+            .map(|e| (e.rel.as_str(), e.file_module))
+            .collect();
+        assert_eq!(rows, vec![("pkg/__init__.py", true)]);
+        assert_eq!(r.entries[0].signature, "module pkg");
+        assert_eq!(r.entries[0].doc.as_deref(), Some("The pkg package."));
+
+        // a kind filter other than module drops the file entries
+        let r = def(&o, "net", &[], Some(DefKind::Function)).unwrap();
+        assert!(r.entries.iter().all(|e| !e.file_module));
+
+        // generic stems and names with no module file
+        for name in ["mod", "lib", "__init__", "connect"] {
+            let r = d(name);
+            assert!(
+                r.entries.iter().all(|e| !e.file_module),
+                "{name}: {:?}",
+                r.entries.iter().map(|e| &e.rel).collect::<Vec<_>>()
+            );
+        }
+        let _ = fs::remove_dir_all(&base);
+    }
 }

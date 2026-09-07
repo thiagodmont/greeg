@@ -123,15 +123,19 @@ a *longer* identifier stop competing for answer lines and collapse to one line,
 in every ranked layout, before the footer:
 
 ```
-related  createSourceFileAndAssertInvariants 3  createSourceFileLike 2  createSourceFileWithText 2
+related  createSourceFileAndAssertInvariants 1  createSourceFileWithText 1
 ```
 
-Up to four identifiers, most hits first. The header and footer counts still
-describe every match (`15/97 hits`), so the near-misses are visible as the
-difference, and querying one of the named identifiers reaches them. Nothing is
-suppressed when no match is a whole word (the near-misses are then the answer),
-under `-w` (there are none), or in parity mode (`--budget 0`, `-l`, `-c`),
-which keeps ripgrep's match set exactly.
+Up to four identifiers with the number of files holding each, most files
+first. With an index the query reads only the files that hold the whole word
+(the word postings, DESIGN.md §3.2): the header and footer count whole-word
+matches (`15/95 hits · 29 files`) and the line comes from the index's
+dictionary. In scan mode the near-misses are found in the matched files and
+leave the answer; the header then still counts every match. Querying one of
+the named identifiers reaches them either way. Nothing is suppressed when no
+match is a whole word (the near-misses are then the answer), under `-w`
+(there are none), or in parity mode (`--budget 0`, `-l`, `-c`), which keeps
+ripgrep's match set exactly.
 
 ### Outline layout (`--mode outline`)
 
@@ -258,7 +262,11 @@ next: refs JoinHandle | callers JoinHandle | outline tokio/src/runtime/task/join
 Rows: `line kind  [name  ]container › signature  [exported,test] : supertypes`;
 file flags live in the header. A doc first line follows in quotes. `reach`
 is printed only when `--from` was given. `impl` blocks are capped at three
-when other kinds exist. With no exact name the ladder tries case-insensitive,
+when other kinds exist. A file that *is* the module (`sleep.rs`,
+`sleep/mod.rs`, `pkg/__init__.py`, `x/index.ts`) is listed as `1 mod  mod sleep`
+with the first line of its leading doc comment, after every symbol that
+declares the name; a Rust `mod x;` declaration is an import, not a definition.
+With no exact name the ladder tries case-insensitive,
 split tokens and fuzzy names and reports `matched fuzzy → spawn_blocking`.
 
 ### `greeg refs NAME`
@@ -310,8 +318,8 @@ section of type-position hits on definition lines (`struct Coop<F: Future>`).
 ### `greeg outline FILE [--imports]`
 
 The file's symbols as a tree: `kind name  :line  [pub,doc,test]`. The
-`imports` line is printed only with `--imports` or when there are at most
-three. When the tree exceeds the budget, deeper levels collapse into
+`imports` line is printed only with `--imports`, when there are at most
+three, or when the file has no symbols (a Rust `mod.rs` of declarations). When the tree exceeds the budget, deeper levels collapse into
 `(+N nested)`.
 
 ```
@@ -376,7 +384,7 @@ ripgrep's schema: `begin`, `match`, `context`, `end` per file, then
   (submatches printed), `bytes_searched` (file size), `shown`.
 * `summary`: `{"type":"summary","data":{"elapsed_total":{secs,nanos,human},"stats":{elapsed,searches,searches_with_match,bytes_searched,bytes_printed,matched_lines,matches,matched_lines_shown}}}`.
 * `facets`: `{total, files, by_kind, by_dir, by_lang, by_flag, definitions_total, demoted_definitions, imported_by}` emitted before the shown files in facets layout.
-* `footer`: `{hits_shown, hits_total, files_shown, files_total, demoted_files, demoted_hits, skipped_binary, skipped_huge, rung, rung_names, ignored_only, est_tokens, elapsed_ms, hints, related, layout}`; `related` is `[[identifier, hits], …]`, the near-misses of the **related** section (empty in parity mode).
+* `footer`: `{hits_shown, hits_total, files_shown, files_total, demoted_files, demoted_hits, skipped_binary, skipped_huge, rung, rung_names, ignored_only, est_tokens, elapsed_ms, hints, related, layout}`; `related` is `[[identifier, files], …]`, the near-misses of the **related** section (empty in parity mode).
 
 `--budget 0 --json` prints every hit in path order with the same record
 count and (path, line) set as `rg --json`, which `bench/parity.py` checks.

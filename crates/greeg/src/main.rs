@@ -265,6 +265,10 @@ enum Cmd {
         /// No progress output
         #[arg(long = "quiet")]
         quiet: bool,
+        /// Publish pending changes as a delta (or rebuild past the threshold): the
+        /// detached step of a search that answered first
+        #[arg(long = "refresh")]
+        refresh: bool,
     },
     /// Where is NAME defined? Ranked by kind, visibility, PageRank and reachability from --from
     Def {
@@ -400,11 +404,19 @@ fn run_index(
     threads: usize,
     phase1: bool,
     quiet: bool,
+    refresh: bool,
 ) -> Result<()> {
     let dir = match index_dir {
         Some(d) => d,
         None => greeg_index::index_dir_for(&root)?,
     };
+    if refresh {
+        return greeg_query::indexed::refresh_now(
+            &root,
+            &dir,
+            if threads == 0 { 4 } else { threads },
+        );
+    }
     if status {
         match greeg_index::read_manifest(&dir) {
             Some(m) => println!("{}", serde_json::to_string_pretty(&m)?),
@@ -720,8 +732,9 @@ fn run() -> Result<()> {
                 threads,
                 phase1,
                 quiet,
+                refresh,
             } => run_index(
-                root, index_dir, status, check, fresh, threads, phase1, quiet,
+                root, index_dir, status, check, fresh, threads, phase1, quiet, refresh,
             ),
             Cmd::Def {
                 name,
@@ -869,10 +882,15 @@ fn run() -> Result<()> {
         );
         if s.source == "index" {
             eprintln!(
-                "greeg: fresh {} {:.1} ms ({} changed) · plan {}",
+                "greeg: fresh {} {:.1} ms ({} changed{}) · plan {}",
                 s.fresh_method,
                 s.fresh_ms,
                 s.fresh_changed,
+                if s.fresh_deferred > 0 {
+                    ", delta after the answer"
+                } else {
+                    ""
+                },
                 if s.plan.len() > 120 {
                     format!("{}…", &s.plan[..120])
                 } else {

@@ -404,6 +404,8 @@ pub struct Stats {
     pub fresh_method: &'static str,
     pub fresh_ms: f64,
     pub fresh_changed: usize,
+    /// Changed files answered from disk this query; the delta follows the answer.
+    pub fresh_deferred: usize,
     pub plan: String,
 }
 
@@ -450,6 +452,10 @@ pub struct ScanResult {
     pub ignored_only: Option<(usize, usize)>,
     /// Rung 5 stopped at its time/count bound: `ignored_only` is a lower bound.
     pub ignored_partial: bool,
+    /// Identifiers containing the query, with file counts, from the index's
+    /// word dictionary (a bare identifier answered from the word postings has
+    /// no near-miss hits of its own; DESIGN.md §3.2).
+    pub related_index: Vec<(String, usize)>,
 }
 
 pub(crate) fn default_threads() -> usize {
@@ -1960,6 +1966,7 @@ fn scan_once(o: &Options, bounds: &ScanBounds) -> Result<ScanResult> {
         rung: Rung::Exact,
         ignored_only: None,
         ignored_partial: false,
+        related_index: Vec::new(),
     })
 }
 

@@ -1,5 +1,5 @@
 //! Persistent per-repository index (DESIGN.md §2–§5): file table, file-level
-//! trigram postings, delta segments, tombstones, freshness.
+//! trigram and word postings, delta segments, tombstones, freshness.
 //!
 //! Phase 1 (grams) and phase 2 (symbols, spans, graph). Everything on disk is little-endian,
 //! fixed-layout, and read through `mmap` without deserialization.
@@ -13,6 +13,7 @@ pub mod lock;
 pub mod plan;
 pub mod resolve;
 pub mod symtab;
+pub mod words;
 
 pub use index::Index;
 
@@ -20,7 +21,7 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
-pub const FORMAT_VERSION: u16 = 4;
+pub const FORMAT_VERSION: u16 = 5;
 
 /// Manifest: JSON, small, rewritten atomically on every publish/check.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]

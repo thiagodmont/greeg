@@ -100,11 +100,14 @@ overrides the config file.
 ## How it works
 
 The first query in a repository is answered by a ripgrep-speed scan while a
-trigram index is built in the background (under `~/Library/Caches/greeg/` on
-macOS, `$XDG_CACHE_HOME/greeg/` elsewhere; override with `GREEG_INDEX_DIR`).
-Later queries open only candidate files. Edits are picked up per query by a
-stat pass or, on macOS, the FSEvents log, and applied as delta segments;
-`.gitignore` changes trigger a rebuild.
+trigram and word index is built in the background (under
+`~/Library/Caches/greeg/` on macOS, `$XDG_CACHE_HOME/greeg/` elsewhere;
+override with `GREEG_INDEX_DIR`). Later queries open only candidate files: a
+whole-word query (`-w NAME`, a bare identifier, `refs`) opens exactly the
+files that hold the word. Edits are picked up per query by a stat pass or, on
+macOS, the FSEvents log; a search answers from the edited files first and a
+detached process publishes the delta segment after the output; `.gitignore`
+changes trigger a rebuild.
 
 The index also holds every definition (tree-sitter for Python, TypeScript,
 JavaScript, Rust and Kotlin; a regex extractor elsewhere), comment and string
@@ -114,10 +117,11 @@ rank and their edges: a delta resolves imports against the base. Every hit is cl
 (`def`, `call`, `import`, `type`, `member`, `ident`, `doc`, `comment`,
 `string`) and carries its enclosing symbol. Test, vendored, generated,
 minified and mock files are demoted, never hidden, and the footer always says
-what was cut. A bare identifier is answered as a whole word: matches inside a
-longer identifier (`_get_queryset_methods` for `get_queryset`) are named on a
-`related` line instead of taking answer lines, unless nothing matches the whole
-word. `--budget 0`, `-l` and `-c` keep ripgrep's match set exactly.
+what was cut. A bare identifier is answered as a whole word: identifiers that
+contain it (`_get_queryset_methods` for `get_queryset`) are named on a
+`related` line with their file counts instead of taking answer lines, unless
+nothing matches the whole word. `--budget 0`, `-l` and `-c` keep ripgrep's
+match set exactly.
 
 ```
 greeg index                 # build now instead of on first query

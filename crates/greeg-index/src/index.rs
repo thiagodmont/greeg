@@ -3,8 +3,10 @@
 use crate::format::{self, FileRec, FilesView, GramsView, ImpRec, NONE, SymRec};
 use crate::plan::Q;
 use crate::symtab::{DeltaGraphView, GraphView, SpansView, SymbolsView};
+use crate::words::WordsView;
 use crate::{Manifest, read_manifest};
 use anyhow::{Context, Result, bail};
+use greeg_lang::Lang;
 use hashbrown::HashMap;
 use memmap2::{Advice, Mmap};
 use roaring::RoaringBitmap;
@@ -22,6 +24,8 @@ pub struct Segment {
     grams: GramsView<'static>,
     symbols: Option<SymbolsView<'static>>,
     spans: Option<SpansView<'static>>,
+    /// Word postings (DESIGN.md §3.2): whole-word queries read these instead of the grams.
+    words: Option<WordsView<'static>>,
     /// Import edges and superseded ids (delta segments only).
     dgraph: Option<DeltaGraphView<'static>>,
     pub first_id: u32,
@@ -65,6 +69,7 @@ struct DeltaParts {
     symbols: Option<SymbolsView<'static>>,
     spans: Option<SpansView<'static>>,
     dgraph: Option<DeltaGraphView<'static>>,
+    words: Option<WordsView<'static>>,
     first_id: u32,
     tomb: RoaringBitmap,
 }
@@ -73,7 +78,7 @@ fn parse_delta(body: &'static [u8]) -> Result<DeltaParts> {
     let hb = body
         .get(..format::DELTA_HEADER)
         .context("delta header truncated")?;
-    let h: Vec<usize> = (0..7)
+    let h: Vec<usize> = (0..8)
         .map(|i| u32::from_le_bytes(hb[i * 4..i * 4 + 4].try_into().unwrap()) as usize)
         .collect();
     let first_id = h[0] as u32;
@@ -90,6 +95,7 @@ fn parse_delta(body: &'static [u8]) -> Result<DeltaParts> {
     let sb = section(h[4], "symbols")?;
     let pb = section(h[5], "spans")?;
     let db = section(h[6], "graph")?;
+    let wb = section(h[7], "words")?;
     let tb = body.get(off..).context("delta tombstones truncated")?;
     let tomb = RoaringBitmap::deserialize_from(tb).context("delta tombstone bitmap corrupt")?;
     let files = FilesView::parse(fb)?;
@@ -116,12 +122,18 @@ fn parse_delta(body: &'static [u8]) -> Result<DeltaParts> {
         }
         Some(g)
     };
+    let words = if wb.is_empty() {
+        None
+    } else {
+        Some(WordsView::parse(wb)?)
+    };
     Ok(DeltaParts {
         files,
         grams,
         symbols,
         spans,
         dgraph,
+        words,
         first_id,
         tomb,
     })
@@ -178,6 +190,25 @@ impl Segment {
     }
     pub fn corrupt(&self) -> bool {
         self.corrupt.load(std::sync::atomic::Ordering::Relaxed)
+    }
+    /// Union of the word postings of `alts` (DESIGN.md §3.2); `None` when this
+    /// segment has no word section. An absent word contributes nothing; an
+    /// unreadable posting list reads as every file, as for grams.
+    pub fn eval_words(&self, alts: &[Vec<u8>]) -> Option<RoaringBitmap> {
+        let wv = self.words.as_ref()?;
+        let mut acc = RoaringBitmap::new();
+        for w in alts {
+            let Some(i) = wv.find(w) else { continue };
+            match RoaringBitmap::deserialize_from(wv.posting_bytes(i)) {
+                Ok(bm) => acc |= bm,
+                Err(_) => {
+                    self.corrupt
+                        .store(true, std::sync::atomic::Ordering::Relaxed);
+                    return Some(self.all());
+                }
+            }
+        }
+        Some(acc)
     }
     /// Evaluate a plan against this segment. `None` = every file (All).
     pub fn eval(&self, q: &Q) -> Option<RoaringBitmap> {
@@ -268,12 +299,15 @@ impl Index {
             Advice::WillNeed,
         )?;
         let gmap = mmap(&dir.join(format!("grams.{generation}.bin")), Advice::Random)?;
+        let wmap = mmap(&dir.join(format!("words.{generation}.bin")), Advice::Random)?;
         let fbody = leak(format::check_header(&fmap, format::COMP_FILES)?);
         let gbody = leak(format::check_header(&gmap, format::COMP_GRAMS)?);
+        let wbody = leak(format::check_header(&wmap, format::COMP_WORDS)?);
         let files = FilesView::parse(fbody)?;
         let grams = GramsView::parse(gbody)?;
+        let words = Some(WordsView::parse(wbody)?);
         let n = files.files.len() as u32;
-        let mut maps = vec![fmap, gmap];
+        let mut maps = vec![fmap, gmap, wmap];
         let (mut symbols, mut spans) = (None, None);
         if manifest.phase2 {
             let smap = mmap(
@@ -300,6 +334,7 @@ impl Index {
             grams,
             symbols,
             spans,
+            words,
             dgraph: None,
             first_id: 0,
             n_files: n,
@@ -327,6 +362,7 @@ impl Index {
                 symbols,
                 spans,
                 dgraph,
+                words,
                 first_id,
                 tomb: t,
             } = parse_delta(body).with_context(|| format!("delta {}", p.display()))?;
@@ -356,6 +392,7 @@ impl Index {
                 grams,
                 symbols,
                 spans,
+                words,
                 dgraph,
                 first_id,
                 n_files: n,
@@ -439,14 +476,82 @@ impl Index {
     /// Huge files have no grams and are always included so verification opens
     /// them (and counts them when they exceed the query's size limit).
     pub fn candidates(&self, q: &Q) -> RoaringBitmap {
-        let mut acc = self.base.eval(q).unwrap_or_else(|| self.base.all());
+        self.candidates_with(q, None)
+    }
+
+    /// `candidates`, answering from the word postings wherever a segment has
+    /// them when `words` names the whole-word alternatives of the pattern
+    /// (`plan::word_plan`); the trigram plan covers the rest.
+    pub fn candidates_with(&self, q: &Q, words: Option<&[Vec<u8>]>) -> RoaringBitmap {
+        let seg_cands = |seg: &Segment| -> RoaringBitmap {
+            if let Some(alts) = words
+                && let Some(bm) = seg.eval_words(alts)
+            {
+                return bm;
+            }
+            seg.eval(q).unwrap_or_else(|| seg.all())
+        };
+        let mut acc = seg_cands(&self.base);
         acc |= &self.base.huge;
         for d in &self.deltas {
-            acc |= d.eval(q).unwrap_or_else(|| d.all());
+            acc |= seg_cands(d);
             acc |= &d.huge;
         }
         acc -= &self.tomb;
         acc
+    }
+
+    /// Live files holding any of `alts` as a whole word, from the word postings
+    /// alone (no huge files, no trigram fallback): empty when no indexed file
+    /// has the word.
+    pub fn word_candidates(&self, alts: &[Vec<u8>]) -> RoaringBitmap {
+        let mut acc = RoaringBitmap::new();
+        for (_, seg) in self.segments() {
+            if let Some(bm) = seg.eval_words(alts) {
+                acc |= bm;
+            }
+        }
+        acc -= &self.tomb;
+        acc
+    }
+
+    /// Indexed words that contain `needle` as a strict substring, with their
+    /// document counts, most files first: the `related` line of a bare
+    /// identifier query, without opening a file. One `memmem` pass over each
+    /// segment's dictionary.
+    pub fn words_containing(&self, needle: &str, limit: usize) -> Vec<(String, usize)> {
+        let nb = needle.as_bytes();
+        if nb.is_empty() {
+            return Vec::new();
+        }
+        let finder = memchr::memmem::Finder::new(nb);
+        let mut counts: HashMap<&[u8], usize> = HashMap::new();
+        for (_, seg) in self.segments() {
+            let Some(wv) = seg.words.as_ref() else {
+                continue;
+            };
+            for h in finder.find_iter(wv.arena) {
+                let Some(i) = wv.word_at_offset(h) else {
+                    continue;
+                };
+                // the hit must lie inside this word, and the word must be longer
+                if h + nb.len() > wv.word_off[i + 1] as usize {
+                    continue;
+                }
+                let w = wv.word(i);
+                if w == nb {
+                    continue;
+                }
+                *counts.entry(w).or_default() += wv.counts[i] as usize;
+            }
+        }
+        let mut v: Vec<(String, usize)> = counts
+            .into_iter()
+            .map(|(w, c)| (String::from_utf8_lossy(w).into_owned(), c))
+            .collect();
+        v.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+        v.truncate(limit);
+        v
     }
 
     /// All live (searchable) file ids.
@@ -806,6 +911,77 @@ impl Index {
         v.sort_unstable();
         v.dedup();
         Cow::Owned(v)
+    }
+    /// Live files that *are* the module `name`: `…/name.ext` in a language
+    /// with a grammar, or a directory module `…/name/{mod.rs,__init__.py,index.*}`.
+    /// SCIP and agents both treat the file as the module's definition, so
+    /// `def` lists them (DESIGN.md §7.3). Generic stems never match. One
+    /// `memmem` pass over each segment's path arena, no per-file work.
+    pub fn module_files(&self, name: &str, limit: usize) -> Vec<u32> {
+        let mut out = Vec::new();
+        if name.is_empty()
+            || matches!(name, "mod" | "index" | "__init__" | "lib" | "main")
+            || name.bytes().any(|b| b == b'/' || b == b'.')
+        {
+            return out;
+        }
+        let nb = name.as_bytes();
+        let finder = memchr::memmem::Finder::new(nb);
+        for (_, seg) in self.segments() {
+            let fv = seg.files();
+            let arena = fv.arena;
+            for h in finder.find_iter(arena) {
+                let after = h + nb.len();
+                let Some(&sep) = arena.get(after) else {
+                    continue;
+                };
+                if sep != b'.' && sep != b'/' {
+                    continue;
+                }
+                // the file record holding this offset (records are in path order,
+                // so their arena offsets ascend; directory paths between them fail
+                // the range check)
+                let i = fv.files.partition_point(|r| (r.path_off as usize) <= h);
+                if i == 0 {
+                    continue;
+                }
+                let r = &fv.files[i - 1];
+                let (ps, pe) = (
+                    r.path_off as usize,
+                    r.path_off as usize + r.path_len as usize,
+                );
+                if h >= pe || (h > ps && arena[h - 1] != b'/') {
+                    continue;
+                }
+                let rest = &arena[after..pe];
+                let ok = if sep == b'.' {
+                    !rest.contains(&b'/') && Lang::from_path(Path::new(fv.path(r))).has_grammar()
+                } else {
+                    matches!(
+                        &rest[1..],
+                        b"mod.rs"
+                            | b"__init__.py"
+                            | b"index.ts"
+                            | b"index.tsx"
+                            | b"index.js"
+                            | b"index.jsx"
+                            | b"index.mjs"
+                            | b"index.cjs"
+                    )
+                };
+                if !ok {
+                    continue;
+                }
+                let id = seg.first_id + (i as u32 - 1);
+                if self.is_live(id) && !seg.hidden().contains(id) && !out.contains(&id) {
+                    out.push(id);
+                    if out.len() >= limit {
+                        return out;
+                    }
+                }
+            }
+        }
+        out
     }
     /// Normalized PageRank of a file (0.5 when unknown).
     pub fn rank(&self, id: u32) -> f32 {

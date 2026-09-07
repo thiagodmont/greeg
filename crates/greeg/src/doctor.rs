@@ -80,15 +80,16 @@ pub fn run(c: &Common) -> Result<()> {
         Some(m) => {
             let g = m.generation;
             let sz = |p: &str| dir_size(&dir, &format!("{p}.{g}."));
-            let (fb, gb, sb, pb, grb) = (
+            let (fb, gb, wb, sb, pb, grb) = (
                 sz("files"),
                 sz("grams"),
+                sz("words"),
                 sz("symbols"),
                 sz("spans"),
                 sz("graph"),
             );
             let deltas = dir_size(&dir.join("delta"), "");
-            let total = fb + gb + sb + pb + grb + deltas;
+            let total = fb + gb + wb + sb + pb + grb + deltas;
             writeln!(
                 w,
                 "index     {}  generation {}  format {}  built {} in {:.1} s{}",
@@ -105,9 +106,10 @@ pub fn run(c: &Common) -> Result<()> {
             )?;
             writeln!(
                 w,
-                "          phase 1 {} grams {} · phase 2 {} symbols {}, spans {}, graph {} · files {} · deltas {} · total {} ({:.2}× of {} source)",
+                "          phase 1 {} grams {}, words {} · phase 2 {} symbols {}, spans {}, graph {} · files {} · deltas {} · total {} ({:.2}× of {} source)",
                 if m.phase1 { "✓" } else { "✗" },
                 fmt_size(gb),
+                fmt_size(wb),
                 if m.phase2 {
                     "✓"
                 } else {

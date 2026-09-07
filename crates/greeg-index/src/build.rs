@@ -1,11 +1,13 @@
 //! Phase-1 build (DESIGN.md §4.1): walk, read with a small reader pool,
-//! extract trigrams, merge per-thread maps, write roaring postings, publish.
+//! extract trigrams and words, merge per-thread maps, write roaring postings,
+//! publish.
 
 use crate::Index;
 use crate::format::{self, DirRec, FileRec, FileTable, NONE, is_ignore_file};
 use crate::gram::{Dedup, fold_buf};
 use crate::resolve::Resolver;
 use crate::symtab::{DeltaGraphBuilder, FileExtract, GraphBuilder, SpanBuilder, SymBuilder};
+use crate::words;
 use crate::{Manifest, now_ms, read_manifest, write_manifest};
 use anyhow::{Result, bail};
 use greeg_lang::sym;
@@ -251,6 +253,37 @@ fn extract_file_with<T: Default>(
     )
 }
 
+/// Add the words of `src` to `map` for file `id`, deduplicated per file: ids
+/// arrive in order, so a word already carrying `id` last was seen in this file.
+fn push_words(map: &mut HashMap<Vec<u8>, Vec<u32>>, src: &[u8], id: u32) {
+    words::for_each_word(src, |w| match map.get_mut(w) {
+        Some(v) => {
+            if v.last() != Some(&id) {
+                v.push(id);
+            }
+        }
+        None => {
+            map.insert(w.to_vec(), vec![id]);
+        }
+    });
+}
+
+/// Sorted (word, document count, serialized bitmap) entries of a word map.
+fn word_entries(map: HashMap<Vec<u8>, Vec<u32>>) -> Vec<(Vec<u8>, u32, Vec<u8>)> {
+    let mut entries: Vec<(Vec<u8>, Vec<u32>)> = map.into_iter().collect();
+    entries.par_sort_unstable_by(|a, b| a.0.cmp(&b.0));
+    entries
+        .into_par_iter()
+        .map(|(w, mut v)| {
+            v.sort_unstable();
+            let bm = RoaringBitmap::from_sorted_iter(v.iter().copied()).unwrap();
+            let mut out = Vec::with_capacity(bm.serialized_size());
+            bm.serialize_into(&mut out).unwrap();
+            (w, v.len() as u32, out)
+        })
+        .collect()
+}
+
 /// Build phase 1 into `dir`. Returns the manifest written.
 pub fn build(root: &Path, dir: &Path, opts: &BuildOpts) -> Result<Manifest> {
     let t0 = Instant::now();
@@ -266,29 +299,34 @@ pub fn build(root: &Path, dir: &Path, opts: &BuildOpts) -> Result<Manifest> {
     let source_bytes = std::sync::atomic::AtomicU64::new(0);
     type Flags = Vec<(u32, u16)>;
     type GramMap = HashMap<u32, Vec<u32>>;
-    let (flags_by_id, merged): (Flags, GramMap) = pool.install(|| {
+    type WordMap = HashMap<Vec<u8>, Vec<u32>>;
+    let (flags_by_id, merged, merged_words): (Flags, GramMap, WordMap) = pool.install(|| {
         // one accumulator per chunk (a few per thread), not per rayon split:
         // each carries a 2 MiB dedup bitset and a 32k-entry map
         let n_chunks = (opts.reader_threads * 4).max(1);
         let chunk = walked.len().div_ceil(n_chunks).max(1);
-        let (flags, maps): (Flags, Vec<GramMap>) = walked
+        let (flags, maps, wmaps): (Flags, Vec<GramMap>, Vec<WordMap>) = walked
             .par_chunks(chunk)
             .enumerate()
             .map(|(ci, ws)| {
                 let mut fl: Flags = Vec::with_capacity(ws.len());
                 let mut map: GramMap = HashMap::with_capacity(1 << 15);
+                let mut wmap: WordMap = HashMap::with_capacity(1 << 14);
                 let mut buf: Vec<u8> = Vec::with_capacity(256 * 1024);
                 let mut dd = Dedup::new();
                 let mut grams: Vec<u32> = Vec::with_capacity(8192);
                 for (j, w) in ws.iter().enumerate() {
                     let id = (ci * chunk + j) as u32;
-                    let ex = extract_file(
+                    // words come from the unfolded bytes (case-sensitive keys),
+                    // deduplicated per file by the last id pushed
+                    let (ex, ()) = extract_file_with(
                         &root_buf.join(&w.rel),
                         &w.rel,
                         w.size,
                         &mut buf,
                         &mut dd,
                         &mut grams,
+                        |_, src| push_words(&mut wmap, src, id),
                     );
                     if !ex.grams.is_empty() {
                         source_bytes
@@ -302,14 +340,15 @@ pub fn build(root: &Path, dir: &Path, opts: &BuildOpts) -> Result<Manifest> {
                     grams = ex.grams;
                     fl.push((id, ex.flags.0));
                 }
-                (fl, vec![map])
+                (fl, vec![map], vec![wmap])
             })
             .reduce(
-                || (Vec::new(), Vec::new()),
-                |(mut fa, mut ma), (mut fb, mut mb)| {
+                || (Vec::new(), Vec::new(), Vec::new()),
+                |(mut fa, mut ma, mut wa), (mut fb, mut mb, mut wb)| {
                     fa.append(&mut fb);
                     ma.append(&mut mb);
-                    (fa, ma)
+                    wa.append(&mut wb);
+                    (fa, ma, wa)
                 },
             );
         // merge maps: largest first, absorb others
@@ -321,7 +360,15 @@ pub fn build(root: &Path, dir: &Path, opts: &BuildOpts) -> Result<Manifest> {
                 merged.entry(k).or_default().append(&mut v);
             }
         }
-        (flags, merged)
+        let mut wmaps = wmaps;
+        wmaps.sort_by_key(|m| std::cmp::Reverse(m.len()));
+        let mut merged_words = wmaps.pop().unwrap_or_default();
+        for m in wmaps {
+            for (k, mut v) in m {
+                merged_words.entry(k).or_default().append(&mut v);
+            }
+        }
+        (flags, merged, merged_words)
     });
     let extract_ms = t0.elapsed().as_secs_f64() * 1e3 - walk_ms;
 
@@ -338,6 +385,7 @@ pub fn build(root: &Path, dir: &Path, opts: &BuildOpts) -> Result<Manifest> {
             (k, v.len() as u32, out)
         })
         .collect();
+    let wentries = word_entries(merged_words);
 
     // file table
     let mut ft = FileTable::default();
@@ -382,6 +430,11 @@ pub fn build(root: &Path, dir: &Path, opts: &BuildOpts) -> Result<Manifest> {
         &format::serialize_grams(&entries),
     )?;
     format::write_atomic(
+        &dir.join(format!("words.{generation}.bin")),
+        format::COMP_WORDS,
+        &words::serialize(&wentries),
+    )?;
+    format::write_atomic(
         &dir.join(format!("files.{generation}.bin")),
         format::COMP_FILES,
         &ft.serialize(),
@@ -409,18 +462,19 @@ pub fn build(root: &Path, dir: &Path, opts: &BuildOpts) -> Result<Manifest> {
     write_manifest(dir, &m)?;
     // a fresh build supersedes deltas and older generations
     let _ = fs::remove_dir_all(dir.join("delta"));
-    remove_stale(dir, &["grams.", "files."], generation);
+    remove_stale(dir, &["grams.", "words.", "files."], generation);
     drop(lock);
     if !opts.quiet {
         eprintln!(
-            "greeg index: {} files, {} dirs, {:.1} MB source; walk {:.0} ms, extract {:.0} ms, total {:.0} ms; {} grams",
+            "greeg index: {} files, {} dirs, {:.1} MB source; walk {:.0} ms, extract {:.0} ms, total {:.0} ms; {} grams, {} words",
             walked.len(),
             dirs.len(),
             m.source_bytes as f64 / 1e6,
             walk_ms,
             extract_ms,
             m.build_ms,
-            entries.len()
+            entries.len(),
+            wentries.len()
         );
     }
     if opts.phase1_only {
@@ -688,6 +742,7 @@ pub fn build_delta(
     let mut dd = Dedup::new();
     let mut grams = Vec::with_capacity(8192);
     let mut map: HashMap<u32, Vec<u32>> = HashMap::new();
+    let mut wmap: HashMap<Vec<u8>, Vec<u32>> = HashMap::new();
     let mut ft = FileTable::default();
     let n = files.len() as u32;
     let mut sb = SymBuilder::new(n);
@@ -706,6 +761,7 @@ pub fn build_delta(
             &mut dd,
             &mut grams,
             |rel, src| {
+                push_words(&mut wmap, src, id);
                 let flags = path_flags(rel).0
                     | content_flags(&src[..src.len().min(65536)], src.len() as u64).0;
                 if wants_symbols(rel, flags) {
@@ -850,6 +906,7 @@ pub fn build_delta(
     entries.sort_unstable_by_key(|(k, _, _)| *k);
     let fb = ft.serialize();
     let gb = format::serialize_grams(&entries);
+    let wb = words::serialize(&word_entries(wmap));
     let sbb = sb.finish(&|f| {
         ranks
             .get(f as usize)
@@ -862,7 +919,14 @@ pub fn build_delta(
     let mut tb = Vec::new();
     tomb.serialize_into(&mut tb)?;
     let mut body = Vec::with_capacity(
-        format::DELTA_HEADER + fb.len() + gb.len() + sbb.len() + pbb.len() + gbb.len() + tb.len(),
+        format::DELTA_HEADER
+            + fb.len()
+            + gb.len()
+            + sbb.len()
+            + pbb.len()
+            + gbb.len()
+            + wb.len()
+            + tb.len(),
     );
     for x in [
         first_id,
@@ -872,7 +936,7 @@ pub fn build_delta(
         sbb.len() as u32,
         pbb.len() as u32,
         gbb.len() as u32,
-        0,
+        wb.len() as u32,
     ] {
         body.extend_from_slice(&x.to_le_bytes());
     }
@@ -882,6 +946,7 @@ pub fn build_delta(
     body.extend_from_slice(&sbb);
     body.extend_from_slice(&pbb);
     body.extend_from_slice(&gbb);
+    body.extend_from_slice(&wb);
     body.extend_from_slice(&tb);
     Ok(body)
 }

@@ -8,7 +8,7 @@ use crate::{
     kind_by_context, process_file,
 };
 use anyhow::{Context, Result};
-use greeg_index::format::SymRec;
+use greeg_index::format::{NONE, SymRec};
 use greeg_index::fresh::{self, Mode as Fresh};
 use greeg_index::index::SymId;
 use greeg_index::symtab::kind_from_code;
@@ -22,7 +22,10 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering::Relaxed};
 use std::time::Instant;
 
-static PENDING_BUILD: Mutex<Option<(PathBuf, PathBuf)>> = Mutex::new(None);
+/// Queued background work: (root, index dir, refresh). `refresh` is the
+/// detached delta publish of an answer-first query; a full build wins when
+/// both are queued.
+static PENDING_BUILD: Mutex<Option<(PathBuf, PathBuf, bool)>> = Mutex::new(None);
 
 /// Queue a background build; it is started by `flush_pending_build` after the
 /// answer is written, so the build's twelve threads never compete with the
@@ -30,33 +33,58 @@ static PENDING_BUILD: Mutex<Option<(PathBuf, PathBuf)>> = Mutex::new(None);
 /// django when the build started first).
 pub fn spawn_build(root: &Path, dir: &Path) {
     if let Ok(mut g) = PENDING_BUILD.lock() {
-        *g = Some((root.to_path_buf(), dir.to_path_buf()));
+        *g = Some((root.to_path_buf(), dir.to_path_buf(), false));
     }
 }
 
-/// Start the queued build, if any (call once, after output is flushed).
+/// Queue a detached `greeg index --refresh` (DESIGN.md §4.5): this query
+/// answered around the changed files itself, and the delta is published after
+/// the output so an edit never delays the search that follows it.
+pub fn spawn_refresh(root: &Path, dir: &Path) {
+    if let Ok(mut g) = PENDING_BUILD.lock()
+        && !matches!(&*g, Some((_, _, false)))
+    {
+        *g = Some((root.to_path_buf(), dir.to_path_buf(), true));
+    }
+}
+
+/// Start the queued build or refresh, if any (call once, after output is flushed).
 pub fn flush_pending_build() {
     let pending = PENDING_BUILD.lock().ok().and_then(|mut g| g.take());
-    if let Some((root, dir)) = pending {
-        spawn_build_now(&root, &dir);
+    if let Some((root, dir, refresh)) = pending {
+        spawn_build_now(&root, &dir, refresh);
     }
 }
 
-/// Spawn `greeg index --root ROOT` detached, unless a build is already running.
-pub fn spawn_build_now(root: &Path, dir: &Path) {
+fn marker_younger_than(marker: &Path, secs: u64) -> bool {
+    fs::metadata(marker)
+        .ok()
+        .map(|md| {
+            md.modified()
+                .ok()
+                .and_then(|m| m.elapsed().ok())
+                .map(|e| e.as_secs() < secs)
+                .unwrap_or(true)
+        })
+        .unwrap_or(false)
+}
+
+/// Spawn `greeg index --root ROOT [--refresh]` detached, unless the same work
+/// is already running: a `BUILDING` marker younger than ten minutes, or for a
+/// refresh a `REFRESHING` marker younger than thirty seconds (a running full
+/// build also makes a refresh pointless).
+pub fn spawn_build_now(root: &Path, dir: &Path, refresh: bool) {
     let _ = fs::create_dir_all(dir);
-    let marker = dir.join("BUILDING");
-    if let Ok(md) = fs::metadata(&marker) {
-        if md
-            .modified()
-            .ok()
-            .and_then(|m| m.elapsed().ok())
-            .map(|e| e.as_secs() < 600)
-            .unwrap_or(true)
-        {
+    let building = dir.join("BUILDING");
+    if marker_younger_than(&building, 600) {
+        return;
+    }
+    if refresh {
+        if marker_younger_than(&dir.join("REFRESHING"), 30) {
             return;
         }
-        let _ = fs::remove_file(&marker);
+    } else if building.exists() {
+        let _ = fs::remove_file(&building);
     }
     let Ok(exe) = std::env::current_exe() else {
         return;
@@ -66,6 +94,9 @@ pub fn spawn_build_now(root: &Path, dir: &Path) {
     };
     let mut cmd = std::process::Command::new(exe);
     cmd.arg("index").arg("--root").arg(&root_abs).arg("--quiet");
+    if refresh {
+        cmd.arg("--refresh");
+    }
     if let Some(d) = std::env::var_os("GREEG_INDEX_DIR") {
         cmd.env("GREEG_INDEX_DIR", d);
     }
@@ -78,6 +109,52 @@ pub fn spawn_build_now(root: &Path, dir: &Path) {
         cmd.process_group(0);
     }
     let _ = cmd.spawn();
+}
+
+/// The detached step of an answer-first query (`greeg index --refresh`): run
+/// the freshness check without the TTL and publish the delta, or queue a full
+/// build when the change set is past the inline threshold. One refresher at
+/// a time per index; a marker older than thirty seconds is taken over.
+pub fn refresh_now(root: &Path, dir: &Path, threads: usize) -> Result<()> {
+    let marker = dir.join("REFRESHING");
+    match fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&marker)
+    {
+        Ok(mut f) => {
+            use std::io::Write as _;
+            let _ = writeln!(f, "{}", std::process::id());
+        }
+        Err(_) => {
+            if marker_younger_than(&marker, 30) {
+                return Ok(());
+            }
+            // a stale marker (its refresher died): take it over, and renew it so
+            // the next spawn sees a live refresher instead of joining in
+            let _ = fs::write(&marker, format!("{}\n", std::process::id()));
+        }
+    }
+    let r = refresh_inner(root, dir, threads);
+    let _ = fs::remove_file(&marker);
+    r
+}
+
+fn refresh_inner(root: &Path, dir: &Path, threads: usize) -> Result<()> {
+    let Ok(idx) = Index::open(dir) else {
+        return Ok(()); // no index: the query queued a build
+    };
+    let mode = fresh::explicit_mode(&idx);
+    let Some(ch) = fresh::check(&idx, root, mode, threads.clamp(1, 4)) else {
+        return Ok(());
+    };
+    if fresh::needs_rebuild(&idx, &ch) {
+        drop(idx);
+        spawn_build_now(root, dir, false);
+        return Ok(());
+    }
+    fresh::apply(&idx, root, &ch).context("apply delta")?;
+    Ok(())
 }
 
 /// Generation + 1 of the index this process last opened through `open_fresh`
@@ -163,13 +240,24 @@ pub struct Opened {
     pub fresh_method: &'static str,
     pub fresh_ms: f64,
     pub fresh_changed: usize,
+    /// Changes found but not applied (`open_fresh_deferred`): the caller
+    /// searches these files itself and a detached refresh publishes the delta.
+    pub pending: Option<fresh::Changes>,
 }
 
 /// Open the index for `o.root`, run the freshness check and apply deltas.
 /// `Ok(None)` means no usable index (a background build was spawned when
 /// possible) or that a rebuild is needed for this query.
 pub fn open_fresh(o: &Options, threads: usize) -> Result<Option<Opened>> {
-    open_fresh_with(o, threads, &mut || {})
+    open_fresh_with(o, threads, false, &mut || {})
+}
+
+/// `open_fresh` for a search (answer first, DESIGN.md §4.5): changes below
+/// the rebuild threshold are returned in `pending` instead of being applied,
+/// and a detached `greeg index --refresh` is queued for after the output.
+/// Verbs keep `open_fresh`: they need the symbols of the changed files.
+pub fn open_fresh_deferred(o: &Options, threads: usize) -> Result<Option<Opened>> {
+    open_fresh_with(o, threads, true, &mut || {})
 }
 
 /// The check to run again after another writer republished: the same mode,
@@ -177,8 +265,7 @@ pub fn open_fresh(o: &Options, threads: usize) -> Result<Option<Opened>> {
 /// (its walk may predate the change this query saw).
 fn retry_mode(idx: &Index, mode: Fresh) -> Fresh {
     match mode {
-        Fresh::Auto if cfg!(target_os = "macos") && idx.base.n_files >= 8000 => Fresh::FsEvents,
-        Fresh::Auto => Fresh::Stat,
+        Fresh::Auto => fresh::explicit_mode(idx),
         m => m,
     }
 }
@@ -188,6 +275,7 @@ fn retry_mode(idx: &Index, mode: Fresh) -> Fresh {
 fn open_fresh_with(
     o: &Options,
     threads: usize,
+    defer: bool,
     before_apply: &mut dyn FnMut(),
 ) -> Result<Option<Opened>> {
     let dir = match &o.index_dir {
@@ -209,6 +297,7 @@ fn open_fresh_with(
         "ttl"
     };
     let mut fresh_changed = 0;
+    let mut pending = None;
     let mut mode = o.fresh;
     // A delta is published only against the manifest it was computed from
     // (`fresh::apply` returns 0 when a build or another query republished in
@@ -228,6 +317,11 @@ fn open_fresh_with(
             let _ = fresh::apply(&idx, &o.root, &ch); // refresh TTL and event id
             break;
         }
+        if defer {
+            spawn_refresh(&o.root, &dir);
+            pending = Some(ch);
+            break;
+        }
         before_apply();
         let applied = fresh::apply(&idx, &o.root, &ch).context("apply delta")?;
         idx = Index::open(&dir)?;
@@ -244,13 +338,14 @@ fn open_fresh_with(
         fresh_method,
         fresh_ms: t_fresh.elapsed().as_secs_f64() * 1e3,
         fresh_changed,
+        pending,
     }))
 }
 
 /// Try to answer from the index. Ok(None) means "use scan mode".
 pub(crate) fn try_index(cx: &Ctx, threads: usize, t0: Instant) -> Result<Option<ScanResult>> {
     let o = cx.o;
-    let Some(op) = open_fresh(o, threads)? else {
+    let Some(op) = open_fresh_deferred(o, threads)? else {
         return Ok(None);
     };
     let idx = &op.idx;
@@ -271,15 +366,61 @@ pub(crate) fn try_index(cx: &Ctx, threads: usize, t0: Instant) -> Result<Option<
         ..Default::default()
     };
 
-    // plan
-    let q = plan::plan(
-        &o.pattern,
-        o.fixed_strings,
-        o.case_insensitive || (o.smart_case && !o.pattern.chars().any(|c| c.is_uppercase())),
-    )?;
-    stats.plan = format!("{q:?}");
-    let cands = idx.candidates(&q);
+    // plan: whole-word queries open only the files that hold the word (the
+    // word postings, DESIGN.md §3.2); everything else takes the trigram plan
+    let casei =
+        o.case_insensitive || (o.smart_case && !o.pattern.chars().any(|c| c.is_uppercase()));
+    let q = plan::plan(&o.pattern, o.fixed_strings, casei)?;
+    let identifier = o.budget != 0
+        && !matches!(o.mode, Mode::Files | Mode::Count)
+        && crate::shape::identifier_query(o);
+    let mut wq = plan::word_plan(&o.pattern, o.fixed_strings, casei, o.word, identifier);
+    // a bare identifier no live file holds as a whole word: its near-misses
+    // (`zeta` inside `zeta_new`) are this rung's answer, as before the word
+    // postings, so the trigram plan opens them instead of the ladder climbing
+    // to a mislabelled case-insensitive rung
+    if identifier
+        && !o.word
+        && wq
+            .as_deref()
+            .is_some_and(|alts| idx.word_candidates(alts).is_empty())
+    {
+        wq = None;
+    }
+    stats.plan = match &wq {
+        Some(alts) => format!(
+            "words {:?} · {q:?}",
+            alts.iter()
+                .map(|a| String::from_utf8_lossy(a).into_owned())
+                .collect::<Vec<_>>()
+        ),
+        None => format!("{q:?}"),
+    };
+    let mut cands = idx.candidates_with(&q, wq.as_deref());
+    let related_index = if identifier && wq.is_some() {
+        idx.words_containing(&o.pattern, 4)
+    } else {
+        Vec::new()
+    };
     stats.files_walked = idx.live_count() as usize;
+    // answer first (DESIGN.md §4.5): files the freshness check found changed
+    // are searched from disk below with scan-mode classification, their
+    // indexed versions leave the candidates, and the delta is published after
+    // the output by the detached refresh `open_fresh_deferred` queued
+    let mut extras: Vec<(String, u32)> = Vec::new(); // (rel, superseded id or NONE)
+    if let Some(ch) = &op.pending {
+        for (id, w) in &ch.modified {
+            cands.remove(*id);
+            extras.push((w.rel.clone(), *id));
+        }
+        for id in &ch.deleted {
+            cands.remove(*id);
+        }
+        for w in &ch.added {
+            extras.push((w.rel.clone(), NONE));
+        }
+        stats.fresh_deferred = extras.len() + ch.deleted.len();
+    }
 
     // filters: paths, globs, types, flag exclusions
     let mut paths: Vec<String> = Vec::with_capacity(o.paths.len());
@@ -332,28 +473,25 @@ pub(crate) fn try_index(cx: &Ctx, threads: usize, t0: Instant) -> Result<Option<
     } else {
         Some(crate::build_types(o)?)
     };
-    let mut entries: Vec<(u8, u32, &str)> = Vec::with_capacity(cands.len() as usize);
-    'files: for id in cands.iter() {
-        let Some(rec) = idx.rec(id) else { continue };
-        let rel = idx.path(id).unwrap_or("");
+    // ripgrep precedence: an override glob decides first (whitelist wins over
+    // types); ignore globs also apply to every ancestor directory, as the
+    // walker would prune them. Returns the prior order: source before demoted.
+    let admit = |rel: &str, flags: FileFlags| -> Option<u8> {
         if !path_allowed(rel, &paths) {
-            continue;
+            return None;
         }
-        // ripgrep precedence: an override glob decides first (whitelist wins over
-        // types); ignore globs also apply to every ancestor directory, as the
-        // walker would prune them.
         let mut decided = false;
         if let Some(ov) = &overrides {
             let m = ov.matched(rel, false);
             if m.is_ignore() {
-                continue;
+                return None;
             }
             decided = m.is_whitelist();
             let mut end = 0;
             while let Some(k) = rel[end..].find('/') {
                 end += k;
                 if ov.matched(&rel[..end], true).is_ignore() {
-                    continue 'files;
+                    return None;
                 }
                 end += 1;
             }
@@ -362,11 +500,10 @@ pub(crate) fn try_index(cx: &Ctx, threads: usize, t0: Instant) -> Result<Option<
             && let Some(t) = &types
             && t.matched(rel, false).is_ignore()
         {
-            continue;
+            return None;
         }
-        let flags = FileFlags(rec.flags);
         if flags.has(FileFlags::BINARY) {
-            continue;
+            return None;
         }
         if !o.all
             && (o.no_tests && flags.has(FileFlags::TEST)
@@ -374,31 +511,53 @@ pub(crate) fn try_index(cx: &Ctx, threads: usize, t0: Instant) -> Result<Option<
                 || o.no_generated
                     && flags.has(FileFlags::GENERATED | FileFlags::MINIFIED | FileFlags::LOCKFILE))
         {
-            continue;
+            return None;
         }
-        // prior order: source before demoted, then path
-        let prio = if flags.has(FileFlags::MINIFIED) {
+        Some(if flags.has(FileFlags::MINIFIED) {
             3
         } else if flags.demoted() {
             2
         } else {
             0
-        };
-        entries.push((prio, id, rel));
+        })
+    };
+    // (prio, id or NONE for a changed file read from disk, superseded id, rel)
+    let mut entries: Vec<(u8, u32, u32, &str)> =
+        Vec::with_capacity(cands.len() as usize + extras.len());
+    for id in cands.iter() {
+        let Some(rec) = idx.rec(id) else { continue };
+        let rel = idx.path(id).unwrap_or("");
+        if let Some(prio) = admit(rel, FileFlags(rec.flags)) {
+            entries.push((prio, id, NONE, rel));
+        }
     }
-    entries.sort_unstable_by(|a, b| a.0.cmp(&b.0).then(a.2.cmp(b.2)));
+    for (rel, prev) in &extras {
+        if let Some(prio) = admit(rel, greeg_lang::path_flags(rel)) {
+            entries.push((prio, NONE, *prev, rel.as_str()));
+        }
+    }
+    entries.sort_unstable_by(|a, b| a.0.cmp(&b.0).then(a.3.cmp(b.3)));
     stats.candidates = entries.len();
 
     // verify candidates with the reader pool; classify from the index when it has symbols
     let use_spans = idx.has_symbols() && cx.classify;
-    let cx2 = Ctx {
+    let cx_idx = Ctx {
         o,
         matcher: cx.matcher,
         stats: cx.stats,
         classify: cx.classify && !use_spans,
         filter_kinds: !use_spans,
     };
-    let cx = &cx2;
+    // a changed file has no spans yet: line-local classification, as in a scan
+    let cx_scan = Ctx {
+        o,
+        matcher: cx.matcher,
+        stats: cx.stats,
+        classify: cx.classify,
+        filter_kinds: true,
+    };
+    let cx = &cx_idx;
+    let cx_scan = &cx_scan;
     let out: Mutex<Vec<FileResult>> = Mutex::new(Vec::new());
     let next = AtomicUsize::new(0);
     let root = &o.root;
@@ -419,21 +578,35 @@ pub(crate) fn try_index(cx: &Ctx, threads: usize, t0: Instant) -> Result<Option<
                     if i >= entries.len() {
                         break;
                     }
-                    let (_, id, rel) = &entries[i];
+                    let (_, id, prev, rel) = &entries[i];
+                    let changed = *id == NONE;
                     let path: PathBuf = root.join(rel);
-                    if let Some(mut fr) =
-                        process_file(cx, &path, rel.to_string(), &mut searcher, &mut buf)
-                    {
-                        fr.file_id = Some(*id);
+                    if let Some(mut fr) = process_file(
+                        if changed { cx_scan } else { cx },
+                        &path,
+                        rel.to_string(),
+                        &mut searcher,
+                        &mut buf,
+                    ) {
+                        if !changed {
+                            fr.file_id = Some(*id);
+                        }
                         if let Some(d) = display_rel(rel) {
                             fr.rel = d;
                         }
                         let t = Instant::now();
-                        if use_spans {
+                        if use_spans && !changed {
                             classify_from_index(idx, *id, &mut fr, o, &buf);
                         }
-                        // PageRank term of the prior (DESIGN.md §6.3): 0.8 was the placeholder
-                        let rank = idx.rank(*id);
+                        // PageRank term of the prior (DESIGN.md §6.3): 0.8 was the
+                        // placeholder; an edited file keeps its rank, a new one is neutral
+                        let rank = if !changed {
+                            idx.rank(*id)
+                        } else if *prev != NONE {
+                            idx.rank(*prev)
+                        } else {
+                            0.5
+                        };
                         let k = (0.6 + 0.4 * rank) / 0.8;
                         fr.prior *= k;
                         for h in &mut fr.hits {
@@ -462,7 +635,6 @@ pub(crate) fn try_index(cx: &Ctx, threads: usize, t0: Instant) -> Result<Option<
         eprintln!("greeg: index component unreadable; rebuilding in the background");
         mark_corrupt(o);
     }
-    let _ = Mode::Files;
     Ok(Some(ScanResult {
         opts: o.clone(),
         files,
@@ -470,6 +642,7 @@ pub(crate) fn try_index(cx: &Ctx, threads: usize, t0: Instant) -> Result<Option<
         rung: Rung::Exact,
         ignored_only: None,
         ignored_partial: false,
+        related_index,
     }))
 }
 
@@ -709,7 +882,7 @@ mod tests {
                 assert_eq!(fresh::apply(&other, &root, &other_ch).unwrap(), 1);
             }
         };
-        let op = open_fresh_with(&o, 1, &mut race)
+        let op = open_fresh_with(&o, 1, false, &mut race)
             .unwrap()
             .expect("index usable");
         assert!(raced);
@@ -737,6 +910,324 @@ mod tests {
                 .unwrap()
                 .is_empty()
         );
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    /// A search after an edit answers from the changed files directly (old
+    /// versions leave the candidates, deleted files vanish, new files appear)
+    /// and leaves the delta to the detached refresh (DESIGN.md §4.5).
+    #[test]
+    fn deferred_delta_answers_first() {
+        use greeg_index::build::{BuildOpts, build};
+        let base = std::env::temp_dir().join(format!("greeg-deferred-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        let root = base.join("tree");
+        let dir = base.join("index");
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::create_dir_all(root.join(".git")).unwrap();
+        fs::write(root.join("src/main.rs"), "fn main() { helper_alpha(); }\n").unwrap();
+        fs::write(
+            root.join("src/lib.rs"),
+            "pub fn helper_alpha() {}\npub fn omega_gone() {}\n",
+        )
+        .unwrap();
+        for i in 0..60 {
+            fs::write(
+                root.join(format!("src/f{i}.rs")),
+                format!("pub fn filler_{i}() {{}}\n"),
+            )
+            .unwrap();
+        }
+        build(
+            &root,
+            &dir,
+            &BuildOpts {
+                reader_threads: 1,
+                quiet: true,
+                phase1_only: true,
+            },
+        )
+        .unwrap();
+        let o = Options {
+            root: root.clone(),
+            index_dir: Some(dir.clone()),
+            fresh: Fresh::Stat,
+            pattern: "omega".to_string(),
+            ..Default::default()
+        };
+        let rels =
+            |r: &ScanResult| -> Vec<String> { r.files.iter().map(|f| f.rel.clone()).collect() };
+        let r = crate::scan(&o).unwrap();
+        assert_eq!(r.stats.source, "index");
+        assert_eq!(rels(&r), ["src/lib.rs"]);
+        assert_eq!(
+            r.rung,
+            Rung::Exact,
+            "near-misses of a bare identifier answer on rung 1"
+        );
+        assert_eq!(r.stats.fresh_deferred, 0);
+
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        fs::write(root.join("src/main.rs"), "fn main() { omega_one(); }\n").unwrap();
+        fs::remove_file(root.join("src/lib.rs")).unwrap();
+        fs::write(root.join("src/new.rs"), "fn omega_two() {}\n").unwrap();
+
+        let r = crate::scan(&o).unwrap();
+        assert_eq!(r.stats.source, "index");
+        assert_eq!(r.stats.fresh_deferred, 3, "modified + added + deleted");
+        assert_eq!(rels(&r), ["src/main.rs", "src/new.rs"]);
+        assert_eq!(r.files[0].hits[0].line, 1);
+        assert!(
+            r.files.iter().all(|f| f.file_id.is_none()),
+            "read from disk, not the index"
+        );
+        assert_eq!(
+            read_manifest(&dir).unwrap().deltas,
+            0,
+            "the delta is published after the answer, not before"
+        );
+
+        // the detached step
+        refresh_now(&root, &dir, 1).unwrap();
+        assert_eq!(read_manifest(&dir).unwrap().deltas, 1);
+        let r = crate::scan(&o).unwrap();
+        assert_eq!(r.stats.fresh_deferred, 0);
+        assert_eq!(rels(&r), ["src/main.rs", "src/new.rs"]);
+        assert!(r.files.iter().all(|f| f.file_id.is_some()));
+        // the queued refresh must not leak into other tests as a real spawn
+        let _ = PENDING_BUILD.lock().unwrap().take();
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    /// Whole-word queries plan from the word postings: only the files holding
+    /// the word are opened, the near-misses come from the dictionary, and
+    /// parity mode keeps the trigram plan (DESIGN.md §3.2).
+    #[test]
+    fn word_plan_opens_only_the_files_with_the_word() {
+        use greeg_index::build::{BuildOpts, build};
+        let base = std::env::temp_dir().join(format!("greeg-words-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        let root = base.join("tree");
+        let dir = base.join("index");
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::create_dir_all(root.join(".git")).unwrap();
+        fs::write(root.join("src/a.rs"), "fn alpha() {}\n").unwrap();
+        fs::write(root.join("src/b.rs"), "fn alpha_beta() { alphabet(); }\n").unwrap();
+        fs::write(
+            root.join("src/c.rs"),
+            "fn alphabet() {}\nfn other() { alpha(); }\n",
+        )
+        .unwrap();
+        fs::write(root.join("src/d.rs"), "// nothing here\n").unwrap();
+        build(
+            &root,
+            &dir,
+            &BuildOpts {
+                reader_threads: 1,
+                quiet: true,
+                phase1_only: true,
+            },
+        )
+        .unwrap();
+        let o = Options {
+            root: root.clone(),
+            index_dir: Some(dir.clone()),
+            fresh: Fresh::None,
+            pattern: "alpha".to_string(),
+            word: true,
+            ..Default::default()
+        };
+        let rels =
+            |r: &ScanResult| -> Vec<String> { r.files.iter().map(|f| f.rel.clone()).collect() };
+        let r = crate::scan(&o).unwrap();
+        assert!(
+            r.stats.plan.starts_with("words [\"alpha\"]"),
+            "{}",
+            r.stats.plan
+        );
+        assert_eq!(r.stats.candidates, 2, "a.rs and c.rs hold the word");
+        assert_eq!(rels(&r), ["src/a.rs", "src/c.rs"]);
+
+        // a bare identifier in a ranked layout: the whole word, plus the
+        // dictionary's near-misses with file counts
+        let o2 = Options {
+            word: false,
+            ..o.clone()
+        };
+        let r = crate::scan(&o2).unwrap();
+        assert!(r.stats.plan.starts_with("words"), "{}", r.stats.plan);
+        assert_eq!(rels(&r), ["src/a.rs", "src/c.rs"]);
+        assert_eq!(
+            r.related_index,
+            vec![("alphabet".to_string(), 2), ("alpha_beta".to_string(), 1)]
+        );
+
+        // parity mode keeps ripgrep's substring semantics through the grams
+        let o3 = Options {
+            budget: 0,
+            ..o2.clone()
+        };
+        let r = crate::scan(&o3).unwrap();
+        assert!(!r.stats.plan.starts_with("words"), "{}", r.stats.plan);
+        assert_eq!(rels(&r), ["src/a.rs", "src/b.rs", "src/c.rs"]);
+        assert!(r.related_index.is_empty());
+
+        // an unindexed word opens nothing
+        let o4 = Options {
+            pattern: "gamma".to_string(),
+            ..o.clone()
+        };
+        let r = crate::scan(&o4).unwrap();
+        assert_eq!(r.stats.candidates, 0);
+        assert!(r.files.is_empty());
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    /// The delta a refresh publishes carries word postings: a whole-word query
+    /// answers a word that exists only in the edited files from the delta, the
+    /// superseded version's words are gone, and the dictionary's near-misses
+    /// include the delta's words.
+    #[test]
+    fn delta_word_postings_answer_after_refresh() {
+        use greeg_index::build::{BuildOpts, build};
+        let base = std::env::temp_dir().join(format!("greeg-delta-words-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        let root = base.join("tree");
+        let dir = base.join("index");
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::create_dir_all(root.join(".git")).unwrap();
+        fs::write(root.join("src/main.rs"), "fn main() { helper_alpha(); }\n").unwrap();
+        fs::write(root.join("src/lib.rs"), "pub fn helper_alpha() {}\n").unwrap();
+        for i in 0..60 {
+            fs::write(
+                root.join(format!("src/f{i}.rs")),
+                format!("pub fn filler_{i}() {{}}\n"),
+            )
+            .unwrap();
+        }
+        build(
+            &root,
+            &dir,
+            &BuildOpts {
+                reader_threads: 1,
+                quiet: true,
+                phase1_only: true,
+            },
+        )
+        .unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        fs::write(root.join("src/main.rs"), "fn main() { zeta_new(); }\n").unwrap();
+        fs::write(root.join("src/new.rs"), "fn zeta_other() {}\n").unwrap();
+        refresh_now(&root, &dir, 1).unwrap();
+        assert_eq!(read_manifest(&dir).unwrap().deltas, 1);
+
+        let o = Options {
+            root: root.clone(),
+            index_dir: Some(dir.clone()),
+            fresh: Fresh::None,
+            pattern: "zeta_new".to_string(),
+            word: true,
+            ..Default::default()
+        };
+        let rels =
+            |r: &ScanResult| -> Vec<String> { r.files.iter().map(|f| f.rel.clone()).collect() };
+        let r = crate::scan(&o).unwrap();
+        assert!(r.stats.plan.starts_with("words"), "{}", r.stats.plan);
+        assert_eq!(
+            r.stats.candidates, 1,
+            "the delta's postings name main.rs only"
+        );
+        assert_eq!(rels(&r), ["src/main.rs"]);
+        assert!(r.files[0].file_id.is_some(), "answered from the delta");
+
+        // the superseded main.rs held `helper_alpha`; its postings are tombstoned
+        let r = crate::scan(&Options {
+            pattern: "helper_alpha".to_string(),
+            ..o.clone()
+        })
+        .unwrap();
+        assert_eq!(r.stats.candidates, 1);
+        assert_eq!(rels(&r), ["src/lib.rs"]);
+
+        // a bare identifier no file holds as a whole word: the trigram plan
+        // opens the near-misses on this rung (base and delta), no ladder climb
+        let r = crate::scan(&Options {
+            pattern: "zeta".to_string(),
+            word: false,
+            ..o.clone()
+        })
+        .unwrap();
+        assert!(!r.stats.plan.starts_with("words"), "{}", r.stats.plan);
+        assert_eq!(r.rung, Rung::Exact);
+        assert_eq!(rels(&r), ["src/main.rs", "src/new.rs"]);
+        assert!(r.related_index.is_empty());
+        // `-w` keeps the whole-word answer: nothing opened, the ladder's
+        // next rung finds the near-misses
+        let r = crate::scan(&Options {
+            pattern: "zeta".to_string(),
+            ..o.clone()
+        })
+        .unwrap();
+        assert_eq!(r.rung, Rung::NoWord);
+        assert_eq!(rels(&r), ["src/main.rs", "src/new.rs"]);
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    /// One refresher per index: a live `REFRESHING` marker makes `refresh_now`
+    /// a no-op, a stale one (its refresher died) is taken over and removed.
+    #[test]
+    fn refresh_marker_serializes_refreshers() {
+        use greeg_index::build::{BuildOpts, build};
+        let base =
+            std::env::temp_dir().join(format!("greeg-refresh-marker-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        let root = base.join("tree");
+        let dir = base.join("index");
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::create_dir_all(root.join(".git")).unwrap();
+        for i in 0..60 {
+            fs::write(
+                root.join(format!("src/f{i}.rs")),
+                format!("pub fn filler_{i}() {{}}\n"),
+            )
+            .unwrap();
+        }
+        build(
+            &root,
+            &dir,
+            &BuildOpts {
+                reader_threads: 1,
+                quiet: true,
+                phase1_only: true,
+            },
+        )
+        .unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        fs::write(root.join("src/f0.rs"), "pub fn filler_changed() {}\n").unwrap();
+        let marker = dir.join("REFRESHING");
+        fs::write(&marker, "1\n").unwrap();
+        refresh_now(&root, &dir, 1).unwrap();
+        assert_eq!(
+            read_manifest(&dir).unwrap().deltas,
+            0,
+            "another refresher owns it"
+        );
+        assert!(marker.exists());
+        // the owner died: a marker older than thirty seconds is taken over
+        let old = std::time::SystemTime::now() - std::time::Duration::from_secs(120);
+        fs::OpenOptions::new()
+            .write(true)
+            .open(&marker)
+            .unwrap()
+            .set_modified(old)
+            .unwrap();
+        refresh_now(&root, &dir, 1).unwrap();
+        assert_eq!(read_manifest(&dir).unwrap().deltas, 1);
+        assert!(!marker.exists(), "released after the publish");
+        // nothing pending: a second refresh publishes nothing and releases again
+        refresh_now(&root, &dir, 1).unwrap();
+        assert_eq!(read_manifest(&dir).unwrap().deltas, 1);
+        assert!(!marker.exists());
         let _ = fs::remove_dir_all(&base);
     }
 

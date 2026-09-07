@@ -1,6 +1,6 @@
 # greeg — Technical Design
 
-Status: v1.4, 2026-09-02, updated through M7 (v0.2 review fixes; the shipped output contract is `OUTPUT.md`) (implementation notes are marked "As shipped"). Companion to `PLAN.md`. Every number in this
+Status: v1.5, 2026-09-06, updated through M10 (word postings, answer-first deltas; the shipped output contract is `OUTPUT.md`) (implementation notes are marked "As shipped"). Companion to `PLAN.md`. Every number in this
 document is either measured on the reference machine (Apple M4 Pro, 12 cores,
 24 GB, macOS 25.5, APFS) or marked as a target.
 
@@ -65,7 +65,8 @@ requirement.
   number of changed files, answers, exits. No daemon needed.
 * `greeg index [--wait]`: builds or rebuilds the index. On first query in a repo
   without an index, the query process forks a detached `greeg index` and answers
-  the current query in scan mode. Subsequent queries use whatever phase has
+  the current query in scan mode. `greeg index --refresh` is the detached step
+  of a search that answered around changed files (§4.5): it publishes the delta. Subsequent queries use whatever phase has
   completed (phase 1 grams enable candidate pruning before phase 2 symbols
   exist).
 * `greeg watch`: optional resident process using `notify` (FSEvents/inotify)
@@ -86,7 +87,10 @@ Single writer, many readers. Writers take an exclusive `flock` on `LOCK`.
 Readers never lock: every on-disk structure is immutable once published and
 publication is an atomic `rename` of a new file over the old name; readers that
 already mapped the old file keep a valid view until they exit. A `manifest`
-file names the current generation of every component.
+file names the current generation of every component. Base components are
+fsynced before the rename; delta segments are not (M10): `F_FULLFSYNC` cost
+4–5 ms of every post-edit query on APFS, and a delta torn by a crash fails
+`Index::open`, which rebuilds.
 
 ### 2.3 Files
 
@@ -183,6 +187,28 @@ What is indexed: files with `lang != 0` or a text mime guess, `size ≤ 4 MiB`
 `--include-huge`), not `BINARY`. `MINIFIED`/`GENERATED`/`VENDORED` files *are*
 indexed (renames need them) but carry flags that demote and summarize them.
 
+**Word index (`words.bin`, format v5, M10).** Next to the trigrams, one
+posting list per distinct word of a file: a maximal run of `[A-Za-z0-9_]`
+of 2–64 bytes, case preserved, with bytes ≥ 0x80 as separators so that
+every whole-word match of ripgrep's `\b` on an ASCII word is such a run
+(the candidate set stays a superset). The trigram plan cannot tell
+`createSourceFile` from `createSourceFileWithText` and opened 486 files on
+TypeScript-5.9 for 30 with a match; `-w node` opened 6,086 for 1,877. A
+whole-word query (`-w NAME`, a bare identifier in a ranked layout, `refs`,
+`\bNAME\b` and alternations of those) reads one bitmap per word instead:
+486 → 31 and 6,086 → 1,879 candidates, `createSourceFile` 8.8 → 4.3 ms and
+`-w node` 90 → 30 ms end to end. `-i`, non-ASCII words and parity mode
+(`--budget 0`, `-l`, `-c`, ripgrep's substring semantics) keep the grams, and
+so does a bare identifier that no live file holds as a whole word (its
+near-misses are that rung's answer, as before; `-w` keeps the empty answer
+and lets the ladder climb).
+The `related` line of a bare identifier comes from the dictionary (words
+containing the query, with file counts) without opening a file. Cost: the
+dictionary and its short bitmaps are 0.4–0.6× the gram section (TypeScript-5.9
+13.8 MB next to 35.1 MB of grams, rust 24 next to 41) and ≈ 10 % of phase 1;
+the M4 sparse-gram verdict stands for *substring* queries, which this index
+does not serve.
+
 ### 3.3 Symbols (`symbols.bin`)
 
 ```
@@ -214,8 +240,10 @@ when shown); `line` is the name's line. Per-name symbol lists are ordered
 best-first at build time from kind weight, visibility, test flag and file
 rank. Extraction covers 16 kinds (the table above plus `field` and
 `variant`); locals are suppressed by the query shapes themselves (function-
-valued `const`s only at program or export level, Python assignments only at
-module and class level) rather than by a `locals.scm`.
+valued `const`s only at program or export level, Python assignments at
+module and class level plus `self.x = …` / `cls.x = …` attributes assigned in
+methods, moved to the class and kept once per name, and module-level names
+under `if`/`try` one level deep, M10) rather than by a `locals.scm`.
 
 ### 3.4 Span tables (`spans.bin`)
 
@@ -397,6 +425,24 @@ extraction deferred to a detached background process, otherwise the query runs
 in scan mode for the changed subset while a full re-index is spawned. In every
 case the answer reflects the working tree at query time.
 
+**As shipped (M10): a search answers first.** When the check finds changes
+below the rebuild threshold (`needs_rebuild`: an ignore file, more than
+2,000 files, 16 segments, or 5 % of the tree), the query drops the changed
+files' indexed versions from the candidates, reads and searches the changed
+files itself with scan-mode classification (an edited file keeps its rank, a
+new one is neutral), writes the answer, and only then spawns a detached
+`greeg index --refresh`, which runs the check again without the TTL and
+publishes the delta (one refresher per index behind a `REFRESHING` marker, a
+full build past the threshold). The answer is still the working tree at
+query time; what leaves the critical path is the extraction, whose fixed cost
+is the tree-sitter query compile (Rust 8 ms, Python 7, TypeScript 36, Kotlin
+34) plus the parse and the resolver's path map (7–23 ms on 74k files).
+Measured: a search after touching the 3 MB `src/compiler/checker.ts` on
+TypeScript-5.9 went from 273 ms to 35 ms, and the 200-file edit burst of
+`bench/edits.py` answers in 21 ms with the delta published within the
+second. Verbs still apply the delta inline: `def`, `refs` and `outline` need
+the changed files' symbols and spans.
+
 Git awareness: if `.git/HEAD` or the index file changed, the freshness check
 reads the git index (via `gix`) to get oids for tracked files and uses the blob
 cache for any oid it has seen; a branch switch over 10k files then costs
@@ -451,6 +497,17 @@ candidates than using all of them. Trigram false positives are 3–10 × on
 long identifiers (219 candidates for 19 true files for `createSourceFile` on
 the 66k-file tree), which verification absorbs in ≈ 15 ms; §5.3 exists to cut
 that.
+
+**Word plan (M10).** Before the gram plan is evaluated, `plan::word_plan`
+asks whether the pattern denotes whole words: the HIR is expanded into its
+token sequences (literals, `\b` looks, alternations and captures only, at
+most 64 sequences; regex-syntax factors a shared `\b` out of an alternation,
+so the tree shape is not trusted) and every sequence must be a bare literal
+under `-w` or `\b literal \b` otherwise, each literal a word the index
+holds. A bare identifier in a ranked layout qualifies on its own (the answer
+is the whole word, §6.4). The candidates are then the union of the words'
+postings per segment; a segment without a word section falls back to its
+grams, so the answer is always a superset of the matches.
 
 ### 5.3 Sparse grams (format v2)
 
@@ -636,7 +693,10 @@ Shaping algorithm:
    hits on the page the reader can already triangulate; measured on the SCIP
    oracle they cost more lines than they earn (PLAN.md M9). A bare identifier
    query also answers about the whole word only: hits inside longer
-   identifiers collapse to the `related` line (OUTPUT.md).
+   identifiers collapse to the `related` line (OUTPUT.md). With the word
+   index (M10) such a query never reads the near-miss files: the header and
+   footer count whole-word hits, and `related` names the identifiers that
+   contain the query with their file counts, from the dictionary.
 2. Else emit *facets first* (§10.3): counts by kind, by top-level directory
    (top 6), by language, by flag, plus the top definitions and the top 10 hits
    by score, all within the budget.
@@ -722,7 +782,12 @@ implemented.
    **As shipped:** `kind_w × exported(1.0 / 0.85) × nested(0.7 when the
    enclosing symbol is a function or method: a closure is not the
    definition an agent asks for while a top-level one exists) × loc_w ×
-   (0.6 + 0.4 × rank) × reach`.
+   (0.6 + 0.4 × rank) × reach`. File modules (`name.ext` in a language with
+   a grammar, `name/mod.rs`, `name/__init__.py`, `name/index.*`) join the
+   candidates at line 1 with weight 0.3, below every symbol kind, found by one `memmem` pass over the
+   path arena (M10); a Rust `mod x;` without a body is an import in the tags
+   query and the regex fallback, since its definition is that file, which is
+   also rust-analyzer's convention.
 3. Output the signature line, enclosing chain, doc comment first line, and
    caller count (from a cached reference count if computed in this session,
    else `?`).
@@ -989,9 +1054,14 @@ Results and the rendered `docs/BENCH.md` are in the repository.
 | Concept search | optional feature, entity BM25 | built-in embeddings | evidence favours lexical for agents; keeps binary and startup small |
 | Name dictionaries | sorted string tables + binary search; bounded Levenshtein scan for fuzzy | `fst` maps with Levenshtein automata | zero dependencies and zero-copy; fuzzy only runs on the zero-hit path where 10 ms is invisible; revisit if profiles disagree |
 | Rust macro bodies | re-parse brace-bodied macro invocations that contain item keywords as items | treat macro bodies as opaque (tree-sitter default) | tokio hides its public API inside `cfg_*!`; without this `def JoinHandle` missed the real struct |
+| Post-edit search | answer from the changed files read from disk, publish the delta from a detached process after the output | apply the delta inline before answering | the inline delta cost every search after an edit 28–150 ms (query compile, parse, resolver map, fsync) and the speed bench never measured it; verbs keep the inline apply for their symbols |
+| Delta durability | no fsync on delta segments; a torn delta fails to open and rebuilds | fsync every published file | `F_FULLFSYNC` was 4–5 ms of the 28 ms a tokio edit cost the next query; the index is a cache |
+| Python attributes | `self.x = …` / `cls.x = …` inside a method is a field of the class, first assignment wins | class-body assignments only | all seven django `def` misses were such attributes; scip-python marks every assignment a definition, an agent wants the `__init__` site |
+| Rust `mod x;` | an import; `def` lists the module's file at weight 0.3, after every symbol | a Module symbol at weight 1.0 | a hub `mod.rs` outranked `pub fn sleep` in ten of thirteen tokio `def` misses; rust-analyzer marks the declaration a reference and the file the definition |
 | Symbol line | line of the name | line of the declaration node | annotations and decorators start the node lines earlier; agents want the `fun`/`class` line (Kotlin agreement 62 % → 97 %) |
 | Delta symbols and edges | extracted inline; imports resolved against the base, rank carried over, edges folded at query time (§4.3) | leave deltas unresolved until the rebuild (v0.3) | the edited files are the agent's working set: `def --from`, `impact` and `map` on them lost every edge until a rebuild that fires only at 16 deltas or 5 % of the tree; the delta-time cost is ≈ 2 ms on the largest corpus |
 | Session identity | first non-shell ancestor pid | env-only ids | works with any agent harness without configuration; `--session` still overrides |
+| Word postings | one bitmap per distinct word of a file, next to the grams (format v5); whole-word plans read them, everything else the grams | sparse grams, positional postings | the false trigram candidates were 94 % of the reads of a rare identifier on the 74k-file tree and every whole-word query pays them; the word section costs 0.4–0.6× the grams and answers the identifier queries agents ask exactly |
 | Sparse grams | rejected after the M4 A/B (trigrams stay, no opt-in) | shipping as default or as a flag | every variant is larger (1.3–3.4× postings) and slower to build; the only 2× candidate cut is the superset scheme; verification of trigram false positives costs 1–3 ms |
 | FSEvents linkage | `dlopen` CoreFoundation/CoreServices on first use | link the frameworks | loading them cost ≈ 1 ms of every process start (2.3 → 1.7 ms); only large trees use FSEvents |
 | SIGBUS handling | re-exec with `--no-index` from the signal handler | sigsetjmp/longjmp, or crashing | execv is async-signal-safe and the re-run answers correctly; longjmp out of a Rust frame is unsound |
