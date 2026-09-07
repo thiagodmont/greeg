@@ -14,11 +14,16 @@
 //! argv, so the two join without passing state through the environment (an env
 //! assignment in front of the command would break `Bash(greeg:*)` allow rules).
 //! Recording is best effort: a failure never changes output or exit code.
+//!
+//! Every record names the build that made it ([`VERSION`]); a query keeps one
+//! replay per version, so `greeg stats compare A B` can put two builds side by
+//! side on the same queries and `greeg stats replay --binary PATH` can replay
+//! with another build.
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard, OnceLock};
@@ -35,6 +40,29 @@ const PAIR_WINDOW_MS: u64 = 120_000;
 /// Output kept in memory for the token estimate; beyond this only bytes are
 /// counted and the estimate is scaled (`--budget 0` can print megabytes).
 const CAPTURE_MAX: usize = 4 << 20;
+
+/// The build that produced a record: the package version, plus `+<commit>`
+/// for a build that is not at its release tag and `.dirty` for uncommitted
+/// changes (`build.rs`). Also what `greeg --version` prints.
+pub const VERSION: &str = match option_env!("GREEG_VERSION") {
+    Some(v) => v,
+    None => env!("CARGO_PKG_VERSION"),
+};
+/// Records older than 0.4 carry no version.
+pub const UNVERSIONED: &str = "unversioned";
+
+fn version_label(v: Option<&str>) -> &str {
+    v.unwrap_or(UNVERSIONED)
+}
+
+/// `want` names a version exactly, a release family (`0.4.0` covers
+/// `0.4.0+ff9011a.dirty`), or a build prefix once it holds a `+`.
+fn version_matches(have: Option<&str>, want: &str) -> bool {
+    let have = version_label(have);
+    have == want
+        || have.starts_with(&format!("{want}+"))
+        || (want.contains('+') && have.starts_with(want))
+}
 
 // ---------------------------------------------------------------- config
 
@@ -184,6 +212,9 @@ pub struct HookEvent {
     pub cwd: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session: Option<String>,
+    /// The greeg build whose hook rewrote it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
     /// The original segment as argv (`rg`, `-n`, `foo`, `src`).
     pub original: Vec<String>,
     /// The replacement as argv (`greeg`, `-n`, `foo`, `src`).
@@ -199,6 +230,9 @@ pub struct RunEvent {
     /// The agent session the process ran in (`CLAUDE_CODE_SESSION_ID`, else `GREEG_SESSION`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session: Option<String>,
+    /// The greeg build that ran.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
     pub argv: Vec<String>,
     /// `search` or the verb name.
     pub verb: String,
@@ -228,6 +262,12 @@ pub struct ReplayEvent {
     pub ts: u64,
     pub id: String,
     pub runs: usize,
+    /// The greeg build that answered (`--binary` replays another one).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    /// `rg --version` (or grep's) first line.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rg_version: Option<String>,
     pub rg_ms: f64,
     pub rg_bytes: usize,
     pub rg_tokens: usize,
@@ -294,6 +334,7 @@ pub fn record_hook(cwd: &Path, session: Option<&str>, original: &[String], rewri
         id: pair_id(cwd, rewritten),
         cwd: cwd.to_string_lossy().into_owned(),
         session: session.map(str::to_string),
+        version: Some(VERSION.to_string()),
         original: original.to_vec(),
         rewritten: rewritten.to_vec(),
     });
@@ -435,6 +476,7 @@ pub fn record_run(info: RunInfo) {
         id: pair_id(&cwd, &argv),
         cwd: cwd.to_string_lossy().into_owned(),
         session: agent_session(),
+        version: Some(VERSION.to_string()),
         argv,
         verb: info.verb.to_string(),
         wall_ms,
@@ -505,12 +547,15 @@ pub fn parse_since(s: &str) -> Result<u64> {
 }
 
 /// Filters shared by the report and the replay.
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct Filter {
     pub since_ms: Option<u64>,
     pub repo: Option<PathBuf>,
     /// An agent session id, or a prefix of one.
     pub session: Option<String>,
+    /// A greeg version (or release family): records made by that build, and
+    /// its replay records as the counterfactual.
+    pub greeg: Option<String>,
 }
 
 impl Filter {
@@ -524,8 +569,20 @@ impl Filter {
             .as_ref()
             .map(|r| std::fs::canonicalize(r).unwrap_or_else(|_| r.clone()))
     }
-    fn keep(&self, ts: u64, cwd: &str, cutoff: u64, repo: &Option<PathBuf>) -> bool {
+    fn keep(
+        &self,
+        ts: u64,
+        cwd: &str,
+        cutoff: u64,
+        repo: &Option<PathBuf>,
+        version: Option<&str>,
+    ) -> bool {
         if ts < cutoff {
+            return false;
+        }
+        if let Some(g) = &self.greeg
+            && !version_matches(version, g)
+        {
             return false;
         }
         match repo {
@@ -544,9 +601,36 @@ struct Loaded {
     runs: Vec<RunEvent>,
     /// `runs[i]` came from `hooks[pair[i]]`.
     pair: Vec<Option<usize>>,
-    replays: HashMap<String, ReplayEvent>,
+    /// Replay records per query, oldest first: one counterfactual per version.
+    replays: HashMap<String, Vec<ReplayEvent>>,
+    /// The version whose replays answer for a query (`--greeg`); else the newest.
+    greeg: Option<String>,
     /// Events on disk before filtering.
     total: usize,
+}
+
+impl Loaded {
+    /// The newest replay of a query under `want`: a record naming that exact
+    /// version first, else one it covers as a family or build prefix.
+    fn replay_of(&self, id: &str, want: &str) -> Option<&ReplayEvent> {
+        let v = self.replays.get(id)?;
+        v.iter()
+            .rev()
+            .find(|r| version_label(r.version.as_deref()) == want)
+            .or_else(|| {
+                v.iter()
+                    .rev()
+                    .find(|r| version_matches(r.version.as_deref(), want))
+            })
+    }
+
+    /// The counterfactual for a query: under the selected version, else the newest.
+    fn replay_for(&self, id: &str) -> Option<&ReplayEvent> {
+        match self.greeg.as_deref() {
+            Some(want) => self.replay_of(id, want),
+            None => self.replays.get(id)?.last(),
+        }
+    }
 }
 
 fn load(dir: &Path, f: &Filter) -> Loaded {
@@ -558,8 +642,12 @@ fn load(dir: &Path, f: &Filter) -> Loaded {
     let total = all.len();
     for e in all {
         match e {
-            Event::Hook(h) if f.keep(h.ts, &h.cwd, cutoff, &repo) => hooks.push(h),
-            Event::Run(r) if f.keep(r.ts, &r.cwd, cutoff, &repo) => runs.push(r),
+            Event::Hook(h) if f.keep(h.ts, &h.cwd, cutoff, &repo, h.version.as_deref()) => {
+                hooks.push(h)
+            }
+            Event::Run(r) if f.keep(r.ts, &r.cwd, cutoff, &repo, r.version.as_deref()) => {
+                runs.push(r)
+            }
             _ => {}
         }
     }
@@ -581,15 +669,16 @@ fn load(dir: &Path, f: &Filter) -> Loaded {
         hooks.retain(|h| h.session.as_deref().is_some_and(|s| s.starts_with(sid)));
         pair = pair_runs(&hooks, &runs);
     }
-    let replays = load_replays(dir)
-        .into_iter()
-        .map(|r| (r.id.clone(), r))
-        .collect();
+    let mut replays: HashMap<String, Vec<ReplayEvent>> = HashMap::new();
+    for r in load_replays(dir) {
+        replays.entry(r.id.clone()).or_default().push(r);
+    }
     Loaded {
         hooks,
         runs,
         pair,
         replays,
+        greeg: f.greeg.clone(),
         total,
     }
 }
@@ -946,6 +1035,10 @@ struct Summary {
     top_ms: Top,
     /// Runs per working directory, most runs first.
     dirs: Vec<DirRuns>,
+    /// greeg builds whose replays answer for the replayed runs, most used first.
+    replay_versions: Vec<(String, usize)>,
+    /// rg/grep versions on the other side.
+    rg_versions: Vec<(String, usize)>,
     /// Agent sessions, newest first.
     sessions: Vec<SessionRow>,
     /// Runs with no session id of their own or their hook's.
@@ -990,6 +1083,7 @@ fn summarize(l: &Loaded, cap: usize) -> Summary {
     let (mut rg_raw, mut rg_cap, mut gg_tok, mut d_tok) =
         (Vec::new(), Vec::new(), Vec::new(), Vec::new());
     let mut per_id: HashMap<&str, usize> = HashMap::new();
+    let (mut gv, mut rv): (BTreeMap<&str, usize>, BTreeMap<&str, usize>) = Default::default();
     let mut unreplayed = 0usize;
     let (mut tok_smaller, mut tok_larger, mut tok_equal) = (0usize, 0usize, 0usize);
     let (mut ms_faster, mut ms_slower, mut missed) = (0usize, 0usize, 0usize);
@@ -997,11 +1091,14 @@ fn summarize(l: &Loaded, cap: usize) -> Summary {
         if l.pair[i].is_none() {
             continue;
         }
-        let Some(rp) = l.replays.get(&r.id) else {
+        let Some(rp) = l.replay_for(&r.id) else {
             unreplayed += 1;
             continue;
         };
         *per_id.entry(rp.id.as_str()).or_default() += 1;
+        *gv.entry(version_label(rp.version.as_deref())).or_default() += 1;
+        *rv.entry(version_label(rp.rg_version.as_deref()))
+            .or_default() += 1;
         let ct = capped_tokens(rp, cap);
         let (dt, dm) = (ct - rp.greeg_tokens as f64, rp.rg_ms - rp.greeg_ms);
         rg_ms.push(rp.rg_ms);
@@ -1029,7 +1126,7 @@ fn summarize(l: &Loaded, cap: usize) -> Summary {
     let mut queries: Vec<PerQuery> = per_id
         .iter()
         .map(|(id, &n)| {
-            let rp = &l.replays[*id];
+            let rp = l.replay_for(id).expect("per_id holds replayed ids only");
             let ct = capped_tokens(rp, cap);
             PerQuery {
                 id: id.to_string(),
@@ -1056,6 +1153,12 @@ fn summarize(l: &Loaded, cap: usize) -> Summary {
     });
     let top_tokens = top_of(&queries, |q| q.saved_tokens);
     let top_ms = top_of(&queries, |q| q.saved_ms);
+    let by_count = |m: BTreeMap<&str, usize>| -> Vec<(String, usize)> {
+        let mut v: Vec<(String, usize)> = m.into_iter().map(|(k, n)| (k.to_string(), n)).collect();
+        v.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+        v
+    };
+    let (replay_versions, rg_versions) = (by_count(gv), by_count(rv));
 
     // sessions: a run belongs to its own session or, when rewritten, to its hook's
     let mut by_session: HashMap<&str, (SessionRow, HashMap<&str, usize>)> = HashMap::new();
@@ -1079,7 +1182,7 @@ fn summarize(l: &Loaded, cap: usize) -> Summary {
             row.verbs += 1;
         } else if l.pair[i].is_some() {
             row.rewritten += 1;
-            if let Some(rp) = l.replays.get(&r.id) {
+            if let Some(rp) = l.replay_for(&r.id) {
                 row.replayed += 1;
                 row.saved_tokens += capped_tokens(rp, cap) - rp.greeg_tokens as f64;
                 row.saved_ms += rp.rg_ms - rp.greeg_ms;
@@ -1158,9 +1261,18 @@ fn summarize(l: &Loaded, cap: usize) -> Summary {
         top_tokens,
         top_ms,
         dirs,
+        replay_versions,
+        rg_versions,
         sessions,
         runs_without_session,
     }
+}
+
+fn version_list(v: &[(String, usize)]) -> String {
+    v.iter()
+        .map(|(name, n)| format!("{name} ({n})"))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// A table row: label, distribution, cell formatter.
@@ -1248,7 +1360,13 @@ fn report_to(
     let l = load(dir, &o.filter);
     let cap = effective_cap(o.cap);
     if l.runs.is_empty() && l.hooks.is_empty() {
-        if let Some(sid) = o.filter.session.as_deref().filter(|_| l.total > 0) {
+        if let Some(v) = o.filter.greeg.as_deref().filter(|_| l.total > 0) {
+            writeln!(
+                w,
+                "greeg stats: no records made by greeg {v} ({} on disk); records older than 0.4 read as `{UNVERSIONED}`, `greeg stats status` counts them per build",
+                l.total
+            )?;
+        } else if let Some(sid) = o.filter.session.as_deref().filter(|_| l.total > 0) {
             writeln!(
                 w,
                 "greeg stats: no records for session {sid} ({} on disk); the hook records the session of every rewrite, greeg runs record CLAUDE_CODE_SESSION_ID since 0.4",
@@ -1310,6 +1428,12 @@ fn report_to(
                 "queries"
             },
             thousands(s.cap as f64)
+        )?;
+        writeln!(
+            w,
+            "  replayed with greeg {} · {}",
+            version_list(&s.replay_versions),
+            version_list(&s.rg_versions)
         )?;
         headline_row(w, "", "rg/grep", "greeg", "saved", "")?;
         headline_row(
@@ -1531,6 +1655,7 @@ fn write_json(w: &mut impl Write, s: &Summary, verbose: bool) -> Result<()> {
                    "rg_raw_replay": s.tk_rg_raw, "rg_capped_replay": s.tk_rg_cap, "greeg_replay": s.tk_gg,
                    "saved_per_query": s.tk_saved},
         "replayed": s.n_replayed, "unreplayed": s.unreplayed,
+        "replay_versions": s.replay_versions, "rg_versions": s.rg_versions,
         "savings": {
             "tokens": {"rg": s.tk_rg_cap.total, "greeg": s.tk_gg.total, "saved": s.tk_saved.total,
                        "pct": pct_of(s.tk_saved.total, s.tk_rg_cap.total), "median_per_query": s.tk_saved.p50,
@@ -1649,6 +1774,326 @@ fn sessions_to(
     Ok(())
 }
 
+// ---------------------------------------------------------------- compare
+
+/// `greeg stats compare A B`: two builds on the queries replayed under both.
+pub fn compare(o: &ReportOpts, a: &str, b: &str) -> Result<()> {
+    let dir = dir().context("no cache directory")?;
+    let mut w = std::io::stdout().lock();
+    compare_to(&mut w, &dir, o, a, b)
+}
+
+/// One query under both builds, weighted by the paired runs that used it.
+struct Pair<'a> {
+    id: &'a str,
+    n: usize,
+    a: &'a ReplayEvent,
+    b: &'a ReplayEvent,
+    command: String,
+}
+
+impl Pair<'_> {
+    fn saved_tokens(&self) -> f64 {
+        self.a.greeg_tokens as f64 - self.b.greeg_tokens as f64
+    }
+    fn saved_ms(&self) -> f64 {
+        self.a.greeg_ms - self.b.greeg_ms
+    }
+    /// B found nothing where A had matches.
+    fn regressed(&self) -> bool {
+        self.a.greeg_exit == 0 && self.b.greeg_exit != 0
+    }
+}
+
+fn compare_row(
+    w: &mut impl Write,
+    cw: usize,
+    label: &str,
+    va: &str,
+    vb: &str,
+    saved: &str,
+    note: &str,
+) -> Result<()> {
+    let line = format!("  {label:<22}{va:>cw$}{vb:>cw$}{saved:>cw$}  {note}");
+    writeln!(w, "{}", line.trim_end())?;
+    Ok(())
+}
+
+fn compare_to(w: &mut impl Write, dir: &Path, o: &ReportOpts, a: &str, b: &str) -> Result<()> {
+    let filter = Filter {
+        greeg: None,
+        ..o.filter.clone()
+    };
+    let l = load(dir, &filter);
+    let cap = effective_cap(o.cap);
+    let mut seen: BTreeMap<&str, usize> = BTreeMap::new();
+    let (mut ra, mut rb) = (0usize, 0usize);
+    for r in l.replays.values().flatten() {
+        *seen.entry(version_label(r.version.as_deref())).or_default() += 1;
+        ra += usize::from(version_matches(r.version.as_deref(), a));
+        rb += usize::from(version_matches(r.version.as_deref(), b));
+    }
+    if ra == 0 || rb == 0 {
+        let list = seen
+            .iter()
+            .rev()
+            .map(|(v, n)| format!("{v} ({n})"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        writeln!(
+            w,
+            "greeg stats compare: no replay records from greeg {} · versions seen: {} · `greeg stats replay --binary PATH` replays with another build",
+            if ra == 0 { a } else { b },
+            if list.is_empty() {
+                "none".to_string()
+            } else {
+                list
+            }
+        )?;
+        return Ok(());
+    }
+    let mut per_id: HashMap<&str, usize> = HashMap::new();
+    let (mut only_a, mut only_b) = (0usize, 0usize);
+    for (i, r) in l.runs.iter().enumerate() {
+        if l.pair[i].is_none() {
+            continue;
+        }
+        match (l.replay_of(&r.id, a), l.replay_of(&r.id, b)) {
+            (Some(_), Some(_)) => *per_id.entry(r.id.as_str()).or_default() += 1,
+            (Some(_), None) => only_a += 1,
+            (None, Some(_)) => only_b += 1,
+            (None, None) => {}
+        }
+    }
+    let mut pairs: Vec<Pair> = per_id
+        .iter()
+        .map(|(id, &n)| Pair {
+            id,
+            n,
+            a: l.replay_of(id, a).expect("replayed under a"),
+            b: l.replay_of(id, b).expect("replayed under b"),
+            command: l
+                .hooks
+                .iter()
+                .find(|h| h.id == *id)
+                .map(|h| shell_join(&h.original))
+                .unwrap_or_default(),
+        })
+        .collect();
+    pairs.sort_by(|x, y| {
+        y.saved_tokens()
+            .total_cmp(&x.saved_tokens())
+            .then_with(|| x.id.cmp(y.id))
+    });
+    if pairs.is_empty() {
+        writeln!(
+            w,
+            "greeg stats compare: no query replayed under both {a} and {b} ({only_a} under {a} only, {only_b} under {b} only)"
+        )?;
+        return Ok(());
+    }
+    let (mut ta, mut tb, mut dt) = (Vec::new(), Vec::new(), Vec::new());
+    let (mut ma, mut mb, mut dm, mut rg) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+    let (mut smaller, mut larger, mut equal) = (0usize, 0usize, 0usize);
+    let (mut faster, mut slower, mut regressed) = (0usize, 0usize, 0usize);
+    let mut covers: (BTreeMap<&str, usize>, BTreeMap<&str, usize>) = Default::default();
+    for p in &pairs {
+        for _ in 0..p.n {
+            ta.push(p.a.greeg_tokens as f64);
+            tb.push(p.b.greeg_tokens as f64);
+            dt.push(p.saved_tokens());
+            ma.push(p.a.greeg_ms);
+            mb.push(p.b.greeg_ms);
+            dm.push(p.saved_ms());
+            rg.push(capped_tokens(p.b, cap));
+            match p.saved_tokens().partial_cmp(&0.0) {
+                Some(Ordering::Greater) => smaller += 1,
+                Some(Ordering::Less) => larger += 1,
+                _ => equal += 1,
+            }
+            if p.saved_ms() > 0.0 {
+                faster += 1;
+            } else {
+                slower += 1;
+            }
+            regressed += usize::from(p.regressed());
+            *covers
+                .0
+                .entry(version_label(p.a.version.as_deref()))
+                .or_default() += 1;
+            *covers
+                .1
+                .entry(version_label(p.b.version.as_deref()))
+                .or_default() += 1;
+        }
+    }
+    let n = ta.len();
+    let (ta, tb, dt) = (Dist::of(ta), Dist::of(tb), Dist::of(dt));
+    let (ma, mb, dm, rg) = (Dist::of(ma), Dist::of(mb), Dist::of(dm), Dist::of(rg));
+    let top = {
+        let mut v: Vec<&Pair> = pairs.iter().filter(|p| p.saved_tokens() > 0.0).collect();
+        v.sort_by(|x, y| y.saved_tokens().total_cmp(&x.saved_tokens()));
+        v.iter().take(3).fold(Top::default(), |t, p| Top {
+            queries: t.queries + 1,
+            runs: t.runs + p.n,
+            saved: t.saved + p.n as f64 * p.saved_tokens(),
+        })
+    };
+    if o.json {
+        let rows: Vec<serde_json::Value> = pairs
+            .iter()
+            .map(|p| {
+                serde_json::json!({"id": p.id, "n": p.n, "a_tokens": p.a.greeg_tokens, "b_tokens": p.b.greeg_tokens,
+                    "saved_tokens": p.saved_tokens(), "a_ms": p.a.greeg_ms, "b_ms": p.b.greeg_ms, "saved_ms": p.saved_ms(),
+                    "regressed": p.regressed(), "command": if o.verbose { Some(&p.command) } else { None }})
+            })
+            .collect();
+        let out = serde_json::json!({
+            "a": a, "b": b, "cap": cap, "queries": n, "only_a": only_a, "only_b": only_b,
+            "tokens": {"a": ta, "b": tb, "saved": dt, "pct": pct_of(dt.total, ta.total),
+                       "b_smaller": smaller, "b_larger": larger, "equal": equal},
+            "time_ms": {"a": ma, "b": mb, "saved": dm, "pct": pct_of(dm.total, ma.total),
+                        "b_faster": faster, "b_slower": slower},
+            "vs_rg": {"rg": rg.total, "a_saved": rg.total - ta.total, "b_saved": rg.total - tb.total},
+            "top": top, "regressed": regressed, "queries_list": rows,
+        });
+        writeln!(w, "{}", serde_json::to_string_pretty(&out)?)?;
+        return Ok(());
+    }
+    writeln!(
+        w,
+        "compare greeg {a} → {b} · {} replayed under both · rg output capped at {} bytes",
+        plural(n, "query", "queries"),
+        thousands(cap as f64)
+    )?;
+    for (arg, map) in [(a, &covers.0), (b, &covers.1)] {
+        if map.len() > 1 {
+            let list = map
+                .iter()
+                .map(|(v, k)| format!("{v} ({k})"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            writeln!(w, "  {arg} covers {list}")?;
+        }
+    }
+    let cw = 13usize.max(a.len() + 2).max(b.len() + 2);
+    compare_row(w, cw, "", a, b, "saved", "")?;
+    compare_row(
+        w,
+        cw,
+        "tokens, total",
+        &thousands(ta.total),
+        &thousands(tb.total),
+        &thousands(dt.total),
+        &format!("{:.0}%", pct_of(dt.total, ta.total)),
+    )?;
+    let mut split = format!(
+        "{b} smaller on {}, larger on {}",
+        plural(smaller, "query", "queries"),
+        larger
+    );
+    if equal > 0 {
+        split.push_str(&format!(", equal on {equal}"));
+    }
+    compare_row(
+        w,
+        cw,
+        "tokens, typical query",
+        &thousands(ta.p50),
+        &thousands(tb.p50),
+        &thousands(dt.p50),
+        &split,
+    )?;
+    compare_row(
+        w,
+        cw,
+        "time, total",
+        &human_ms(ma.total),
+        &human_ms(mb.total),
+        &human_ms(dm.total),
+        &format!("{:.0}%", pct_of(dm.total, ma.total)),
+    )?;
+    compare_row(
+        w,
+        cw,
+        "time, typical query",
+        &human_ms(ma.p50),
+        &human_ms(mb.p50),
+        &human_ms(dm.p50),
+        &format!(
+            "{b} faster on {}, slower on {}",
+            plural(faster, "query", "queries"),
+            slower
+        ),
+    )?;
+    writeln!(
+        w,
+        "  typical = median; on those rows `saved` is the median of the per-query differences · time is only fair when both builds were replayed back to back (`replay --binary`)"
+    )?;
+    writeln!(
+        w,
+        "  vs rg/grep: {a} saved {} tokens ({:.0}%), {b} saved {} ({:.0}%)",
+        thousands(rg.total - ta.total),
+        pct_of(rg.total - ta.total, rg.total),
+        thousands(rg.total - tb.total),
+        pct_of(rg.total - tb.total, rg.total)
+    )?;
+    let others = n - top.runs;
+    let rest = dt.total - top.saved;
+    if top.queries > 0 && others > 0 && top.saved > rest.abs() {
+        writeln!(
+            w,
+            "  the {} {} tokens; the other {} net {} (--verbose lists every query)",
+            largest(&top, "token"),
+            thousands(top.saved),
+            plural(others, "query", "queries"),
+            thousands(rest)
+        )?;
+    }
+    if regressed > 0 {
+        writeln!(
+            w,
+            "  {} found nothing under {b} where {a} had matches (--verbose marks them with !)",
+            plural(regressed, "query", "queries")
+        )?;
+    }
+    if only_a + only_b > 0 {
+        writeln!(
+            w,
+            "  {} replayed under {a} only, {} under {b} only",
+            plural(only_a, "query", "queries"),
+            only_b
+        )?;
+    }
+    if o.verbose {
+        writeln!(w)?;
+        writeln!(
+            w,
+            "replayed queries, largest saving first (A = {a}, B = {b}; ! = found nothing under B where A had matches)"
+        )?;
+        writeln!(
+            w,
+            "{:>4}  {:>9} {:>8} {:>8} {:>8} {:>8}  command",
+            "n", "saved tok", "A tok", "B tok", "A ms", "B ms"
+        )?;
+        for p in &pairs {
+            writeln!(
+                w,
+                "{:>4}{} {:>9} {:>8} {:>8} {:>8} {:>8}  {}",
+                p.n,
+                if p.regressed() { "!" } else { " " },
+                thousands(p.saved_tokens()),
+                thousands(p.a.greeg_tokens as f64),
+                thousands(p.b.greeg_tokens as f64),
+                ms(p.a.greeg_ms),
+                ms(p.b.greeg_ms),
+                p.command
+            )?;
+        }
+    }
+    Ok(())
+}
+
 // ---------------------------------------------------------------- enable / status / clear
 
 pub fn enable(cap: Option<usize>) -> Result<()> {
@@ -1702,10 +2147,23 @@ pub fn status() -> Result<()> {
         }
     );
     println!("records: {}", d.display());
+    println!("greeg: {VERSION}");
     let ev = load_events(&d);
     let hooks = ev.iter().filter(|e| matches!(e, Event::Hook(_))).count();
     let runs = ev.len() - hooks;
-    let replays = load_replays(&d).len();
+    let all_replays = load_replays(&d);
+    let replays = all_replays.len();
+    // (hook rewrites, runs, replays) per build
+    let mut by: BTreeMap<&str, (usize, usize, usize)> = BTreeMap::new();
+    for e in &ev {
+        match e {
+            Event::Hook(h) => by.entry(version_label(h.version.as_deref())).or_default().0 += 1,
+            Event::Run(r) => by.entry(version_label(r.version.as_deref())).or_default().1 += 1,
+        }
+    }
+    for r in &all_replays {
+        by.entry(version_label(r.version.as_deref())).or_default().2 += 1;
+    }
     let (first, last) = ev
         .iter()
         .map(|e| match e {
@@ -1721,6 +2179,11 @@ pub fn status() -> Result<()> {
             date(first),
             date(last)
         );
+    }
+    if by.len() > 1 || by.keys().next().is_some_and(|v| *v != UNVERSIONED) {
+        for (v, (h, r, p)) in by.iter().rev() {
+            println!("  {v:<26} {r} runs, {h} hook rewrites, {p} replays");
+        }
     }
     println!("rg output cap: {} bytes", effective_cap(None));
     Ok(())
@@ -1753,6 +2216,102 @@ pub struct ReplayOpts {
     pub limit: Option<usize>,
     pub force: bool,
     pub timeout: Duration,
+    /// Replay with this greeg binary instead of the running one.
+    pub binary: Option<PathBuf>,
+}
+
+/// The greeg that answers a replay: the running binary, or another build
+/// with an index directory of its own under the stats cache (index formats
+/// differ between versions, and two builds must not rebuild each other's).
+struct Greeg {
+    bin: PathBuf,
+    version: String,
+    index_base: Option<PathBuf>,
+}
+
+/// `greeg 0.3.0` → `0.3.0`.
+fn parse_version_output(s: &str) -> Option<String> {
+    let (name, ver) = s.lines().next()?.trim().split_once(' ')?;
+    (name == "greeg" && !ver.trim().is_empty()).then(|| ver.trim().to_string())
+}
+
+/// First line of `<prog> --version`.
+fn tool_version(prog: &str) -> Option<String> {
+    let out = std::process::Command::new(prog)
+        .arg("--version")
+        .output()
+        .ok()?;
+    out.status
+        .success()
+        .then(|| {
+            String::from_utf8_lossy(&out.stdout)
+                .lines()
+                .next()
+                .unwrap_or("")
+                .trim()
+                .to_string()
+        })
+        .filter(|s| !s.is_empty())
+}
+
+impl Greeg {
+    fn current() -> Result<Greeg> {
+        Ok(Greeg {
+            bin: std::env::current_exe()?,
+            version: VERSION.to_string(),
+            index_base: None,
+        })
+    }
+
+    fn at(bin: &Path, stats_dir: &Path) -> Result<Greeg> {
+        let out = std::process::Command::new(bin)
+            .arg("--version")
+            .output()
+            .with_context(|| format!("run {} --version", bin.display()))?;
+        let version = parse_version_output(&String::from_utf8_lossy(&out.stdout))
+            .with_context(|| format!("{} is not a greeg binary", bin.display()))?;
+        let safe: String = version
+            .chars()
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || c == '.' || c == '-' {
+                    c
+                } else {
+                    '_'
+                }
+            })
+            .collect();
+        Ok(Greeg {
+            bin: bin.to_path_buf(),
+            version,
+            index_base: Some(stats_dir.join("index").join(safe)),
+        })
+    }
+
+    /// Index directory for `cwd`: the live one, or this build's own.
+    fn index_dir(&self, cwd: &Path) -> Result<PathBuf> {
+        match &self.index_base {
+            None => greeg_index::index_dir_for(cwd),
+            Some(base) => {
+                let real = std::fs::canonicalize(cwd).unwrap_or_else(|_| cwd.to_path_buf());
+                let hex = blake3::hash(real.to_string_lossy().as_bytes()).to_hex();
+                Ok(base.join(&hex[..16]))
+            }
+        }
+    }
+
+    fn has_index(&self, cwd: &Path) -> bool {
+        match &self.index_base {
+            None => self
+                .index_dir(cwd)
+                .ok()
+                .and_then(|d| greeg_index::read_manifest(&d))
+                .is_some(),
+            // another build's format: its manifest is not ours to parse
+            Some(_) => self
+                .index_dir(cwd)
+                .is_ok_and(|d| d.join("manifest").is_file()),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -1773,13 +2332,22 @@ fn drain<R: Read + Send + 'static>(r: Option<R>) -> std::thread::JoinHandle<Vec<
     })
 }
 
-/// Run `argv` in `cwd` once, capturing both streams (what the model reads).
-/// Killed past `timeout`: a recorded search on a huge tree must not hang the replay.
-fn run_once(argv: &[String], cwd: &Path, greeg: bool, timeout: Duration) -> Result<Timed> {
+/// Run `argv` in `cwd` once, capturing both streams (what the model reads);
+/// `greeg` names the build to run for a greeg command. Killed past `timeout`:
+/// a recorded search on a huge tree must not hang the replay.
+fn run_once(
+    argv: &[String],
+    cwd: &Path,
+    greeg: Option<&Greeg>,
+    timeout: Duration,
+) -> Result<Timed> {
     use std::process::{Command, Stdio};
-    let mut cmd = if greeg {
-        let mut c = Command::new(std::env::current_exe()?);
+    let mut cmd = if let Some(g) = greeg {
+        let mut c = Command::new(&g.bin);
         c.args(&argv[1..]).arg("--no-session");
+        if g.index_base.is_some() {
+            c.env("GREEG_INDEX_DIR", g.index_dir(cwd)?);
+        }
         c
     } else {
         let mut c = Command::new(&argv[0]);
@@ -1823,7 +2391,7 @@ fn run_once(argv: &[String], cwd: &Path, greeg: bool, timeout: Duration) -> Resu
 fn run_n(
     argv: &[String],
     cwd: &Path,
-    greeg: bool,
+    greeg: Option<&Greeg>,
     runs: usize,
     timeout: Duration,
 ) -> Result<Timed> {
@@ -1844,20 +2412,20 @@ fn run_n(
 /// Live queries run against an index; make sure the replay does too, so a
 /// repository whose index was never built (or was evicted) is not timed as a
 /// tree scan.
-fn ensure_index(cwd: &Path, timeout: Duration) -> Result<()> {
-    let dir = greeg_index::index_dir_for(cwd)?;
-    if greeg_index::read_manifest(&dir).is_some() {
+fn ensure_index(cwd: &Path, timeout: Duration, g: &Greeg) -> Result<()> {
+    if g.has_index(cwd) {
         return Ok(());
     }
     eprintln!(
-        "greeg stats replay: building the index for {}",
+        "greeg stats replay: greeg {} building its index for {}",
+        g.version,
         cwd.display()
     );
     let argv: Vec<String> = ["greeg", "index", "--quiet", "--root", "."]
         .iter()
         .map(|s| s.to_string())
         .collect();
-    let t = run_once(&argv, cwd, true, timeout.max(Duration::from_secs(600)))?;
+    let t = run_once(&argv, cwd, Some(g), timeout.max(Duration::from_secs(600)))?;
     if t.exit != 0 {
         anyhow::bail!("greeg index exited {}", t.exit);
     }
@@ -1867,6 +2435,10 @@ fn ensure_index(cwd: &Path, timeout: Duration) -> Result<()> {
 pub fn replay(o: &ReplayOpts) -> Result<()> {
     let dir = dir().context("no cache directory")?;
     let l = load(&dir, &o.filter);
+    let g = match &o.binary {
+        Some(b) => Greeg::at(b, &dir)?,
+        None => Greeg::current()?,
+    };
     // unique ids, newest hook record first, only those a run actually followed
     let mut seen = std::collections::HashSet::new();
     let mut todo: Vec<&HookEvent> = Vec::new();
@@ -1877,7 +2449,11 @@ pub fn replay(o: &ReplayOpts) -> Result<()> {
         if !seen.insert(h.id.as_str()) {
             continue;
         }
-        if !o.force && l.replays.contains_key(&h.id) {
+        // replayed under this build already (an older build's record does not count)
+        if !o.force
+            && l.replay_of(&h.id, &g.version)
+                .is_some_and(|r| version_label(r.version.as_deref()) == g.version)
+        {
             continue;
         }
         todo.push(h);
@@ -1887,15 +2463,22 @@ pub fn replay(o: &ReplayOpts) -> Result<()> {
     }
     if todo.is_empty() {
         eprintln!(
-            "greeg stats replay: nothing to replay (every rewritten query already has a counterfactual; --force re-runs them)"
+            "greeg stats replay: nothing to replay (every rewritten query already has a counterfactual from greeg {}; --force re-runs them)",
+            g.version
         );
         return Ok(());
     }
     eprintln!(
-        "greeg stats replay: {} unique queries, {} timed runs each after a warm-up; run this on a quiet machine",
+        "greeg stats replay: {} unique queries, {} timed runs each after a warm-up, greeg {}{}; run this on a quiet machine",
         todo.len(),
-        o.runs.max(1)
+        o.runs.max(1),
+        g.version,
+        match &o.binary {
+            Some(b) => format!(" at {}", b.display()),
+            None => String::new(),
+        }
     );
+    let mut rg_versions: HashMap<String, Option<String>> = HashMap::new();
     let (mut done, mut skipped) = (0usize, 0usize);
     let mut indexed: std::collections::HashSet<PathBuf> = Default::default();
     for (i, h) in todo.iter().enumerate() {
@@ -1906,14 +2489,14 @@ pub fn replay(o: &ReplayOpts) -> Result<()> {
             continue;
         }
         if indexed.insert(cwd.to_path_buf())
-            && let Err(e) = ensure_index(cwd, o.timeout)
+            && let Err(e) = ensure_index(cwd, o.timeout, &g)
         {
             eprintln!(
                 "greeg stats replay: {}: {e:#}; timing against a scan",
                 h.cwd
             );
         }
-        let rg = match run_n(&h.original, cwd, false, o.runs, o.timeout) {
+        let rg = match run_n(&h.original, cwd, None, o.runs, o.timeout) {
             Ok(t) => t,
             Err(e) => {
                 eprintln!("greeg stats replay: skip: {e:#}");
@@ -1921,7 +2504,7 @@ pub fn replay(o: &ReplayOpts) -> Result<()> {
                 continue;
             }
         };
-        let gg = match run_n(&h.rewritten, cwd, true, o.runs, o.timeout) {
+        let gg = match run_n(&h.rewritten, cwd, Some(&g), o.runs, o.timeout) {
             Ok(t) => t,
             Err(e) => {
                 eprintln!("greeg stats replay: skip: {e:#}");
@@ -1929,10 +2512,16 @@ pub fn replay(o: &ReplayOpts) -> Result<()> {
                 continue;
             }
         };
+        let rg_version = rg_versions
+            .entry(h.original[0].clone())
+            .or_insert_with(|| tool_version(&h.original[0]))
+            .clone();
         let ev = ReplayEvent {
             ts: greeg_index::now_ms(),
             id: h.id.clone(),
             runs: o.runs.max(1),
+            version: Some(g.version.clone()),
+            rg_version,
             rg_ms: rg.ms,
             rg_bytes: rg.bytes,
             rg_tokens: rg.tokens,
@@ -2066,6 +2655,7 @@ mod tests {
             id: id.into(),
             cwd: ".".into(),
             session: None,
+            version: None,
             original: vec!["rg".into(), "-n".into(), "fn main".into()],
             rewritten: vec!["greeg".into(), "fn main".into()],
         }
@@ -2076,6 +2666,7 @@ mod tests {
             id: id.into(),
             cwd: ".".into(),
             session: None,
+            version: None,
             argv: vec!["greeg".into(), "fn main".into()],
             verb: "search".into(),
             wall_ms: 10.0,
@@ -2094,6 +2685,8 @@ mod tests {
             ts: 0,
             id: id.into(),
             runs: 1,
+            version: None,
+            rg_version: None,
             rg_ms,
             rg_bytes,
             rg_tokens,
@@ -2119,6 +2712,8 @@ mod tests {
             ts: 0,
             id: id.into(),
             runs: 1,
+            version: None,
+            rg_version: None,
             rg_ms,
             rg_bytes,
             rg_tokens,
@@ -2327,6 +2922,7 @@ mod tests {
                 since_ms: Some(1),
                 repo: None,
                 session: None,
+                greeg: None,
             },
             cap: None,
             json: false,
@@ -2488,6 +3084,7 @@ mod tests {
                 since_ms: None,
                 repo: None,
                 session: session.map(str::to_string),
+                greeg: None,
             },
             cap: Some(30_000),
             json,
@@ -2627,33 +3224,259 @@ mod tests {
     }
 
     #[test]
+    fn versions_match_exactly_by_family_or_by_build_prefix() {
+        assert!(version_matches(Some("0.4.0"), "0.4.0"));
+        assert!(version_matches(Some("0.4.0+ff9011a.dirty"), "0.4.0"));
+        assert!(version_matches(Some("0.4.0+ff9011a.dirty"), "0.4.0+ff9"));
+        assert!(!version_matches(Some("0.4.01"), "0.4.0"));
+        assert!(!version_matches(Some("0.3.0"), "0.4.0"));
+        assert!(version_matches(None, UNVERSIONED));
+        assert!(!version_matches(None, "0.4.0"));
+        assert_eq!(parse_version_output("greeg 0.3.0\n"), Some("0.3.0".into()));
+        assert_eq!(parse_version_output("ripgrep 14.1.1\n"), None);
+        assert_eq!(parse_version_output(""), None);
+        assert!(!VERSION.is_empty());
+    }
+
+    fn replay_v(
+        id: &str,
+        version: Option<&str>,
+        greeg_tokens: usize,
+        greeg_ms: f64,
+        greeg_exit: i32,
+    ) -> ReplayEvent {
+        ReplayEvent {
+            version: version.map(str::to_string),
+            rg_version: Some("ripgrep 14.1.1".into()),
+            ..replay_full(id, 10.0, 900, 300, 0, greeg_ms, greeg_tokens, greeg_exit)
+        }
+    }
+
+    #[test]
+    fn a_query_keeps_one_replay_per_version_and_the_newest_answers() {
+        let d = tmp();
+        let now = greeg_index::now_ms();
+        put(&d, "events.jsonl", &Event::Hook(hook(now - 50, "a")));
+        put(&d, "events.jsonl", &Event::Run(run(now, "a")));
+        put(&d, "replay.jsonl", &replay_v("a", None, 500, 9.0, 0));
+        put(
+            &d,
+            "replay.jsonl",
+            &replay_v("a", Some("0.3.0"), 400, 8.0, 0),
+        );
+        put(
+            &d,
+            "replay.jsonl",
+            &replay_v("a", Some("0.4.0+ff9011a"), 300, 7.0, 0),
+        );
+        let l = load(&d, &Filter::default());
+        assert_eq!(l.replays["a"].len(), 3);
+        assert_eq!(
+            l.replay_for("a").unwrap().greeg_tokens,
+            300,
+            "newest by default"
+        );
+        assert_eq!(l.replay_of("a", "0.3.0").unwrap().greeg_tokens, 400);
+        assert_eq!(
+            l.replay_of("a", "0.4.0").unwrap().greeg_tokens,
+            300,
+            "a release family"
+        );
+        assert_eq!(l.replay_of("a", UNVERSIONED).unwrap().greeg_tokens, 500);
+        assert!(l.replay_of("a", "0.5.0").is_none());
+        let sel = load(
+            &d,
+            &Filter {
+                greeg: Some("0.3.0".into()),
+                ..Default::default()
+            },
+        );
+        assert_eq!(sel.replay_for("a").unwrap().greeg_tokens, 400);
+        // the report names the builds on both sides
+        let o = ReportOpts {
+            filter: Filter::default(),
+            cap: None,
+            json: false,
+            verbose: false,
+        };
+        let mut out = Vec::new();
+        report_to(&mut out, &d, &o, (true, Source::Env), &[]).unwrap();
+        let s = String::from_utf8(out).unwrap();
+        assert!(
+            s.contains("  replayed with greeg 0.4.0+ff9011a (1) · ripgrep 14.1.1 (1)"),
+            "{s}"
+        );
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn the_greeg_filter_keeps_one_builds_live_records() {
+        let d = tmp();
+        let now = greeg_index::now_ms();
+        let mut old = run(now - 3000, "x");
+        old.version = None;
+        let mut new = run(now - 2000, "y");
+        new.version = Some("0.4.0+abc".into());
+        put(&d, "events.jsonl", &Event::Run(old));
+        put(&d, "events.jsonl", &Event::Run(new));
+        let with = |g: &str| {
+            load(
+                &d,
+                &Filter {
+                    greeg: Some(g.into()),
+                    ..Default::default()
+                },
+            )
+            .runs
+            .len()
+        };
+        assert_eq!(with("0.4.0"), 1);
+        assert_eq!(with(UNVERSIONED), 1);
+        assert_eq!(with("0.5.0"), 0);
+        assert_eq!(load(&d, &Filter::default()).runs.len(), 2);
+        let o = ReportOpts {
+            filter: Filter {
+                greeg: Some("0.5.0".into()),
+                ..Default::default()
+            },
+            cap: None,
+            json: false,
+            verbose: false,
+        };
+        let mut out = Vec::new();
+        report_to(&mut out, &d, &o, (true, Source::Env), &[]).unwrap();
+        assert!(
+            String::from_utf8(out)
+                .unwrap()
+                .contains("no records made by greeg 0.5.0 (2 on disk)")
+        );
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn compare_puts_two_builds_side_by_side_on_shared_queries() {
+        let d = tmp();
+        let now = greeg_index::now_ms();
+        for (i, id) in ["a", "b", "c"].iter().enumerate() {
+            let t = now - 10_000 + i as u64 * 1000;
+            put(&d, "events.jsonl", &Event::Hook(hook(t, id)));
+            put(&d, "events.jsonl", &Event::Run(run(t + 100, id)));
+        }
+        // a: B wins big; b: B slightly larger and finds nothing; c: replayed under A only
+        put(
+            &d,
+            "replay.jsonl",
+            &replay_v("a", Some("0.3.0"), 300, 10.0, 0),
+        );
+        put(
+            &d,
+            "replay.jsonl",
+            &replay_v("a", Some("0.4.0+x"), 200, 12.0, 0),
+        );
+        put(
+            &d,
+            "replay.jsonl",
+            &replay_v("b", Some("0.3.0"), 100, 5.0, 0),
+        );
+        put(
+            &d,
+            "replay.jsonl",
+            &replay_v("b", Some("0.4.0+x"), 120, 4.0, 1),
+        );
+        put(
+            &d,
+            "replay.jsonl",
+            &replay_v("c", Some("0.3.0"), 50, 3.0, 0),
+        );
+        let text = |verbose: bool, json: bool, a: &str, b: &str| {
+            let o = ReportOpts {
+                filter: Filter::default(),
+                cap: Some(30_000),
+                json,
+                verbose,
+            };
+            let mut out = Vec::new();
+            compare_to(&mut out, &d, &o, a, b).unwrap();
+            String::from_utf8(out).unwrap()
+        };
+        let s = text(true, false, "0.3.0", "0.4.0");
+        assert!(
+            s.contains("compare greeg 0.3.0 → 0.4.0 · 2 queries replayed under both · rg output capped at 30,000 bytes"),
+            "{s}"
+        );
+        assert!(
+            s.contains("  tokens, total                   400          320           80  20%"),
+            "{s}"
+        );
+        assert!(s.contains("0.4.0 smaller on 1 query, larger on 1"), "{s}");
+        assert!(
+            s.contains("  time, total                   15 ms        16 ms      -1.0 ms  -7%"),
+            "{s}"
+        );
+        assert!(s.contains("0.4.0 faster on 1 query, slower on 1"), "{s}");
+        assert!(
+            s.contains("  vs rg/grep: 0.3.0 saved 200 tokens (33%), 0.4.0 saved 280 (47%)"),
+            "{s}"
+        );
+        assert!(
+            s.contains("  1 query found nothing under 0.4.0 where 0.3.0 had matches"),
+            "{s}"
+        );
+        assert!(
+            s.contains("  1 query replayed under 0.3.0 only, 0 under 0.4.0 only"),
+            "{s}"
+        );
+        // verbose: largest saving first, the regression marked
+        let a = s
+            .find("   1        100      300      200       10       12  rg -n 'fn main'")
+            .expect(&s);
+        let b = s
+            .find("   1!       -20      100      120      5.0      4.0  rg -n 'fn main'")
+            .expect(&s);
+        assert!(a < b, "{s}");
+        // json
+        let j: serde_json::Value =
+            serde_json::from_str(&text(false, true, "0.3.0", "0.4.0")).unwrap();
+        assert_eq!(j["queries"], 2);
+        assert_eq!(j["tokens"]["saved"]["total"], 80.0);
+        assert_eq!(j["tokens"]["b_smaller"], 1);
+        assert_eq!(j["only_a"], 1);
+        assert_eq!(j["regressed"], 1);
+        assert_eq!(j["queries_list"][0]["saved_tokens"], 100.0);
+        assert!(j["queries_list"][0]["command"].is_null());
+        // an unknown version lists what is on disk
+        let s = text(false, false, "0.3.0", "0.5.0");
+        assert!(
+            s.contains(
+                "no replay records from greeg 0.5.0 · versions seen: 0.4.0+x (2), 0.3.0 (3)"
+            ),
+            "{s}"
+        );
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
     fn replay_run_once_times_kills_and_reports_missing() {
         let d = tmp();
         let argv = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
         let t = run_once(
             &argv(&["echo", "hello world"]),
             &d,
-            false,
+            None,
             Duration::from_secs(5),
         )
         .unwrap();
         assert_eq!((t.bytes, t.exit), (12, 0));
         assert!(t.tokens >= 2 && t.ms < 5000.0);
         let t0 = Instant::now();
-        let e = run_once(
-            &argv(&["sleep", "5"]),
-            &d,
-            false,
-            Duration::from_millis(100),
-        )
-        .unwrap_err();
+        let e = run_once(&argv(&["sleep", "5"]), &d, None, Duration::from_millis(100)).unwrap_err();
         assert!(e.to_string().contains("did not finish"), "{e}");
         assert!(t0.elapsed() < Duration::from_secs(4));
         assert!(
             run_once(
                 &argv(&["greeg-no-such-binary-x"]),
                 &d,
-                false,
+                None,
                 Duration::from_secs(1)
             )
             .is_err()

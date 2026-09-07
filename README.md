@@ -137,6 +137,17 @@ sessions · newest first · saved = replayed rewrites vs rg/grep capped at 30,00
 A session that only grepped single files comes out slightly negative; the
 ones that searched a whole repository carry the total.
 
+Every record names the greeg build that made it, as `greeg --version` prints
+it: the release, or `0.4.0+ff9011a` for a build from that commit and
+`.dirty` with uncommitted changes. A query keeps one replay per build, so
+`greeg stats replay --binary PATH` can replay with another build (it gets an
+index directory of its own, since index formats change between versions) and
+`greeg stats compare 0.3.0 0.4.0` then puts the two side by side on the
+queries replayed under both: tokens and time, the per-query wins and losses,
+and what each saved against rg. Replay both builds back to back for a fair
+time comparison. `--greeg VERSION` narrows any stats command to one build's
+records, and `greeg stats status` counts records per build.
+
 The records hold search patterns and paths, which is why this is opt-in.
 They live under the user cache dir (`~/Library/Caches/greeg/stats` on
 macOS, `~/.cache/greeg/stats` elsewhere), mode 0600, never leave the machine,

@@ -35,7 +35,7 @@ Exit 1 = no hits for the pattern as given (a relaxed match is reported, exit 1).
 The index builds itself in the background on first use; `greeg doctor` shows it.";
 
 #[derive(Parser, Debug)]
-#[command(name = "greeg", version, about = "A grep for coding agents: syntax-aware, ranked, budgeted. Accepts ripgrep flags.", after_help = EXAMPLES, disable_help_subcommand = true, disable_help_flag = true)]
+#[command(name = "greeg", version = stats::VERSION, about = "A grep for coding agents: syntax-aware, ranked, budgeted. Accepts ripgrep flags.", after_help = EXAMPLES, disable_help_subcommand = true, disable_help_flag = true)]
 struct Cli {
     #[command(subcommand)]
     cmd: Option<Cmd>,
@@ -335,7 +335,7 @@ enum Cmd {
         #[arg(long = "cap", global = true)]
         cap: Option<usize>,
         /// List every replayed query (largest saving first) and the runs per directory (never printed otherwise)
-        #[arg(long = "verbose")]
+        #[arg(long = "verbose", global = true)]
         verbose: bool,
     },
 }
@@ -351,6 +351,9 @@ struct StatsFilter {
     /// Only records from one agent session: a Claude Code session id (a prefix will do), or `current` for the session running this command
     #[arg(long = "session-id", value_name = "ID", global = true)]
     session_id: Option<String>,
+    /// Only records made by this greeg build (`0.4.0` covers `0.4.0+<commit>` builds; `unversioned` for records older than 0.4), and its replays as the counterfactual
+    #[arg(long = "greeg", value_name = "VERSION", global = true)]
+    greeg: Option<String>,
 }
 
 #[derive(Subcommand, Debug)]
@@ -365,6 +368,15 @@ enum StatsCmd {
     Clear,
     /// What each agent session saved, newest first (the hook records the Claude Code session id; greeg runs record CLAUDE_CODE_SESSION_ID)
     Sessions,
+    /// Two greeg builds side by side on the queries replayed under both (`replay --binary PATH` replays with another build)
+    Compare {
+        /// The older build: a version, a release family (`0.3.0`) or a build prefix (`0.4.0+ff9`)
+        #[arg(value_name = "A")]
+        a: String,
+        /// The newer build
+        #[arg(value_name = "B")]
+        b: String,
+    },
     /// Run the original rg/grep commands and their greeg rewrites under the same conditions
     Replay {
         /// Timed runs per command after one warm-up (median is kept)
@@ -379,6 +391,9 @@ enum StatsCmd {
         /// Kill a replayed command after this many seconds
         #[arg(long = "timeout", default_value_t = 60)]
         timeout: u64,
+        /// Replay with this greeg binary instead of the running one (it gets an index directory of its own under the stats cache)
+        #[arg(long = "binary", value_name = "PATH")]
+        binary: Option<PathBuf>,
     },
 }
 
@@ -972,6 +987,7 @@ fn run_stats(
         since_ms: f.since.as_deref().map(stats::parse_since).transpose()?,
         repo: f.repo,
         session,
+        greeg: f.greeg,
     };
     match which {
         None => stats::report(&stats::ReportOpts {
@@ -990,17 +1006,29 @@ fn run_stats(
             json: c.json,
             verbose,
         }),
+        Some(StatsCmd::Compare { a, b }) => stats::compare(
+            &stats::ReportOpts {
+                filter,
+                cap,
+                json: c.json,
+                verbose,
+            },
+            &a,
+            &b,
+        ),
         Some(StatsCmd::Replay {
             runs,
             limit,
             force,
             timeout,
+            binary,
         }) => stats::replay(&stats::ReplayOpts {
             filter,
             runs,
             limit,
             force,
             timeout: std::time::Duration::from_secs(timeout),
+            binary,
         }),
     }
 }

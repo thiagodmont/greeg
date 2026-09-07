@@ -992,6 +992,15 @@ Done:
    ripgrep's does not; `.venv/…/types.py` is searched and flagged
    `[vendored]`. An explicit *directory* under `.venv/` still finds nothing
    with either tool, because the virtualenv's own `.gitignore` says `*`.
+8. **Versions in the records**: every hook, run and replay record names the
+   build that made it (`build.rs` stamps `<version>+<commit>[.dirty]` off a
+   release tag; `greeg --version` prints the same); a query keeps one replay
+   per build, `replay --binary PATH` replays with another build in an index
+   directory of its own, `compare A B` puts two builds side by side on the
+   queries replayed under both (exact version first, then a release family
+   or build prefix), `--greeg VERSION` narrows any stats command to one
+   build, and `status` counts records per build. Records older than 0.4
+   read as `unversioned`.
 
 Measured on the same 136 replayed rewrites (o200k, both sides exit 0):
 grep 86,376 tokens, greeg 0.3 66,364, greeg now 61,447. Explicit-file
