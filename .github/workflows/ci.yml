@@ -7,7 +7,9 @@ jobs:
   test:
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        # macos-latest disabled 2026-09-08 (GitHub Actions billing: mac minutes are 10x
+        # ubuntu). Add it back to this list to restore the darwin leg.
+        os: [ubuntu-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -53,7 +55,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        # macos-latest disabled 2026-09-08 (GitHub Actions billing); see the note on the
+        # test job. The brew branch of the tools step is kept for when it comes back.
+        os: [ubuntu-latest]
     runs-on: ${{ matrix.os }}
     env:
       GREEG_BENCH_CACHE: ${{ github.workspace }}/.bench-cache/corpora
