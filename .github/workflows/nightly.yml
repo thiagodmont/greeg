@@ -7,8 +7,10 @@ name: nightly
 # passwordless sudo works. On a hosted runner the numbers are informative only:
 # the gates record (--record-only) and cold rows are skipped with a printed reason.
 on:
-  schedule:
-    - cron: "0 3 * * *"
+  # Nightly schedule disabled 2026-09-08 (GitHub Actions billing); the workflow
+  # still runs on demand from the Actions tab. Uncomment to restore.
+  # schedule:
+  #   - cron: "0 3 * * *"
   workflow_dispatch:
     inputs:
       soak_minutes:
