@@ -1,0 +1,19 @@
+.github/workflows/nightly.yml
+  s_bf6383399fadfb::t_f86e34c2f1d1fa 10-13
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "19ef635bad39502a7e1f06c160c4af00d6a71186",
+  "prompts": {},
+  "sessions": {
+    "s_bf6383399fadfb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "336ff666-010a-4e8e-8bb0-f14adaca5c31",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
