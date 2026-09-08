@@ -403,10 +403,23 @@ three corpora with zero incorrect results versus `rg` and zero crashes; binary
   blake3(cwd, rewritten argv). `greeg stats replay` runs the original
   rg/grep and the greeg rewrite in the recorded cwd (argv, never `sh -c`;
   one warm-up, median of `--runs`, killed after `--timeout`; the index is
-  built first when missing) and the report prints avg/min/p50/p95/
-  p99/max latency and tokens per class plus savings against rg capped at
-  Claude Code's 30 000-character tool-output limit (`--cap`, `stats_cap`).
-  `--since`, `--repo`, `--json`, `--verbose`, `status`, `clear`.
+  built first when missing) and the report leads with the savings against
+  rg capped at Claude Code's 30 000-character tool-output limit (`--cap`,
+  `stats_cap`): totals and the typical (median) query for tokens and time,
+  rg vs greeg vs saved, how many queries greeg was smaller/faster on, how
+  much of the total the three largest wins hold, queries where greeg found
+  nothing but rg did, rewrites with no replay, and hook rewrites no greeg
+  run followed (another PreToolUse rewriter won the race: the last
+  `updatedInput` to finish wins); then avg/min/p50/p95/p99/max latency and
+  tokens per class with the per-query saving as a row. `--since`, `--repo`,
+  `--json`, `--verbose` (every replayed query, largest saving first, and
+  runs per directory), `status`, `clear`. `sessions` lists the same numbers
+  per agent session, newest first (the hook records Claude Code's
+  `session_id`; a run records `CLAUDE_CODE_SESSION_ID`, else
+  `GREEG_SESSION`, so direct searches and verbs join their session);
+  `--session-id ID|current` narrows every stats command to one session.
+  The bench scripts run greeg with `GREEG_STATS=0` so their runs stay out
+  of the report.
 * Runtime grammars (D§11): `$GREEG_LANG_DIR` or `~/.config/greeg/lang/<name>/`
   with `spec.toml`, `grammar.so|dylib` and `tags.scm`; `dlopen` on first
   use, ABI-checked; generic comment/string lexer from the spec; `-t <name>`
@@ -922,6 +935,97 @@ Not done: incremental PageRank; a front-coded word dictionary (rust's
 harness-driven freshness (an Edit/Write hook applying the delta so queries
 can trust a longer window); a `greeg watch` for Linux, where every query on a
 large tree still pays a stat pass; the wider `--per-bucket 50` sample.
+
+### M11 · Output diet, measured from usage (1 day, 2026-09-07)
+
+Motivation came from `greeg stats` and the agent transcripts, not from the
+bench. Over 5,982 `grep`/`rg` calls the agent ran in two months (rtk's
+history, output capped at Claude Code's 30 000 characters) 47 % found
+nothing, 42 % returned 1–300 tokens and 0.7 % returned over 3,000 tokens and
+held half of all grep output. Replaying the 145 hook rewrites showed greeg
+0.3 winning only on that tail: small answers were 1.4–3.4× grep's size, so
+projected over the whole stream greeg cost 16 % *more* tokens than grep.
+Two things filled the difference. Adaptive context (2–6 lines around ≤ 3
+hits, 20 around one definition) was 4 % of all output and tripled the
+tiny answers, and it did not replace the read it was meant to replace: in
+14 sessions a greeg answer was followed by a read of a shown file 35 % of
+the time, a grep answer 20 %, and the read took a median of 54 lines. The
+footer (`shown/total hits · files · demoted · ~N tokens` plus `next:`) and
+the header cost ≈ 27 tokens on answers that were often 50 tokens long; 250
+of 786 container suffixes repeated the name the row itself defined. Search
+is 12 % of what the model reads back from tools in those sessions; file
+reads are 43 %, so the search side was never going to be the whole story.
+
+Done:
+
+1. **Adaptive context in one case only**: a bare identifier whose answer is
+   a single definition hit keeps 20 lines each way, clipped to the
+   definition; every other content answer is rows only (`shape.rs`, the
+   `adaptive` flag). The signature-line (`sig`) path went with it.
+2. **Terse complete footer**: when every hit and file is shown, nothing was
+   skipped and the ladder did not relax the query, the footer is `N hits ·
+   M files` and `no hits` is bare; the demotion note and `~N tokens` only
+   appear when something was left out. `no definition in searched files`
+   is not printed when every path on the command line is a regular file.
+3. **Container never names the row's own definition** (`own_def` in the
+   renderer): a hit on a definition line links to the parent, whatever the
+   hit's kind.
+4. **Socket stdin is not searched**: some agent harnesses (Claude Code's
+   Bash tool here) attach a Unix socket as stdin and never close it, so a
+   path-less `greeg PATTERN` (and `rg PATTERN`) blocked until the tool
+   timed out. A socket is neither a pipe nor a file with data: the tree is
+   searched.
+5. The skill tells the agent that `greeg NAME --mode block` prints a whole
+   definition and beats guessing a `sed -n` range (8 % of the agent's
+   reads were corrected by a second read within two calls); `bench.py`'s
+   neutral-line regex accepts the new footer.
+6. **The read side**: `greeg show FILE:LINE` prints the innermost definition
+   enclosing a line, whole, dedented and numbered (20 lines each way when
+   nothing encloses it), and `def --mode block` prints every definition of
+   a name with its body; both share the block layout's 200-line cap and the
+   token budget (`verbs::body`). The skill points the agent at them instead
+   of `sed -n` ranges. Their effect on the follow-up-read rate (35 % after
+   a greeg answer) is the next thing to measure in transcripts.
+7. **Explicit paths beat ignore rules in the index path too**: a file named
+   on the command line that the index does not hold (ignored, hidden) sends
+   the query to scan mode, whose walker never filters its roots, as
+   ripgrep's does not; `.venv/…/types.py` is searched and flagged
+   `[vendored]`. An explicit *directory* under `.venv/` still finds nothing
+   with either tool, because the virtualenv's own `.gitignore` says `*`.
+8. **Versions in the records**: every hook, run and replay record names the
+   build that made it (`build.rs` stamps `<version>+<commit>[.dirty]` off a
+   release tag; `greeg --version` prints the same); a query keeps one replay
+   per build, `replay --binary PATH` replays with another build in an index
+   directory of its own, `compare A B` puts two builds side by side on the
+   queries replayed under both (exact version first, then a release family
+   or build prefix), `--greeg VERSION` narrows any stats command to one
+   build, and `status` counts records per build. Records older than 0.4
+   read as `unversioned`.
+
+Measured on the same 136 replayed rewrites (o200k, both sides exit 0):
+grep 86,376 tokens, greeg 0.3 66,364, greeg now 61,447. Explicit-file
+queries without `-A/-B/-C`: greeg 0.3 +2,662 vs grep, now −2,665; greps of
+1–100 tokens: 3.37× → 1.58×; the tail unchanged (0.43×). Through `greeg
+stats` on the same 145 queries: 19,948 tokens saved (23 %) → 26,922 (30 %),
+typical query −30 → −13 tokens, greeg smaller on 37 → 52 queries.
+Projected over the two-month stream: −16 % → +10 %. Per query greeg still
+exceeds grep on 79 of 95 single-file answers by a median of 47 tokens: the
+path header, the kind column, the containers and the wider line-number
+column, which ripgrep omits on a single file. Printing rg-shaped rows for
+explicitly named single files would close that at the cost of the
+annotations; not done.
+
+Not worth it, measured: `--max-columns 120` (−0.8 %), `--mode outline` for
+definition-shaped patterns (−5 %; the whole-file outline verb costs double
+the grep it would replace), read deduplication (1 % overlap), wider hook
+coverage of `-v`, `-o`, `-q`, `git grep` (tiny or no output).
+
+Outside the repository: the RTK hook and `greeg hook run` both rewrote the
+same Bash call and PreToolUse hooks race (the last `updatedInput` to finish
+wins), which lost 73 of 221 rewrites in four days; `exclude_commands =
+["grep", "rg"]` under `[hooks]` in RTK's config leaves them to greeg. The
+third replay miss (`_observability`, index-sourced, not reproducible after
+a rename) stays unexplained.
 
 ## 4. Testing strategy
 

@@ -59,6 +59,7 @@ def host_info():
 
 
 def run(args, cwd=None, timeout=600, env=None):
+    env = {**(os.environ if env is None else env), "GREEG_STATS": "0"}  # bench runs are not usage: keep them out of `greeg stats`
     return subprocess.run(args, cwd=cwd, stdin=DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout, env=env)
 
 
@@ -704,7 +705,7 @@ def rg_def_cmd(lang, nm):
 
 
 # greeg text lines that summarise rather than locate: neutral in the context metric
-NEUTRAL_RE = re.compile(r"^(?:by (?:kind|area|lang|flag)\b|areas  |langs  |definitions \(|top hits\b|imported by \d|next:|\s*\+\d[\d,]* (?:more|test|vendored|generated|demoted|mock)\b|[\d,]+ of [\d,]+ hits\b|[\d,]+/[\d,]+ hits\b|\S.*  [\d,]+ (?:matches|hits) · |see also\b|hint:|matched \w|defined at\b|related  |\w+ \(\d+\)$|\s*\.\.\.$|\S.*  \d+ of \d+ definitions\b|(?:WILL|MAY) BREAK\b|REVIEW\b|refs \S+  |callers \S+  |impact \S+  |def \S+  )")
+NEUTRAL_RE = re.compile(r"^(?:by (?:kind|area|lang|flag)\b|areas  |langs  |definitions \(|top hits\b|imported by \d|next:|\s*\+\d[\d,]* (?:more|test|vendored|generated|demoted|mock)\b|[\d,]+ of [\d,]+ hits\b|[\d,]+/[\d,]+ hits\b|[\d,]+ hits · [\d,]+ files\b|no hits\b|\S.*  [\d,]+ (?:matches|hits) · |see also\b|hint:|matched \w|defined at\b|related  |\w+ \(\d+\)$|\s*\.\.\.$|\S.*  \d+ of \d+ definitions\b|(?:WILL|MAY) BREAK\b|REVIEW\b|refs \S+  |callers \S+  |impact \S+  |def \S+  )")
 
 
 def greeg_line_classes(text):

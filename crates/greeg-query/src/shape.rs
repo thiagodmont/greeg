@@ -23,9 +23,6 @@ pub struct ShownHit {
     pub hit: usize,
     /// (first line number, lines) when context is attached.
     pub context: Option<(u32, Vec<Vec<u8>>)>,
-    /// Signature line of the enclosing definition when it lies outside `context`
-    /// (single call/ident hit, OUTPUT.md "adaptive context").
-    pub sig: Option<(u32, Vec<u8>)>,
     /// Whole enclosing block (block layout).
     pub block: Option<(u32, Vec<Vec<u8>>)>,
     /// The block was cut to fit the budget.
@@ -689,7 +686,6 @@ pub fn shape(r: &mut ScanResult) -> Report {
         files[idx].hits.push(ShownHit {
             hit: hi,
             context: None,
-            sig: None,
             block: None,
             block_clipped: false,
             seen_before: false,
@@ -727,20 +723,25 @@ pub fn shape(r: &mut ScanResult) -> Report {
             .and_then(|sf| sf.hits.first())
             .map(|sh| r.files[files[0].file].hits[sh.hit].kind == HitKind::Def)
             .unwrap_or(false);
-    let adaptive = !o.explicit_context() && !parity && layout == Layout::Content;
+    // Adaptive context answers exactly one question: a bare identifier with a
+    // single definition hit ("where is X defined, what does it take"). Every
+    // other case was measured waste (PLAN.md M11): the 2–6 lines around small
+    // answers tripled them, and in four days of agent transcripts an answer
+    // with context was followed by a read of the file more often than a grep
+    // answer without one (35 % vs 20 %), the read taking a median of 54 lines.
+    let adaptive = !o.explicit_context()
+        && !parity
+        && layout == Layout::Content
+        && hit_total == 1
+        && single_def
+        && identifier_query(o);
     let (before, after) = if let Some(n) = o.context {
         (n, n)
     } else if o.explicit_context() {
         (o.before, o.after)
-    } else if !adaptive {
-        (0, 0)
-    } else if hit_total == 1 {
-        if single_def { (20, 20) } else { (2, 4) }
-    } else if hit_total <= 3 {
-        (2, 2)
+    } else if adaptive {
+        (20, 20)
     } else {
-        // 4 hits or more: the lines around a hit cost more than they carry, and
-        // the reader has several hits to triangulate from (PLAN.md M9).
         (0, 0)
     };
     if before + after > 0
@@ -759,15 +760,6 @@ pub fn shape(r: &mut ScanResult) -> Report {
                     from = from.max(dl);
                     if let Some(end_line) = end_line_of(f, di as usize) {
                         to = to.min(end_line);
-                    }
-                    if hit_total == 1
-                        && !single_def
-                        && dl < from
-                        && let Some((_, mut l)) = read_lines(f, dl, dl)
-                        && let Some(line) = l.pop()
-                    {
-                        est += tokens::code(&line) + 3;
-                        sh.sig = Some((dl, line));
                     }
                 }
                 if let Some((first, lines)) = read_lines(f, from, to) {
@@ -848,6 +840,12 @@ fn is_identifier(p: &str) -> bool {
         && !p.bytes().next().unwrap().is_ascii_digit()
 }
 
+/// Every path on the command line is a regular file: the caller named the
+/// files, so a hint to look elsewhere is noise.
+fn explicit_files_only(o: &crate::Options) -> bool {
+    !o.paths.is_empty() && o.paths.iter().all(|p| p.is_file())
+}
+
 /// Footer hints: flags only, never a demoted area, never a pattern repetition.
 fn hints(
     footer: &mut Footer,
@@ -899,6 +897,7 @@ fn hints(
         && o.mode == Mode::Content
         && !o.no_ignore
         && is_identifier(&o.pattern)
+        && !explicit_files_only(o)
     {
         footer
             .hints

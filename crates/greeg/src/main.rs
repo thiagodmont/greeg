@@ -21,6 +21,7 @@ Examples:
   greeg refs Semaphore              references grouped by kind (call, type, import, …)
   greeg callers spawn_blocking --depth 2
   greeg outline src/lib.rs          symbols of one file as a tree
+  greeg show src/lib.rs:120         the definition enclosing a line, whole (def NAME --mode block: bodies)
   greeg map src/                    important files by import PageRank
   greeg impact get_queryset         what breaks if it changes
   greeg -e def --kind def           a pattern that looks like a verb
@@ -34,7 +35,7 @@ Exit 1 = no hits for the pattern as given (a relaxed match is reported, exit 1).
 The index builds itself in the background on first use; `greeg doctor` shows it.";
 
 #[derive(Parser, Debug)]
-#[command(name = "greeg", version, about = "A grep for coding agents: syntax-aware, ranked, budgeted. Accepts ripgrep flags.", after_help = EXAMPLES, disable_help_subcommand = true, disable_help_flag = true)]
+#[command(name = "greeg", version = stats::VERSION, about = "A grep for coding agents: syntax-aware, ranked, budgeted. Accepts ripgrep flags.", after_help = EXAMPLES, disable_help_subcommand = true, disable_help_flag = true)]
 struct Cli {
     #[command(subcommand)]
     cmd: Option<Cmd>,
@@ -270,7 +271,7 @@ enum Cmd {
         #[arg(long = "refresh")]
         refresh: bool,
     },
-    /// Where is NAME defined? Ranked by kind, visibility, PageRank and reachability from --from
+    /// Where is NAME defined? Ranked by kind, visibility, PageRank and reachability from --from; --mode block prints each body
     Def {
         name: String,
         /// Origin file(s) for reachability ranking (default: files seen in this session)
@@ -290,6 +291,12 @@ enum Cmd {
     },
     /// Types that implement, extend or subclass NAME
     Impls { name: String },
+    /// The definition enclosing FILE:LINE, whole and dedented (20 lines each way when nothing encloses it)
+    Show {
+        /// One or more `path:line` (a trailing `:column` is ignored)
+        #[arg(value_name = "FILE:LINE", required = true)]
+        locations: Vec<String>,
+    },
     /// Definitions of one file as a tree
     Outline {
         file: String,
@@ -327,8 +334,8 @@ enum Cmd {
         /// rg output cap in bytes for the token comparison (default: `stats_cap` in the config file, else 30000, Claude Code's Bash output limit)
         #[arg(long = "cap", global = true)]
         cap: Option<usize>,
-        /// List the replayed commands one per line (never printed otherwise)
-        #[arg(long = "verbose")]
+        /// List every replayed query (largest saving first) and the runs per directory (never printed otherwise)
+        #[arg(long = "verbose", global = true)]
         verbose: bool,
     },
 }
@@ -341,6 +348,12 @@ struct StatsFilter {
     /// Only records from this repository (`.` for the current one)
     #[arg(long = "repo", value_name = "PATH", global = true)]
     repo: Option<PathBuf>,
+    /// Only records from one agent session: a Claude Code session id (a prefix will do), or `current` for the session running this command
+    #[arg(long = "session-id", value_name = "ID", global = true)]
+    session_id: Option<String>,
+    /// Only records made by this greeg build (`0.4.0` covers `0.4.0+<commit>` builds; `unversioned` for records older than 0.4), and its replays as the counterfactual
+    #[arg(long = "greeg", value_name = "VERSION", global = true)]
+    greeg: Option<String>,
 }
 
 #[derive(Subcommand, Debug)]
@@ -353,6 +366,17 @@ enum StatsCmd {
     Status,
     /// Delete every record
     Clear,
+    /// What each agent session saved, newest first (the hook records the Claude Code session id; greeg runs record CLAUDE_CODE_SESSION_ID)
+    Sessions,
+    /// Two greeg builds side by side on the queries replayed under both (`replay --binary PATH` replays with another build)
+    Compare {
+        /// The older build: a version, a release family (`0.3.0`) or a build prefix (`0.4.0+ff9`)
+        #[arg(value_name = "A")]
+        a: String,
+        /// The newer build
+        #[arg(value_name = "B")]
+        b: String,
+    },
     /// Run the original rg/grep commands and their greeg rewrites under the same conditions
     Replay {
         /// Timed runs per command after one warm-up (median is kept)
@@ -367,6 +391,9 @@ enum StatsCmd {
         /// Kill a replayed command after this many seconds
         #[arg(long = "timeout", default_value_t = 60)]
         timeout: u64,
+        /// Replay with this greeg binary instead of the running one (it gets an index directory of its own under the stats cache)
+        #[arg(long = "binary", value_name = "PATH")]
+        binary: Option<PathBuf>,
     },
 }
 
@@ -718,6 +745,7 @@ fn run() -> Result<()> {
             Cmd::Callers { .. } => "callers",
             Cmd::Impls { .. } => "impls",
             Cmd::Outline { .. } => "outline",
+            Cmd::Show { .. } => "show",
             Cmd::Map { .. } => "map",
             Cmd::Impact { .. } => "impact",
             _ => "",
@@ -758,6 +786,13 @@ fn run() -> Result<()> {
             }
             Cmd::Outline { file, imports } => {
                 verbs_out::run_outline(c, &build_options(c, String::new(), vec![])?, &file, imports)
+            }
+            Cmd::Show { locations } => {
+                let locs = locations
+                    .iter()
+                    .map(|s| parse_location(s))
+                    .collect::<Result<Vec<_>>>()?;
+                verbs_out::run_show(c, &build_options(c, String::new(), vec![])?, &locs)
             }
             Cmd::Map { dir } => {
                 verbs_out::run_map(c, &build_options(c, String::new(), vec![])?, &dir)
@@ -827,7 +862,7 @@ fn run() -> Result<()> {
         line_numbers: c.line_number,
         stdin: false,
     };
-    if opts.paths.is_empty() && greeg_query::stdin::is_readable_stdin() {
+    if opts.paths.is_empty() && greeg_query::stdin::is_readable_stdin() && !stdin_is_socket() {
         return run_stdin(c, opts, fmt);
     }
     if opts.sort_path
@@ -939,9 +974,20 @@ fn run_stats(
     cap: Option<usize>,
     verbose: bool,
 ) -> Result<()> {
+    let session = match f.session_id.as_deref() {
+        Some("current") => Some(stats::agent_session().ok_or_else(|| {
+            anyhow::anyhow!(
+                "no agent session in the environment (CLAUDE_CODE_SESSION_ID or GREEG_SESSION)"
+            )
+        })?),
+        Some(id) => Some(id.to_string()),
+        None => None,
+    };
     let filter = stats::Filter {
         since_ms: f.since.as_deref().map(stats::parse_since).transpose()?,
         repo: f.repo,
+        session,
+        greeg: f.greeg,
     };
     match which {
         None => stats::report(&stats::ReportOpts {
@@ -954,19 +1000,74 @@ fn run_stats(
         Some(StatsCmd::Disable) => stats::disable(),
         Some(StatsCmd::Status) => stats::status(),
         Some(StatsCmd::Clear) => stats::clear(),
+        Some(StatsCmd::Sessions) => stats::sessions(&stats::ReportOpts {
+            filter,
+            cap,
+            json: c.json,
+            verbose,
+        }),
+        Some(StatsCmd::Compare { a, b }) => stats::compare(
+            &stats::ReportOpts {
+                filter,
+                cap,
+                json: c.json,
+                verbose,
+            },
+            &a,
+            &b,
+        ),
         Some(StatsCmd::Replay {
             runs,
             limit,
             force,
             timeout,
+            binary,
         }) => stats::replay(&stats::ReplayOpts {
             filter,
             runs,
             limit,
             force,
             timeout: std::time::Duration::from_secs(timeout),
+            binary,
         }),
     }
+}
+
+/// Some agent harnesses attach a Unix socket as stdin and never close it:
+/// ripgrep would wait on it forever, and so would we. A socket is not a pipe
+/// or a file with data, so with no path given the tree is searched instead.
+fn stdin_is_socket() -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::FileTypeExt;
+        std::fs::metadata("/dev/stdin").is_ok_and(|m| m.file_type().is_socket())
+    }
+    #[cfg(not(unix))]
+    {
+        false
+    }
+}
+
+/// `path:line` or `path:line:column` (the column is ignored); a path may
+/// itself contain colons.
+fn parse_location(s: &str) -> Result<(String, u32)> {
+    let mut parts = s.rsplitn(3, ':');
+    let last = parts.next().unwrap_or("");
+    let mid = parts.next();
+    let rest = parts.next();
+    if let (Ok(_col), Some(m), Some(r)) = (last.parse::<u32>(), mid, rest)
+        && let Ok(line) = m.parse::<u32>()
+    {
+        return Ok((r.to_string(), line));
+    }
+    if let (Ok(line), Some(m)) = (last.parse::<u32>(), mid) {
+        let path = match rest {
+            Some(r) => format!("{r}:{m}"),
+            None => m.to_string(),
+        };
+        return Ok((path, line));
+    }
+    anyhow::bail!("show needs FILE:LINE, got {s:?}")
 }
 
 /// C6: no path given and stdin is a pipe or file: search it like ripgrep.
@@ -1104,11 +1205,20 @@ fn text_of(h: &greeg_query::Hit) -> std::borrow::Cow<'_, str> {
     String::from_utf8_lossy(&h.text)
 }
 
+/// The hit sits on the definition line of its enclosing symbol: the text
+/// already names it, so the container link is the parent instead.
+fn own_def(f: &greeg_query::FileResult, h: &greeg_query::Hit) -> bool {
+    h.def_idx
+        .is_some_and(|di| f.defs.get(di as usize).is_some_and(|d| d.line == h.line))
+}
+
 /// One `  <line> <kind> <text>  ‹ container` row. `kw` is the kind column width
 /// (0 = no kind column); ident hits leave the column blank. The container is
-/// printed only when it differs from the previous row's.
+/// printed only when it differs from the previous row's, and never names the
+/// symbol whose definition line the row is (`own_def`).
 fn hit_row(
     h: &greeg_query::Hit,
+    own_def: bool,
     lw: usize,
     kw: usize,
     fmt: Fmt,
@@ -1122,7 +1232,7 @@ fn hit_row(
     } else {
         format!(" {:<kw$}", h.kind.name())
     };
-    let c = container_of(&h.chain, h.kind == HitKind::Def, fmt.chain);
+    let c = container_of(&h.chain, h.kind == HitKind::Def || own_def, fmt.chain);
     let tag = if !c.is_empty() && *last != c {
         format!("  ‹ {c}")
     } else {
@@ -1179,7 +1289,19 @@ pub(crate) fn write_groups(
         };
         let mut last = String::new();
         for &hi in hits {
-            writeln!(w, "{}", hit_row(&f.hits[hi], lw, kw, fmt, &mut last, ""))?;
+            writeln!(
+                w,
+                "{}",
+                hit_row(
+                    &f.hits[hi],
+                    own_def(f, &f.hits[hi]),
+                    lw,
+                    kw,
+                    fmt,
+                    &mut last,
+                    ""
+                )
+            )?;
         }
     }
     Ok(())
@@ -1442,8 +1564,24 @@ fn render_footer(
     if with_hints {
         writeln!(w)?;
     }
+    // Everything shown, nothing skipped, matched as asked: the two counts say
+    // the answer is whole (and was not cut by the caller's output limit); the
+    // demotion note and the token estimate only matter when something was
+    // left out (PLAN.md M11).
+    let complete = r.stats.total_hits > 0
+        && ft.hits_shown == ft.hits_total
+        && ft.files_shown == ft.files_total
+        && ft.skipped_binary + ft.skipped_huge == 0
+        && ft.rung == greeg_query::Rung::Exact;
     if r.stats.total_hits == 0 {
         write!(w, "no hits")?;
+    } else if complete {
+        write!(
+            w,
+            "{} hits · {} files",
+            fmt_n(ft.hits_total),
+            fmt_n(ft.files_total)
+        )?;
     } else {
         write!(
             w,
@@ -1472,7 +1610,9 @@ fn render_footer(
     if ft.rung != greeg_query::Rung::Exact {
         write!(w, " · matched {}", ft.rung.describe())?;
     }
-    write!(w, " · ~{est} tokens")?;
+    if !complete && r.stats.total_hits > 0 {
+        write!(w, " · ~{est} tokens")?;
+    }
     if fmt.stats {
         write!(w, " · {:.0} ms", ft.elapsed_ms)?;
     }
@@ -1540,10 +1680,6 @@ fn render_hits(
             }
             continue;
         }
-        if let Some((sl, text)) = &sh.sig {
-            writeln!(w, "  {:>lw$}{pad}  {}", sl, dedent(text))?;
-            last_line_printed = *sl;
-        }
         if let Some((first, lines)) = &sh.context {
             if last_line_printed > 0 && *first > last_line_printed + 1 {
                 writeln!(w, "  ...")?;
@@ -1554,7 +1690,11 @@ fn render_hits(
                     continue;
                 }
                 if ln == h.line {
-                    writeln!(w, "{}", hit_row(h, lw, kw, fmt, &mut last, ""))?;
+                    writeln!(
+                        w,
+                        "{}",
+                        hit_row(h, own_def(f, h), lw, kw, fmt, &mut last, "")
+                    )?;
                 } else {
                     writeln!(w, "  {:>lw$}{pad}  {}", ln, dedent(l))?;
                 }
@@ -1566,7 +1706,11 @@ fn render_hits(
             } else {
                 ""
             };
-            writeln!(w, "{}", hit_row(h, lw, kw, fmt, &mut last, seen))?;
+            writeln!(
+                w,
+                "{}",
+                hit_row(h, own_def(f, h), lw, kw, fmt, &mut last, seen)
+            )?;
             last_line_printed = h.line;
         }
     }
@@ -1775,6 +1919,25 @@ mod tests {
             join_patterns(&["a.b".into(), "-x".into()], true),
             (r"(?:a\.b)|(?:\-x)".into(), false)
         );
+    }
+
+    #[test]
+    fn locations_parse_with_and_without_a_column() {
+        assert_eq!(
+            parse_location("src/a.rs:12").unwrap(),
+            ("src/a.rs".into(), 12)
+        );
+        assert_eq!(
+            parse_location("src/a.rs:12:5").unwrap(),
+            ("src/a.rs".into(), 12)
+        );
+        assert_eq!(
+            parse_location("c:/x/a.rs:7").unwrap(),
+            ("c:/x/a.rs".into(), 7)
+        );
+        assert!(parse_location("src/a.rs").is_err());
+        assert!(parse_location("src/a.rs:x").is_err());
+        assert!(parse_location("12").is_err());
     }
 
     #[test]

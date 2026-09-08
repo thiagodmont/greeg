@@ -430,6 +430,15 @@ pub(crate) fn try_index(cx: &Ctx, threads: usize, t0: Instant) -> Result<Option<
     for p in &o.paths {
         match rel_of(&o.root, p) {
             Some(rel) => {
+                // ripgrep searches a file named on the command line whatever
+                // the ignore rules say; the index only holds walked files, so
+                // an ignored or hidden one is answered by scan mode
+                if p.is_file()
+                    && !extras.iter().any(|(r, _)| *r == rel)
+                    && !idx.live_files().any(|(_, r, _)| r == rel)
+                {
+                    return Ok(None);
+                }
                 let given = p.to_string_lossy();
                 let given = given.trim_end_matches('/');
                 display.push(
@@ -1241,6 +1250,58 @@ mod tests {
         assert!(path_allowed("anything", &[]));
         assert!(path_allowed("anything", &[".".to_string()]));
         assert!(path_allowed("anything", &[String::new()]));
+    }
+
+    #[test]
+    fn a_file_named_on_the_command_line_is_searched_even_when_ignored() {
+        use crate::{Options, Rung};
+        use greeg_index::build::{BuildOpts, build};
+        let base =
+            std::env::temp_dir().join(format!("greeg-explicit-ignored-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let root = base.join("tree");
+        let dir = base.join("index");
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::create_dir_all(root.join("vendor")).unwrap();
+        std::fs::create_dir_all(root.join(".git")).unwrap();
+        std::fs::write(root.join(".gitignore"), "vendor/\n").unwrap();
+        std::fs::write(root.join("src/lib.rs"), "pub fn keep() {}\n").unwrap();
+        std::fs::write(root.join("vendor/dep.rs"), "pub fn needle_xyz() {}\n").unwrap();
+        build(
+            &root,
+            &dir,
+            &BuildOpts {
+                reader_threads: 1,
+                quiet: true,
+                phase1_only: true,
+            },
+        )
+        .unwrap();
+        let o = Options {
+            root: root.clone(),
+            index_dir: Some(dir.clone()),
+            fresh: greeg_index::fresh::Mode::None,
+            pattern: "needle_xyz".into(),
+            ..Default::default()
+        };
+        // the walk never enters vendor/, so the index has no such file: rung 5 only counts it
+        let r = crate::scan(&o).unwrap();
+        assert_eq!(r.stats.total_hits, 0);
+        assert!(r.ignored_only.is_some());
+        // named on the command line, the file is searched (as ripgrep does), by scan mode
+        let r = crate::scan(&Options {
+            paths: vec![root.join("vendor/dep.rs")],
+            ..o.clone()
+        })
+        .unwrap();
+        assert_eq!(r.stats.total_hits, 1);
+        assert_eq!(r.rung, Rung::Exact);
+        assert!(
+            r.files[0].rel.ends_with("vendor/dep.rs"),
+            "{}",
+            r.files[0].rel
+        );
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     #[test]

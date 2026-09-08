@@ -37,8 +37,11 @@ MATRIX_PARAMS = {
 GREEG_RAW = ["--json", "--budget", "0", "--no-ladder", "--max-columns", "0"]
 
 
+NO_STATS = {**os.environ, "GREEG_STATS": "0"}  # parity runs are not usage: keep them out of `greeg stats`
+
+
 def sh(cmd, cwd, stdin=None):
-    return subprocess.run(cmd, cwd=cwd, capture_output=True, input=stdin, stdin=None if stdin is not None else subprocess.DEVNULL)
+    return subprocess.run(cmd, cwd=cwd, capture_output=True, input=stdin, stdin=None if stdin is not None else subprocess.DEVNULL, env=NO_STATS)
 
 
 def records(out, kind="match"):
@@ -269,7 +272,7 @@ def run_matrix(corpora_dir, greeg, names):
     cwd = os.path.join(corpora_dir, corpus)
     prm = MATRIX_PARAMS[corpus]
     scratch = tempfile.mkdtemp(prefix="greeg-parity-", dir=os.environ.get("GREEG_PARITY_SCRATCH"))
-    subprocess.run([greeg, "index", "--root", "."], cwd=cwd, capture_output=True)
+    subprocess.run([greeg, "index", "--root", "."], cwd=cwd, capture_output=True, env=NO_STATS)
     print(f"\nmatrix on {corpus} (scratch {scratch})")
     ok = True
     failed = []

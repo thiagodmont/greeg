@@ -4,8 +4,9 @@ Usage: edits.py CORPUS_DIR GREEG_BIN   (corpus must be a git checkout; it is res
 import json, os, random, subprocess, sys, time, shutil
 cwd, greeg = sys.argv[1], sys.argv[2]
 random.seed(7)
+NO_STATS = {**os.environ, "GREEG_STATS": "0"}  # edit bursts are not usage: keep them out of `greeg stats`
 def run(args, **kw):
-    return subprocess.run(args, cwd=cwd, capture_output=True, stdin=subprocess.DEVNULL, **kw)
+    return subprocess.run(args, cwd=cwd, capture_output=True, stdin=subprocess.DEVNULL, env=NO_STATS, **kw)
 def pairs(out):
     s=set()
     for line in out.splitlines():
