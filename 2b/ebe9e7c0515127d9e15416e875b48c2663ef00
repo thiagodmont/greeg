@@ -1,0 +1,23 @@
+README.md
+  s_bf6383399fadfb::t_09f073f4c56531 34
+Cargo.toml
+  s_bf6383399fadfb::t_09f073f4c56531 7
+Cargo.lock
+  s_bf6383399fadfb::t_792da522486d0e 386,406,413,434,453
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "2bebe9e7c0515127d9e15416e875b48c2663ef00",
+  "prompts": {},
+  "sessions": {
+    "s_bf6383399fadfb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "336ff666-010a-4e8e-8bb0-f14adaca5c31",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
