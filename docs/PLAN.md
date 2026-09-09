@@ -395,6 +395,19 @@ three corpora with zero incorrect results versus `rg` and zero crashes; binary
   (flags mapped, `--include` → `-g`, unsupported semantics such as `-v`,
   `-o`, `--files`, expansions and globs left untouched, only the first
   pipeline segment) and writes `~/.claude/skills/greeg/SKILL.md`.
+* `greeg hook codex [--dry-run|--uninstall]` (added 2026-09-09) installs the
+  same hook for Codex: a `[[hooks.PreToolUse]]` entry appended to
+  `$CODEX_HOME/config.toml` (edited with `toml_edit`, so comments, order and
+  Codex's positional `hooks.state` trust records survive; appended rather
+  than inserted so the other hooks keep their indices) and
+  `$CODEX_HOME/skills/greeg/SKILL.md`. Codex sends the same stdin as Claude
+  Code (`tool_name: "Bash"`, `tool_input.command`, `cwd`, `session_id`) but
+  applies `updatedInput` only next to `permissionDecision: allow` and rejects
+  a reason without a decision, so the hook is registered as
+  `greeg hook run --agent codex`; the Claude reply is unchanged because that
+  `allow` would skip Claude Code's permission prompt. `greeg stats` lists
+  Codex's other Bash hooks (`hooks.json` and `config.toml`) as rewrite
+  competitors too.
 * `greeg stats` (opt-in: `greeg stats enable` writes `stats = true` to
   `~/.config/greeg/config.toml`; `GREEG_STATS=1|0` overrides): the hook
   appends a `hook` record per rewrite and every greeg run a `run` record

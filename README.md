@@ -67,6 +67,21 @@ globs, expansions, multiple `-e`) are left untouched. If you use `Bash(rg:*)`
 allow rules, add `Bash(greeg:*)` next to them. `greeg hook claude --uninstall`
 removes both files' entries.
 
+## Set up for Codex
+
+```
+greeg hook codex --dry-run     # show what would change
+greeg hook codex               # install the hook and the skill file
+```
+
+Same hook, same rewrites. This appends a `[[hooks.PreToolUse]]` entry running
+`greeg hook run --agent codex` to `$CODEX_HOME/config.toml` (default
+`~/.codex/config.toml`; comments and the other hooks are kept as they are) and
+writes `$CODEX_HOME/skills/greeg/SKILL.md`. Codex runs a new hook only after
+you trust it: open Codex and run `/hooks`. The `--agent codex` flag makes the
+hook answer with `permissionDecision: allow`, which Codex requires before it
+applies a rewritten command. `greeg hook codex --uninstall` removes both.
+
 Other agents can call `greeg` directly; it prints to stdout, exits 0 on hits,
 1 on none and 2 on error, exactly like ripgrep.
 

@@ -315,7 +315,7 @@ enum Cmd {
     Doctor,
     /// Print the man page (roff) to stdout
     Man,
-    /// Agent integrations: `greeg hook claude` installs the Claude Code hook and skill
+    /// Agent integrations: `greeg hook claude` / `greeg hook codex` install the rg→greeg hook and the skill file
     Hook {
         #[command(subcommand)]
         which: HookCmd,
@@ -399,7 +399,7 @@ enum StatsCmd {
 
 #[derive(Subcommand, Debug)]
 enum HookCmd {
-    /// Install a PreToolUse hook that rewrites `rg`/`grep` Bash calls to `greeg`, and a skill file
+    /// Claude Code: a PreToolUse hook in ~/.claude/settings.json that rewrites `rg`/`grep` Bash calls to `greeg`, and ~/.claude/skills/greeg/SKILL.md
     Claude {
         /// Remove the hook and the skill file
         #[arg(long)]
@@ -408,8 +408,21 @@ enum HookCmd {
         #[arg(long = "dry-run")]
         dry_run: bool,
     },
+    /// Codex: the same hook as `[[hooks.PreToolUse]]` in $CODEX_HOME/config.toml (default ~/.codex), and skills/greeg/SKILL.md next to it; trust it with /hooks in Codex
+    Codex {
+        /// Remove the hook and the skill file
+        #[arg(long)]
+        uninstall: bool,
+        /// Print what would change without writing
+        #[arg(long = "dry-run")]
+        dry_run: bool,
+    },
     /// The hook itself: reads the tool call on stdin, prints a rewritten command (internal)
-    Run,
+    Run {
+        /// Which agent is calling; shapes the reply (Codex applies a rewrite only with permissionDecision=allow)
+        #[arg(long, value_enum, default_value_t = hook::Agent::Claude)]
+        agent: hook::Agent,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -811,8 +824,11 @@ fn run() -> Result<()> {
                 which: HookCmd::Claude { uninstall, dry_run },
             } => hook::install_claude(uninstall, dry_run),
             Cmd::Hook {
-                which: HookCmd::Run,
-            } => hook::run(),
+                which: HookCmd::Codex { uninstall, dry_run },
+            } => hook::install_codex(uninstall, dry_run),
+            Cmd::Hook {
+                which: HookCmd::Run { agent },
+            } => hook::run(agent),
             Cmd::Lang {
                 which: LangCmd::Check { dir },
             } => doctor::lang_check(&dir),
