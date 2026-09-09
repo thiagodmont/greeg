@@ -24,6 +24,7 @@ serde.workspace = true
 serde_json.workspace = true
 blake3.workspace = true
 libc.workspace = true
+toml_edit = "0.25.13"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 greeg-fsevents = { path = "../greeg-fsevents" }
