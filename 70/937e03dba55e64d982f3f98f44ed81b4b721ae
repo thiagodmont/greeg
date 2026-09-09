@@ -1,0 +1,34 @@
+crates/greeg/Cargo.toml
+  s_3032665835b95b::t_58085457786ca2 27
+docs/PLAN.md
+  s_3032665835b95b::t_14fdc504ae3f79 398-410
+README.md
+  s_3032665835b95b::t_14fdc504ae3f79 70-84
+crates/greeg/src/hook.rs
+  s_3032665835b95b::t_7706492ada07b2 1576-1579
+  s_3032665835b95b::t_c015999ff07dc6 362-365,367-382,385,389-390,392-396,398-400,423-424,445,1533
+  s_3032665835b95b::t_990c26eda68049 391,397
+  s_3032665835b95b::t_fa0a634a0ff093 366,383
+  s_3032665835b95b::t_30c37d1977e564 1-8,15,18-27,67-69,79-92,94-95,106-114,137-145,152,164-260,331,346-361,384,386-388,401-422,425-444,446-534,1130-1144,1164
+  s_3032665835b95b::t_93e700abae29c0 93,1456-1532,1534-1575,1580
+crates/greeg/src/main.rs
+  s_3032665835b95b::t_93e700abae29c0 318,402,411-419,421-425,827-831
+Cargo.lock
+  s_3032665835b95b::t_bd0db69f771f58 402,846-882,998-1006
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "70937e03dba55e64d982f3f98f44ed81b4b721ae",
+  "prompts": {},
+  "sessions": {
+    "s_3032665835b95b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ae45d650-667a-4463-b8c1-3c4e6530e66c",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
