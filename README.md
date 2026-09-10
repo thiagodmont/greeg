@@ -31,7 +31,7 @@ brew install thiagodmont/greeg/greeg
 **Release tarball** (binary + man page, sha256 alongside):
 
 ```
-v=0.4.0; t=aarch64-apple-darwin   # or x86_64-apple-darwin, x86_64-unknown-linux-gnu, aarch64-unknown-linux-gnu
+v=0.5.0; t=aarch64-apple-darwin   # or x86_64-apple-darwin, x86_64-unknown-linux-gnu, aarch64-unknown-linux-gnu
 curl -sSL https://github.com/thiagodmont/greeg/releases/download/v$v/greeg-$v-$t.tar.gz | tar xz
 sudo install greeg-$v-$t/greeg /usr/local/bin/
 ```
