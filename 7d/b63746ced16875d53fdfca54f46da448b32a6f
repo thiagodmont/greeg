@@ -1,0 +1,53 @@
+docs/OUTPUT.md
+  s_3139199ced90b0::t_22d16d1d0f0e31 204,213-214
+crates/greeg-index/src/lib.rs
+  s_3139199ced90b0::t_22d16d1d0f0e31 8,50-57,110-143
+  s_3139199ced90b0::t_b0bb165b60bab8 144
+crates/greeg-index/src/build.rs
+  s_3139199ced90b0::t_22d16d1d0f0e31 6,33-35,51-55,265-277,293,295-298,303-368,383-398,402,405,407-410,425,432,436-439,441,443,449,451-452,455-469,511,513,517,519,540-541,554,561-564,705,710-717,719,767-768,784-788,865
+crates/greeg-index/src/fresh.rs
+  s_3139199ced90b0::t_22d16d1d0f0e31 621
+README.md
+  s_3139199ced90b0::t_22d16d1d0f0e31 204-205,237-240
+crates/greeg-query/src/verbs.rs
+  s_3139199ced90b0::t_22d16d1d0f0e31 1435
+crates/greeg-index/src/external.rs
+  s_3139199ced90b0::t_22d16d1d0f0e31 1-615
+crates/greeg/src/main.rs
+  s_3139199ced90b0::t_22d16d1d0f0e31 170-171,174-176,178,635-651,1640-1641,1643-1650,2023,2040-2063
+crates/greeg-index/tests/index.rs
+  s_3139199ced90b0::t_22d16d1d0f0e31 64-192
+crates/greeg-query/src/indexed.rs
+  s_3139199ced90b0::t_22d16d1d0f0e31 861,958,1040,1127,1215,1282
+crates/greeg-query/src/shape.rs
+  s_3139199ced90b0::t_22d16d1d0f0e31 864,868-872
+docs/DESIGN.md
+  s_3139199ced90b0::t_d7cb81f69fa5c1 3,343,1129
+  s_3139199ced90b0::t_22d16d1d0f0e31 344-397,1128,1130-1132
+crates/greeg/tests/cli.rs
+  s_3139199ced90b0::t_22d16d1d0f0e31 1-606
+crates/greeg-index/Cargo.toml
+  s_3139199ced90b0::t_22d16d1d0f0e31 15
+bench/bench.py
+  s_3139199ced90b0::t_22d16d1d0f0e31 319-328,422-425,1025-1027
+crates/greeg/src/doctor.rs
+  s_3139199ced90b0::t_22d16d1d0f0e31 95,101-105
+Cargo.lock
+  s_3139199ced90b0::t_88b2cea64e3dd9 424
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "7db63746ced16875d53fdfca54f46da448b32a6f",
+  "prompts": {},
+  "sessions": {
+    "s_3139199ced90b0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "63ac4beb-cf93-40a7-94bf-d1281d920b33",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
