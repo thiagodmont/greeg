@@ -5,6 +5,7 @@
 //! fixed-layout, and read through `mmap` without deserialization.
 
 pub mod build;
+pub mod external;
 pub mod format;
 pub mod fresh;
 pub mod gram;
@@ -46,6 +47,14 @@ pub struct Manifest {
     pub source_bytes: u64,
     pub built_unix_ms: u64,
     pub build_ms: f64,
+    /// Peak resident set size of the build process, in bytes (0 = unknown).
+    /// Recorded so the benchmark can gate on build memory, not only on time.
+    #[serde(default)]
+    pub peak_rss: u64,
+    /// The phase-1 postings reached the byte budget and were merged through
+    /// spill segments rather than in memory (`external.rs`).
+    #[serde(default)]
+    pub spilled: bool,
     /// FSEvents event id at publish or last successful check (macOS).
     pub fsevents_id: u64,
     /// Last time the index was verified fresh (unix ms), for the TTL.
@@ -96,6 +105,41 @@ fn sanitize(s: &str) -> String {
         })
         .take(40)
         .collect()
+}
+
+/// Peak resident set size of this process, in bytes, or `None` if the kernel
+/// will not say. `getrusage(RUSAGE_SELF).ru_maxrss` is a high-water mark that
+/// never falls, so it is the build's peak and not its current use; the units
+/// differ by platform (bytes on macOS, kilobytes on Linux).
+///
+/// Above 1 MiB the build reads through `mmap`, and those pages are
+/// file-backed and reclaimable, so on a tree of large files this overstates
+/// what the process actually holds. Every corpus greeg is measured on is
+/// small files, where the two agree.
+pub fn peak_rss_bytes() -> Option<u64> {
+    // SAFETY: `getrusage` only writes the `rusage` it is given.
+    let mut ru: libc::rusage = unsafe { std::mem::zeroed() };
+    if unsafe { libc::getrusage(libc::RUSAGE_SELF, &mut ru) } != 0 {
+        return None;
+    }
+    let raw = ru.ru_maxrss as u64;
+    Some(if cfg!(target_os = "macos") {
+        raw
+    } else {
+        raw * 1024
+    })
+}
+
+/// `123.4 MB`-style rendering of a byte count, binary units as everywhere
+/// else greeg prints a size (`greeg doctor`'s `fmt_size`), so the build line
+/// and the doctor line agree on the same number.
+pub fn fmt_bytes(n: u64) -> String {
+    let mb = n as f64 / 1048576.0;
+    if mb >= 1024.0 {
+        format!("{:.2} GB", mb / 1024.0)
+    } else {
+        format!("{mb:.1} MB")
+    }
 }
 
 pub fn now_ms() -> u64 {

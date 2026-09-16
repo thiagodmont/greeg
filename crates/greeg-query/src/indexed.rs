@@ -858,6 +858,7 @@ mod tests {
                 reader_threads: 1,
                 quiet: true,
                 phase1_only: true,
+                ..Default::default()
             },
         )
         .unwrap();
@@ -954,6 +955,7 @@ mod tests {
                 reader_threads: 1,
                 quiet: true,
                 phase1_only: true,
+                ..Default::default()
             },
         )
         .unwrap();
@@ -1035,6 +1037,7 @@ mod tests {
                 reader_threads: 1,
                 quiet: true,
                 phase1_only: true,
+                ..Default::default()
             },
         )
         .unwrap();
@@ -1121,6 +1124,7 @@ mod tests {
                 reader_threads: 1,
                 quiet: true,
                 phase1_only: true,
+                ..Default::default()
             },
         )
         .unwrap();
@@ -1208,6 +1212,7 @@ mod tests {
                 reader_threads: 1,
                 quiet: true,
                 phase1_only: true,
+                ..Default::default()
             },
         )
         .unwrap();
@@ -1274,6 +1279,7 @@ mod tests {
                 reader_threads: 1,
                 quiet: true,
                 phase1_only: true,
+                ..Default::default()
             },
         )
         .unwrap();

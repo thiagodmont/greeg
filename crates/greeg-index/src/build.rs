@@ -3,6 +3,7 @@
 //! publish.
 
 use crate::Index;
+use crate::external;
 use crate::format::{self, DirRec, FileRec, FileTable, NONE, is_ignore_file};
 use crate::gram::{Dedup, fold_buf};
 use crate::resolve::Resolver;
@@ -29,6 +30,9 @@ pub struct BuildOpts {
     pub quiet: bool,
     /// Stop after phase 1 (grams only).
     pub phase1_only: bool,
+    /// Bytes of postings held across all workers before they spill to sorted
+    /// segments (`external.rs`). Below it the build is the in-memory one.
+    pub posting_budget: usize,
 }
 
 impl Default for BuildOpts {
@@ -44,6 +48,11 @@ impl Default for BuildOpts {
             },
             quiet: true,
             phase1_only: false,
+            posting_budget: std::env::var("GREEG_BUILD_BUDGET_MB")
+                .ok()
+                .and_then(|v| v.parse::<usize>().ok())
+                .map(|mb| mb << 20)
+                .unwrap_or(external::DEFAULT_BUDGET),
         }
     }
 }
@@ -253,9 +262,19 @@ fn extract_file_with<T: Default>(
     )
 }
 
-/// Add the words of `src` to `map` for file `id`, deduplicated per file: ids
-/// arrive in order, so a word already carrying `id` last was seen in this file.
-fn push_words(map: &mut HashMap<Vec<u8>, Vec<u32>>, src: &[u8], id: u32) {
+/// Add the words of `src` to `sink` for file `id`, deduplicated per file: the
+/// words of one file arrive together, so a word already carrying `id` last was
+/// seen in this file. Ids need not be globally monotonic (a worker takes
+/// whichever chunk rayon hands it), which is why the dedup is per key and the
+/// lists are sorted before they are serialized.
+fn push_words(sink: &mut external::Sink<Vec<u8>>, src: &[u8], id: u32) {
+    words::for_each_word(src, |w| sink.push_bytes(w, id));
+}
+
+/// Add the words of `src` to a plain map for `id`, for the delta path: a delta
+/// holds the files of one edit burst, so it is never near the build budget and
+/// has no reason to spill.
+fn push_words_map(map: &mut HashMap<Vec<u8>, Vec<u32>>, src: &[u8], id: u32) {
     words::for_each_word(src, |w| match map.get_mut(w) {
         Some(v) => {
             if v.last() != Some(&id) {
@@ -271,17 +290,80 @@ fn push_words(map: &mut HashMap<Vec<u8>, Vec<u32>>, src: &[u8], id: u32) {
 /// Sorted (word, document count, serialized bitmap) entries of a word map.
 fn word_entries(map: HashMap<Vec<u8>, Vec<u32>>) -> Vec<(Vec<u8>, u32, Vec<u8>)> {
     let mut entries: Vec<(Vec<u8>, Vec<u32>)> = map.into_iter().collect();
-    entries.par_sort_unstable_by(|a, b| a.0.cmp(&b.0));
+    entries.sort_unstable_by(|a, b| a.0.cmp(&b.0));
     entries
-        .into_par_iter()
-        .map(|(w, mut v)| {
-            v.sort_unstable();
-            let bm = RoaringBitmap::from_sorted_iter(v.iter().copied()).unwrap();
-            let mut out = Vec::with_capacity(bm.serialized_size());
-            bm.serialize_into(&mut out).unwrap();
-            (w, v.len() as u32, out)
+        .into_iter()
+        .map(|(w, v)| {
+            let (c, b) = posting_bytes(v);
+            (w, c, b)
         })
         .collect()
+}
+
+/// Serialize one posting list the way both components want it: a roaring
+/// bitmap over the file ids, with the document count beside it.
+fn posting_bytes(mut v: Vec<u32>) -> (u32, Vec<u8>) {
+    v.sort_unstable();
+    v.dedup();
+    let bm = RoaringBitmap::from_sorted_iter(v.iter().copied()).unwrap();
+    let mut out = Vec::with_capacity(bm.serialized_size());
+    bm.serialize_into(&mut out).unwrap();
+    (v.len() as u32, out)
+}
+
+/// How many entries the merge hands to rayon at a time. Large enough that the
+/// parallel serialization has work, small enough that the batch is a rounding
+/// error against the budget.
+const MERGE_BATCH: usize = 4096;
+
+/// Sorted (key, document count, serialized bitmap) entries, from whichever
+/// shape the workers ended in. `Memory` is the path that existed before the
+/// budget: merge the worker maps, sort, serialize in parallel. `Segments` is
+/// the streaming k-way merge, which never holds more than one batch.
+fn entries_of<K, T, F>(p: external::Postings<K>, key_out: F) -> Result<Vec<(T, u32, Vec<u8>)>>
+where
+    K: external::Key,
+    T: Send,
+    F: Fn(K) -> T + Send + Sync + Copy,
+{
+    match p {
+        external::Postings::Memory(mut maps) => {
+            maps.sort_by_key(|m| std::cmp::Reverse(m.len()));
+            let mut merged = maps.pop().unwrap_or_default();
+            for m in maps {
+                for (k, mut v) in m {
+                    merged.entry(k).or_default().append(&mut v);
+                }
+            }
+            let mut entries: Vec<(K, Vec<u32>)> = merged.into_iter().collect();
+            entries.par_sort_unstable_by(|a, b| a.0.cmp(&b.0));
+            Ok(entries
+                .into_par_iter()
+                .map(|(k, v)| {
+                    let (c, b) = posting_bytes(v);
+                    (key_out(k), c, b)
+                })
+                .collect())
+        }
+        external::Postings::Segments(segs) => {
+            let mut out: Vec<(T, u32, Vec<u8>)> = Vec::new();
+            external::stream_batches::<K>(&segs, MERGE_BATCH, |batch| {
+                let mut done: Vec<(T, u32, Vec<u8>)> = batch
+                    .into_par_iter()
+                    .map(|(k, v)| {
+                        let (c, b) = posting_bytes(v);
+                        (key_out(k), c, b)
+                    })
+                    .collect();
+                out.append(&mut done);
+                Ok(())
+            })?;
+            for s in &segs {
+                let _ = fs::remove_file(s);
+            }
+            Ok(out)
+        }
+    }
 }
 
 /// Build phase 1 into `dir`. Returns the manifest written.
@@ -298,20 +380,34 @@ pub fn build(root: &Path, dir: &Path, opts: &BuildOpts) -> Result<Manifest> {
     let root_buf = root.to_path_buf();
     let source_bytes = std::sync::atomic::AtomicU64::new(0);
     type Flags = Vec<(u32, u16)>;
-    type GramMap = HashMap<u32, Vec<u32>>;
-    type WordMap = HashMap<Vec<u8>, Vec<u32>>;
-    let (flags_by_id, merged, merged_words): (Flags, GramMap, WordMap) = pool.install(|| {
+    // Postings accumulate against a byte budget shared across the workers and
+    // spill to sorted segments when it is reached (`external.rs`, which
+    // carries the measurements). A tree that never reaches it never spills
+    // and takes the in-memory path unchanged.
+    let scratch = external::Scratch::new(dir)?;
+    // one accumulator per chunk, and every chunk's accumulator stays alive
+    // until the merge, so the budget divides by the chunk count and not by the
+    // thread count: the ceiling is what is held at once, not what is running.
+    let n_chunks = (opts.reader_threads * 4).max(1);
+    let per_chunk = (opts.posting_budget / n_chunks).max(64 << 10);
+    type Parts = (
+        Flags,
+        Vec<external::Part<u32>>,
+        Vec<external::Part<Vec<u8>>>,
+    );
+    let (flags_by_id, gram_parts, word_parts): Parts = pool.install(|| {
         // one accumulator per chunk (a few per thread), not per rayon split:
         // each carries a 2 MiB dedup bitset and a 32k-entry map
-        let n_chunks = (opts.reader_threads * 4).max(1);
         let chunk = walked.len().div_ceil(n_chunks).max(1);
-        let (flags, maps, wmaps): (Flags, Vec<GramMap>, Vec<WordMap>) = walked
+        walked
             .par_chunks(chunk)
             .enumerate()
-            .map(|(ci, ws)| {
+            .map(|(ci, ws)| -> Result<_> {
                 let mut fl: Flags = Vec::with_capacity(ws.len());
-                let mut map: GramMap = HashMap::with_capacity(1 << 15);
-                let mut wmap: WordMap = HashMap::with_capacity(1 << 14);
+                let mut sink: external::Sink<u32> =
+                    external::Sink::new(&scratch.dir, "g", ci, per_chunk, 1 << 15);
+                let mut wsink: external::Sink<Vec<u8>> =
+                    external::Sink::new(&scratch.dir, "w", ci, per_chunk, 1 << 14);
                 let mut buf: Vec<u8> = Vec::with_capacity(256 * 1024);
                 let mut dd = Dedup::new();
                 let mut grams: Vec<u32> = Vec::with_capacity(8192);
@@ -326,66 +422,51 @@ pub fn build(root: &Path, dir: &Path, opts: &BuildOpts) -> Result<Manifest> {
                         &mut buf,
                         &mut dd,
                         &mut grams,
-                        |_, src| push_words(&mut wmap, src, id),
+                        |_, src| push_words(&mut wsink, src, id),
                     );
                     if !ex.grams.is_empty() {
                         source_bytes
                             .fetch_add(buf.len() as u64, std::sync::atomic::Ordering::Relaxed);
                     }
                     for &g in &ex.grams {
-                        map.entry(g)
-                            .or_insert_with(|| Vec::with_capacity(8))
-                            .push(id);
+                        sink.push(&g, id);
                     }
                     grams = ex.grams;
                     fl.push((id, ex.flags.0));
+                    // only ever between files: a file's postings must not be
+                    // split across a spill, or the per-file dedup breaks
+                    sink.spill_if_full()?;
+                    wsink.spill_if_full()?;
                 }
-                (fl, vec![map], vec![wmap])
+                Ok((fl, vec![sink.finish()?], vec![wsink.finish()?]))
             })
-            .reduce(
+            .try_reduce(
                 || (Vec::new(), Vec::new(), Vec::new()),
                 |(mut fa, mut ma, mut wa), (mut fb, mut mb, mut wb)| {
                     fa.append(&mut fb);
                     ma.append(&mut mb);
                     wa.append(&mut wb);
-                    (fa, ma, wa)
+                    Ok((fa, ma, wa))
                 },
-            );
-        // merge maps: largest first, absorb others
-        let mut maps = maps;
-        maps.sort_by_key(|m| std::cmp::Reverse(m.len()));
-        let mut merged = maps.pop().unwrap_or_default();
-        for m in maps {
-            for (k, mut v) in m {
-                merged.entry(k).or_default().append(&mut v);
-            }
-        }
-        let mut wmaps = wmaps;
-        wmaps.sort_by_key(|m| std::cmp::Reverse(m.len()));
-        let mut merged_words = wmaps.pop().unwrap_or_default();
-        for m in wmaps {
-            for (k, mut v) in m {
-                merged_words.entry(k).or_default().append(&mut v);
-            }
-        }
-        (flags, merged, merged_words)
-    });
+            )
+    })?;
     let extract_ms = t0.elapsed().as_secs_f64() * 1e3 - walk_ms;
 
-    // postings
-    let mut entries: Vec<(u32, Vec<u32>)> = merged.into_iter().collect();
-    entries.par_sort_unstable_by_key(|(k, _)| *k);
-    let entries: Vec<(u32, u32, Vec<u8>)> = entries
-        .into_par_iter()
-        .map(|(k, mut v)| {
-            v.sort_unstable();
-            let bm = RoaringBitmap::from_sorted_iter(v.iter().copied()).unwrap();
-            let mut out = Vec::with_capacity(bm.serialized_size());
-            bm.serialize_into(&mut out).unwrap();
-            (k, v.len() as u32, out)
-        })
-        .collect();
-    let wentries = word_entries(merged_words);
+    // postings: merged, serialized and released one component at a time, so
+    // the peak carries one component's entries and one component's bytes
+    // rather than both components' of each, and nothing survives into phase 2
+    let gram_postings = external::collect(gram_parts, &scratch.dir, "g")?;
+    let word_postings = external::collect(word_parts, &scratch.dir, "w")?;
+    let spilled = matches!(gram_postings, external::Postings::Segments(_));
+    let (n_grams, grams_bytes) = {
+        let entries: Vec<(u32, u32, Vec<u8>)> = entries_of(gram_postings, |k| k)?;
+        (entries.len(), format::serialize_grams(&entries))
+    };
+    let (n_words, words_bytes) = {
+        let wentries: Vec<(Vec<u8>, u32, Vec<u8>)> = entries_of(word_postings, |k| k)?;
+        (wentries.len(), words::serialize(&wentries))
+    };
+    drop(scratch);
 
     // file table
     let mut ft = FileTable::default();
@@ -427,13 +508,15 @@ pub fn build(root: &Path, dir: &Path, opts: &BuildOpts) -> Result<Manifest> {
     format::write_atomic(
         &dir.join(format!("grams.{generation}.bin")),
         format::COMP_GRAMS,
-        &format::serialize_grams(&entries),
+        &grams_bytes,
     )?;
+    drop(grams_bytes);
     format::write_atomic(
         &dir.join(format!("words.{generation}.bin")),
         format::COMP_WORDS,
-        &words::serialize(&wentries),
+        &words_bytes,
     )?;
+    drop(words_bytes);
     format::write_atomic(
         &dir.join(format!("files.{generation}.bin")),
         format::COMP_FILES,
@@ -454,6 +537,8 @@ pub fn build(root: &Path, dir: &Path, opts: &BuildOpts) -> Result<Manifest> {
         source_bytes: source_bytes.load(std::sync::atomic::Ordering::Relaxed),
         built_unix_ms: now_ms(),
         build_ms: t0.elapsed().as_secs_f64() * 1e3,
+        peak_rss: crate::peak_rss_bytes().unwrap_or(0),
+        spilled,
         fsevents_id,
         verified_unix_ms: now_ms(),
         deltas: 0,
@@ -466,15 +551,17 @@ pub fn build(root: &Path, dir: &Path, opts: &BuildOpts) -> Result<Manifest> {
     drop(lock);
     if !opts.quiet {
         eprintln!(
-            "greeg index: {} files, {} dirs, {:.1} MB source; walk {:.0} ms, extract {:.0} ms, total {:.0} ms; {} grams, {} words",
+            "greeg index: {} files, {} dirs, {:.1} MB source; walk {:.0} ms, extract {:.0} ms, total {:.0} ms; {} grams, {} words; {} postings, peak RSS {}",
             walked.len(),
             dirs.len(),
             m.source_bytes as f64 / 1e6,
             walk_ms,
             extract_ms,
             m.build_ms,
-            entries.len(),
-            wentries.len()
+            n_grams,
+            n_words,
+            if spilled { "spilled" } else { "in-memory" },
+            crate::fmt_bytes(m.peak_rss)
         );
     }
     if opts.phase1_only {
@@ -615,17 +702,24 @@ fn phase2(
         f.rank = quantize_rank(rank[i]);
     }
     let resolve_ms = t0.elapsed().as_secs_f64() * 1e3 - parse_ms;
+    drop(resolver);
     // symbols + spans
     let mut sb = SymBuilder::new(n);
     let mut pb = SpanBuilder::new(n);
     for i in 0..ft.files.len() {
-        sb.add_file(i as u32, by_file[i].as_ref());
-        pb.add_file(i as u32, by_file[i].as_ref(), &targets[i]);
+        // both builders copy what they need out of the extract, so release it
+        // here rather than holding every file's parse until the two bodies are
+        // serialized: on rust-lang/rust that is 428k symbols kept alongside
+        // the 40 MB they serialize into
+        let ex = by_file[i].take();
+        let t = std::mem::take(&mut targets[i]);
+        sb.add_file(i as u32, ex.as_ref());
+        pb.add_file(i as u32, ex.as_ref(), &t);
     }
+    drop(targets);
     let n_symbols = sb.n_symbols() as u32;
     let sym_body = sb.finish(&|f| rank[f as usize]);
     let span_body = pb.finish();
-    drop(resolver);
     drop(by_file);
     // publish under the lock; queries may have applied deltas against this
     // generation meanwhile, so the manifest keeps their count
@@ -670,6 +764,8 @@ fn phase2(
     m.parse_fallbacks = fallbacks;
     m.phase2_ms = t0.elapsed().as_secs_f64() * 1e3;
     m.build_ms += m.phase2_ms;
+    // the high-water mark spans both phases, so this only ever grows
+    m.peak_rss = m.peak_rss.max(crate::peak_rss_bytes().unwrap_or(0));
     write_manifest(dir, m)?;
     remove_stale(dir, &["symbols.", "spans.", "graph."], generation);
     drop(lock);
@@ -684,6 +780,11 @@ fn phase2(
             n_symbols,
             n_edges,
             m.phase2_ms
+        );
+        eprintln!(
+            "greeg index: done in {:.0} ms, peak RSS {}",
+            m.build_ms,
+            crate::fmt_bytes(m.peak_rss)
         );
     }
     Ok(())
@@ -761,7 +862,7 @@ pub fn build_delta(
             &mut dd,
             &mut grams,
             |rel, src| {
-                push_words(&mut wmap, src, id);
+                push_words_map(&mut wmap, src, id);
                 let flags = path_flags(rel).0
                     | content_flags(&src[..src.len().min(65536)], src.len() as u64).0;
                 if wants_symbols(rel, flags) {

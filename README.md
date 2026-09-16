@@ -201,8 +201,8 @@ nothing matches the whole word. `--budget 0`, `-l` and `-c` keep ripgrep's
 match set exactly.
 
 ```
-greeg index                 # build now instead of on first query
-greeg index --status        # manifest: files, generation, deltas
+greeg index                 # build now instead of on first query (prints peak RSS)
+greeg index --status        # manifest: files, generation, deltas, build peak RSS
 greeg index --check         # run a freshness check and apply it
 greeg pat --fresh none      # trust the index (back-to-back calls, benchmarks)
 greeg pat --no-index        # scan the tree like ripgrep
@@ -234,7 +234,10 @@ and biases ranking toward recently seen files; `--no-session` turns it off.
 ripgrep-compatible: `-i -S -s -w -x -F -U -n -l -c -A -B -C -g -t -T -e -j
 --no-ignore --hidden -u -uu --max-columns --max-filesize --json --sort path`
 (cosmetic flags such as `-N -H --color --no-heading --column` are accepted and
-ignored).
+ignored, because the output they ask for is the output greeg gives). A flag
+that would change the *answer* is an error instead: `-a`/`--text` and `-uuu`
+ask for binary files, which the index never holds and scan mode stops at, so
+they exit 2 and name `rg` rather than answering without them.
 
 greeg: `--budget N` (tokens, default 2000, 0 = unlimited) · `--mode
 files|outline|content|block` · `--kind def,call,...` · `--chain` · `--near

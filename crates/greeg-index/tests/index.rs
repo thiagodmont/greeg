@@ -61,6 +61,135 @@ fn opts() -> BuildOpts {
         reader_threads: 2,
         quiet: true,
         phase1_only: false,
+        ..Default::default()
+    }
+}
+
+/// A tree big enough that a small budget forces several spills per worker.
+fn wide_tree(files: usize) -> Tmp {
+    let base = std::env::temp_dir().join(format!(
+        "greeg-index-wide-{}-{}",
+        std::process::id(),
+        N.fetch_add(1, Ordering::Relaxed)
+    ));
+    let root = base.join("tree");
+    let dir = base.join("index");
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::create_dir_all(root.join(".git")).unwrap();
+    // deterministic, varied content: the point is many distinct grams and
+    // words spread over many files, so the postings are wide
+    let mut x: u64 = 987654321;
+    for i in 0..files {
+        let mut body = String::with_capacity(2048);
+        body.push_str(&format!("pub fn f_{i}() -> u32 {{\n"));
+        for _ in 0..24 {
+            x = x.wrapping_mul(6364136223846793005).wrapping_add(1);
+            body.push_str(&format!(
+                "    let v_{a}_{b} = call_{c}(sym_{a}, \"lit_{b}\");\n",
+                a = (x >> 33) % 211,
+                b = (x >> 17) % 307,
+                c = (x >> 5) % 97
+            ));
+        }
+        body.push_str("    0\n}\n");
+        fs::write(root.join(format!("src/f{i}.rs")), body).unwrap();
+    }
+    Tmp { root, dir, base }
+}
+
+/// The whole point of the byte budget: a build that spills must publish the
+/// same index as one that does not. Byte-for-byte, so this also pins the
+/// merge's key order and its posting deduplication.
+#[test]
+fn a_spilled_build_publishes_the_same_index_as_an_in_memory_one() {
+    let t = wide_tree(400);
+    let mem_dir = t.base.join("index-mem");
+    let ext_dir = t.base.join("index-ext");
+    build(
+        &t.root,
+        &mem_dir,
+        &BuildOpts {
+            reader_threads: 2,
+            quiet: true,
+            phase1_only: true,
+            posting_budget: 1 << 30,
+        },
+    )
+    .unwrap();
+    build(
+        &t.root,
+        &ext_dir,
+        &BuildOpts {
+            reader_threads: 2,
+            quiet: true,
+            phase1_only: true,
+            // below the 64 KiB per-chunk floor, so every chunk spills
+            posting_budget: 1,
+        },
+    )
+    .unwrap();
+    assert!(
+        !read_manifest(&mem_dir).unwrap().spilled,
+        "the large budget must stay in memory"
+    );
+    assert!(
+        read_manifest(&ext_dir).unwrap().spilled,
+        "the tiny budget must spill, or this test proves nothing"
+    );
+    for c in ["grams", "words", "files"] {
+        let a = fs::read(mem_dir.join(format!("{c}.1.bin"))).unwrap();
+        let b = fs::read(ext_dir.join(format!("{c}.1.bin"))).unwrap();
+        assert_eq!(a.len(), b.len(), "{c}.bin length");
+        assert!(
+            a == b,
+            "{c}.bin differs between the spilled and in-memory builds"
+        );
+    }
+    // and the scratch directory is gone, whichever path ran
+    for d in [&mem_dir, &ext_dir] {
+        let leftover: Vec<_> = fs::read_dir(d)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|n| n.starts_with("build-tmp"))
+            .collect();
+        assert!(leftover.is_empty(), "{d:?} kept {leftover:?}");
+    }
+}
+
+/// A search over a spilled index must answer exactly as one over an
+/// in-memory one: the candidate sets come from the same postings.
+#[test]
+fn a_spilled_index_answers_the_same_candidates() {
+    let t = wide_tree(300);
+    let ext_dir = t.base.join("index-ext");
+    build(
+        &t.root,
+        &t.dir,
+        &BuildOpts {
+            reader_threads: 2,
+            quiet: true,
+            phase1_only: true,
+            posting_budget: 1 << 30,
+        },
+    )
+    .unwrap();
+    build(
+        &t.root,
+        &ext_dir,
+        &BuildOpts {
+            reader_threads: 2,
+            quiet: true,
+            phase1_only: true,
+            posting_budget: 1,
+        },
+    )
+    .unwrap();
+    assert!(read_manifest(&ext_dir).unwrap().spilled);
+    let a = Index::open(&t.dir).unwrap();
+    let b = Index::open(&ext_dir).unwrap();
+    for pat in ["call_17", "sym_42", "lit_100", "f_7", "pub fn"] {
+        assert_eq!(ids_for(&a, pat), ids_for(&b, pat), "candidates for {pat:?}");
     }
 }
 

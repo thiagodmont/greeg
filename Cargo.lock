@@ -421,6 +421,7 @@ dependencies = [
  "greeg-lang",
  "hashbrown 0.15.5",
  "ignore",
+ "libc",
  "memchr",
  "memmap2",
  "rayon",

@@ -1432,6 +1432,7 @@ mod tests {
                 reader_threads: 1,
                 quiet: true,
                 phase1_only: false,
+                ..Default::default()
             },
         )
         .unwrap();
