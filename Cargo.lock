@@ -383,7 +383,7 @@ dependencies = [
 
 [[package]]
 name = "greeg"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "blake3",
@@ -404,14 +404,14 @@ dependencies = [
 
 [[package]]
 name = "greeg-fsevents"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "libc",
 ]
 
 [[package]]
 name = "greeg-index"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "blake3",
@@ -433,7 +433,7 @@ dependencies = [
 
 [[package]]
 name = "greeg-lang"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "ignore",
  "libc",
@@ -452,7 +452,7 @@ dependencies = [
 
 [[package]]
 name = "greeg-query"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "bstr",
