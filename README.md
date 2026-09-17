@@ -197,8 +197,8 @@ greeg index --status        # manifest: files, generation, deltas, build peak RS
 greeg --no-index PATTERN    # scan the tree like ripgrep, ignore the index
 ```
 
-Design and on-disk format: [`docs/DESIGN.md`](docs/DESIGN.md),
-[`docs/FORMAT.md`](docs/FORMAT.md). Output contract: [`docs/OUTPUT.md`](docs/OUTPUT.md).
+How all of this is put together, what each index component holds, and why the
+shape was chosen: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ## Is it actually helping?
 
@@ -250,7 +250,7 @@ Rust, Kotlin. Everything else gets a regex-based definition extractor, so
 search, ranking and budgeting still work — you just lose the precise symbol
 kinds. You can add a language yourself by dropping a tree-sitter grammar and a
 `tags.scm` into `~/.config/greeg/lang/<name>/`; `greeg lang check DIR` validates
-it. See [`docs/DESIGN.md`](docs/DESIGN.md) §11.
+it. See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 **When something goes wrong**: a panic in the index path, a corrupt component
 or a truncated file all fall back to a scan-mode answer plus a background

@@ -1,4 +1,4 @@
-//! Trigram extraction (DESIGN.md §5.1): ASCII case-folded, never spanning a
+//! Trigram extraction (ARCHITECTURE.md): ASCII case-folded, never spanning a
 //! line terminator, deduplicated per file with a 16 Mi-bit bitset.
 
 pub const BITSET_WORDS: usize = (1 << 24) / 64;

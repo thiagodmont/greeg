@@ -1,4 +1,4 @@
-# Pinned benchmark corpora (PLAN.md M6). `bench/bench.py fetch` shallow-clones
+# Pinned benchmark corpora. `bench/bench.py fetch` shallow-clones
 # each repository at its SHA into the bench cache ($GREEG_BENCH_CACHE, default
 # ~/.cache/greeg-bench/corpora). `size` is the tier used by CI: `small` runs on
 # every pull request, everything runs nightly on the reference machine.

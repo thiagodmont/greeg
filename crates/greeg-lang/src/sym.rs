@@ -1,4 +1,4 @@
-//! Stage-B extraction (DESIGN.md §7.1): tree-sitter parse, one tags query
+//! Stage-B extraction (ARCHITECTURE.md): tree-sitter parse, one tags query
 //! per language, and a small amount of post-processing into symbols, noncode
 //! spans and import statements. Falls back to the regex outline (§7.5) on
 //! parse timeout or when `ERROR` nodes cover more than 20 % of the file.
@@ -1050,7 +1050,7 @@ fn python_attributes(ex: &mut Extract, src: &[u8]) {
     }
 }
 
-/// Regex-based fallback (DESIGN.md §7.5): outline + byte lexer + import lines.
+/// Regex-based fallback (ARCHITECTURE.md): outline + byte lexer + import lines.
 pub fn regex_extract(lang: Lang, src: &[u8]) -> Extract {
     let mut ex = Extract::default();
     if !lang.has_grammar() {
@@ -1109,7 +1109,7 @@ pub fn regex_extract(lang: Lang, src: &[u8]) -> Extract {
 
 // ---------------------------------------------------------------- precise kinds
 
-/// Exact hit kinds from the syntax tree (`--precise`, DESIGN.md §3.4).
+/// Exact hit kinds from the syntax tree (`--precise`, ARCHITECTURE.md).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NodeKind {
     Def,

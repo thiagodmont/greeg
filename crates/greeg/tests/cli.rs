@@ -4,8 +4,8 @@
 //! What lives here and what does not. `bench/parity.py` checks `(path, line)`
 //! parity against a real ripgrep over the fetched corpora; it needs the
 //! network and only runs in the `e2e` CI job. These tests need neither, and
-//! they assert on what `docs/OUTPUT.md` promises rather than on ripgrep:
-//! footer shape, demotion, `related`, `-l`/`-c` stream shape, exit codes,
+//! they assert on the output contract in ARCHITECTURE.md rather than on
+//! ripgrep: footer shape, demotion, `related`, `-l`/`-c` stream shape, exit codes,
 //! rejected flags, and the one property that catches most index bugs without
 //! any golden text — **an indexed answer equals a scan-mode answer**.
 //!
@@ -222,7 +222,7 @@ fn an_edit_is_visible_to_an_indexed_search() {
 }
 
 // ---------------------------------------------------------------------------
-// footer contract (docs/OUTPUT.md §Footer)
+// footer contract (ARCHITECTURE.md, "What the output means")
 // ---------------------------------------------------------------------------
 
 /// "A whole answer ... ends with just `N hits · M files`".

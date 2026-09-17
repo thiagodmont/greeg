@@ -1,4 +1,4 @@
-//! Symbol, span and graph tables (DESIGN.md §3.3–§3.5): in-memory builders
+//! Symbol, span and graph tables (ARCHITECTURE.md): in-memory builders
 //! used by the full build and by delta segments, and zero-copy views over the
 //! serialized bytes. Layouts are documented in `format.rs`.
 
@@ -895,7 +895,7 @@ impl<'a> GraphView<'a> {
     }
 }
 
-/// Import edges of a delta segment (FORMAT.md, delta graph section):
+/// Import edges of a delta segment (ARCHITECTURE.md):
 /// per delta-local file, the absolute ids it imports, plus the id of the
 /// file version it supersedes (`NONE` for a new file). No PageRank: ranks are
 /// carried over from the superseded record.

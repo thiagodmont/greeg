@@ -1,4 +1,4 @@
-//! Freshness (DESIGN.md §4.5): find what changed since the index was
+//! Freshness (ARCHITECTURE.md): find what changed since the index was
 //! published (stat pass, or FSEvents history on macOS), and apply changes as
 //! a delta segment plus tombstones.
 
@@ -590,7 +590,7 @@ mod tests {
     }
 
     /// Edited files keep their rank and their import edges in both directions
-    /// (DESIGN.md §4.3): the delta resolves imports against the base, and the
+    /// (ARCHITECTURE.md): the delta resolves imports against the base, and the
     /// base's edges to the superseded id follow the file to its new id.
     #[test]
     fn delta_keeps_rank_and_edges() {

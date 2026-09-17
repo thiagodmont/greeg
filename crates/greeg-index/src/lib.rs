@@ -1,4 +1,4 @@
-//! Persistent per-repository index (DESIGN.md §2–§5): file table, file-level
+//! Persistent per-repository index (ARCHITECTURE.md): file table, file-level
 //! trigram and word postings, delta segments, tombstones, freshness.
 //!
 //! Phase 1 (grams) and phase 2 (symbols, spans, graph). Everything on disk is little-endian,
@@ -31,7 +31,7 @@ pub struct Manifest {
     pub root: String,
     pub generation: u32,
     pub phase1: bool,
-    /// Symbols, spans and graph published (DESIGN.md §4.1 phase 2).
+    /// Symbols, spans and graph published (phase 2, ARCHITECTURE.md).
     #[serde(default)]
     pub phase2: bool,
     #[serde(default)]
@@ -77,7 +77,7 @@ pub fn cache_base() -> Result<PathBuf> {
     })
 }
 
-/// Where the index for `root` lives (DESIGN.md §2.2).
+/// Where the index for `root` lives (ARCHITECTURE.md).
 pub fn index_dir_for(root: &Path) -> Result<PathBuf> {
     if let Some(d) = std::env::var_os("GREEG_INDEX_DIR") {
         return Ok(PathBuf::from(d));

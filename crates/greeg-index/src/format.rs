@@ -17,7 +17,7 @@
 //!   u64 offsets[n_grams + 1] into postings
 //!   postings bytes           roaring portable serialization per gram
 //!
-//! symbols.<gen>.bin (DESIGN.md §3.3)
+//! symbols.<gen>.bin (ARCHITECTURE.md)
 //!   u32 n_files, u32 n_syms, u32 n_names, u32 n_super, u32 n_tokens, u32 n_tok_names, u32 arena_len, u32 tok_arena_len
 //!   u32 sym_off[n_files + 1]        CSR: symbols of file f are syms[sym_off[f]..sym_off[f+1]]
 //!   SymRec[n_syms]                  (40 bytes each, file order, start order within a file)
@@ -52,7 +52,7 @@
 //! tombstone bitmap of superseded ids at the end.
 //!
 //! Writers (build publish, delta apply) hold an exclusive `flock` on `LOCK`;
-//! readers never lock (DESIGN.md §2.2).
+//! readers never lock (ARCHITECTURE.md).
 
 use anyhow::{Context, Result, bail};
 use bytemuck::{Pod, Zeroable};
@@ -400,7 +400,7 @@ pub fn write_atomic(path: &Path, comp: u8, body: &[u8]) -> Result<()> {
 /// `write_atomic` with the fsync optional. Base components are published
 /// durably (a build is seconds anyway); a delta segment skips it because
 /// `F_FULLFSYNC` costs 4–5 ms of every post-edit query on APFS, and a delta
-/// torn by a crash fails `Index::open` and triggers a rebuild (DESIGN.md §2.2).
+/// torn by a crash fails `Index::open` and triggers a rebuild (ARCHITECTURE.md).
 pub fn write_atomic_with(path: &Path, comp: u8, body: &[u8], durable: bool) -> Result<()> {
     let tmp = tmp_path(path);
     {

@@ -1,4 +1,4 @@
-//! Phase-1 build (DESIGN.md §4.1): walk, read with a small reader pool,
+//! Phase-1 build (ARCHITECTURE.md): walk, read with a small reader pool,
 //! extract trigrams and words, merge per-thread maps, write roaring postings,
 //! publish.
 
@@ -607,7 +607,7 @@ fn symbols_of_bytes(rel: &str, src: &[u8]) -> FileExtract {
     FileExtract::from_extract(ex, src)
 }
 
-/// Phase 2 (DESIGN.md §4.1 stage B + merge): parse every file with a grammar
+/// Phase 2 (ARCHITECTURE.md): parse every file with a grammar
 /// on all cores, resolve imports, run PageRank, publish symbols/spans/graph
 /// and republish the file table with ranks and parse flags.
 fn phase2(
@@ -829,7 +829,7 @@ fn greeg_fsevents_id() -> u64 {
 /// `files[i]` supersedes (`NONE` for a new file): its rank is carried over,
 /// and `tomb` holds every id this delta retires. Imports are resolved against
 /// the live base plus the delta's own files, so the edited files keep their
-/// graph edges (DESIGN.md §4.3). Returns the serialized segment body.
+/// graph edges (ARCHITECTURE.md). Returns the serialized segment body.
 pub fn build_delta(
     idx: &Index,
     root: &Path,

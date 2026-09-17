@@ -1,4 +1,4 @@
-//! Regex-based definition extraction (DESIGN.md §7.5) and enclosing-symbol
+//! Regex-based definition extraction (ARCHITECTURE.md) and enclosing-symbol
 //! ranges. Used in scan mode and as the fallback when a grammar fails.
 
 use crate::lexer::{Lexed, SpanKind};
@@ -407,7 +407,7 @@ fn unquoted(line: &[u8], s: usize, e: usize) -> (usize, usize) {
 
 /// Rust `mod x;` (no body) declares a module whose definition is the file
 /// `x.rs` / `x/mod.rs`: the tags query captures it as an import, and so does
-/// the fallback (`def` lists the file itself, DESIGN.md §7.3).
+/// the fallback (`def` lists the file itself, ARCHITECTURE.md).
 fn rust_mod_declaration(line: &[u8], name_end: usize) -> bool {
     line.get(name_end..)
         .map(|rest| rest.trim_ascii_start().starts_with(b";"))

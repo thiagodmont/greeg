@@ -1,4 +1,4 @@
-//! Symbol verbs (DESIGN.md §7.3–§7.4): `def`, `refs`, `callers`, `impls`,
+//! Symbol verbs (ARCHITECTURE.md): `def`, `refs`, `callers`, `impls`,
 //! `outline`, `map`, `impact`. Each verb returns plain data; rendering lives
 //! in the CLI. All verbs work without an index (slower, via scan mode) except
 //! `map`, which needs the symbol table.
@@ -60,7 +60,7 @@ fn dir_of(rel: &str) -> &str {
     rel.rsplit_once('/').map(|(d, _)| d).unwrap_or("")
 }
 
-/// Import reachability (DESIGN.md §7.3): 1.0 direct, 0.8 within two hops,
+/// Import reachability (ARCHITECTURE.md): 1.0 direct, 0.8 within two hops,
 /// 0.6 same directory, 0.4 otherwise. `origins` are file ids.
 pub fn reach(idx: &Index, origins: &[u32], target: u32) -> f32 {
     if origins.is_empty() {
@@ -73,7 +73,7 @@ pub fn reach(idx: &Index, origins: &[u32], target: u32) -> f32 {
         if o == target {
             return 1.0;
         }
-        // edges follow edits: an edited origin or target keeps its imports (DESIGN.md §4.3)
+        // edges follow edits: an edited origin or target keeps its imports (ARCHITECTURE.md)
         let out = idx.out_edges(o);
         if out.contains(&target) {
             return 1.0;
@@ -641,7 +641,7 @@ pub fn refs(o: &Options, name: &str, kinds: &[HitKind]) -> Result<RefsResult> {
     })
 }
 
-/// One calling function (DESIGN.md §7.4 `callers`).
+/// One calling function (`callers`, ARCHITECTURE.md).
 #[derive(Clone, Debug)]
 pub struct Caller {
     pub rel: String,
@@ -1395,7 +1395,7 @@ mod tests {
     use std::fs;
 
     /// `def NAME` lists the file that *is* the module after every symbol
-    /// (DESIGN.md §7.3): `sleep.rs` follows `fn sleep`, `net/mod.rs` and
+    /// (ARCHITECTURE.md): `sleep.rs` follows `fn sleep`, `net/mod.rs` and
     /// `pkg/__init__.py` answer on their own, and generic stems never match.
     #[test]
     fn def_lists_file_modules_after_symbols() {
