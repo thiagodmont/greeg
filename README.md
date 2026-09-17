@@ -12,43 +12,37 @@ answer in a token budget instead of dumping every match.
 
 ## The problem
 
-Your agent runs `rg get_queryset` on Django. ripgrep does its job perfectly and
-returns **357 matches, 32,548 bytes** — and Claude Code truncates tool output at
-30,000 characters, so the agent doesn't even see the end of it. Somewhere in
-there are the 63 definitions it actually wanted.
+Your agent runs `rg isIdentifier` on the TypeScript compiler. ripgrep does its
+job perfectly and returns **774 lines, 88,147 bytes**. Claude Code truncates
+tool output at 30,000 characters, so the agent reads a third of that wall and
+never reaches the end — where, somewhere, were the definitions it was after.
 
-Same query, same repo, with greeg:
+greeg answers the same question in **2,553 bytes**, and opens with them:
 
 ```console
-$ greeg get_queryset
-definitions (20 of 63)
-django/db/models/manager.py
-  150  def get_queryset(self):                      ‹ BaseManager
-  212  def get_queryset(self):                      ‹ EmptyManager
-django/views/generic/list.py
-   22  def get_queryset(self):                      ‹ MultipleObjectMixin
-django/contrib/admin/options.py
-  480  def get_queryset(self, request):             ‹ BaseModelAdmin
- 2874  def get_queryset(self, request):             ‹ InlineModelAdmin
+$ greeg isIdentifier
+definitions (4 of 6)
+src/compiler/factory/nodeTests.ts
+  318  export function isIdentifier(node: Node): node is Identifier {
+src/compiler/parser.ts
+  2318  function isIdentifier(): boolean {  ‹ Parser
+src/compiler/scanner.ts
+  71  isIdentifier(): boolean;  ‹ Scanner
+tests/cases/compiler/reverseMappedUnionInference.ts  [test]
+  24  declare function isIdentifier(node: unknown): node is Identifier;
+  +2 test definitions (--all)
 …
-tests/backends/models.py  [test]
-   23  def get_queryset(self):                      ‹ SchoolClassManager
-
-top hits
-django/db/models/query.py
-  3007 call  qs = manager.get_queryset()            ‹ prefetch_one_level
-django/forms/models.py
-   718 call  return len(self.get_queryset())        ‹ BaseModelFormSet.initial_form_count
-
-related  _get_queryset 1  _get_queryset_methods 1  get_queryset_compat 1
-
-30/351 hits · 14/71 files · 36 files demoted (189) · ~910 tokens
-next: --kind def | -g 'docs/topics/**' | --no-tests
+14/767 hits · 8/105 files · 4 files demoted (17) · skipped 2 huge · ~745 tokens
 ```
 
-**3,295 bytes.** Definitions first, each with the class it belongs to, tests
-demoted but still counted, and a footer that says exactly what was left out and
-how to see it. Nothing is hidden — it is *ranked*.
+Definitions first, each with the type it belongs to. Tests demoted but still
+counted. Where the `…` is, greeg prints the shape of the other 753 hits — a
+kind breakdown, the directories they live in, the top call sites with the
+function each sits in, 122 import lines collapsed to one, and the near-miss
+names (`isIdentifierText`, `isIdentifierPart`) listed rather than competing
+for space. The footer says what was left out and the flags to see it.
+
+Nothing is hidden — it is **ranked**.
 
 ## Why it's worth installing
 
@@ -70,10 +64,13 @@ symbol is defined; was the first result correct?"
 | django | **100 %** | 24 % | 29 % |
 | tokio | **96 %** | 17 % | 19 % |
 
-**It costs fewer tokens** — where it matters. Repo-wide searches shrink by 5–10×.
-Single-file greps cost a few tokens *more* than grep (greeg adds the path header,
-the kind column and the enclosing symbol). See [Is it actually helping?](#is-it-actually-helping)
-for how to measure that on your own traffic instead of taking our word for it.
+**It costs fewer tokens** — and the broader the search, the larger the gap.
+Eight identifier searches across the TypeScript compiler, `rg` output against
+greeg's answer: 4×, 5×, 8×, 8×, 20×, 21×, 36×, 44× smaller. A search matching a
+handful of files is closer to even, and a single-file grep costs a few tokens
+*more* than grep, because greeg adds the path header, the kind column and the
+enclosing symbol. See [Is it actually helping?](#is-it-actually-helping) to
+measure it on your own traffic rather than taking our word for it.
 
 Full numbers, protocol and caveats: [`docs/BENCH.md`](docs/BENCH.md).
 
