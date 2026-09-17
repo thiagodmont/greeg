@@ -1,0 +1,32 @@
+bench/bench.py
+  s_3139199ced90b0::t_3e9b7a72e42035 1090
+README.md
+  s_3139199ced90b0::t_03353c82f81dea 214,216-218
+  s_3139199ced90b0::t_3e9b7a72e42035 50
+  s_3139199ced90b0::t_04aec8148626d0 204
+docs/ARCHITECTURE.md
+  s_3139199ced90b0::t_824f4285d226cb 35-40,43-46,137-155
+  s_3139199ced90b0::t_d80b8200d9aa9e 156
+crates/greeg-lang/src/sym.rs
+  s_3139199ced90b0::t_3e9b7a72e42035 3
+crates/greeg-lang/src/lib.rs
+  s_3139199ced90b0::t_3e9b7a72e42035 146-147,333
+crates/greeg-index/src/format.rs
+  s_3139199ced90b0::t_34d25ba9b14ab3 20,35,41
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "fd5478baeae0eb21d8a3ababc7bf76cc44d50380",
+  "prompts": {},
+  "sessions": {
+    "s_3139199ced90b0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "63ac4beb-cf93-40a7-94bf-d1281d920b33",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
