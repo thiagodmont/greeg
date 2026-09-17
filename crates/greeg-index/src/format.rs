@@ -17,7 +17,7 @@
 //!   u64 offsets[n_grams + 1] into postings
 //!   postings bytes           roaring portable serialization per gram
 //!
-//! symbols.<gen>.bin (ARCHITECTURE.md)
+//! symbols.<gen>.bin
 //!   u32 n_files, u32 n_syms, u32 n_names, u32 n_super, u32 n_tokens, u32 n_tok_names, u32 arena_len, u32 tok_arena_len
 //!   u32 sym_off[n_files + 1]        CSR: symbols of file f are syms[sym_off[f]..sym_off[f+1]]
 //!   SymRec[n_syms]                  (40 bytes each, file order, start order within a file)
@@ -32,13 +32,13 @@
 //!   u32 tok_names[n_tok_names]      name ids per token
 //!   every array is padded to 8 bytes
 //!
-//! spans.<gen>.bin (§3.4)
+//! spans.<gen>.bin
 //!   u32 n_files, u32 n_nc, u32 n_imp, u32 arena_len
 //!   u32 nc_off[n_files + 1]; NcRec[n_nc] (8 bytes: start, end | kind << 30)
 //!   u32 imp_off[n_files + 1]; ImpRec[n_imp] (20 bytes)
 //!   u8 arena (raw module strings)
 //!
-//! graph.<gen>.bin (§3.5)
+//! graph.<gen>.bin
 //!   u32 n_files, u32 n_edges, u32 pad, u32 pad
 //!   u32 out_off[n_files + 1]; u32 out_to[n_edges]; u16 out_w[n_edges]
 //!   u32 in_off[n_files + 1];  u32 in_from[n_edges]

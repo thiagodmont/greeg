@@ -47,7 +47,7 @@ Nothing is hidden — it is **ranked**.
 ## Why it's worth installing
 
 **It's faster.** The index means a query opens only the files that could match,
-instead of every file in the tree. On TypeScript (74k files, 368 MB):
+instead of every file in the tree. On TypeScript-5.9 (74k files, 368 MB):
 
 | query | `grep` | `rg` | `rg -j4` | **greeg** |
 |---|---:|---:|---:|---:|
@@ -201,6 +201,7 @@ shape was chosen: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 Don't take the benchmarks on faith — greeg can measure itself on *your* traffic.
 It's off by default because the records include your search patterns and paths.
+It is always local, nothing leave your machine. We don't collect or send anything to network.
 
 ```bash
 greeg stats enable
@@ -210,11 +211,11 @@ greeg stats                     # the comparison
 ```
 
 ```
-savings vs rg/grep · 172 replayed queries · same machine and tree
+savings vs rg/grep · 145 replayed queries · same machine and tree
                               rg/grep        greeg        saved
-  tokens, total               100,385       73,035       27,350  27%
-  tokens, typical query           334          324          -13
-  time, total                  5.83 s       837 ms       5.00 s  86%
+  tokens, total                86,258       66,310       19,948  23%
+  tokens, typical query           311          318          -30
+  time, total                  4.64 s       866 ms       3.77 s  81%
 ```
 
 Read both halves together. The totals are what the agent actually paid; the

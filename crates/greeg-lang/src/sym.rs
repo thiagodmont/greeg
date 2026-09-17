@@ -1,6 +1,6 @@
 //! Stage-B extraction (ARCHITECTURE.md): tree-sitter parse, one tags query
 //! per language, and a small amount of post-processing into symbols, noncode
-//! spans and import statements. Falls back to the regex outline (§7.5) on
+//! spans and import statements. Falls back to the regex outline in `defs` on
 //! parse timeout or when `ERROR` nodes cover more than 20 % of the file.
 
 use crate::lexer::{Span, SpanKind};

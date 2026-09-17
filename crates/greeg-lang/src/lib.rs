@@ -143,8 +143,8 @@ impl FileFlags {
     }
 }
 
-/// Path-segment rules (ARCHITECTURE.md). Every list here is mirrored in that
-/// table; keep them in sync. Segments are matched case-insensitively against
+/// Path-segment rules: the source of truth for how a file is classified as
+/// test, vendored or generated. Segments are matched case-insensitively against
 /// each directory component of the relative path.
 const TEST_SEGMENTS: &[&str] = &[
     "test",
@@ -330,7 +330,7 @@ pub fn content_flags(head: &[u8], total_len: u64) -> FileFlags {
     f
 }
 
-/// Recognized definition kinds, normalized across languages (ARCHITECTURE.md).
+/// Recognized definition kinds, normalized across languages.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum DefKind {
     Function,

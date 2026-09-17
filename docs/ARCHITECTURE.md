@@ -32,13 +32,17 @@ deserialization step. A `manifest` (JSON) names the current generation of each.
 
 | File | Holds | Used for |
 |---|---|---|
-| `files.bin` | path, size, mtime, language, flags, line count, rank | the file set, filters, ranking |
-| `grams.bin` | trigram → roaring bitmap of file ids | candidates for any pattern |
-| `words.bin` | whole word → roaring bitmap of file ids | candidates for identifier queries |
-| `symbols.bin` | every definition: name, kind, file, span, parent, supertypes | `def`, `impls`, enclosing-symbol lookup |
-| `spans.bin` | per file: definition, comment/string, and import ranges | classifying a hit in O(log n) |
-| `graph.bin` | file import graph (both directions) + PageRank | `map`, ranking, reachability |
+| `files.<gen>.bin` | path, size, mtime, language, flags, line count, rank | the file set, filters, ranking |
+| `grams.<gen>.bin` | trigram → roaring bitmap of file ids | candidates for any pattern |
+| `words.<gen>.bin` | whole word → roaring bitmap of file ids | candidates for identifier queries |
+| `symbols.<gen>.bin` | every definition: name, kind, file, span, parent, supertypes | `def`, `impls`, enclosing-symbol lookup |
+| `spans.<gen>.bin` | per file: definition, comment/string, and import ranges | classifying a hit in O(log n) |
+| `graph.<gen>.bin` | file import graph (both directions) + PageRank | `map`, ranking, reachability |
 | `delta/NNNN.bin` | the same layouts, for recently changed files | edits, without a rebuild |
+
+`<gen>` is the generation the component was written under, so a rebuild can
+publish a whole new set while readers still hold the old one; the manifest says
+which generation is current.
 
 Two deliberate choices here.
 
@@ -129,6 +133,26 @@ camelCase/snake_case boundaries and look for names made of those tokens, then
 a bounded fuzzy search over the symbol names, then report hits that exist only
 in ignored or hidden files. `SpawnBlocking` finds `spawn_blocking` this way.
 `--no-ladder` turns it off.
+
+### Session memory
+
+A query that names an agent session (`--session ID`, or the parent agent
+process discovered automatically) appends a record to `session/<id>.jsonl`
+under the index directory: the normalized query, the files it showed, and the
+line ranges it printed. Records older than a day are pruned, and the log keeps
+the last 2,000. Reading it costs well under a millisecond and buys three
+things:
+
+- **Context dedup.** Implicit context lines already printed this session, for a
+  file whose mtime has not changed, are dropped and the hit marked as seen
+  rather than repeated. Explicit `-A`/`-B`/`-C` is never deduped.
+- **Focus set.** The twelve most recently shown files, newest first, get a
+  ranking boost — a follow-up query lands in the code you were already reading.
+- **Loop detection.** The same token set three times in the last five queries
+  adds a footer hint, and says so plainly when the repeat turned up no new
+  files at all.
+
+`--no-session` turns all of it off.
 
 ## Staying fresh
 
