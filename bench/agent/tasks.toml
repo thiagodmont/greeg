@@ -1,4 +1,4 @@
-# Agent-protocol tasks (PLAN.md M6 step 4). Each task is a realistic coding-agent
+# Agent-protocol tasks. Each task is a realistic coding-agent
 # request on a pinned corpus with a mechanical success check run in the corpus
 # after the agent finishes. Arms:
 #   A  rg only:     --disallowedTools Grep, no greeg on PATH

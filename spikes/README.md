@@ -1,6 +1,7 @@
 # M0 spikes
 
-Throwaway measurement binaries; results in `docs/spikes.md`.
+Throwaway measurement binaries used to settle a question and then kept
+only for reference. Nothing here is built or tested by CI.
 
 ```
 cargo build --release

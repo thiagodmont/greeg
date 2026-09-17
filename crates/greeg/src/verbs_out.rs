@@ -1,4 +1,4 @@
-//! Text and JSON rendering for the symbol verbs (DESIGN.md §7.3–§7.4, OUTPUT.md).
+//! Text and JSON rendering for the symbol verbs (ARCHITECTURE.md).
 //! Every text layout groups entries by file: the path once as a header, then
 //! `  <line> <kind> <text>` rows beneath it.
 

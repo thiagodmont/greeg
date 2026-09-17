@@ -55,7 +55,7 @@ for cand in dirs:
 if rn:
     shutil.move(os.path.join(cwd,rn), os.path.join(cwd,rn+"_renamed"))
 for q in queries: ok &= compare(q, "after adds/deletes/rename")
-print("== graph after edits: an edited importer keeps reach 1.0 to what it imports (DESIGN.md §4.3)")
+print("== graph after edits: an edited importer keeps reach 1.0 to what it imports (ARCHITECTURE.md)")
 def rows(out):
     for line in out.decode(errors="replace").splitlines():
         if line.startswith('{'):

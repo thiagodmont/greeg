@@ -613,7 +613,7 @@ fn main() {
 
 fn main_inner() -> Result<()> {
     // One line per panic, no backtrace hint: the index path is wrapped in
-    // catch_unwind and degrades to a scan (DESIGN.md §12).
+    // catch_unwind and degrades to a scan (ARCHITECTURE.md).
     std::panic::set_hook(Box::new(|info| {
         let msg = info
             .payload()
@@ -1604,7 +1604,7 @@ fn render_footer(
     // Everything shown, nothing skipped, matched as asked: the two counts say
     // the answer is whole (and was not cut by the caller's output limit); the
     // demotion note and the token estimate only matter when something was
-    // left out (PLAN.md M11).
+    // left out.
     let complete = r.stats.total_hits > 0
         && ft.hits_shown == ft.hits_total
         && ft.files_shown == ft.files_total
@@ -1638,7 +1638,7 @@ fn render_footer(
         }
     }
     // `skipped` only when non-zero, term by term: `skipped 1 binary, 0 huge`
-    // spends five tokens saying nothing (OUTPUT.md §Footer)
+    // spends five tokens saying nothing (ARCHITECTURE.md)
     if ft.skipped_binary + ft.skipped_huge > 0 {
         let mut parts: Vec<String> = Vec::with_capacity(2);
         if ft.skipped_binary > 0 {

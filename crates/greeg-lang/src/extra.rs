@@ -1,4 +1,4 @@
-//! Runtime-loaded extra languages (DESIGN.md §11): a directory per language
+//! Runtime-loaded extra languages (ARCHITECTURE.md): a directory per language
 //! under `$GREEG_LANG_DIR` (default `~/.config/greeg/lang`) holding
 //!
 //! ```text

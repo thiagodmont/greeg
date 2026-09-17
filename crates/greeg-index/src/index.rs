@@ -24,7 +24,7 @@ pub struct Segment {
     grams: GramsView<'static>,
     symbols: Option<SymbolsView<'static>>,
     spans: Option<SpansView<'static>>,
-    /// Word postings (DESIGN.md §3.2): whole-word queries read these instead of the grams.
+    /// Word postings (ARCHITECTURE.md): whole-word queries read these instead of the grams.
     words: Option<WordsView<'static>>,
     /// Import edges and superseded ids (delta segments only).
     dgraph: Option<DeltaGraphView<'static>>,
@@ -41,7 +41,7 @@ fn mmap(path: &Path, advice: Advice) -> Result<Mmap> {
     let f = fs::File::open(path).with_context(|| format!("open {}", path.display()))?;
     // SAFETY: index files are published atomically and only replaced by rename;
     // a truncation during read would SIGBUS, which the caller guards by not
-    // truncating in place (DESIGN.md §12).
+    // truncating in place (ARCHITECTURE.md).
     let m = unsafe { Mmap::map(&f)? };
     let _ = m.advise(advice);
     Ok(m)
@@ -191,7 +191,7 @@ impl Segment {
     pub fn corrupt(&self) -> bool {
         self.corrupt.load(std::sync::atomic::Ordering::Relaxed)
     }
-    /// Union of the word postings of `alts` (DESIGN.md §3.2); `None` when this
+    /// Union of the word postings of `alts` (ARCHITECTURE.md); `None` when this
     /// segment has no word section. An absent word contributes nothing; an
     /// unreadable posting list reads as every file, as for grams.
     pub fn eval_words(&self, alts: &[Vec<u8>]) -> Option<RoaringBitmap> {
@@ -217,7 +217,7 @@ impl Segment {
             Q::None => Some(RoaringBitmap::new()),
             Q::Gram(g) => Some(self.posting(*g).map(|(_, b)| b).unwrap_or_default()),
             Q::And(v) => {
-                // rarest first; grams that prune nothing are skipped (DESIGN.md §5.2)
+                // rarest first; grams that prune nothing are skipped (ARCHITECTURE.md)
                 let total = self.n_files.max(1);
                 let mut lists: Vec<(u32, u32)> = Vec::new(); // (count, key)
                 let mut subs: Vec<&Q> = Vec::new();
@@ -915,7 +915,7 @@ impl Index {
     /// Live files that *are* the module `name`: `…/name.ext` in a language
     /// with a grammar, or a directory module `…/name/{mod.rs,__init__.py,index.*}`.
     /// SCIP and agents both treat the file as the module's definition, so
-    /// `def` lists them (DESIGN.md §7.3). Generic stems never match. One
+    /// `def` lists them (ARCHITECTURE.md). Generic stems never match. One
     /// `memmem` pass over each segment's path arena, no per-file work.
     pub fn module_files(&self, name: &str, limit: usize) -> Vec<u32> {
         let mut out = Vec::new();

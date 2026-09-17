@@ -1,5 +1,5 @@
 //! macOS FSEvents: read the kernel's persistent event log since a stored
-//! event id to learn which directories changed (DESIGN.md §4.5 mode 2).
+//! event id to learn which directories changed (ARCHITECTURE.md).
 //!
 //! CoreFoundation and CoreServices are loaded with `dlopen` on first use
 //! rather than linked: loading the two frameworks at process start cost

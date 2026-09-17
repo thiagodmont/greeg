@@ -1,4 +1,4 @@
-//! Writer lock (DESIGN.md §2.2): every writer (build publish, delta apply)
+//! Writer lock (ARCHITECTURE.md): every writer (build publish, delta apply)
 //! holds an exclusive `flock` on `<index dir>/LOCK` while it reads the
 //! manifest, writes components and republishes. Readers never lock.
 

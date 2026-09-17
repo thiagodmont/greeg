@@ -1,4 +1,4 @@
-//! Import resolution at index time (DESIGN.md §7.2): map an import statement
+//! Import resolution at index time (ARCHITECTURE.md): map an import statement
 //! of a file to the file ids it refers to. Path-based for Python, Rust and
 //! JS/TS (the nearest `tsconfig.json`/`jsconfig.json` supplies `paths` and
 //! `baseUrl`, and workspace packages resolve by name); package-table based

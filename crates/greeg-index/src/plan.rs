@@ -1,4 +1,4 @@
-//! Regex → trigram query (DESIGN.md §5.2), after Russ Cox's analysis.
+//! Regex → trigram query (ARCHITECTURE.md), after Russ Cox's analysis.
 //!
 //! Each HIR node yields (emptyable, exact set, prefix set, suffix set, query).
 //! Sets are bounded; when a set grows past its limit its trigrams are folded
@@ -421,7 +421,7 @@ pub fn plan(pattern: &str, fixed: bool, casei: bool) -> Result<Q> {
     Ok(flatten(q))
 }
 
-/// Whole-word plan (DESIGN.md §5.2, M10): the words a file must contain for
+/// Whole-word plan (ARCHITECTURE.md): the words a file must contain for
 /// the pattern to match as a whole word, as alternatives, or `None` when the
 /// trigram plan must answer. `identifier` is the bare-identifier answer mode
 /// (the answer is the whole word); `word` is `-w`; a `\bWORD\b` regex, or an

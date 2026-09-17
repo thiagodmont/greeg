@@ -1,4 +1,4 @@
-//! Word index (DESIGN.md §3.2, M10): one posting list per distinct identifier
+//! Word index (ARCHITECTURE.md): one posting list per distinct identifier
 //! token of a file, next to the trigram postings. A whole-word query (`-w
 //! NAME`, a bare identifier in a ranked layout, `refs`, `\bNAME\b`) then
 //! opens only the files that contain the word, where the trigram plan opened

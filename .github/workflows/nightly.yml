@@ -1,5 +1,5 @@
 name: nightly
-# Full benchmark protocol (PLAN.md M6): the small and medium tiers, the SCIP oracle
+# Full benchmark protocol: the small and medium tiers, the SCIP oracle
 # where an indexer is available, a five-hour soak, and the regression gates. Runs
 # on the reference machine when a self-hosted runner labelled `reference` is
 # registered (repository variable REFERENCE_RUNNER=true); there the gates require

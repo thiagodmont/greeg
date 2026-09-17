@@ -1,6 +1,6 @@
 //! Shape a `ScanResult` to a budget: choose content vs facets, rank, cap per
-//! file, add adaptive context, and compute the footer (DESIGN.md §6.4, §10,
-//! OUTPUT.md). Every emitted line is accounted for against the budget:
+//! file, add adaptive context, and compute the footer (ARCHITECTURE.md).
+//! Every emitted line is accounted for against the budget:
 //! file headers, `+N more` lines, collapsed groups, footer and hints.
 
 use crate::{FileResult, HitKind, Mode, Rung, ScanResult, is_mock_path, tokens};
@@ -27,7 +27,7 @@ pub struct ShownHit {
     pub block: Option<(u32, Vec<Vec<u8>>)>,
     /// The block was cut to fit the budget.
     pub block_clipped: bool,
-    /// Context was already shown earlier in this session (DESIGN.md §9 dedup).
+    /// Context was already shown earlier in this session (ARCHITECTURE.md).
     pub seen_before: bool,
 }
 
@@ -475,7 +475,7 @@ pub fn shape(r: &mut ScanResult) -> Report {
     }
     // A bare identifier query with at least one whole-word match is about that
     // word: hits inside longer identifiers (`fooBar` for `foo`) are collapsed to
-    // the `related` line instead of spending answer lines on them (OUTPUT.md).
+    // the `related` line instead of spending answer lines on them (ARCHITECTURE.md).
     let mut related: Vec<(String, usize)> = Vec::new();
     let mut near_misses_left = false;
     if !parity && identifier_query(o) {
@@ -725,7 +725,7 @@ pub fn shape(r: &mut ScanResult) -> Report {
             .unwrap_or(false);
     // Adaptive context answers exactly one question: a bare identifier with a
     // single definition hit ("where is X defined, what does it take"). Every
-    // other case was measured waste (PLAN.md M11): the 2–6 lines around small
+    // other case was measured waste: the 2–6 lines around small
     // answers tripled them, and in four days of agent transcripts an answer
     // with context was followed by a read of the file more often than a grep
     // answer without one (35 % vs 20 %), the read taking a median of 54 lines.

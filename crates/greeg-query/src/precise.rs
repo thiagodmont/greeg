@@ -1,4 +1,4 @@
-//! `--precise` (DESIGN.md §3.4): re-parse the files that will be shown and
+//! `--precise` (ARCHITECTURE.md): re-parse the files that will be shown and
 //! replace the byte-rule kinds (call/type/member/ident) with the syntax
 //! tree's answer. Costs one parse per shown file; bounded by the budget
 //! through the number of shown files.

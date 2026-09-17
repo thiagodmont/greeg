@@ -1,4 +1,5 @@
-//! Kernel micro-benchmarks (PLAN.md M6, CI 5 % gate against `bench/baselines/kernels-<host>.json`).
+//! Kernel micro-benchmarks. CI gates these at 5 % against
+//! `bench/baselines/kernels-<host>.json`.
 //! `cargo bench -p greeg-index --bench kernels`, then `bench/bench.py gate kernels`.
 
 use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};

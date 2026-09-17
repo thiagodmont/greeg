@@ -1,5 +1,5 @@
 //! Token estimation for the footer's `~N tokens` and the shaper's budget
-//! accounting (DESIGN.md §6.4, OUTPUT.md "Token estimate").
+//! accounting (ARCHITECTURE.md).
 //!
 //! A byte-feature model fitted against o200k_base on 20 greeg text outputs
 //! (five corpora, content/facets/outline/block layouts): word pieces split at

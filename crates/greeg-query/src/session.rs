@@ -1,4 +1,4 @@
-//! Session memory (DESIGN.md §9): a small per-agent log of what was asked
+//! Session memory (ARCHITECTURE.md): a small per-agent log of what was asked
 //! and shown, used for dedup of already-shown context, loop detection, and
 //! the focus set that biases ranking. Storage: `session/<id>.jsonl` under the
 //! index directory. Reading the log costs well under a millisecond.

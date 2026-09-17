@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Soak test (PLAN.md M5 gate): randomized queries and edits on corpora,
+"""Soak test: randomized queries and edits on corpora,
 greeg vs rg, for a wall-clock duration.
 
     python3 bench/soak.py MINUTES GREEG CORPUS [CORPUS...]

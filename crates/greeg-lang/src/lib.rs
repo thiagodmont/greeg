@@ -96,7 +96,7 @@ impl Lang {
     }
 }
 
-/// Per-file flags (see DESIGN.md §8). Path-derived flags are cheap and
+/// Per-file flags (see ARCHITECTURE.md). Path-derived flags are cheap and
 /// computed for every file; content-derived flags only for files we read.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct FileFlags(pub u16);
@@ -143,8 +143,8 @@ impl FileFlags {
     }
 }
 
-/// Path-segment rules (DESIGN.md §8). Every list here is mirrored in that
-/// table; keep them in sync. Segments are matched case-insensitively against
+/// Path-segment rules: the source of truth for how a file is classified as
+/// test, vendored or generated. Segments are matched case-insensitively against
 /// each directory component of the relative path.
 const TEST_SEGMENTS: &[&str] = &[
     "test",
@@ -330,7 +330,7 @@ pub fn content_flags(head: &[u8], total_len: u64) -> FileFlags {
     f
 }
 
-/// Recognized definition kinds, normalized across languages (DESIGN.md §3.3).
+/// Recognized definition kinds, normalized across languages.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum DefKind {
     Function,
