@@ -1,6 +1,6 @@
 # greeg
 
-**A grep for coding agents.** Same flags as ripgrep, but it answers from a
+**A grep for coding agents.** Same flags as ripgrep. It answers from a
 persistent index, knows which hits are *definitions*, ranks them, and fits the
 answer in a token budget instead of dumping every match.
 
@@ -13,9 +13,11 @@ answer in a token budget instead of dumping every match.
 ## The problem
 
 Your agent runs `rg isIdentifier` on the TypeScript compiler. ripgrep does its
-job perfectly and returns **774 lines, 88,147 bytes**. Claude Code truncates
-tool output at 30,000 characters, so the agent reads a third of that wall and
-never reaches the end — where, somewhere, were the definitions it was after.
+job perfectly: **774 lines, 88,147 bytes**.
+
+Claude Code truncates tool output at 30,000 characters. So your agent reads a
+third of that wall, and the definitions it was actually after sit somewhere
+past the cut.
 
 greeg answers the same question in **2,553 bytes**, and opens with them:
 
@@ -35,14 +37,17 @@ tests/cases/compiler/reverseMappedUnionInference.ts  [test]
 14/767 hits · 8/105 files · 4 files demoted (17) · skipped 2 huge · ~745 tokens
 ```
 
-Definitions first, each with the type it belongs to. Tests demoted but still
-counted. Where the `…` is, greeg prints the shape of the other 753 hits — a
-kind breakdown, the directories they live in, the top call sites with the
-function each sits in, 122 import lines collapsed to one, and the near-miss
-names (`isIdentifierText`, `isIdentifierPart`) listed rather than competing
-for space. The footer says what was left out and the flags to see it.
+Definitions first, each with the type it belongs to. Tests demoted, still
+counted.
 
-Nothing is hidden — it is **ranked**.
+Where the `…` is, greeg prints the shape of the other 753 hits: a kind
+breakdown, the directories they live in, the top call sites with the function
+each one sits in, 122 import lines collapsed to a single line, and the
+near-miss names (`isIdentifierText`, `isIdentifierPart`) listed off to the side
+instead of competing for space. The footer says what got left out and which
+flag brings it back.
+
+Every hit is still accounted for. The answer is **ranked**.
 
 ## Why it's worth installing
 
@@ -55,8 +60,8 @@ instead of every file in the tree. On TypeScript-5.9 (74k files, 368 MB):
 | `node` (30,445 matches) | 4.52 s | 2.33 s | 882 ms | **43 ms** |
 
 **It's right more often.** Scored against SCIP ground truth from
-`rust-analyzer`, `scip-python` and `scip-typescript` — "I asked where this
-symbol is defined; was the first result correct?"
+`rust-analyzer`, `scip-python` and `scip-typescript`. The question being asked:
+"I wanted to know where this symbol is defined. Was the first result correct?"
 
 | corpus | **greeg** | `rg -nw` | `grep` |
 |---|---:|---:|---:|
@@ -64,19 +69,22 @@ symbol is defined; was the first result correct?"
 | django | **100 %** | 24 % | 29 % |
 | tokio | **96 %** | 17 % | 19 % |
 
-**It costs fewer tokens** — and the broader the search, the larger the gap.
+**It costs fewer tokens**, and the broader the search, the bigger the gap.
 Eight identifier searches across the TypeScript compiler, `rg` output against
-greeg's answer: 4×, 5×, 8×, 8×, 20×, 21×, 36×, 44× smaller. A search matching a
-handful of files is closer to even, and a single-file grep costs a few tokens
-*more* than grep, because greeg adds the path header, the kind column and the
-enclosing symbol. See [Is it actually helping?](#is-it-actually-helping) to
-measure it on your own traffic rather than taking our word for it.
+greeg's answer: 4×, 5×, 8×, 8×, 20×, 21×, 36×, 44× smaller.
+
+Narrow searches land closer to even. A single-file grep actually costs you a
+few tokens *more*, because greeg adds the path header, the kind column and the
+enclosing symbol. You can
+[measure it on your own traffic](#is-it-actually-helping) instead of taking my
+word for it.
 
 Full numbers, protocol and caveats: [`docs/BENCH.md`](docs/BENCH.md).
 
 ## Install
 
-macOS (arm64, x86_64) or Linux (x86_64, aarch64). ripgrep is not required.
+macOS (arm64, x86_64) or Linux (x86_64, aarch64). You don't need ripgrep
+installed.
 
 ```bash
 brew install thiagodmont/greeg/greeg
@@ -112,7 +120,7 @@ greeg doctor            # index location, freshness mode, languages, disk use
 
 One command installs a hook that rewrites the agent's `rg` and `grep` calls to
 `greeg`, plus a skill file so the agent knows the extra verbs. **You don't have
-to change how you prompt** — the agent keeps writing `grep`, and greeg answers.
+to change how you prompt.** The agent keeps writing `grep`, and greeg answers.
 
 ```bash
 greeg hook claude       # Claude Code   (--dry-run to preview, --uninstall to remove)
@@ -126,7 +134,7 @@ still runs as plain `rg`/`grep`.
 > **If you use `Bash(rg:*)` allow rules**, add `Bash(greeg:*)` next to them.
 >
 > **If you run another hook that rewrites `rg`/`grep`** (RTK, for example),
-> only one can win — hooks run in parallel and the last one to finish decides.
+> only one can win: hooks run in parallel, and the last one to finish decides.
 > For RTK: add `exclude_commands = ["grep", "rg"]` under `[hooks]` in its config.
 
 Any other agent can just call `greeg` directly: it prints to stdout and exits
@@ -144,7 +152,7 @@ greeg createSourceFile --json       # ripgrep JSON Lines + kind/symbol/facets/fo
 greeg respond --budget 0            # unlimited, path order, byte-for-byte rg parity
 ```
 
-And then the part grep can't do — asking about *symbols* instead of *text*:
+And then the part grep can't do. Asking about *symbols* instead of *text*:
 
 ```bash
 greeg def JoinHandle                # where it's defined: ranked, with signature and doc
@@ -157,9 +165,9 @@ greeg show src/sync/oneshot.rs:340  # the whole definition enclosing that line
 greeg map tokio/src/sync            # important files and directories, by PageRank
 ```
 
-`greeg show FILE:LINE` and `greeg def NAME --mode block` are worth knowing:
-they print a whole definition, which beats guessing a `sed -n '340,380p'` range
-and reading the wrong lines.
+Two of those are worth committing to memory. `greeg show FILE:LINE` and
+`greeg def NAME --mode block` both print a whole definition, which beats
+guessing a `sed -n '340,380p'` range and reading the wrong 40 lines.
 
 Every verb takes the search flags (`--budget`, `--json`, `--no-tests`, `--root`)
 and answers in a few milliseconds from the index.
@@ -169,14 +177,13 @@ and answers in a few milliseconds from the index.
 1. **First query** in a repo is answered by a ripgrep-speed scan, while a
    trigram and word index is built in the background. No setup step, no daemon.
 2. **Later queries** open only candidate files. A whole-word query opens exactly
-   the files that hold that word — on a 74k-file tree that's 31 files instead of
-   486.
+   the files that hold that word: on a 74k-file tree, 31 files instead of 486.
 3. **Edits are picked up per query** by a cheap `stat` pass, or the FSEvents log
    on macOS. A search after an edit reads the changed files directly and
    publishes the index update afterwards, so you never wait for it.
-4. **Every hit is classified** using syntax information computed at index time —
-   `def`, `call`, `import`, `type`, `member`, `ident`, `doc`, `comment`,
-   `string` — and carries its enclosing symbol.
+4. **Every hit is classified** from syntax computed at index time (`def`,
+   `call`, `import`, `type`, `member`, `ident`, `doc`, `comment`, `string`),
+   and carries the symbol it sits inside.
 5. **Ranking and budget**: definitions outrank calls, source outranks tests,
    important files (import-graph PageRank) outrank leaves. The answer is cut to
    a token budget (2,000 by default) and the footer always says what was cut.
@@ -199,9 +206,12 @@ shape was chosen: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ## Is it actually helping?
 
-Don't take the benchmarks on faith — greeg can measure itself on *your* traffic.
-It's off by default because the records include your search patterns and paths.
-It is always local, nothing leave your machine. We don't collect or send anything to network.
+Don't take my benchmarks on faith. greeg can measure itself against *your*
+traffic, on *your* repositories.
+
+It's off by default, because the records hold your search patterns and paths.
+Everything stays on your machine. Nothing is collected, nothing is sent
+anywhere.
 
 ```bash
 greeg stats enable
@@ -222,7 +232,7 @@ Read both halves together. The totals are what the agent actually paid; the
 typical query says how that total is distributed. **Agents mostly grep one file
 at a time, and on those greeg is a few tokens *larger* than grep.** The savings
 come from the repo-wide searches, where grep dumps everything and greeg budgets
-it — so a handful of queries carry most of the win.
+it. So a handful of queries carry most of the win.
 
 The records live under your cache directory, mode 0600, never leave the machine,
 and `greeg stats clear` deletes them. Details, per-session breakdowns and
@@ -245,7 +255,7 @@ binary files ripgrep would have searched.
 
 **Languages with full syntax support**: Python, TypeScript/TSX, JavaScript,
 Rust, Kotlin. Everything else gets a regex-based definition extractor, so
-search, ranking and budgeting still work — you just lose the precise symbol
+search, ranking and budgeting still work. You just lose the precise symbol
 kinds. You can add a language yourself by dropping a tree-sitter grammar and a
 `tags.scm` into `~/.config/greeg/lang/<name>/`; `greeg lang check DIR` validates
 it. See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
