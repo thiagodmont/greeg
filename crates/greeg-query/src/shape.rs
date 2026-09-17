@@ -861,10 +861,15 @@ fn hints(
             footer.hints.push(format!(
                 "{hits}{more} hits in {files}{more} ignored/hidden files: add --no-ignore --hidden"
             ));
-        } else {
+        } else if o.ladder {
             footer.hints.push(
                 "no hits after the escalation ladder; try a shorter or split identifier".into(),
             );
+        } else {
+            // the ladder never ran, so it did not fail to find anything
+            footer
+                .hints
+                .push("no hits; --no-ladder is set, so nothing was relaxed".into());
         }
         return;
     }

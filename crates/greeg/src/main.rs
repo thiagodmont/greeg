@@ -167,11 +167,15 @@ struct Common {
     _line_buffered: bool,
     #[arg(long = "block-buffered", global = true, hide = true)]
     _block_buffered: bool,
-    /// -u: --no-ignore; -uu: --no-ignore --hidden; -uuu: also --text
+    /// -u: --no-ignore; -uu: --no-ignore --hidden. `-uuu` also means `--text`
+    /// in ripgrep, which greeg rejects rather than answers wrongly (see `text`).
     #[arg(short = 'u', long = "unrestricted", action = ArgAction::Count, global = true, hide = true)]
     unrestricted: u8,
+    /// Search binary files as text. greeg's index never holds them and its
+    /// scan mode stops at the first NUL, so accepting this flag would drop
+    /// matches ripgrep reports. Rejected with exit 2 instead of ignored.
     #[arg(short = 'a', long = "text", global = true, hide = true)]
-    _text: bool,
+    text: bool,
     #[arg(long = "no-config", global = true, hide = true)]
     _no_config: bool,
 
@@ -628,6 +632,23 @@ fn main_inner() -> Result<()> {
 }
 
 fn build_options(c: &Common, pattern: String, paths: Vec<PathBuf>) -> Result<Options> {
+    // A flag greeg cannot honour is an error, not a silent divergence: the
+    // answer would be missing the matches the flag was asked for. Cosmetic
+    // flags (-N -H --color --no-heading --column ...) stay accepted and
+    // ignored, because the output they ask for is the output greeg gives.
+    if c.text {
+        anyhow::bail!(
+            "greeg does not search binary files (-a/--text): its index holds no binary file \
+             and its scan stops at the first NUL, so the answer would be missing matches. \
+             Use `rg -a` for this one."
+        );
+    }
+    if c.unrestricted >= 3 {
+        anyhow::bail!(
+            "`-uuu` means `-uu --text` in ripgrep and greeg does not search binary files. \
+             Use `-uu` for ignored and hidden files, or `rg -uuu` for this one."
+        );
+    }
     let root = c.root.clone().unwrap_or_else(|| PathBuf::from("."));
     let mode = if c.files_with_matches {
         Mode::Files
@@ -1616,12 +1637,17 @@ fn render_footer(
             )?;
         }
     }
+    // `skipped` only when non-zero, term by term: `skipped 1 binary, 0 huge`
+    // spends five tokens saying nothing (OUTPUT.md §Footer)
     if ft.skipped_binary + ft.skipped_huge > 0 {
-        write!(
-            w,
-            " · skipped {} binary, {} huge",
-            ft.skipped_binary, ft.skipped_huge
-        )?;
+        let mut parts: Vec<String> = Vec::with_capacity(2);
+        if ft.skipped_binary > 0 {
+            parts.push(format!("{} binary", ft.skipped_binary));
+        }
+        if ft.skipped_huge > 0 {
+            parts.push(format!("{} huge", ft.skipped_huge));
+        }
+        write!(w, " · skipped {}", parts.join(", "))?;
     }
     if ft.rung != greeg_query::Rung::Exact {
         write!(w, " · matched {}", ft.rung.describe())?;
@@ -1994,7 +2020,7 @@ mod tests {
                 "--column",
                 "foo",
             ],
-            vec!["greeg", "-uu", "-a", "--no-config", "--trim", "-h", "foo"],
+            vec!["greeg", "-uu", "--no-config", "--trim", "-h", "foo"],
             vec!["greeg", "-e", "-x", "-e", "y", "src"],
             vec!["greeg", "--sort", "path", "-l", "foo"],
         ] {
@@ -2010,5 +2036,29 @@ mod tests {
             Cli::try_parse_from(["greeg", "--help"]).is_err(),
             "--help exits through clap's help action"
         );
+    }
+
+    /// A flag greeg cannot honour must fail loudly. `-a` and `-uuu` ask for
+    /// binary files, which the index never holds and scan mode stops at; an
+    /// answer under them would be missing matches ripgrep reports.
+    #[test]
+    fn cli_rejects_flags_it_cannot_honour() {
+        for (args, want) in [
+            (vec!["greeg", "-a", "foo"], "-a/--text"),
+            (vec!["greeg", "--text", "foo"], "-a/--text"),
+            (vec!["greeg", "-uuu", "foo"], "-uuu"),
+        ] {
+            let cli = Cli::try_parse_from(&args).unwrap_or_else(|e| panic!("{args:?}: {e}"));
+            let err = build_options(&cli.common, "foo".into(), vec![])
+                .expect_err(&format!("{args:?} must be rejected"));
+            let msg = err.to_string();
+            assert!(msg.contains(want), "{args:?}: {msg}");
+        }
+        // -u and -uu stay supported: they widen the file set, not the bytes
+        for args in [vec!["greeg", "-u", "foo"], vec!["greeg", "-uu", "foo"]] {
+            let cli = Cli::try_parse_from(&args).unwrap();
+            let o = build_options(&cli.common, "foo".into(), vec![]).unwrap();
+            assert!(o.no_ignore, "{args:?}");
+        }
     }
 }

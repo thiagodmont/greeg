@@ -316,6 +316,16 @@ def doctor_index(greeg, cwd):
     return {"size": m.group(1) if m else None, "ratio": float(m.group(2)) if m else None, "source": m.group(3) if m else None, "generation": int(g.group(1)) if g else None}
 
 
+def manifest_rss_mb(greeg, cwd):
+    """Peak RSS of the build, as the build itself recorded it in the manifest
+    (`getrusage` high-water mark). Costs nothing: no extra build run."""
+    try:
+        m = json.loads(out_of([greeg, "index", "--status"], cwd).split("dir: ")[0])
+    except Exception:
+        return None
+    return (m.get("peak_rss") or 0) / 1e6 or None
+
+
 FRESH_RE = re.compile(r"^greeg: fresh (\w+) ([\d.]+) ms", re.M)
 
 
@@ -408,9 +418,11 @@ def speed(args):
             idx = tempfile.mkdtemp(prefix="greeg-bench-idx-")
             build = hyperfine([[greeg, "index", "--index-dir", idx, "--root", "."]], cwd, runs=max(2, args.runs // 3), warmup=0, prepare=f"rm -rf {idx}")[0]
             shutil.rmtree(idx, ignore_errors=True)
-            rss = max_rss_mb([greeg, "index", "--index-dir", idx, "--root", "."], cwd)
-            shutil.rmtree(idx, ignore_errors=True)
             run([greeg, "index", "--root", "."], cwd)  # the default index used by the queries
+            # the build records its own getrusage high-water mark, so this is
+            # the peak of the run that produced the index the queries use, and
+            # costs no extra build
+            rss = manifest_rss_mb(greeg, cwd)
             info = doctor_index(greeg, cwd)
             info.update({"build_s": build["median"] if build else None, "build_mean_s": build["mean"] if build else None, "build_min_s": build["min"] if build else None, "build_max_s": build["max"] if build else None, "build_stddev": build["stddev"] if build else None, "rss_mb": rss})
             entry["index"] = info
@@ -1010,6 +1022,9 @@ def gate(args):
             if e["index"].get("build_s") and be["index"].get("build_s"):
                 d = e["index"]["build_s"] / be["index"]["build_s"] - 1
                 worst.append((d, f"{c} index build: {fmt_ms(be['index']['build_s'])} → {fmt_ms(e['index']['build_s'])} ({d:+.0%})"))
+            if e["index"].get("rss_mb") and be["index"].get("rss_mb"):
+                d = e["index"]["rss_mb"] / be["index"]["rss_mb"] - 1
+                worst.append((d, f"{c} index build peak RSS: {be['index']['rss_mb']:.0f} → {e['index']['rss_mb']:.0f} MB ({d:+.0%})"))
         worst.sort(reverse=True)
         for d, line in worst[:8]:
             print(("SLOWER  " if d > tol else "ok      ") + line)

@@ -92,12 +92,17 @@ pub fn run(c: &Common) -> Result<()> {
             let total = fb + gb + wb + sb + pb + grb + deltas;
             writeln!(
                 w,
-                "index     {}  generation {}  format {}  built {} in {:.1} s{}",
+                "index     {}  generation {}  format {}  built {} in {:.1} s{}{}",
                 dir.display(),
                 g,
                 m.format,
                 ago(m.built_unix_ms),
                 m.build_ms / 1e3,
+                if m.peak_rss > 0 {
+                    format!(", peak RSS {}", fmt_size(m.peak_rss))
+                } else {
+                    String::new()
+                },
                 if building {
                     "  (rebuild in progress)"
                 } else {
