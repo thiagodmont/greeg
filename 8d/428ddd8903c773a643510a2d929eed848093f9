@@ -1,0 +1,56 @@
+crates/greeg-query/src/verbs.rs
+  s_09357c044b6e84::t_583c10fff24ad2 333,337-339
+  s_09357c044b6e84::t_776c3c50b0ad4a 529
+  s_09357c044b6e84::t_52626ec93e1a0d 291,322-325
+  s_09357c044b6e84::t_fd1c26229f4ecb 281-290,292-301,331-332,334-336,347
+.github/workflows/ci.yml
+  s_09357c044b6e84::t_776c3c50b0ad4a 22-23
+bench/bench.py
+  s_09357c044b6e84::t_4c1426b902a4fd 1087,1096-1099,1101-1107,1117,1132,1136-1138,1140-1144,1148,1157-1158,1160,1213
+  s_09357c044b6e84::t_325dac8e8c641d 1100,1184,1217-1219
+  s_09357c044b6e84::t_2474f0edd27336 1167-1183,1185-1207,1209-1211
+  s_09357c044b6e84::t_52626ec93e1a0d 1208
+bench/test_matching.py
+  s_09357c044b6e84::t_ffa8ea0c625573 6,47-62
+  s_09357c044b6e84::t_12e189ab69cc03 1-5,7-46,63-66
+crates/greeg/src/main.rs
+  s_09357c044b6e84::t_583c10fff24ad2 208
+bench/test_matching_report.py
+  s_09357c044b6e84::t_ffa8ea0c625573 7,26,74-81,90-101
+  s_09357c044b6e84::t_9d642bf7f65021 82-89
+  s_09357c044b6e84::t_144c1365a95033 1-6,8-25,27-73,102-105
+references/ARCHITECTURE.md
+  s_09357c044b6e84::t_52626ec93e1a0d 152-155
+  s_09357c044b6e84::t_0e74c14e1cb1e2 150-151,156
+bench/matching.py
+  s_09357c044b6e84::t_12e189ab69cc03 33-34,57-84,111,116,169,202-204,213,216,219,225
+  s_09357c044b6e84::t_27890f342a6735 16,35-37,85-90,170,174-175,194-195,215,217,226
+crates/greeg/tests/cli.rs
+  s_09357c044b6e84::t_8afac08b929061 661,682-686,695-699,703-710,713-714
+  s_09357c044b6e84::t_144c1365a95033 654-660,662-681,687-694,700-702,711-712,715-716,719
+  s_09357c044b6e84::t_1b8ff785ca24f0 717-718
+bench/results/exact-search-json-darwin-arm64.json
+  s_09357c044b6e84::t_507226146d6100 1-499
+bench/results/exact-search-review-darwin-arm64.json
+  s_09357c044b6e84::t_ab232506f886a1 1-3475
+bench/results/exact-search-review-recheck-darwin-arm64.json
+  s_09357c044b6e84::t_8cffad730d51cd 1-4309
+references/BENCH.md
+  s_09357c044b6e84::t_62b4d32e40410c 43,47-88
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "8d428ddd8903c773a643510a2d929eed848093f9",
+  "prompts": {},
+  "sessions": {
+    "s_09357c044b6e84": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0c9a2-d91e-7fc2-8558-a87341dafdb2",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
