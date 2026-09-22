@@ -1209,6 +1209,51 @@ def matching_review_report(output_dir):
     return out
 
 
+def hook_report(output_dir):
+    from urllib.parse import quote
+
+    out = []
+    for filename, title in [
+        ("hook-contract-darwin-arm64.json", "Hook contract: initial measurements"),
+        ("hook-contract-recheck-darwin-arm64.json", "Hook contract: latency recheck"),
+    ]:
+        source = os.path.join(RESULTS, filename)
+        data = load_json(source)
+        if not data or not data.get("results"):
+            continue
+        rows = data["results"]
+        changes = [r["median_change_percent"] for r in rows]
+        flagged = [r for r in rows if r["median_change_percent"] > 10 or
+                   r["candidate"]["p95_ms"] / r["baseline"]["p95_ms"] > 1.2]
+        searches = [r for r in data["search_contracts"] if r["binary"] == "candidate"]
+        link = quote(os.path.relpath(os.path.realpath(source), os.path.realpath(output_dir)))
+        out += [f"## {title}", "",
+                f"`{data['binaries']['baseline']['version']}` → `{data['binaries']['candidate']['version']}`; "
+                f"{data['runs']} randomized pairs per case after {data['warmups']} warmups. "
+                f"The candidate passed {sum(r['candidate']['contract'] for r in rows)}/{len(rows)} hook eligibility/explicit-policy checks "
+                f"and {sum(r['stdout_and_status_equal'] for r in searches)}/{len(searches)} file/count match-row and exit-status checks against {data['ripgrep']}. "
+                "Both scan and full-index searches are covered; the oracle ignores row ordering and does not require identical stderr.", "",
+                f"Hook process median latency changes ranged from {min(changes):+.1f}% to {max(changes):+.1f}%. "
+                f"Cases above the 10% median / 20% p95 investigation thresholds: **{len(flagged)}**.", "",
+                "| Host protocol | Case | Median ms, before → after | p95 ms, before → after | Reply tokens, before → after |",
+                "|---|---|---:|---:|---:|"]
+        for row in rows:
+            b, c = row["baseline"], row["candidate"]
+            tokens = [str(v['reply_tokens']) if data.get('tokenizer') and v.get('reply_tokens') is not None else 'n/a' for v in (b, c)]
+            out.append(f"| {row['agent']} | {row['case'].replace('_', ' ')} | "
+                       f"{b['median_ms']:.3f} → {c['median_ms']:.3f} | {b['p95_ms']:.3f} → {c['p95_ms']:.3f} | {' → '.join(tokens)} |")
+        token_flag = " --tokens" if data.get("tokenizer") else ""
+        out += ["", f"[Raw samples, reply sizes, and binary/corpus digests]({link}). "
+                f"Reproduce: `python3 bench/hooks.py BASELINE CANDIDATE --runs {data['runs']}{token_flag} --output {filename}`.", ""]
+    if out:
+        out += ["The initial run triggered a longer paired recheck; both are retained. "
+                "Reply tokens count only hook JSON with the recorded tokenizer, not search results or total agent usage. "
+                "The explicit matching flag adds a small reply cost; declined commands emit no reply and continue with the original tool. "
+                "Tests use synthetic fixtures and the recorded response shapes, not live host approvals. "
+                "No new cold-cache, RSS, native-search performance, or whole-task token claim is made.", ""]
+    return out
+
+
 def report(args):
     path = args.out or os.path.join(ROOT, "references", "BENCH.md")
     speed_res = load_json(os.path.join(RESULTS, "speed.json"))
@@ -1217,6 +1262,7 @@ def report(args):
     output_dir = os.path.dirname(os.path.realpath(path))
     out += matching_report(output_dir)
     out += matching_review_report(output_dir)
+    out += hook_report(output_dir)
     if speed_res:
         h = speed_res["host"]
         corpora = speed_res["corpora"]

@@ -407,7 +407,7 @@ enum StatsCmd {
 
 #[derive(Subcommand, Debug)]
 enum HookCmd {
-    /// Claude Code: a PreToolUse hook in ~/.claude/settings.json that rewrites `rg`/`grep` Bash calls to `greeg`, and ~/.claude/skills/greeg/SKILL.md
+    /// Claude Code: a PreToolUse hook in ~/.claude/settings.json that rewrites supported simple `rg` Bash calls to `greeg`, and ~/.claude/skills/greeg/SKILL.md
     Claude {
         /// Remove the hook and the skill file
         #[arg(long)]

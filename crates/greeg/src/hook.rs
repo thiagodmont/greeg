@@ -1,16 +1,14 @@
 //! `greeg hook claude` / `greeg hook codex`: install a PreToolUse hook that
-//! rewrites `rg`/`grep` Bash calls to `greeg`, plus a short skill file.
+//! rewrites simple `rg` Bash calls to `greeg`, plus a short skill file.
 //! `greeg hook run [--agent claude|codex]` is the hook: it reads the tool call
 //! JSON on stdin and prints an `updatedInput` when the command is a plain
-//! rg/grep invocation it can map. Both agents send the same input shape
+//! rg invocation it can map. Both agents send the same input shape
 //! (`tool_name`, `tool_input.command`, `cwd`, `session_id`); the reply differs
 //! only in that Codex applies a rewrite solely when it comes with
 //! `permissionDecision: allow`, which Claude Code would read as an auto-allow.
 //!
-//! The rewriter is conservative: it touches only the first pipeline segment
-//! (optionally after a leading `cd DIR &&`), never drops positional
-//! arguments, and leaves the command alone whenever a flag has semantics
-//! greeg does not implement or the shell would expand something.
+//! Only simple `rg` commands qualify. Grep dialects, compound commands,
+//! explicit executable paths and shell expansion stay with the original tool.
 
 use anyhow::{Context, Result, bail};
 use serde_json::{Value, json};
@@ -41,7 +39,7 @@ was cut and suggests the next query. Exit 1 means no exact hits, even if the
 discovery ladder found word-boundary, case, split-token or fuzzy-name suggestions.
 
 `-l` prints only paths and `-c` prints `path:count`, one per line on stdout, so both
-are pipe-safe: `greeg -l foo | xargs sed -i ...`, `greeg -c foo | sort -t: -k2 -n`.
+use the machine output modes. Filenames are newline-delimited, not NUL-delimited.
 File searches with `-l`, `-c`, `--mode files|count`, `--budget 0` or `--json`
 use exact matching by default. Ranked text uses discovery. `--matching exact`
 (also `--no-ladder`) disables discovery; `--matching discover` opts into it.
@@ -73,8 +71,9 @@ or a path starts with `-`, put `--` before it: `greeg -- -x src`, `greeg foo -- 
 
 const CLAUDE_HOOK_NOTES: &str = "## Hook notes
 
-The installed PreToolUse hook (`greeg hook run`) rewrites plain `rg`/`grep` Bash
-calls into `greeg`. PreToolUse hooks run in parallel and the last `updatedInput`
+The installed PreToolUse hook (`greeg hook run`) rewrites simple `rg` Bash
+calls into `greeg --matching exact`. Grep, JSON, pipes, compound commands,
+comments, expansions and explicit executable paths stay unchanged. PreToolUse hooks run in parallel and the last `updatedInput`
 wins, so another Bash rewriter (for example RTK) can override or be overridden by
 this one; position in `settings.json` does not order them. Permission allow rules
 such as `Bash(rg:*)` no longer match the rewritten command: pair them with
@@ -84,7 +83,8 @@ such as `Bash(rg:*)` no longer match the rewritten command: pair them with
 const CODEX_HOOK_NOTES: &str = "## Hook notes
 
 The installed PreToolUse hook (`greeg hook run --agent codex`) rewrites plain
-`rg`/`grep` shell calls into `greeg`. PreToolUse hooks run in parallel and the
+`rg` shell calls into `greeg --matching exact`. Grep, JSON, pipes, compound
+commands, comments, expansions and explicit executable paths stay unchanged. PreToolUse hooks run in parallel and the
 rewrite from the hook that finishes last wins, so another shell rewriter (for
 example RTK) can override or be overridden by this one; position in `config.toml`
 does not order them.
@@ -541,80 +541,12 @@ pub fn install_codex(uninstall: bool, dry_run: bool) -> Result<()> {
 // shell tokenizing
 // ---------------------------------------------------------------------------
 
-/// A top-level (unquoted) control operator or redirection in a command line.
-struct OpAt {
-    start: usize,
-    end: usize,
-    text: &'static str,
-    redirect: bool,
-}
-
-/// Find top-level `|`, `||`, `&&`, `;`, newline, `&` and redirections
-/// (`>`, `>>`, `<`, `&>`; `2>` is seen as `>`) outside quotes. `None` on an
-/// unterminated quote.
-fn scan_ops(cmd: &str) -> Option<Vec<OpAt>> {
-    let b = cmd.as_bytes();
-    let mut ops = Vec::new();
-    let mut i = 0;
-    let next = |i: usize| b.get(i + 1).copied();
-    while i < b.len() {
-        let mut push = |text: &'static str, len: usize, redirect: bool| {
-            ops.push(OpAt {
-                start: i,
-                end: i + len,
-                text,
-                redirect,
-            })
-        };
-        match b[i] {
-            b'\'' => {
-                i += 1;
-                while b.get(i)? != &b'\'' {
-                    i += 1;
-                }
-            }
-            b'"' => {
-                i += 1;
-                loop {
-                    match b.get(i)? {
-                        b'"' => break,
-                        b'\\' => i += 2,
-                        _ => i += 1,
-                    }
-                }
-            }
-            b'\\' => i += 1,
-            b'|' if next(i) == Some(b'|') => {
-                push("||", 2, false);
-                i += 1;
-            }
-            b'|' => push("|", 1, false),
-            b'&' if next(i) == Some(b'&') => {
-                push("&&", 2, false);
-                i += 1;
-            }
-            b'&' if next(i) == Some(b'>') => {
-                push("&>", 2, true);
-                i += 1;
-            }
-            b'&' => push("&", 1, false),
-            b';' | b'\n' => push(";", 1, false),
-            b'>' if next(i) == Some(b'>') => {
-                push(">>", 2, true);
-                i += 1;
-            }
-            b'>' => push(">", 1, true),
-            b'<' => push("<", 1, true),
-            _ => {}
-        }
-        i += 1;
-    }
-    Some(ops)
-}
-
-/// Split one pipeline segment into words (quotes and backslashes honoured).
+/// Split a simple command into words (quotes and backslashes honoured).
 /// `None` when the shell would expand or interpret something we do not model.
 fn shell_words(s: &str) -> Option<Vec<String>> {
+    if s.contains('\0') {
+        return None;
+    }
     let mut out = Vec::new();
     let mut cur = String::new();
     let mut in_word = false;
@@ -639,6 +571,9 @@ fn shell_words(s: &str) -> Option<Vec<String>> {
                         '"' => break,
                         '\\' => {
                             let e = chars.next()?;
+                            if e == '\n' {
+                                return None;
+                            }
                             if !matches!(e, '"' | '\\' | '$' | '`') {
                                 cur.push('\\');
                             }
@@ -651,7 +586,11 @@ fn shell_words(s: &str) -> Option<Vec<String>> {
             }
             '\\' => {
                 in_word = true;
-                cur.push(chars.next()?);
+                let escaped = chars.next()?;
+                if escaped == '\n' {
+                    return None;
+                }
+                cur.push(escaped);
             }
             ' ' | '\t' => {
                 if in_word {
@@ -662,7 +601,8 @@ fn shell_words(s: &str) -> Option<Vec<String>> {
             // redirections, expansions and control operators: not a plain invocation
             '$' | '`' | '<' | '>' | ';' | '&' | '|' | '(' | ')' | '{' | '}' | '\n' => return None,
             // an unquoted glob or `~` would be expanded by the shell: leave it alone
-            '*' | '?' | '[' if !cur.starts_with('-') => return None,
+            '*' | '?' | '[' => return None,
+            '#' if !in_word => return None,
             '~' if !in_word => return None,
             _ => {
                 in_word = true;
@@ -691,96 +631,59 @@ pub(crate) fn quote(w: &str) -> String {
 // flag tables
 // ---------------------------------------------------------------------------
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Prog {
-    Rg,
-    Grep,
-}
-
 /// What to do with a flag. `Value` flags take the next word (or the attached
-/// remainder of a short group); `DropValue` flags are dropped with their value.
+/// remainder of a short group); `Color` consumes and validates its value.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Flag {
     /// pass through unchanged
     Keep,
     /// cosmetic: drop
     Drop,
-    /// cosmetic with a value: drop both (`optional` = value only via `=`)
-    DropValue {
-        optional: bool,
-    },
+    /// color selection is replaced by ranked text
+    Color,
     /// takes a value; emitted as `name value`
     Value,
     Fixed,
     Unrestricted,
-    Ere,
-    Bre,
-    Recursive,
     /// semantics greeg does not implement: do not rewrite
     Unsupported,
 }
 
-fn short_flag(c: char, prog: Prog) -> Flag {
+fn short_flag(c: char) -> Flag {
     use Flag::*;
-    match (c, prog) {
-        ('i' | 'w' | 'x' | 'l' | 'c', _) => Keep,
-        ('S' | 's' | 'U', Prog::Rg) => Keep,
-        ('n' | 'N' | 'H' | 'h' | 'p', Prog::Rg) => Drop,
-        ('n' | 'H' | 'h' | 's' | 'I', Prog::Grep) => Drop,
-        ('F', _) => Fixed,
-        ('u', Prog::Rg) => Unrestricted,
-        ('E', Prog::Grep) => Ere,
-        ('G', Prog::Grep) => Bre,
-        ('r' | 'R', Prog::Grep) => Recursive,
-        ('A' | 'B' | 'C' | 'e', _) => Value,
-        ('g' | 't' | 'T' | 'j' | 'M', Prog::Rg) => Value,
+    match c {
+        'i' | 'w' | 'x' | 'l' | 'c' | 'S' | 's' | 'U' => Keep,
+        'n' | 'N' | 'H' | 'p' => Drop,
+        'F' => Fixed,
+        'u' => Unrestricted,
+        'A' | 'B' | 'C' | 'e' | 'g' | 't' | 'T' | 'j' | 'M' => Value,
         _ => Unsupported,
     }
 }
 
-fn long_flag(name: &str, prog: Prog) -> Flag {
+fn long_flag(name: &str) -> Flag {
     use Flag::*;
-    match (name, prog) {
-        (
-            "--ignore-case"
-            | "--word-regexp"
-            | "--line-regexp"
-            | "--files-with-matches"
-            | "--count",
-            _,
-        ) => Keep,
-        (
-            "--smart-case" | "--case-sensitive" | "--multiline" | "--no-ignore" | "--hidden"
-            | "--json" | "--stats",
-            Prog::Rg,
-        ) => Keep,
-        ("--fixed-strings", _) => Fixed,
-        ("--unrestricted", Prog::Rg) => Unrestricted,
-        ("--extended-regexp", Prog::Grep) => Ere,
-        ("--basic-regexp", Prog::Grep) => Bre,
-        ("--recursive" | "--dereference-recursive", Prog::Grep) => Recursive,
-        (
-            "--line-number" | "--with-filename" | "--no-filename" | "--no-messages"
-            | "--line-buffered",
-            _,
-        ) => Drop,
-        (
-            "--no-line-number" | "--heading" | "--no-heading" | "--column" | "--no-column"
-            | "--pretty" | "--trim" | "--block-buffered" | "--vimgrep" | "--no-config" | "--mmap"
-            | "--no-mmap",
-            Prog::Rg,
-        ) => Drop,
-        ("--initial-tab", Prog::Grep) => Drop,
-        ("--color" | "--colour", Prog::Rg) => DropValue { optional: false },
-        ("--colors" | "--sort" | "--sortr", Prog::Rg) => DropValue { optional: false },
-        ("--color" | "--colour", Prog::Grep) => DropValue { optional: true },
-        ("--binary-files", Prog::Grep) => DropValue { optional: false },
-        ("--after-context" | "--before-context" | "--context" | "--regexp", _) => Value,
-        (
-            "--glob" | "--type" | "--type-not" | "--threads" | "--max-columns" | "--max-filesize",
-            Prog::Rg,
-        ) => Value,
-        ("--include" | "--exclude" | "--exclude-dir", Prog::Grep) => Value,
+    match name {
+        "--ignore-case"
+        | "--word-regexp"
+        | "--line-regexp"
+        | "--files-with-matches"
+        | "--count"
+        | "--smart-case"
+        | "--case-sensitive"
+        | "--multiline"
+        | "--no-ignore"
+        | "--hidden" => Keep,
+        "--fixed-strings" => Fixed,
+        "--unrestricted" => Unrestricted,
+        "--line-number" | "--with-filename" | "--no-filename" | "--line-buffered"
+        | "--no-line-number" | "--heading" | "--no-heading" | "--column" | "--no-column"
+        | "--pretty" | "--trim" | "--block-buffered" | "--no-config" | "--mmap" | "--no-mmap" => {
+            Drop
+        }
+        "--color" => Color,
+        "--after-context" | "--before-context" | "--context" | "--regexp" | "--glob" | "--type"
+        | "--type-not" | "--threads" | "--max-columns" | "--max-filesize" => Value,
         _ => Unsupported,
     }
 }
@@ -789,7 +692,7 @@ fn long_flag(name: &str, prog: Prog) -> Flag {
 // rewriting
 // ---------------------------------------------------------------------------
 
-/// Parsed rg/grep invocation, ready to be re-emitted as `greeg`.
+/// Parsed rg invocation, ready to be re-emitted as `greeg`.
 #[derive(Default)]
 struct Parsed {
     flags: Vec<String>,
@@ -798,23 +701,23 @@ struct Parsed {
     /// (word, seen after `--`)
     positional: Vec<(String, bool)>,
     fixed: bool,
-    ere: bool,
-    recursive: bool,
     unrestricted: u8,
 }
 
 impl Parsed {
     /// Apply one flag; `name` is the canonical flag as it should be emitted
     /// (`-t`, `--type`, ...), `value` its value when `kind == Value`.
-    fn apply(&mut self, kind: Flag, name: &str, value: Option<String>, prog: Prog) -> Option<()> {
+    fn apply(&mut self, kind: Flag, name: &str, value: Option<String>) -> Option<()> {
         match kind {
             Flag::Keep => self.flags.push(name.to_string()),
-            Flag::Drop | Flag::DropValue { .. } => {}
+            Flag::Drop => {}
+            Flag::Color => {
+                if !matches!(value.as_deref(), Some("never" | "always" | "auto" | "ansi")) {
+                    return None;
+                }
+            }
             Flag::Fixed => self.fixed = true,
-            Flag::Unrestricted => self.unrestricted += 1,
-            Flag::Ere => self.ere = true,
-            Flag::Bre => self.ere = false,
-            Flag::Recursive => self.recursive = true,
+            Flag::Unrestricted => self.unrestricted = self.unrestricted.saturating_add(1),
             Flag::Unsupported => return None,
             Flag::Value => {
                 let v = value?;
@@ -831,20 +734,7 @@ impl Parsed {
                         self.flags.push("--max-columns".into());
                         self.flags.push(v);
                     }
-                    "--include" => {
-                        self.flags.push("-g".into());
-                        self.flags.push(v);
-                    }
-                    "--exclude" => {
-                        self.flags.push("-g".into());
-                        self.flags.push(format!("!{v}"));
-                    }
-                    "--exclude-dir" => {
-                        self.flags.push("-g".into());
-                        self.flags.push(format!("!{}/**", v.trim_end_matches('/')));
-                    }
                     _ => {
-                        debug_assert!(prog == Prog::Rg);
                         self.flags.push(name.to_string());
                         self.flags.push(v);
                     }
@@ -860,7 +750,7 @@ const VERBS: &[&str] = &[
     "man", "hook", "lang", "stats",
 ];
 
-fn parse(words: &[String], prog: Prog) -> Option<Parsed> {
+fn parse(words: &[String]) -> Option<Parsed> {
     let mut p = Parsed::default();
     let mut i = 1;
     let mut after_dd = false;
@@ -880,9 +770,12 @@ fn parse(words: &[String], prog: Prog) -> Option<Parsed> {
                 Some((n, v)) => (format!("--{n}"), Some(v.to_string())),
                 None => (w.clone(), None),
             };
-            let kind = long_flag(&name, prog);
+            let kind = long_flag(&name);
+            if inline.is_some() && !matches!(kind, Flag::Value | Flag::Color) {
+                return None;
+            }
             let value = match kind {
-                Flag::Value | Flag::DropValue { optional: false } => Some(match inline {
+                Flag::Value | Flag::Color => Some(match inline {
                     Some(v) => v,
                     None => {
                         i += 1;
@@ -891,22 +784,13 @@ fn parse(words: &[String], prog: Prog) -> Option<Parsed> {
                 }),
                 _ => inline,
             };
-            p.apply(kind, &name, value, prog)?;
+            p.apply(kind, &name, value)?;
             continue;
         }
         // short flag group: `-in`, `-tjs`, `-A3`; stops at the first flag that takes a value
         let body = &w[1..];
-        if prog == Prog::Grep && body.bytes().all(|b| b.is_ascii_digit()) {
-            p.apply(Flag::Value, "-C", Some(body.to_string()), prog)?;
-            continue;
-        }
         for (k, c) in body.char_indices() {
-            let c = if prog == Prog::Grep && c == 'y' {
-                'i'
-            } else {
-                c
-            };
-            let kind = short_flag(c, prog);
+            let kind = short_flag(c);
             let name = format!("-{c}");
             if kind == Flag::Value {
                 let rest = &body[k + c.len_utf8()..];
@@ -916,107 +800,24 @@ fn parse(words: &[String], prog: Prog) -> Option<Parsed> {
                 } else {
                     rest.to_string()
                 };
-                p.apply(kind, &name, Some(value), prog)?;
+                p.apply(kind, &name, Some(value))?;
                 break;
             }
-            p.apply(kind, &name, None, prog)?;
+            p.apply(kind, &name, None)?;
         }
     }
     Some(p)
 }
 
-/// Translate a GNU grep BRE into an ERE by swapping the escaped/unescaped
-/// meaning of `| ( ) { } + ?`. Bracket expressions are copied verbatim.
-/// `None` when an exact translation is not certain.
-fn bre_to_ere(pat: &str) -> Option<String> {
-    const META: &[char] = &['|', '(', ')', '{', '}', '+', '?'];
-    if !pat.contains(META) {
-        return Some(pat.to_string());
-    }
-    let cs: Vec<char> = pat.chars().collect();
-    let mut out = String::new();
-    let mut i = 0;
-    // `*` is literal at the start of a BRE or after `\(` / `\|`: no exact ERE form
-    let mut at_start = true;
-    while i < cs.len() {
-        let c = cs[i];
-        match c {
-            '\\' => {
-                let d = *cs.get(i + 1)?;
-                if !META.contains(&d) {
-                    out.push('\\');
-                }
-                out.push(d);
-                at_start = matches!(d, '(' | '|');
-                i += 2;
-            }
-            '*' if at_start => return None,
-            '[' => {
-                let start = i;
-                i += 1;
-                if cs.get(i) == Some(&'^') {
-                    i += 1;
-                }
-                if cs.get(i) == Some(&']') {
-                    i += 1;
-                }
-                loop {
-                    match *cs.get(i)? {
-                        ']' => break,
-                        '\\' => return None,
-                        '[' if cs.get(i + 1) == Some(&':') => {
-                            i += 2;
-                            while *cs.get(i)? != ']' {
-                                i += 1;
-                            }
-                        }
-                        '[' => return None,
-                        _ => {}
-                    }
-                    i += 1;
-                }
-                out.extend(&cs[start..=i]);
-                at_start = false;
-                i += 1;
-            }
-            _ => {
-                if META.contains(&c) {
-                    out.push('\\');
-                }
-                out.push(c);
-                at_start = c == '^' && i == 0;
-                i += 1;
-            }
-        }
-    }
-    Some(out)
-}
-
-/// Rewrite one pipeline segment to argv: `(original words, greeg words)`;
+/// Rewrite a simple rg command to argv: `(original words, greeg words)`;
 /// `None` = leave it alone.
 fn rewrite_words(seg: &str) -> Option<(Vec<String>, Vec<String>)> {
-    let words = shell_words(seg.trim())?;
+    let words = shell_words(seg)?;
     let first = words.first()?;
-    // env assignments and wrappers (`FOO=1 rg`, `timeout 5 rg`, `xargs rg`, `sudo rg`, `nice rg`)
-    if first.contains('=') {
+    if first != "rg" {
         return None;
     }
-    let prog_name = first.rsplit('/').next().unwrap_or(first);
-    let (prog, mut p) = match prog_name {
-        "rg" => (Prog::Rg, parse(&words, Prog::Rg)?),
-        "grep" => (Prog::Grep, parse(&words, Prog::Grep)?),
-        "egrep" => {
-            let mut p = parse(&words, Prog::Grep)?;
-            p.ere = true;
-            (Prog::Grep, p)
-        }
-        "fgrep" => {
-            let mut p = parse(&words, Prog::Grep)?;
-            p.fixed = true;
-            (Prog::Grep, p)
-        }
-        _ => return None,
-    };
+    let mut p = parse(&words)?;
     if p.patterns.len() > 1 {
         return None; // greeg accepts a single -e today
     }
@@ -1031,18 +832,11 @@ fn rewrite_words(seg: &str) -> Option<(Vec<String>, Vec<String>)> {
     };
     let paths = std::mem::take(&mut p.positional);
     // stdin readers become tree searches: leave them alone
-    if paths.iter().any(|(w, _)| w == "-")
-        || (prog == Prog::Grep && !p.recursive && paths.is_empty())
-    {
+    if paths.iter().any(|(w, _)| w == "-") {
         return None;
     }
-    let pattern = if prog == Prog::Grep && !p.ere && !p.fixed {
-        bre_to_ere(&pattern)?
-    } else {
-        pattern
-    };
 
-    let mut out: Vec<String> = vec!["greeg".into()];
+    let mut out: Vec<String> = vec!["greeg".into(), "--matching".into(), "exact".into()];
     out.extend(p.flags.clone());
     match p.unrestricted {
         0 => {}
@@ -1071,62 +865,21 @@ fn rewrite_words(seg: &str) -> Option<(Vec<String>, Vec<String>)> {
 /// A rewritten Bash command and what changed in it (for the stats records).
 pub struct Rewrite {
     pub command: String,
-    /// `DIR` of a leading `cd DIR &&`, which is where greeg will run.
-    pub cd: Option<String>,
     pub original: Vec<String>,
     pub rewritten: Vec<String>,
 }
 
-/// Rewrite a whole Bash command: only the first pipeline segment, optionally
-/// after a leading `cd DIR &&`; everything after the next operator is kept
-/// verbatim. A redirection on the rg segment means no rewrite.
-#[cfg(test)]
-pub fn rewrite_command(cmd: &str) -> Option<String> {
-    rewrite_full(cmd).map(|r| r.command)
-}
-
+/// Only complete simple commands qualify; a shell tail may consume another
+/// output dialect or change permission and exit-status behavior.
 pub fn rewrite_full(cmd: &str) -> Option<Rewrite> {
-    let cmd = cmd.trim();
-    let ops = scan_ops(cmd)?;
-    let mut prefix = String::new();
-    let mut cd = None;
-    let mut seg_start = 0;
-    let mut idx = 0;
-    if let Some(op) = ops.first()
-        && op.text == "&&"
-    {
-        let head = cmd[..op.start].trim();
-        if head.starts_with("cd ")
-            && let Some(w) = shell_words(head).filter(|w| w.len() == 2)
-        {
-            prefix = format!("{head} && ");
-            cd = Some(w[1].clone());
-            seg_start = op.end;
-            idx = 1;
-        }
-    }
-    let (seg, tail) = match ops.get(idx) {
-        Some(op) if op.redirect => return None,
-        Some(op) => (
-            &cmd[seg_start..op.start],
-            Some((op.text, cmd[op.end..].trim_start())),
-        ),
-        None => (&cmd[seg_start..], None),
-    };
-    let (original, rewritten) = rewrite_words(seg)?;
-    let new = rewritten
+    let (original, rewritten) = rewrite_words(cmd)?;
+    let command = rewritten
         .iter()
         .map(|w| quote(w))
         .collect::<Vec<_>>()
         .join(" ");
-    let command = match tail {
-        Some((op, "")) => format!("{prefix}{new} {op}"),
-        Some((op, rest)) => format!("{prefix}{new} {op} {rest}"),
-        None => format!("{prefix}{new}"),
-    };
     Some(Rewrite {
         command,
-        cd,
         original,
         rewritten,
     })
@@ -1163,6 +916,10 @@ pub fn run(agent: Agent) -> Result<()> {
     else {
         return Ok(());
     };
+    // A configured ripgrep can select another file set or run a preprocessor.
+    if std::env::var_os("RIPGREP_CONFIG_PATH").is_some_and(|p| !p.is_empty()) {
+        return Ok(());
+    }
     if let Some(rw) = rewrite_full(cmd)
         && rw.command != cmd
     {
@@ -1170,17 +927,13 @@ pub fn run(agent: Agent) -> Result<()> {
         let mut w = std::io::stdout().lock();
         serde_json::to_writer(&mut w, &out)?;
         writeln!(w)?;
-        // opt-in stats: where greeg will run is the hook's cwd, or the `cd DIR` in front
-        let base = v
+        // Opt-in stats use the unchanged working directory.
+        let cwd = v
             .get("cwd")
             .and_then(|c| c.as_str())
             .map(PathBuf::from)
             .or_else(|| std::env::current_dir().ok())
             .unwrap_or_default();
-        let cwd = match &rw.cd {
-            Some(d) => base.join(d),
-            None => base,
-        };
         let session = v.get("session_id").and_then(|s| s.as_str());
         crate::stats::record_hook(&cwd, session, &rw.original, &rw.rewritten);
     }
@@ -1191,175 +944,124 @@ pub fn run(agent: Agent) -> Result<()> {
 mod tests {
     use super::*;
 
-    fn rw(cmd: &str) -> Option<String> {
-        rewrite_command(cmd)
+    #[test]
+    fn uncertain_commands_are_declined() {
+        for cmd in [
+            "grep -rl needle .",
+            "grep needle src",
+            "fgrep needle file.rs",
+            "egrep needle file.rs",
+            "rg --json needle",
+            "rg --stats needle",
+            "/usr/bin/rg needle",
+            "./rg needle",
+            "rg needle # comment",
+            "rg needle\\\n src",
+            "rg \"nee\\\ndle\" src",
+            "rg -g*.rs needle",
+            "rg needle | head",
+            "rg -l needle | xargs echo",
+            "rg needle && echo yes",
+            "rg needle || echo no",
+            "rg needle; echo done",
+            "rg needle &",
+            "cd src && rg needle",
+            "rg needle\necho done",
+            "rg -h needle",
+            "rg --ignore-case=false needle",
+            "rg --fixed-strings=no needle",
+        ] {
+            assert!(rewrite_full(cmd).is_none(), "unexpected rewrite: {cmd:?}");
+        }
+    }
+
+    #[test]
+    fn hooks_request_exact_matching() {
+        let r = rewrite_full("rg -w NEEDLE src").unwrap();
+        assert_eq!(r.command, "greeg --matching exact -w NEEDLE src");
     }
 
     #[track_caller]
     fn same(cmd: &str, want: &str) {
-        assert_eq!(rw(cmd).as_deref(), Some(want), "input: {cmd}");
+        assert_eq!(
+            rewrite_full(cmd).map(|r| r.command).as_deref(),
+            Some(want),
+            "{cmd}"
+        );
     }
 
     #[track_caller]
     fn untouched(cmd: &str) {
-        assert_eq!(rw(cmd), None, "input: {cmd}");
+        assert!(rewrite_full(cmd).is_none(), "unexpected rewrite: {cmd:?}");
     }
 
     #[test]
-    fn basics() {
-        same("rg -n foo src", "greeg foo src");
-        same(
-            "rg -in 'get queryset' --type py",
-            "greeg -i --type py 'get queryset'",
-        );
-        same(
-            "grep -rn \"TODO\" . --include=*.rs",
-            "greeg -g '*.rs' TODO .",
-        );
-        same(
-            "grep -rnw foo src/ | head -20",
-            "greeg -w foo src/ | head -20",
-        );
-        same("cd /tmp/x && rg foo", "cd /tmp/x && greeg foo");
-        same("rg def --type rs", "greeg --type rs -e def");
-        same("rg -C 3 'fn main' crates", "greeg -C 3 'fn main' crates");
-        same("fgrep -r needle lib", "greeg -F needle lib");
-        same("/usr/bin/rg foo", "greeg foo");
-        untouched("git status");
+    fn supported_flags_and_positionals() {
+        for (cmd, args) in [
+            (
+                "rg -in 'get queryset' --type py",
+                "-i --type py 'get queryset'",
+            ),
+            ("rg def --type rs", "--type rs -e def"),
+            ("rg stats src", "-e stats src"),
+            ("rg -C 3 'fn main' crates", "-C 3 'fn main' crates"),
+            ("rg foo . ../other", "foo . ../other"),
+            ("rg foo -- -weird", "foo -- -weird"),
+            ("rg foo \"a b\"", "foo 'a b'"),
+            ("rg -e foo bar src", "foo bar src"),
+            ("rg -- -x src", "-- -x src"),
+            ("rg -F -- --flag", "-F -- --flag"),
+            ("rg -e -x src", "-- -x src"),
+            ("rg -- def src", "-- def src"),
+            ("rg -tjs foo", "-t js foo"),
+            ("rg -gX foo", "-g X foo"),
+            ("rg -eX src", "X src"),
+            ("rg -A3 foo", "-A 3 foo"),
+            ("rg -B2 foo", "-B 2 foo"),
+            ("rg -C1 foo", "-C 1 foo"),
+            ("rg -iw foo", "-i -w foo"),
+            ("rg -itrs foo", "-i -t rs foo"),
+            ("rg -inA 2 foo src", "-i -A 2 foo src"),
+            ("rg -M 80 foo", "--max-columns 80 foo"),
+            ("rg -j4 foo", "-j 4 foo"),
+            ("rg -l foo", "-l foo"),
+            ("rg -c foo src", "-c foo src"),
+            ("rg -x foo", "-x foo"),
+            ("rg -U 'a\\nb' src", "-U 'a\\nb' src"),
+            ("rg -u foo", "--no-ignore foo"),
+            ("rg -uu foo", "--no-ignore --hidden foo"),
+            ("rg --unrestricted -i foo", "-i --no-ignore foo"),
+        ] {
+            same(cmd, &format!("greeg --matching exact {args}"));
+        }
     }
 
     #[test]
-    fn positionals_are_never_dropped() {
-        same("rg foo . ../other", "greeg foo . ../other");
-        same("rg foo -- -weird", "greeg foo -- -weird");
-        same("rg foo 'my dir/sub' other", "greeg foo 'my dir/sub' other");
-        same("rg foo \"a b\"", "greeg foo 'a b'");
-        same("rg -e foo bar src", "greeg foo bar src");
+    fn ranked_presentation_flags() {
+        for flags in [
+            "-nH",
+            "-N",
+            "--no-heading --heading",
+            "--color never",
+            "--color=never",
+            "-p --column --no-column",
+            "--trim --line-buffered",
+        ] {
+            same(&format!("rg {flags} foo"), "greeg --matching exact foo");
+        }
     }
 
     #[test]
-    fn leading_dash_patterns_use_double_dash() {
-        same("rg -- -x src", "greeg -- -x src");
-        same("rg -F -- --flag", "greeg -F -- --flag");
-        same("rg -e -x src", "greeg -- -x src");
-        same("rg -- def src", "greeg -- def src");
-    }
-
-    #[test]
-    fn combined_short_flags() {
-        same("rg -tjs foo", "greeg -t js foo");
-        same("rg -tpy foo", "greeg -t py foo");
-        same("rg -gX foo", "greeg -g X foo");
-        same("rg -eX src", "greeg X src");
-        same("rg -A3 foo", "greeg -A 3 foo");
-        same("rg -B2 foo", "greeg -B 2 foo");
-        same("rg -C1 foo", "greeg -C 1 foo");
-        same("rg -iw foo", "greeg -i -w foo");
-        same("rg -j4 foo", "greeg -j 4 foo");
-        same("rg -itrs foo", "greeg -i -t rs foo");
-        same("rg -inA 2 foo src", "greeg -i -A 2 foo src");
-        same("rg -M 80 foo", "greeg --max-columns 80 foo");
-        untouched("rg -Cx foo");
-        untouched("rg -iv foo");
-    }
-
-    #[test]
-    fn multiple_e_patterns_untouched() {
-        untouched("rg -e a -e b");
-        untouched("grep -r -e a -e b src");
-    }
-
-    #[test]
-    fn operators_without_spaces() {
-        same("rg foo|wc -l", "greeg foo | wc -l");
-        same("rg foo|| echo none", "greeg foo || echo none");
-        same("rg foo&&echo ok", "greeg foo && echo ok");
-        same("rg foo; echo done", "greeg foo ; echo done");
-        same("rg foo\necho done", "greeg foo ; echo done");
-        same("rg 'a|b' src | head", "greeg 'a|b' src | head");
-        same("rg foo | sort | uniq -c", "greeg foo | sort | uniq -c");
-        untouched("rg foo|wc -l 'unterminated");
-    }
-
-    #[test]
-    fn pipe_safe_list_and_count() {
-        same(
-            "rg -l foo | xargs sed -i 's/a/b/'",
-            "greeg -l foo | xargs sed -i 's/a/b/'",
-        );
-        same(
-            "rg -c foo src | sort -t: -k2 -n",
-            "greeg -c foo src | sort -t: -k2 -n",
-        );
-        same("rg -l foo|xargs wc -l", "greeg -l foo | xargs wc -l");
-        untouched("vim $(rg -l foo)");
-        untouched("vim `rg -l foo`");
-    }
-
-    #[test]
-    fn grep_bre_patterns() {
-        same("grep -r 'a\\|b' src", "greeg 'a|b' src");
-        same("grep -rn 'foo\\(bar\\)\\?' src", "greeg 'foo(bar)?' src");
-        same("grep -r 'x\\{2,3\\}' src", "greeg 'x{2,3}' src");
-        same("grep -r 'a+b' src", "greeg 'a\\+b' src");
-        same("grep -r 'f(x)' src", "greeg 'f\\(x\\)' src");
-        same("grep -r 'a[(]b' src", "greeg 'a[(]b' src");
-        same("grep -rE 'a|b' src", "greeg 'a|b' src");
-        same("egrep -r 'a|b' src", "greeg 'a|b' src");
-        same("grep -rF 'a|b' src", "greeg -F 'a|b' src");
-        same("grep -r 'plain\\.txt' src", "greeg 'plain\\.txt' src");
-        untouched("grep -rP 'a(?=b)' src");
-        untouched("grep -r '*a\\|b' src");
-        untouched("grep -r 'a[\\]]\\|b' src");
-        untouched("grep -r 'a\\|b\\' src");
-    }
-
-    #[test]
-    fn grep_stdin_and_flags() {
-        untouched("grep foo");
-        untouched("grep -i foo");
-        untouched("cat x | grep foo");
-        same("grep -r foo", "greeg foo");
-        same("grep foo file.rs", "greeg foo file.rs");
-        same("grep -rn --color=always foo src", "greeg foo src");
-        same(
-            "grep -r --exclude-dir=node_modules foo .",
-            "greeg -g '!node_modules/**' foo .",
-        );
-        same(
-            "grep -r --exclude '*.min.js' foo .",
-            "greeg -g '!*.min.js' foo .",
-        );
-        same("grep -r -3 foo src", "greeg -C 3 foo src");
-        same("grep -ry foo src", "greeg -i foo src");
-        untouched("grep -rv foo src");
-        untouched("grep -ro foo src");
-        untouched("grep -rl foo -");
-    }
-
-    #[test]
-    fn cosmetic_flags_dropped() {
-        same("rg -nH foo", "greeg foo");
-        same("rg -N foo", "greeg foo");
-        same("rg -h foo", "greeg foo");
-        same("rg --no-heading --heading foo", "greeg foo");
-        same("rg --color never foo", "greeg foo");
-        same("rg --color=never --colors 'path:fg:red' foo", "greeg foo");
-        same("rg -p --column --no-column foo", "greeg foo");
-        same("rg --sort path --sortr=modified foo", "greeg foo");
-        same("rg --no-messages --trim --line-buffered foo", "greeg foo");
-        same("rg -u foo", "greeg --no-ignore foo");
-        same("rg -uu foo", "greeg --no-ignore --hidden foo");
-        same("rg --unrestricted -i foo", "greeg -i --no-ignore foo");
-        untouched("rg -uuu foo");
-        untouched("rg -u -u -u foo");
-    }
-
-    #[test]
-    fn unsupported_semantics_untouched() {
-        for c in [
+    fn unsupported_flags_and_syntax() {
+        for cmd in [
+            "git status",
+            "rg -e a -e b",
+            "rg -Cx foo",
+            "rg -iv foo",
+            "rg -uuu foo",
+            "rg -u -u -u foo",
             "rg -v foo",
-            "rg -o 'x' src",
+            "rg -o x src",
             "rg --files",
             "rg -m 3 foo",
             "rg --max-count=3 foo",
@@ -1375,22 +1077,17 @@ mod tests {
             "rg --passthru foo",
             "rg --multiline-dotall foo",
             "rg --pre cat foo",
+            "rg --pre=./script foo",
+            "rg --pre-glob '*.pdf' --pre cat foo",
             "rg --search-zip foo",
             "rg -a foo",
             "rg --iglob '*.rs' foo",
             "rg -E utf-16 foo",
             "rg -f patterns.txt src",
-        ] {
-            untouched(c);
-        }
-        same("rg -x foo", "greeg -x foo");
-        same("rg -U 'a\\nb' src", "greeg -U 'a\\nb' src");
-        same("rg --json foo", "greeg --json foo");
-    }
-
-    #[test]
-    fn prefixes_redirections_globs_expansions_untouched() {
-        for c in [
+            "rg --sort path foo",
+            "rg --sortr=modified foo",
+            "rg --no-messages foo",
+            "rg --vimgrep foo",
             "FOO=1 rg foo",
             "RIPGREP_CONFIG_PATH= rg foo",
             "timeout 5 rg foo",
@@ -1404,59 +1101,48 @@ mod tests {
             "rg foo &> out.txt",
             "rg foo src/*.rs",
             "rg foo src/?.rs",
-            "rg foo '[a-z]' src/[ab]",
+            "rg foo src/[ab]",
             "rg foo $DIR",
             "rg foo \"$DIR\"",
             "rg foo `pwd`",
             "rg foo ~/src",
             "(rg foo)",
             "rg foo {a,b}",
-            "cd $D && rg foo",
+            "rg foo -",
+            "rg foo 'unterminated",
+            "rg foo\0bar",
+            "rg",
+            "rg --glob",
+            "rg --glob='*.rs' --ignore-case=yes needle",
+            "rg --count=false needle",
         ] {
-            untouched(c);
+            untouched(cmd);
         }
-        same("rg 'a*b' src", "greeg 'a*b' src");
-        same("rg -g '*.rs' foo", "greeg -g '*.rs' foo");
-        untouched("rg foo 2>/dev/null | head");
+        untouched(&format!("rg -{} foo", "u".repeat(256)));
     }
 
     #[test]
-    fn flags_that_run_commands_are_never_rewritten() {
-        // a replayed record must be a plain read-only search
-        untouched("rg --pre ./script foo src");
-        untouched("rg --pre=./script foo src");
-        untouched("rg --pre-glob '*.pdf' --pre cat foo");
-    }
-
-    #[test]
-    fn stats_is_a_verb_name() {
-        same("rg stats src", "greeg -e stats src");
-    }
-
-    #[test]
-    fn rewrite_full_reports_argv_and_cd() {
-        let r = rewrite_full("cd crates && rg -n 'fn main' src | head").unwrap();
-        assert_eq!(r.command, "cd crates && greeg 'fn main' src | head");
-        assert_eq!(r.cd.as_deref(), Some("crates"));
-        assert_eq!(r.original, ["rg", "-n", "fn main", "src"]);
-        assert_eq!(r.rewritten, ["greeg", "fn main", "src"]);
-        assert!(rewrite_full("rg foo").unwrap().cd.is_none());
-    }
-
-    #[test]
-    fn bre_to_ere_exact() {
-        assert_eq!(bre_to_ere("abc").as_deref(), Some("abc"));
-        assert_eq!(bre_to_ere("a\\|b").as_deref(), Some("a|b"));
-        assert_eq!(bre_to_ere("a|b").as_deref(), Some("a\\|b"));
-        assert_eq!(bre_to_ere("\\(a\\)\\+").as_deref(), Some("(a)+"));
-        assert_eq!(
-            bre_to_ere("[[:alpha:]]+").as_deref(),
-            Some("[[:alpha:]]\\+")
-        );
-        assert_eq!(bre_to_ere("[]a]+").as_deref(), Some("[]a]\\+"));
-        assert_eq!(bre_to_ere("^*a\\|b"), None);
-        assert_eq!(bre_to_ere("[a\\|b"), None);
-        assert_eq!(bre_to_ere("a\\|b\\"), None);
+    fn quoted_metacharacters_remain_arguments() {
+        for (cmd, pattern) in [
+            ("rg 'a*b' src", "a*b"),
+            ("rg 'a|b' src", "a|b"),
+            ("rg '#' src", "#"),
+            ("rg \\# src", "#"),
+            ("rg a#b src", "a#b"),
+            ("rg '; echo tail' src", "; echo tail"),
+            ("rg '$(pwd)' src", "$(pwd)"),
+            ("rg '' src", ""),
+            ("rg 'a'\\''b' src", "a'b"),
+        ] {
+            let r = rewrite_full(cmd).unwrap();
+            assert_eq!(r.original, ["rg", pattern, "src"]);
+            assert_eq!(
+                r.rewritten,
+                ["greeg", "--matching", "exact", pattern, "src"]
+            );
+            assert_eq!(shell_words(&r.command).unwrap(), r.rewritten);
+        }
+        same("rg -g '*.rs' foo", "greeg --matching exact -g '*.rs' foo");
     }
 
     #[test]

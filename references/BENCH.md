@@ -86,6 +86,78 @@ The first run's scan-ranked-hit p95 changed +39.0%, triggering a 151-pair rechec
 
 JSON contracts compare match paths, lines, offsets, submatches, status, exact rung, and total hit counts with ripgrep. Repeat-output checks remove only elapsed fields; byte/token measurements retain them and use the first raw sample, so small JSON size differences reflect timing values. Definition checks compare paths and status on this controlled fixture, not general symbol-resolution accuracy. The initial review run used a full name-table case-fold scan; the final recheck uses prefix ranges. Both runs remain available. The corrected indexed case-insensitive hit now returns definitions instead of an empty answer, so its increased output is expected. Non-ASCII definition names absent from the symbol/module index use a scan fallback; its latency on large repositories is not measured here.
 
+## Hook contract: initial measurements
+
+`greeg 0.6.0+caf52cda9` → `greeg 0.6.0+caf52cda9.dirty`; 31 randomized pairs per case after 3 warmups. The candidate passed 24/24 hook eligibility/explicit-policy checks and 12/12 file/count match-row and exit-status checks against ripgrep 15.2.0. Both scan and full-index searches are covered; the oracle ignores row ordering and does not require identical stderr.
+
+Hook process median latency changes ranged from -3.2% to +2.7%. Cases above the 10% median / 20% p95 investigation thresholds: **4**.
+
+| Host protocol | Case | Median ms, before → after | p95 ms, before → after | Reply tokens, before → after |
+|---|---|---:|---:|---:|
+| claude | ranked | 3.037 → 3.071 | 4.456 → 4.904 | 31 → 34 |
+| claude | files | 3.107 → 3.118 | 4.237 → 4.266 | 33 → 36 |
+| claude | count miss | 3.012 → 3.092 | 4.009 → 4.421 | 34 → 37 |
+| claude | quoted | 3.103 → 3.149 | 4.790 → 3.757 | 36 → 39 |
+| claude | recursive grep | 3.057 → 3.076 | 4.194 → 4.492 | 34 → 0 |
+| claude | grep file | 3.106 → 3.152 | 4.322 → 4.213 | 33 → 0 |
+| claude | json | 3.086 → 3.090 | 3.407 → 4.132 | 33 → 0 |
+| claude | executable path | 3.016 → 2.978 | 3.926 → 3.768 | 31 → 0 |
+| claude | comment | 3.083 → 3.097 | 4.287 → 4.173 | 33 → 0 |
+| claude | pipeline | 3.691 → 3.755 | 6.610 → 5.844 | 35 → 0 |
+| claude | compound | 3.426 → 3.317 | 5.183 → 5.362 | 34 → 0 |
+| claude | config | 3.120 → 3.146 | 4.380 → 4.208 | 31 → 0 |
+| codex | ranked | 3.106 → 3.117 | 4.042 → 5.822 | 36 → 39 |
+| codex | files | 3.258 → 3.344 | 4.504 → 4.702 | 38 → 41 |
+| codex | count miss | 3.103 → 3.117 | 4.458 → 4.288 | 39 → 42 |
+| codex | quoted | 3.042 → 3.088 | 3.269 → 3.425 | 41 → 44 |
+| codex | recursive grep | 3.074 → 3.075 | 3.308 → 4.751 | 39 → 0 |
+| codex | grep file | 3.186 → 3.160 | 3.934 → 4.734 | 38 → 0 |
+| codex | json | 3.099 → 3.081 | 3.766 → 3.416 | 38 → 0 |
+| codex | executable path | 3.160 → 3.119 | 4.862 → 4.758 | 36 → 0 |
+| codex | comment | 3.132 → 3.115 | 4.147 → 3.397 | 38 → 0 |
+| codex | pipeline | 3.176 → 3.143 | 6.052 → 3.496 | 40 → 0 |
+| codex | compound | 3.127 → 3.078 | 3.840 → 3.316 | 39 → 0 |
+| codex | config | 3.071 → 3.079 | 4.245 → 3.315 | 36 → 0 |
+
+[Raw samples, reply sizes, and binary/corpus digests](../bench/results/hook-contract-darwin-arm64.json). Reproduce: `python3 bench/hooks.py BASELINE CANDIDATE --runs 31 --tokens --output hook-contract-darwin-arm64.json`.
+
+## Hook contract: latency recheck
+
+`greeg 0.6.0+caf52cda9` → `greeg 0.6.0+caf52cda9.dirty`; 151 randomized pairs per case after 3 warmups. The candidate passed 24/24 hook eligibility/explicit-policy checks and 12/12 file/count match-row and exit-status checks against ripgrep 15.2.0. Both scan and full-index searches are covered; the oracle ignores row ordering and does not require identical stderr.
+
+Hook process median latency changes ranged from -1.4% to +1.5%. Cases above the 10% median / 20% p95 investigation thresholds: **0**.
+
+| Host protocol | Case | Median ms, before → after | p95 ms, before → after | Reply tokens, before → after |
+|---|---|---:|---:|---:|
+| claude | ranked | 2.999 → 3.021 | 3.701 → 3.875 | 31 → 34 |
+| claude | files | 3.121 → 3.138 | 4.383 → 4.399 | 33 → 36 |
+| claude | count miss | 3.094 → 3.098 | 4.575 → 4.270 | 34 → 37 |
+| claude | quoted | 3.097 → 3.144 | 4.932 → 5.133 | 36 → 39 |
+| claude | recursive grep | 2.912 → 2.911 | 3.849 → 3.740 | 34 → 0 |
+| claude | grep file | 2.874 → 2.886 | 4.154 → 4.219 | 33 → 0 |
+| claude | json | 2.822 → 2.800 | 3.778 → 3.854 | 33 → 0 |
+| claude | executable path | 2.840 → 2.804 | 3.827 → 3.784 | 31 → 0 |
+| claude | comment | 2.878 → 2.869 | 4.436 → 4.600 | 33 → 0 |
+| claude | pipeline | 2.851 → 2.841 | 3.497 → 3.607 | 35 → 0 |
+| claude | compound | 2.870 → 2.883 | 3.840 → 3.798 | 34 → 0 |
+| claude | config | 2.899 → 2.858 | 3.811 → 3.691 | 31 → 0 |
+| codex | ranked | 2.835 → 2.836 | 3.529 → 3.510 | 36 → 39 |
+| codex | files | 2.805 → 2.814 | 3.557 → 3.284 | 38 → 41 |
+| codex | count miss | 2.824 → 2.862 | 3.252 → 3.394 | 39 → 42 |
+| codex | quoted | 2.835 → 2.876 | 3.833 → 4.066 | 41 → 44 |
+| codex | recursive grep | 2.824 → 2.818 | 4.303 → 5.033 | 39 → 0 |
+| codex | grep file | 2.840 → 2.830 | 4.802 → 4.983 | 38 → 0 |
+| codex | json | 2.841 → 2.845 | 3.693 → 3.841 | 38 → 0 |
+| codex | executable path | 2.868 → 2.833 | 4.152 → 4.207 | 36 → 0 |
+| codex | comment | 2.841 → 2.844 | 4.030 → 4.107 | 38 → 0 |
+| codex | pipeline | 2.845 → 2.828 | 3.167 → 3.190 | 40 → 0 |
+| codex | compound | 3.032 → 3.030 | 4.064 → 4.231 | 39 → 0 |
+| codex | config | 2.904 → 2.914 | 3.760 → 3.928 | 36 → 0 |
+
+[Raw samples, reply sizes, and binary/corpus digests](../bench/results/hook-contract-recheck-darwin-arm64.json). Reproduce: `python3 bench/hooks.py BASELINE CANDIDATE --runs 151 --tokens --output hook-contract-recheck-darwin-arm64.json`.
+
+The initial run triggered a longer paired recheck; both are retained. Reply tokens count only hook JSON with the recorded tokenizer, not search results or total agent usage. The explicit matching flag adds a small reply cost; declined commands emit no reply and continue with the original tool. Tests use synthetic fixtures and the recorded response shapes, not live host approvals. No new cold-cache, RSS, native-search performance, or whole-task token claim is made.
+
 ## Speed
 
 Host `darwin-arm64-apple-m4-pro` (12 CPUs), 2026-09-06T14:35:26. `greeg 0.3.0`, `ripgrep 15.2.0`, `grep (BSD grep, GNU compatible) 2.6.0-Fr`, hyperfine 1.20.0. hyperfine `-N --warmup 3 --runs 10` with `--prepare 'sleep 0.15'` before every timing run, warm page cache. Cells are **medians** with min–max in parentheses.

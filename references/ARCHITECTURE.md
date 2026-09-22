@@ -165,6 +165,41 @@ or JSON must now opt in with `--matching discover`. Library callers replace
 do not promise complete enumeration under a positive budget or resolve the
 remaining symbol-verb and selection inconsistencies.
 
+### Agent hook contract
+
+The hook accepts one simple `rg` invocation and emits `greeg --matching exact`.
+It is an agent-facing presentation adapter: ranked text remains budgeted and
+adds syntax information. It is not a byte-compatible replacement for ripgrep.
+Direct `greeg` calls retain the exact/discovery defaults described above.
+
+| Input | Hook behavior |
+|---|---|
+| Plain `rg PATTERN [PATHS]`, one pattern including `-e`, literal quoting/escapes | Rewrite; preserve argument boundaries, request exact matching |
+| `-i -S -s -w -x -F -U`, context, type/glob, thread and numeric size limits | Forward supported flags; `-u`/`-uu` map to ignore/hidden flags |
+| Standalone `-l` / `-c` | Exact matching with paths/counts on stdout; greeg diagnostics/footer on stderr |
+| Line/heading/column/color presentation flags | Use greeg's ranked presentation; validate `--color` values |
+| `grep`, `egrep`, `fgrep`, including explicit-file searches | Decline: traversal, regex dialects and binary behavior differ |
+| `--json`, `--stats`, sorting, suppressed diagnostics, unknown/unsupported flags | Decline; retain the original output/error contract |
+| Paths such as `./rg` or `/usr/bin/rg`, wrappers, assignments | Decline; do not substitute another executable |
+| Pipelines, `cd ... &&`, lists, conditionals, background jobs, redirections | Decline the entire command |
+| Comments, continuations, expansions, unquoted globs (including option values), malformed quoting | Decline; quoted metacharacters remain literal |
+| Nonempty inherited `RIPGREP_CONFIG_PATH`, even with `--no-config` | Decline conservatively; do not interpret configuration |
+
+Declining produces no hook response and no successful-rewrite statistics record.
+The original tool runs under the host's normal permission handling. Accepted
+commands use the existing `Bash` / `tool_input.command` protocol; Codex replies
+retain the required `permissionDecision: allow`, while Claude replies omit that
+decision. Automated tests exercise both response shapes and execute rewritten
+arguments through `/bin/sh`; they do not certify every host version or live
+approval interaction. New host protocols require separate verification.
+
+This narrows earlier hook eligibility, including grep and pipeline rewrites.
+It does not fix the remaining native search selection/index-coverage gaps or
+make limited ranked output complete. File/count differential tests cover the
+recorded fixture and flags, not all ripgrep inputs. Configure the host to disable
+the hook when original output or unverified behavior is required. No grep, JSON,
+or pipeline rewrite should be re-enabled without end-to-end equivalence tests.
+
 ### Session memory
 
 A query that names an agent session (`--session ID`, or the parent agent
