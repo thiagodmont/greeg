@@ -322,5 +322,6 @@ machine can fail the build.
 corpus and query family, in both indexed and scan mode. `bench/soak.py` fires
 randomized queries at randomized edits.
 
-Raw results live in [`bench/results/`](bench/results/). For measurements on
-your own agent traffic, see [the README](README.md#is-it-actually-helping).
+Results and method: [BENCH.md](BENCH.md). Usage statistics: [STATS.md](STATS.md).
+Raw results live in [`bench/results/`](../bench/results/). For measurements on
+your own agent traffic, see [the README](../README.md#is-it-actually-helping).

@@ -6,7 +6,7 @@
     bench/bench.py oracle CORPUS...                    SCIP-based quality protocol (definitions, refs, context)
     bench/bench.py gate   speed|kernels [--tolerance] [--require-baseline | --record-only | --save]
                                                        compare with the saved baseline for this host
-    bench/bench.py report                              write docs/BENCH.md from bench/results
+    bench/bench.py report                              render the benchmark report from bench/results
 
 Corpora and per-corpus queries live in bench/corpora.toml. Results are JSON
 under bench/results/ (one file per protocol and host), and `report` renders
@@ -219,7 +219,7 @@ PURGE_CMD = "sudo -n purge" if MAC else "sudo -n sh -c 'sync; echo 3 > /proc/sys
 FAMILIES = ["ident", "word", "phrase", "regex"]
 VERBS = ["def", "refs", "callers"]
 FAMILY_FLAGS = {"ident": [], "word": ["-w"], "phrase": ["-F"], "regex": []}
-# printed shape of each column (docs/BENCH.md carries this text)
+# Printed shape of each report column.
 TOOL_SHAPE = {
     "grep": "`path:line:text` for every match (no .gitignore support: its match set can exceed rg's)",
     "rg": "`path:line:text` for every match, default thread count",
@@ -1188,7 +1188,7 @@ def report(args):
         if older:
             out += ["", f"⚠ {', '.join(older)}: measured before protocol 2 (uniform sampling over definitions including zero-reference names, useful-line ratio with layout lines in the denominator and duplicate locations counted, no rg-def column, no intervals); rerun pending (`bench/bench.py oracle {' '.join(older)}`)."]
         out.append("")
-    path = args.out or os.path.join(ROOT, "docs", "BENCH.md")
+    path = args.out or os.path.join(ROOT, "references", "BENCH.md")
     with open(path, "w") as fh:
         fh.write("\n".join(out))
     print(f"wrote {os.path.relpath(path, ROOT)}")

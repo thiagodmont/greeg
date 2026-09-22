@@ -79,7 +79,7 @@ enclosing symbol. You can
 [measure it on your own traffic](#is-it-actually-helping) instead of taking my
 word for it.
 
-Benchmark protocols and raw results live in [`bench/`](bench/).
+Full numbers, protocol and caveats: [`references/BENCH.md`](references/BENCH.md).
 
 ## Install
 
@@ -158,7 +158,7 @@ fuzzy-name match. Ranked text keeps the discovery ladder. Use
 `--matching exact` to disable it there, or `--matching discover` to explicitly
 request relaxed results in another format. `--no-ladder` remains a spelling
 of `--matching exact`; use one or the other. Relaxed results still exit `1`
-and name the rung in the footer. See [matching policies](ARCHITECTURE.md#when-nothing-matches).
+and name the rung in the footer. See [matching policies](references/ARCHITECTURE.md#when-nothing-matches).
 
 And then the part grep can't do. Asking about *symbols* instead of *text*:
 
@@ -210,7 +210,7 @@ greeg --no-index PATTERN    # scan the tree like ripgrep, ignore the index
 ```
 
 How all of this is put together, what each index component holds, and why the
-shape was chosen: [`ARCHITECTURE.md`](ARCHITECTURE.md).
+shape was chosen: [`references/ARCHITECTURE.md`](references/ARCHITECTURE.md).
 
 ## Is it actually helping?
 
@@ -243,7 +243,7 @@ come from the repo-wide searches, where grep dumps everything and greeg budgets
 it. So a handful of queries carry most of the win.
 
 The records live under your cache directory, mode 0600, never leave the machine,
-and `greeg stats clear` deletes them. Run `greeg stats --help` for per-session
+and `greeg stats clear` deletes them. See [`references/STATS.md`](references/STATS.md) for per-session
 breakdowns and build-to-build comparisons.
 
 ## Reference
@@ -266,7 +266,7 @@ Rust, Kotlin. Everything else gets a regex-based definition extractor, so
 search, ranking and budgeting still work. You just lose the precise symbol
 kinds. You can add a language yourself by dropping a tree-sitter grammar and a
 `tags.scm` into `~/.config/greeg/lang/<name>/`; `greeg lang check DIR` validates
-it. See [`ARCHITECTURE.md`](ARCHITECTURE.md).
+it. See [`references/ARCHITECTURE.md`](references/ARCHITECTURE.md).
 
 **When something goes wrong**: a panic in the index path, a corrupt component
 or a truncated file all fall back to a scan-mode answer plus a background

@@ -6,8 +6,8 @@ dropping valid matches.
 
 ## Working rules
 
-- Read `README.md` and relevant sections of `ARCHITECTURE.md` before changing behavior; use `bench/` for benchmark protocols.
-- Keep `docs/` local and untracked. Shared architecture belongs in root `ARCHITECTURE.md`.
+- Read `README.md` and relevant sections of `references/ARCHITECTURE.md` before changing behavior; use `references/BENCH.md` for benchmark protocols.
+- Keep `docs/` local and untracked. Shared guides belong in `references/`.
 - Keep one focused PR per implementation step. Preserve unrelated work and existing crate boundaries.
 - For bug fixes, reproduce the failure in a regression test first. Check scan/index parity and stdout, stderr, and exit status when relevant.
 - Keep exact matching separate from discovery and output budgets. Make relaxed or incomplete results explicit.
