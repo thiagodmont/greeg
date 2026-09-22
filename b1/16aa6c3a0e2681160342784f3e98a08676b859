@@ -1,0 +1,22 @@
+bench/bench.py
+  s_09357c044b6e84::t_e28bd75bffd0b3 1124,1127-1130,1132-1133
+  s_09357c044b6e84::t_3f6aad86922156 1087-1123,1125-1126,1131,1134-1150,1155
+references/BENCH.md
+  s_09357c044b6e84::t_7b3f7e0cfef044 5-46
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "b116aa6c3a0e2681160342784f3e98a08676b859",
+  "prompts": {},
+  "sessions": {
+    "s_09357c044b6e84": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0c9a2-d91e-7fc2-8558-a87341dafdb2",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
