@@ -1,0 +1,56 @@
+crates/greeg-query/src/verbs.rs
+  s_09357c044b6e84::t_c0fee054dd7bd9 310
+  s_09357c044b6e84::t_154d7e90fb2dd2 311,615,741,862,1376
+crates/greeg-query/src/indexed.rs
+  s_09357c044b6e84::t_83624c15b79c97 1177-1178,1184-1191,1301-1302,1305-1309
+  s_09357c044b6e84::t_dafadea7cc3129 1310-1311
+README.md
+  s_09357c044b6e84::t_c8ec4e06828104 141,145,152,155-162,200,261
+bench/matching.py
+  s_09357c044b6e84::t_87019abaf0430c 122
+  s_09357c044b6e84::t_c09fd6124c85c3 1-4,6-57,60-67,70-73,76-102,104-121,123-127,130,133-183
+  s_09357c044b6e84::t_83624c15b79c97 103,131-132
+  s_09357c044b6e84::t_8d57f7dfa084bf 58,75,128-129
+  s_09357c044b6e84::t_c8ec4e06828104 5,59,68-69,74
+docs/ARCHITECTURE.md
+  s_09357c044b6e84::t_c8ec4e06828104 128-130,134,139-144
+crates/greeg/src/main.rs
+  s_09357c044b6e84::t_c0fee054dd7bd9 11,207-212,715-722
+  s_09357c044b6e84::t_b330906fe4bc09 723-726,1128-1132,1134
+crates/greeg-query/src/lib.rs
+  s_09357c044b6e84::t_87019abaf0430c 2055
+  s_09357c044b6e84::t_c0fee054dd7bd9 39-46,73,116,2065
+docs/MATCHING.md
+  s_09357c044b6e84::t_c8ec4e06828104 1-74
+crates/greeg-query/src/shape.rs
+  s_09357c044b6e84::t_c0fee054dd7bd9 864,872
+crates/greeg/tests/cli.rs
+  s_09357c044b6e84::t_e109332362e633 562,735-739,745-751,759-760,765,788
+  s_09357c044b6e84::t_210cc1d64defc4 463-465,474-477,502-507,513-521,541-545,556-559,740-744,752-758,761-764,766-787
+  s_09357c044b6e84::t_39e112893f0db6 116-118,438-462,466-473,478-501,508-512,522-540,546-555,560-561
+  s_09357c044b6e84::t_2184c377edc0f4 563,789
+crates/greeg/src/hook.rs
+  s_09357c044b6e84::t_c8ec4e06828104 40-41,45-49
+docs/measurements/W01a.md
+  s_09357c044b6e84::t_cbd7a25856e782 1-137
+bench/results/w01a-matching-darwin-arm64.json
+  s_09357c044b6e84::t_8aefdde4fdc07d 1-2186
+bench/results/w01a-ranked-recheck-darwin-arm64.json
+  s_09357c044b6e84::t_913b29355caf37 1-1420
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "468e287304d20e056e8f1cf8a55f97983efb30a3",
+  "prompts": {},
+  "sessions": {
+    "s_09357c044b6e84": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0c9a2-d91e-7fc2-8558-a87341dafdb2",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
