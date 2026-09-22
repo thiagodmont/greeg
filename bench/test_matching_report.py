@@ -100,6 +100,12 @@ class MatchingReportTests(unittest.TestCase):
         for link in re.findall(r"\]\(([^)]+\.json)\)", text):
             self.assertTrue((output.parent / unquote(link)).is_file(), link)
 
+    def test_followup_report_uses_recorded_corpus_size(self):
+        self.followup["corpus"]["files"] = 17
+        (self.results / "exact-search-json-darwin-arm64.json").write_text(json.dumps(self.followup))
+        _, text = self.render()
+        self.assertIn("same 17-file warm synthetic corpus", text)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -83,9 +83,19 @@ def json_exact_contract(output, oracle):
 
 
 def definition_contract(output, oracle):
-    paths = re.findall(rb"^src/unit_[0-9]+\.rs(?=\s|$)", output.stdout, re.MULTILINE)
-    return (output.returncode == oracle.returncode and sorted(paths) == sorted(oracle.stdout.splitlines())
-            and b"matched case-insensitive" not in output.stdout)
+    lines = [line for line in output.stdout.splitlines() if line]
+    if not lines or not lines[0].startswith(b"def ") or b"matched " in lines[0]:
+        return False
+    if lines[-1].startswith(b"next: "):
+        lines.pop()
+    paths = []
+    for line in lines[1:]:
+        if re.match(rb" +[0-9]+ +fn +", line):
+            continue
+        if not re.fullmatch(rb"src/unit_[0-9]+\.rs", line):
+            return False
+        paths.append(line)
+    return output.returncode == oracle.returncode and sorted(paths) == sorted(oracle.stdout.splitlines())
 
 
 def main():

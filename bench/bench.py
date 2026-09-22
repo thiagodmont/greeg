@@ -1184,7 +1184,7 @@ def matching_review_report(output_dir):
         link = quote(os.path.relpath(os.path.realpath(os.path.join(RESULTS, filename)), output_dir))
         out += [f"## {title}", "",
                 f"`{data['binaries']['baseline']['version']}` → `{data['binaries']['candidate']['version']}`; "
-                f"{data['runs']} randomized pairs per case, {data['warmups']} warmups on the same 256-file warm synthetic corpus. "
+                f"{data['runs']} randomized pairs per case, {data['warmups']} warmups on the same {data['corpus']['files']}-file warm synthetic corpus. "
                 f"Contract checks passed: **{passed('baseline')} → {passed('candidate')}**. "
                 f"Cases above the 10% median / 20% p95 investigation thresholds: **{flagged}**.", ""]
         if show_rows:

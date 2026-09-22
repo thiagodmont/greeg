@@ -61,6 +61,23 @@ class JsonContractTests(unittest.TestCase):
         actual.stdout = b"matched case-insensitive\nsrc/unit_000.rs\n"
         self.assertFalse(definition_contract(actual, oracle))
 
+    def test_definition_contract_rejects_every_unexpected_path(self):
+        oracle = subprocess.CompletedProcess([], 0, b"src/unit_000.rs\n", b"")
+        valid = b"def load_config 1 of 1 definitions\nsrc/unit_000.rs\n  97 fn load_config()\n"
+        for extra in [
+            b"src/unexpected.rs", b"other/unit_000.rs", b"/tmp/unit_000.rs",
+            b'"src/unit_000.rs"', b"  src/unit_000.rs", b"  97 /tmp/unit_000.rs", b"src/unit_000.rs:97",
+            b"src/unit_000.rs [unexpected]", b"src/unit_000.rs",
+        ]:
+            with self.subTest(extra=extra):
+                actual = subprocess.CompletedProcess([], 0, valid + extra + b"\nnext: refs load_config\n", b"")
+                self.assertFalse(definition_contract(actual, oracle))
+        miss = subprocess.CompletedProcess([], 1, b"def load_confiq  no definition found (scan)\nnext: greeg load_confiq\n", b"")
+        empty = subprocess.CompletedProcess([], 1, b"", b"")
+        self.assertTrue(definition_contract(miss, empty))
+        miss.stdout += b"src/unexpected.rs\n"
+        self.assertFalse(definition_contract(miss, empty))
+
 
 if __name__ == "__main__":
     unittest.main()

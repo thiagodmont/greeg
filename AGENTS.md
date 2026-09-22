@@ -16,7 +16,7 @@ dropping valid matches.
 - Preserve Rust 1.90 and macOS/Linux support. Document CLI or index-format compatibility changes.
 - Add comments only when they are necessary and provide value. Whenever possible, write code that is self-explanatory.
 - Keep comments clear, concise, and direct. Avoid long comments, as they are less likely to be read.
-- Avoid referencing external documents in branch, comments or code, since those documents may be moved, renamed, or deleted.
+- Avoid referencing external documents in branch names, comments or code, since those documents may be moved, renamed, or deleted.
 
 ## Validation
 
