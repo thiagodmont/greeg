@@ -1,4 +1,4 @@
-//! Symbol verbs (ARCHITECTURE.md): `def`, `refs`, `callers`, `impls`,
+//! Symbol verbs: `def`, `refs`, `callers`, `impls`,
 //! `outline`, `map`, `impact`. Each verb returns plain data; rendering lives
 //! in the CLI. All verbs work without an index (slower, via scan mode) except
 //! `map`, which needs the symbol table.
@@ -60,7 +60,7 @@ fn dir_of(rel: &str) -> &str {
     rel.rsplit_once('/').map(|(d, _)| d).unwrap_or("")
 }
 
-/// Import reachability (ARCHITECTURE.md): 1.0 direct, 0.8 within two hops,
+/// Import reachability: 1.0 direct, 0.8 within two hops,
 /// 0.6 same directory, 0.4 otherwise. `origins` are file ids.
 pub fn reach(idx: &Index, origins: &[u32], target: u32) -> f32 {
     if origins.is_empty() {
@@ -73,7 +73,7 @@ pub fn reach(idx: &Index, origins: &[u32], target: u32) -> f32 {
         if o == target {
             return 1.0;
         }
-        // edges follow edits: an edited origin or target keeps its imports (ARCHITECTURE.md)
+        // edges follow edits: an edited origin or target keeps its imports
         let out = idx.out_edges(o);
         if out.contains(&target) {
             return 1.0;
@@ -642,7 +642,7 @@ pub fn refs(o: &Options, name: &str, kinds: &[HitKind]) -> Result<RefsResult> {
     })
 }
 
-/// One calling function (`callers`, ARCHITECTURE.md).
+/// One calling function (`callers`).
 #[derive(Clone, Debug)]
 pub struct Caller {
     pub rel: String,
@@ -1395,9 +1395,7 @@ mod tests {
     use greeg_index::fresh::Mode as Fresh;
     use std::fs;
 
-    /// `def NAME` lists the file that *is* the module after every symbol
-    /// (ARCHITECTURE.md): `sleep.rs` follows `fn sleep`, `net/mod.rs` and
-    /// `pkg/__init__.py` answer on their own, and generic stems never match.
+    /// Module files follow symbols; generic file stems never match.
     #[test]
     fn def_lists_file_modules_after_symbols() {
         let base = std::env::temp_dir().join(format!("greeg-def-modules-{}", std::process::id()));

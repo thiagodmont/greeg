@@ -141,7 +141,22 @@ Files/count modes, unlimited output and JSON default to exact matching;
 `--matching discover` explicitly enables the ladder for file searches in
 those formats. The query layer carries a `MatchingPolicy` independent of
 rendering; its default is exact, and the CLI selects discovery for ranked text.
-See [the matching contract](MATCHING.md) for defaults, statuses and migration.
+
+`--mode files|count` follows the same defaults as `-l`/`-c`. An explicit policy
+overrides the format default; `--no-ladder` conflicts with `--matching`.
+Exact matching still honors `-i`, `-S`, regexes and fixed strings. It does not
+change file selection, classification, freshness, or output budgets.
+
+File searches exit 0 for exact hits, 1 for no exact hits (including
+discovery-only answers), and 2 for errors, including output-write failures.
+Stdin always uses exact matching and rejects explicit discovery. JSON keeps
+its existing summary/footer records on a miss, without match records.
+
+Callers that previously consumed relaxed file lists, counts, unlimited output
+or JSON must now opt in with `--matching discover`. Library callers replace
+`Options::ladder` with `Options::matching`; its default is exact. These policies
+do not promise complete enumeration under a positive budget or resolve the
+remaining symbol-verb and selection inconsistencies.
 
 ### Session memory
 
@@ -307,5 +322,5 @@ machine can fail the build.
 corpus and query family, in both indexed and scan mode. `bench/soak.py` fires
 randomized queries at randomized edits.
 
-Results and method: [`BENCH.md`](BENCH.md). Measuring greeg against your own
-agent traffic: [`STATS.md`](STATS.md).
+Raw results live in [`bench/results/`](bench/results/). For measurements on
+your own agent traffic, see [the README](README.md#is-it-actually-helping).

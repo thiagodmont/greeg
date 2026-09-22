@@ -1,10 +1,8 @@
 #!/usr/bin/env python3
-"""Paired W01a release-binary benchmark; creates only disposable local fixtures.
+"""Compare warm scan/index latency, output size, and parity on disposable fixtures.
 
 Usage: python3 bench/matching.py BASELINE CANDIDATE --output result.json
 Requires installed rg; --tokens counts o200k_base tokens with installed tiktoken.
-Measures warm scan/index process latency, stdout/stderr bytes, and match parity.
-No source checkout, network corpus, API calls, or edits to caller repositories.
 """
 
 import argparse

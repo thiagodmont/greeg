@@ -617,7 +617,7 @@ fn main() {
 
 fn main_inner() -> Result<()> {
     // One line per panic, no backtrace hint: the index path is wrapped in
-    // catch_unwind and degrades to a scan (ARCHITECTURE.md).
+    // catch_unwind and degrades to a scan.
     std::panic::set_hook(Box::new(|info| {
         let msg = info
             .payload()
@@ -1658,7 +1658,7 @@ fn render_footer(
         }
     }
     // `skipped` only when non-zero, term by term: `skipped 1 binary, 0 huge`
-    // spends five tokens saying nothing (ARCHITECTURE.md)
+    // spends five tokens saying nothing
     if ft.skipped_binary + ft.skipped_huge > 0 {
         let mut parts: Vec<String> = Vec::with_capacity(2);
         if ft.skipped_binary > 0 {

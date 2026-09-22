@@ -1,5 +1,5 @@
 //! Index-backed search: plan → candidates → verify only those files, then
-//! classify hits from the stored span tables (ARCHITECTURE.md). Falls back to
+//! classify hits from the stored span tables. Falls back to
 //! scan mode (returns Ok(None)) when there is no usable index, spawning a
 //! background build so the next query has one.
 
@@ -37,7 +37,7 @@ pub fn spawn_build(root: &Path, dir: &Path) {
     }
 }
 
-/// Queue a detached `greeg index --refresh` (ARCHITECTURE.md): this query
+/// Queue a detached `greeg index --refresh`: this query
 /// answered around the changed files itself, and the delta is published after
 /// the output so an edit never delays the search that follows it.
 pub fn spawn_refresh(root: &Path, dir: &Path) {
@@ -252,7 +252,7 @@ pub fn open_fresh(o: &Options, threads: usize) -> Result<Option<Opened>> {
     open_fresh_with(o, threads, false, &mut || {})
 }
 
-/// `open_fresh` for a search (answer first, ARCHITECTURE.md): changes below
+/// `open_fresh` for a search (answer first): changes below
 /// the rebuild threshold are returned in `pending` instead of being applied,
 /// and a detached `greeg index --refresh` is queued for after the output.
 /// Verbs keep `open_fresh`: they need the symbols of the changed files.
@@ -367,7 +367,7 @@ pub(crate) fn try_index(cx: &Ctx, threads: usize, t0: Instant) -> Result<Option<
     };
 
     // plan: whole-word queries open only the files that hold the word (the
-    // word postings, ARCHITECTURE.md); everything else takes the trigram plan
+    // word postings); everything else takes the trigram plan
     let casei =
         o.case_insensitive || (o.smart_case && !o.pattern.chars().any(|c| c.is_uppercase()));
     let q = plan::plan(&o.pattern, o.fixed_strings, casei)?;
@@ -403,7 +403,7 @@ pub(crate) fn try_index(cx: &Ctx, threads: usize, t0: Instant) -> Result<Option<
         Vec::new()
     };
     stats.files_walked = idx.live_count() as usize;
-    // answer first (ARCHITECTURE.md): files the freshness check found changed
+    // answer first: files the freshness check found changed
     // are searched from disk below with scan-mode classification, their
     // indexed versions leave the candidates, and the delta is published after
     // the output by the detached refresh `open_fresh_deferred` queued
@@ -607,7 +607,7 @@ pub(crate) fn try_index(cx: &Ctx, threads: usize, t0: Instant) -> Result<Option<
                         if use_spans && !changed {
                             classify_from_index(idx, *id, &mut fr, o, &buf);
                         }
-                        // PageRank term of the prior (ARCHITECTURE.md): 0.8 was the
+                        // PageRank term of the prior: 0.8 was the
                         // placeholder; an edited file keeps its rank, a new one is neutral
                         let rank = if !changed {
                             idx.rank(*id)
@@ -760,7 +760,7 @@ pub(crate) fn classify_from_index(
     f.refined = true;
 }
 
-/// Kind and local definition index for one hit (ARCHITECTURE.md).
+/// Kind and local definition index for one hit.
 fn classify_hit(
     idx: &Index,
     id: u32,
@@ -925,7 +925,7 @@ mod tests {
 
     /// A search after an edit answers from the changed files directly (old
     /// versions leave the candidates, deleted files vanish, new files appear)
-    /// and leaves the delta to the detached refresh (ARCHITECTURE.md).
+    /// and leaves the delta to the detached refresh.
     #[test]
     fn deferred_delta_answers_first() {
         use greeg_index::build::{BuildOpts, build};
@@ -1012,7 +1012,7 @@ mod tests {
 
     /// Whole-word queries plan from the word postings: only the files holding
     /// the word are opened, the near-misses come from the dictionary, and
-    /// parity mode keeps the trigram plan (ARCHITECTURE.md).
+    /// parity mode keeps the trigram plan.
     #[test]
     fn word_plan_opens_only_the_files_with_the_word() {
         use greeg_index::build::{BuildOpts, build};
@@ -1174,8 +1174,7 @@ mod tests {
         assert_eq!(r.rung, Rung::Exact);
         assert_eq!(rels(&r), ["src/main.rs", "src/new.rs"]);
         assert!(r.related_index.is_empty());
-        // Exact `-w` stays empty; explicitly requested discovery finds the
-        // near-misses on the ladder's next rung.
+        // Only discovery may retry a whole-word miss as a substring.
         let r = crate::scan(&Options {
             pattern: "zeta".to_string(),
             ..o.clone()
@@ -1298,8 +1297,7 @@ mod tests {
             pattern: "needle_xyz".into(),
             ..Default::default()
         };
-        // Exact search does not probe excluded files. Discovery's rung 5
-        // counts them without turning them into matches.
+        // Discovery counts ignored matches without returning them as hits.
         let r = crate::scan(&o).unwrap();
         assert_eq!(r.stats.total_hits, 0);
         assert!(r.ignored_only.is_none());

@@ -1,17 +1,5 @@
-//! End-to-end tests of the shipped contract, over a fixture tree in a
-//! tempdir, under plain `cargo test`.
-//!
-//! What lives here and what does not. `bench/parity.py` checks `(path, line)`
-//! parity against a real ripgrep over the fetched corpora; it needs the
-//! network and only runs in the `e2e` CI job. These tests need neither, and
-//! they assert on the output contract in ARCHITECTURE.md rather than on
-//! ripgrep: footer shape, demotion, `related`, `-l`/`-c` stream shape, exit codes,
-//! rejected flags, and the one property that catches most index bugs without
-//! any golden text — **an indexed answer equals a scan-mode answer**.
-//!
-//! Every test gets its own index directory and no session file, so they are
-//! hermetic and can run in parallel, and `GREEG_STATS=0` keeps them out of
-//! the user's own stats.
+//! CLI contract and scan/index parity tests using isolated local fixtures.
+//! No external corpus or ripgrep installation is required.
 
 use std::collections::BTreeSet;
 use std::fs;
@@ -113,8 +101,7 @@ impl Fixture {
             .arg(&self.index)
             .current_dir(&self.root)
             .env("GREEG_STATS", "0")
-            // Detached builds currently inherit this variable rather than
-            // forwarding --index-dir. Keep their writes in this fixture too.
+            // Detached builds inherit this variable, not --index-dir.
             .env("GREEG_INDEX_DIR", &self.index)
             .output()
             .expect("run greeg")
@@ -225,7 +212,7 @@ fn an_edit_is_visible_to_an_indexed_search() {
 }
 
 // ---------------------------------------------------------------------------
-// footer contract (ARCHITECTURE.md, "What the output means")
+// footer contract
 // ---------------------------------------------------------------------------
 
 /// "A whole answer ... ends with just `N hits · M files`".
@@ -435,9 +422,7 @@ fn budget_zero_is_ripgrep_shaped_and_path_ordered() {
     );
 }
 
-/// An exact miss must not put case/word/name suggestions into a stream a
-/// caller may pipe into another command. Exercise the real executable and
-/// both backends; a nonzero status alone cannot protect a pipe's consumer.
+// A nonzero exit cannot prevent a pipeline from consuming incorrect stdout.
 #[test]
 fn machine_modes_do_not_emit_relaxed_matches() {
     let f = fixture();
