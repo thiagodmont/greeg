@@ -1,0 +1,46 @@
+bench/results/hook-review-darwin-arm64.json
+  s_09357c044b6e84::t_a3e82a4537a1ac 1-9646
+references/BENCH.md
+  s_09357c044b6e84::t_58936f70abfd1e 91,126,159-198
+.github/workflows/ci.yml
+  s_09357c044b6e84::t_a501a37af15f3e 22-23
+bench/test_matching_report.py
+  s_09357c044b6e84::t_7a9eaa75e1cf70 113
+crates/greeg-query/src/lib.rs
+  s_09357c044b6e84::t_cc9fca9e19e683 1456-1458
+crates/greeg/tests/hooks.rs
+  s_09357c044b6e84::t_d7f7b64864d4a9 125,196-220,222,245
+  s_09357c044b6e84::t_cc9fca9e19e683 5,15-25,27,116-124
+  s_09357c044b6e84::t_9a82f8c4f84798 126,221,223,246
+crates/greeg/src/hook.rs
+  s_09357c044b6e84::t_cc9fca9e19e683 601-602,707,729-734,736,849-852
+  s_09357c044b6e84::t_4237cafe132dd1 961-974,1010,1192
+  s_09357c044b6e84::t_7a9eaa75e1cf70 1009
+  s_09357c044b6e84::t_091757990b38de 960,1011-1012,1066-1069,1084-1087,1178-1186,1190-1191,1193
+bench/bench.py
+  s_09357c044b6e84::t_318d00341cf9b2 1219,1230-1236,1241-1242,1258
+bench/hooks.py
+  s_09357c044b6e84::t_900f91418d6c42 5-6,29-30,46-62,88,94-95,101-103,105,109,139-140,155-161,168-169
+README.md
+  s_09357c044b6e84::t_a884a00603749a 132-134
+bench/test_hooks.py
+  s_09357c044b6e84::t_a501a37af15f3e 1-29
+references/ARCHITECTURE.md
+  s_09357c044b6e84::t_318d00341cf9b2 170-174,181,190
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "3b30322348e8695720b7d04b4491bfb428d6e062",
+  "prompts": {},
+  "sessions": {
+    "s_09357c044b6e84": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0c9a2-d91e-7fc2-8558-a87341dafdb2",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
