@@ -1,0 +1,29 @@
+bench/test_matching.py
+  s_09357c044b6e84::t_0c1e242c78548b 64-68,70-80
+  s_09357c044b6e84::t_d2b9c466d5ed8b 69
+bench/test_matching_report.py
+  s_09357c044b6e84::t_0c1e242c78548b 103-108
+bench/matching.py
+  s_09357c044b6e84::t_c777fea9a965c6 86-92,94-98
+  s_09357c044b6e84::t_d2b9c466d5ed8b 93
+bench/bench.py
+  s_09357c044b6e84::t_c777fea9a965c6 1187
+AGENTS.md
+  s_09357c044b6e84::t_c777fea9a965c6 19
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "fbbbe5390ebc78e5a6c645f3739ebf3a7aca50f2",
+  "prompts": {},
+  "sessions": {
+    "s_09357c044b6e84": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0c9a2-d91e-7fc2-8558-a87341dafdb2",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
