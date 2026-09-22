@@ -1,0 +1,29 @@
+AGENTS.md
+  s_09357c044b6e84::t_9405d7b1816475 9-10
+README.md
+  s_09357c044b6e84::t_61668f1ee876ad 82,161,213,246,269
+bench/bench.py
+  s_09357c044b6e84::t_c5a74f9d759750 9,222,1191
+references/ARCHITECTURE.md
+  s_09357c044b6e84::t_f8df5e019ddedd 325-327
+references/BENCH.md
+  s_09357c044b6e84::t_82c8978ed597a2 1-172
+references/STATS.md
+  s_09357c044b6e84::t_cd02953b487f89 1-116
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "a355c8d5fd13e8b6fc46a596f42950f480f6ea8d",
+  "prompts": {},
+  "sessions": {
+    "s_09357c044b6e84": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0c9a2-d91e-7fc2-8558-a87341dafdb2",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
