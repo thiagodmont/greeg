@@ -1216,6 +1216,7 @@ def hook_report(output_dir):
     for filename, title in [
         ("hook-contract-darwin-arm64.json", "Hook contract: initial measurements"),
         ("hook-contract-recheck-darwin-arm64.json", "Hook contract: latency recheck"),
+        ("hook-review-darwin-arm64.json", "Hook contract: review fixes"),
     ]:
         source = os.path.join(RESULTS, filename)
         data = load_json(source)
@@ -1226,13 +1227,19 @@ def hook_report(output_dir):
         flagged = [r for r in rows if r["median_change_percent"] > 10 or
                    r["candidate"]["p95_ms"] / r["baseline"]["p95_ms"] > 1.2]
         searches = [r for r in data["search_contracts"] if r["binary"] == "candidate"]
+        parity = (f"Candidate file/count match-row and exit-status checks: "
+                  f"{sum(r['stdout_and_status_equal'] for r in searches)}/{len(searches)} against {data['ripgrep']}. "
+                  "Explicit source paths and expected hit/miss assertions exercise both scan and full-index searches, "
+                  "including files over 4 MiB and explicit size limits. The oracle ignores row ordering and does not require identical stderr."
+                  if data.get("protocol", 1) >= 2 else
+                  "Protocol 1's search checks read empty stdin and do not establish corpus parity. "
+                  "Only its hook-process measurements remain valid; use protocol 2 below for search validation.")
         link = quote(os.path.relpath(os.path.realpath(source), os.path.realpath(output_dir)))
         out += [f"## {title}", "",
                 f"`{data['binaries']['baseline']['version']}` → `{data['binaries']['candidate']['version']}`; "
                 f"{data['runs']} randomized pairs per case after {data['warmups']} warmups. "
-                f"The candidate passed {sum(r['candidate']['contract'] for r in rows)}/{len(rows)} hook eligibility/explicit-policy checks "
-                f"and {sum(r['stdout_and_status_equal'] for r in searches)}/{len(searches)} file/count match-row and exit-status checks against {data['ripgrep']}. "
-                "Both scan and full-index searches are covered; the oracle ignores row ordering and does not require identical stderr.", "",
+                f"The candidate passed {sum(r['candidate']['contract'] for r in rows)}/{len(rows)} hook eligibility/explicit-policy checks. "
+                + parity, "",
                 f"Hook process median latency changes ranged from {min(changes):+.1f}% to {max(changes):+.1f}%. "
                 f"Cases above the 10% median / 20% p95 investigation thresholds: **{len(flagged)}**.", "",
                 "| Host protocol | Case | Median ms, before → after | p95 ms, before → after | Reply tokens, before → after |",
@@ -1248,7 +1255,7 @@ def hook_report(output_dir):
     if out:
         out += ["The initial run triggered a longer paired recheck; both are retained. "
                 "Reply tokens count only hook JSON with the recorded tokenizer, not search results or total agent usage. "
-                "The explicit matching flag adds a small reply cost; declined commands emit no reply and continue with the original tool. "
+                "Explicit matching and file-size flags add reply cost; declined commands emit no reply and continue with the original tool. "
                 "Tests use synthetic fixtures and the recorded response shapes, not live host approvals. "
                 "No new cold-cache, RSS, native-search performance, or whole-task token claim is made.", ""]
     return out

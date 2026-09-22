@@ -110,7 +110,7 @@ class MatchingReportTests(unittest.TestCase):
         sample = {"samples_ms": [1.0], "median_ms": 1.0, "p95_ms": 1.0,
                   "reply_tokens": None, "contract": True}
         data = {"binaries": {k: {"version": k} for k in ("baseline", "candidate")},
-                "runs": 5, "warmups": 3, "tokenizer": None, "ripgrep": "rg test",
+                "runs": 5, "warmups": 3, "tokenizer": "o200k_base", "ripgrep": "rg test",
                 "results": [{"agent": "codex", "case": "files", "baseline": sample,
                              "candidate": sample, "median_change_percent": 0}],
                 "search_contracts": [{"binary": "candidate", "stdout_and_status_equal": True}]}

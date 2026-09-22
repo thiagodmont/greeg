@@ -598,6 +598,8 @@ fn shell_words(s: &str) -> Option<Vec<String>> {
                     in_word = false;
                 }
             }
+            '\n' if out.is_empty() && !in_word => {}
+            '\n' if chars.clone().all(|c| matches!(c, ' ' | '\t' | '\n')) => break,
             // redirections, expansions and control operators: not a plain invocation
             '$' | '`' | '<' | '>' | ';' | '&' | '|' | '(' | ')' | '{' | '}' | '\n' => return None,
             // an unquoted glob or `~` would be expanded by the shell: leave it alone
@@ -702,6 +704,7 @@ struct Parsed {
     positional: Vec<(String, bool)>,
     fixed: bool,
     unrestricted: u8,
+    max_filesize: Option<String>,
 }
 
 impl Parsed {
@@ -723,8 +726,14 @@ impl Parsed {
                 let v = value?;
                 match name {
                     "-e" | "--regexp" => self.patterns.push(v),
+                    "--max-filesize" => {
+                        v.parse::<u64>().ok()?;
+                        if self.max_filesize.replace(v).is_some() {
+                            return None;
+                        }
+                    }
                     "-A" | "-B" | "-C" | "-j" | "--after-context" | "--before-context"
-                    | "--context" | "--threads" | "--max-columns" | "--max-filesize" => {
+                    | "--context" | "--threads" | "--max-columns" => {
                         v.parse::<u64>().ok()?;
                         self.flags.push(name.to_string());
                         self.flags.push(v);
@@ -837,6 +846,10 @@ fn rewrite_words(seg: &str) -> Option<(Vec<String>, Vec<String>)> {
     }
 
     let mut out: Vec<String> = vec!["greeg".into(), "--matching".into(), "exact".into()];
+    out.extend([
+        "--max-filesize".into(),
+        p.max_filesize.unwrap_or_else(|| u64::MAX.to_string()),
+    ]);
     out.extend(p.flags.clone());
     match p.unrestricted {
         0 => {}
@@ -945,6 +958,21 @@ mod tests {
     use super::*;
 
     #[test]
+    fn command_boundary_newlines_preserve_literal_bytes() {
+        for (command, pattern) in [
+            ("rg foo\n", "foo"),
+            ("\n\trg foo\n \t\n", "foo"),
+            ("rg foo\\ \n", "foo "),
+            ("rg foo\u{a0}\n", "foo\u{a0}"),
+        ] {
+            assert_eq!(rewrite_full(command).unwrap().original, ["rg", pattern]);
+        }
+        for command in ["rg foo\necho tail", "rg foo\\\n", "rg foo\\\n\n"] {
+            assert!(rewrite_full(command).is_none(), "{command:?}");
+        }
+    }
+
+    #[test]
     fn uncertain_commands_are_declined() {
         for cmd in [
             "grep -rl needle .",
@@ -978,7 +1006,10 @@ mod tests {
     #[test]
     fn hooks_request_exact_matching() {
         let r = rewrite_full("rg -w NEEDLE src").unwrap();
-        assert_eq!(r.command, "greeg --matching exact -w NEEDLE src");
+        assert_eq!(
+            r.command,
+            "greeg --matching exact --max-filesize 18446744073709551615 -w NEEDLE src"
+        );
     }
 
     #[track_caller]
@@ -1032,7 +1063,10 @@ mod tests {
             ("rg -uu foo", "--no-ignore --hidden foo"),
             ("rg --unrestricted -i foo", "-i --no-ignore foo"),
         ] {
-            same(cmd, &format!("greeg --matching exact {args}"));
+            same(
+                cmd,
+                &format!("greeg --matching exact --max-filesize 18446744073709551615 {args}"),
+            );
         }
     }
 
@@ -1047,7 +1081,10 @@ mod tests {
             "-p --column --no-column",
             "--trim --line-buffered",
         ] {
-            same(&format!("rg {flags} foo"), "greeg --matching exact foo");
+            same(
+                &format!("rg {flags} foo"),
+                "greeg --matching exact --max-filesize 18446744073709551615 foo",
+            );
         }
     }
 
@@ -1138,11 +1175,22 @@ mod tests {
             assert_eq!(r.original, ["rg", pattern, "src"]);
             assert_eq!(
                 r.rewritten,
-                ["greeg", "--matching", "exact", pattern, "src"]
+                [
+                    "greeg",
+                    "--matching",
+                    "exact",
+                    "--max-filesize",
+                    "18446744073709551615",
+                    pattern,
+                    "src"
+                ]
             );
             assert_eq!(shell_words(&r.command).unwrap(), r.rewritten);
         }
-        same("rg -g '*.rs' foo", "greeg --matching exact -g '*.rs' foo");
+        same(
+            "rg -g '*.rs' foo",
+            "greeg --matching exact --max-filesize 18446744073709551615 -g '*.rs' foo",
+        );
     }
 
     #[test]

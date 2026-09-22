@@ -167,14 +167,18 @@ remaining symbol-verb and selection inconsistencies.
 
 ### Agent hook contract
 
-The hook accepts one simple `rg` invocation and emits `greeg --matching exact`.
+The hook accepts one simple `rg` invocation and emits `greeg --matching exact`
+with an explicit `--max-filesize`: the supplied byte limit, or `18446744073709551615`
+when no limit was requested. This prevents the native 4 MiB default from omitting
+large files. Explicit zero retains its zero-byte meaning. Reading larger files
+can cost more memory and time; native greeg's default remains unchanged.
 It is an agent-facing presentation adapter: ranked text remains budgeted and
 adds syntax information. It is not a byte-compatible replacement for ripgrep.
 Direct `greeg` calls retain the exact/discovery defaults described above.
 
 | Input | Hook behavior |
 |---|---|
-| Plain `rg PATTERN [PATHS]`, one pattern including `-e`, literal quoting/escapes | Rewrite; preserve argument boundaries, request exact matching |
+| Plain `rg PATTERN [PATHS]`, one pattern including `-e`, literal quoting/escapes | Rewrite; preserve argument boundaries, request exact matching and the requested file-size limit |
 | `-i -S -s -w -x -F -U`, context, type/glob, thread and numeric size limits | Forward supported flags; `-u`/`-uu` map to ignore/hidden flags |
 | Standalone `-l` / `-c` | Exact matching with paths/counts on stdout; greeg diagnostics/footer on stderr |
 | Line/heading/column/color presentation flags | Use greeg's ranked presentation; validate `--color` values |
@@ -183,6 +187,7 @@ Direct `greeg` calls retain the exact/discovery defaults described above.
 | Paths such as `./rg` or `/usr/bin/rg`, wrappers, assignments | Decline; do not substitute another executable |
 | Pipelines, `cd ... &&`, lists, conditionals, background jobs, redirections | Decline the entire command |
 | Comments, continuations, expansions, unquoted globs (including option values), malformed quoting | Decline; quoted metacharacters remain literal |
+| Leading/trailing unquoted blank lines | Accept only at command boundaries; preserve escaped spaces and literal Unicode whitespace |
 | Nonempty inherited `RIPGREP_CONFIG_PATH`, even with `--no-config` | Decline conservatively; do not interpret configuration |
 
 Declining produces no hook response and no successful-rewrite statistics record.

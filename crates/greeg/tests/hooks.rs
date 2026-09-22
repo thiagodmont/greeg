@@ -2,7 +2,7 @@
 use serde_json::{Value, json};
 use std::fs;
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -12,12 +12,19 @@ static NEXT: AtomicUsize = AtomicUsize::new(0);
 struct Fixture(PathBuf);
 
 impl Fixture {
+    fn allocate_root(parent: &Path, mut id: usize) -> PathBuf {
+        loop {
+            let root = parent.join(format!("greeg-hooks-{}-{id}", std::process::id()));
+            match fs::create_dir(&root) {
+                Ok(()) => return root,
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => id += 1,
+                Err(e) => panic!("create fixture: {e}"),
+            }
+        }
+    }
+
     fn new() -> Self {
-        let root = std::env::temp_dir().join(format!(
-            "greeg-hooks-{}-{}",
-            std::process::id(),
-            NEXT.fetch_add(1, Ordering::Relaxed)
-        ));
+        let root = Self::allocate_root(&std::env::temp_dir(), NEXT.fetch_add(1, Ordering::Relaxed));
         fs::create_dir_all(root.join("home")).unwrap();
         fs::create_dir_all(root.join("tree/.git")).unwrap();
         fs::write(root.join("tree/file.rs"), "pub fn needle() {}\n").unwrap();
@@ -107,6 +114,17 @@ impl Drop for Fixture {
 }
 
 #[test]
+fn fixture_allocation_preserves_existing_directories() {
+    let parent = Fixture::new();
+    let stale = Fixture::allocate_root(&parent.0, 0);
+    fs::write(stale.join("sentinel"), b"keep").unwrap();
+    let fresh = Fixture::allocate_root(&parent.0, 0);
+    assert_ne!(stale, fresh);
+    assert_eq!(fs::read(stale.join("sentinel")).unwrap(), b"keep");
+    assert_eq!(fs::read_dir(fresh).unwrap().count(), 0);
+}
+
+#[test]
 fn declined_commands_emit_no_reply_or_stats() {
     let f = Fixture::new();
     for agent in ["claude", "codex"] {
@@ -176,6 +194,34 @@ fn rewritten_queries_keep_exact_hits_and_misses_on_both_backends() {
 }
 
 #[test]
+fn rewritten_searches_preserve_file_size_selection() {
+    let f = Fixture::new();
+    let mut body = vec![b'x'; (4 << 20) + 1];
+    body.extend_from_slice(b"\nlarge_needle\n");
+    fs::write(f.0.join("tree/large.txt"), body).unwrap();
+    let build = f.command(BIN).args(["index", "--quiet"]).output().unwrap();
+    assert!(build.status.success(), "{build:?}");
+    for agent in ["claude", "codex"] {
+        for indexed in [false, true] {
+            for (command, expected, code) in [
+                ("rg -l large_needle", "large.txt\n", 0),
+                ("rg -l --max-filesize 4194304 large_needle", "", 1),
+                (
+                    "rg -l --max-filesize=5242880 large_needle",
+                    "large.txt\n",
+                    0,
+                ),
+                ("rg -l --max-filesize 0 needle", "", 1),
+            ] {
+                let out = f.search(&f.rewrite(agent, command), indexed);
+                assert_eq!(out.status.code(), Some(code), "{command}: {out:?}");
+                assert_eq!(out.stdout, expected.as_bytes(), "{command}");
+            }
+        }
+    }
+}
+
+#[test]
 fn shell_receives_literal_arguments_without_side_effects() {
     let f = Fixture::new();
     for (command, pattern) in [
@@ -196,7 +242,8 @@ fn shell_receives_literal_arguments_without_side_effects() {
         assert!(out.status.success());
         assert_eq!(
             out.stdout,
-            format!("--matching\0exact\0{pattern}\0a b\0").as_bytes()
+            format!("--matching\0exact\0--max-filesize\018446744073709551615\0{pattern}\0a b\0")
+                .as_bytes()
         );
     }
     assert!(!f.0.join("tree/sentinel").exists());

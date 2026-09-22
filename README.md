@@ -129,7 +129,9 @@ greeg hook codex        # Codex         (then run /hooks in Codex to trust it)
 ```
 
 The hook preserves supported search arguments and requests exact matching; text
-results still use greeg's ranking and token budget. It leaves grep variants,
+results still use greeg's ranking and token budget. An explicit file-size flag
+preserves ripgrep's requested limit (unlimited by default), so files over 4 MiB
+are not silently omitted. It leaves grep variants,
 JSON/stats output, explicit executable paths, pipelines, compound commands,
 comments, redirections and shell expansions with the original tool. An inherited
 `RIPGREP_CONFIG_PATH` also disables rewriting. See the

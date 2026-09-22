@@ -88,7 +88,7 @@ JSON contracts compare match paths, lines, offsets, submatches, status, exact ru
 
 ## Hook contract: initial measurements
 
-`greeg 0.6.0+caf52cda9` → `greeg 0.6.0+caf52cda9.dirty`; 31 randomized pairs per case after 3 warmups. The candidate passed 24/24 hook eligibility/explicit-policy checks and 12/12 file/count match-row and exit-status checks against ripgrep 15.2.0. Both scan and full-index searches are covered; the oracle ignores row ordering and does not require identical stderr.
+`greeg 0.6.0+caf52cda9` → `greeg 0.6.0+caf52cda9.dirty`; 31 randomized pairs per case after 3 warmups. The candidate passed 24/24 hook eligibility/explicit-policy checks. Protocol 1's search checks read empty stdin and do not establish corpus parity. Only its hook-process measurements remain valid; use protocol 2 below for search validation.
 
 Hook process median latency changes ranged from -3.2% to +2.7%. Cases above the 10% median / 20% p95 investigation thresholds: **4**.
 
@@ -123,7 +123,7 @@ Hook process median latency changes ranged from -3.2% to +2.7%. Cases above the 
 
 ## Hook contract: latency recheck
 
-`greeg 0.6.0+caf52cda9` → `greeg 0.6.0+caf52cda9.dirty`; 151 randomized pairs per case after 3 warmups. The candidate passed 24/24 hook eligibility/explicit-policy checks and 12/12 file/count match-row and exit-status checks against ripgrep 15.2.0. Both scan and full-index searches are covered; the oracle ignores row ordering and does not require identical stderr.
+`greeg 0.6.0+caf52cda9` → `greeg 0.6.0+caf52cda9.dirty`; 151 randomized pairs per case after 3 warmups. The candidate passed 24/24 hook eligibility/explicit-policy checks. Protocol 1's search checks read empty stdin and do not establish corpus parity. Only its hook-process measurements remain valid; use protocol 2 below for search validation.
 
 Hook process median latency changes ranged from -1.4% to +1.5%. Cases above the 10% median / 20% p95 investigation thresholds: **0**.
 
@@ -156,7 +156,46 @@ Hook process median latency changes ranged from -1.4% to +1.5%. Cases above the 
 
 [Raw samples, reply sizes, and binary/corpus digests](../bench/results/hook-contract-recheck-darwin-arm64.json). Reproduce: `python3 bench/hooks.py BASELINE CANDIDATE --runs 151 --tokens --output hook-contract-recheck-darwin-arm64.json`.
 
-The initial run triggered a longer paired recheck; both are retained. Reply tokens count only hook JSON with the recorded tokenizer, not search results or total agent usage. The explicit matching flag adds a small reply cost; declined commands emit no reply and continue with the original tool. Tests use synthetic fixtures and the recorded response shapes, not live host approvals. No new cold-cache, RSS, native-search performance, or whole-task token claim is made.
+## Hook contract: review fixes
+
+`greeg 0.6.0+caf52cda9.dirty` → `greeg 0.6.0+50b2e4963.dirty`; 151 randomized pairs per case after 3 warmups. The candidate passed 28/28 hook eligibility/explicit-policy checks. Candidate file/count match-row and exit-status checks: 20/20 against ripgrep 15.2.0. Explicit source paths and expected hit/miss assertions exercise both scan and full-index searches, including files over 4 MiB and explicit size limits. The oracle ignores row ordering and does not require identical stderr.
+
+Hook process median latency changes ranged from -2.1% to +3.6%. Cases above the 10% median / 20% p95 investigation thresholds: **0**.
+
+| Host protocol | Case | Median ms, before → after | p95 ms, before → after | Reply tokens, before → after |
+|---|---|---:|---:|---:|
+| claude | ranked | 3.925 → 4.040 | 5.431 → 5.212 | 34 → 46 |
+| claude | files | 3.954 → 3.907 | 5.369 → 6.143 | 36 → 48 |
+| claude | count miss | 3.690 → 3.791 | 5.393 → 5.593 | 37 → 49 |
+| claude | quoted | 3.737 → 3.790 | 4.916 → 5.033 | 39 → 51 |
+| claude | trailing newline | 3.756 → 3.812 | 5.010 → 5.322 | 0 → 46 |
+| claude | size limit | 3.884 → 3.931 | 5.491 → 5.405 | 46 → 46 |
+| claude | recursive grep | 3.785 → 3.881 | 5.521 → 5.254 | 0 → 0 |
+| claude | grep file | 3.805 → 3.840 | 5.940 → 5.750 | 0 → 0 |
+| claude | json | 3.692 → 3.670 | 5.547 → 5.549 | 0 → 0 |
+| claude | executable path | 3.523 → 3.594 | 5.056 → 5.111 | 0 → 0 |
+| claude | comment | 3.696 → 3.658 | 5.343 → 5.220 | 0 → 0 |
+| claude | pipeline | 3.672 → 3.593 | 5.162 → 5.176 | 0 → 0 |
+| claude | compound | 3.655 → 3.754 | 4.245 → 4.563 | 0 → 0 |
+| claude | config | 3.656 → 3.727 | 4.620 → 5.337 | 0 → 0 |
+| codex | ranked | 3.691 → 3.743 | 4.589 → 5.016 | 39 → 51 |
+| codex | files | 3.707 → 3.774 | 4.353 → 4.564 | 41 → 53 |
+| codex | count miss | 4.234 → 4.260 | 6.131 → 5.799 | 42 → 54 |
+| codex | quoted | 3.802 → 3.762 | 5.612 → 5.418 | 44 → 56 |
+| codex | trailing newline | 3.649 → 3.724 | 5.072 → 5.839 | 0 → 51 |
+| codex | size limit | 3.757 → 3.827 | 5.085 → 5.240 | 51 → 51 |
+| codex | recursive grep | 3.490 → 3.616 | 5.047 → 4.905 | 0 → 0 |
+| codex | grep file | 3.884 → 3.831 | 5.303 → 5.108 | 0 → 0 |
+| codex | json | 3.539 → 3.626 | 5.141 → 5.052 | 0 → 0 |
+| codex | executable path | 3.661 → 3.693 | 5.347 → 5.118 | 0 → 0 |
+| codex | comment | 3.625 → 3.657 | 4.701 → 4.740 | 0 → 0 |
+| codex | pipeline | 3.802 → 3.748 | 5.152 → 4.871 | 0 → 0 |
+| codex | compound | 3.785 → 3.799 | 5.398 → 5.125 | 0 → 0 |
+| codex | config | 3.896 → 3.902 | 6.120 → 5.460 | 0 → 0 |
+
+[Raw samples, reply sizes, and binary/corpus digests](../bench/results/hook-review-darwin-arm64.json). Reproduce: `python3 bench/hooks.py BASELINE CANDIDATE --runs 151 --tokens --output hook-review-darwin-arm64.json`.
+
+The initial run triggered a longer paired recheck; both are retained. Reply tokens count only hook JSON with the recorded tokenizer, not search results or total agent usage. Explicit matching and file-size flags add reply cost; declined commands emit no reply and continue with the original tool. Tests use synthetic fixtures and the recorded response shapes, not live host approvals. No new cold-cache, RSS, native-search performance, or whole-task token claim is made.
 
 ## Speed
 

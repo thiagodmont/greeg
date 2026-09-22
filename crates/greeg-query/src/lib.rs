@@ -1453,7 +1453,9 @@ pub(crate) fn process_file(
         use std::io::Read;
         let f = fs::File::open(path).ok()?;
         // read at most max_filesize + 1 so oversized files are detected without a stat
-        f.take(o.max_filesize + 1).read_to_end(buf).ok()?;
+        f.take(o.max_filesize.saturating_add(1))
+            .read_to_end(buf)
+            .ok()?;
     }
     cx.stats
         .read_ns
