@@ -13,6 +13,7 @@ import os
 from pathlib import Path
 import platform
 import random
+import re
 import shutil
 import statistics
 import subprocess
@@ -29,6 +30,11 @@ CASES = {
     "hit_files": ["-l", "load_config"],
     "hit_count": ["-c", "-i", "LOAD_CONFIG"],
     "hit_unlimited": ["--budget", "0", "load_config"],
+    "case_miss_json": ["--json", "LOAD_CONFIG"],
+    "hit_json": ["--json", "load_config"],
+    "def_hit": ["def", "load_config", "--matching", "exact"],
+    "def_case_hit": ["def", "LOAD_CONFIG", "-i", "--matching", "exact"],
+    "def_case_miss": ["def", "load_confiq", "-i", "--matching", "exact"],
     "ranked_hit": ["load_config"],
     "ranked_discovery": ["LOAD_CONFIG"],
 }
@@ -46,6 +52,40 @@ def run(argv, root, env):
 
 def digest(data):
     return hashlib.sha256(data).hexdigest()
+
+
+def stable_stdout(stdout, is_json):
+    if not is_json:
+        return stdout
+    records = [json.loads(line) for line in stdout.splitlines()]
+    for record in records:
+        data = record.get("data", {})
+        if record["type"] == "summary":
+            data.pop("elapsed_total", None)
+            data.get("stats", {}).pop("elapsed", None)
+        elif record["type"] == "footer":
+            data.pop("elapsed_ms", None)
+    return json.dumps(records, sort_keys=True, separators=(",", ":")).encode()
+
+
+def json_exact_contract(output, oracle):
+    records = [json.loads(line) for line in output.stdout.splitlines()]
+    expected = [json.loads(line) for line in oracle.stdout.splitlines()]
+    def matches(rows):
+        keys = ("path", "lines", "line_number", "absolute_offset", "submatches")
+        return sorted(json.dumps({k: r["data"][k] for k in keys}, sort_keys=True)
+                      for r in rows if r["type"] == "match")
+    footers = [r["data"] for r in records if r["type"] == "footer"]
+    summaries = [r["data"]["stats"] for r in expected if r["type"] == "summary"]
+    return (output.returncode == oracle.returncode and matches(records) == matches(expected)
+            and len(footers) == len(summaries) == 1 and footers[0]["rung"] == "exact"
+            and footers[0]["hits_total"] == summaries[0]["matched_lines"])
+
+
+def definition_contract(output, oracle):
+    paths = re.findall(rb"^src/unit_[0-9]+\.rs(?=\s|$)", output.stdout, re.MULTILINE)
+    return (output.returncode == oracle.returncode and sorted(paths) == sorted(oracle.stdout.splitlines())
+            and b"matched case-insensitive" not in output.stdout)
 
 
 def main():
@@ -68,11 +108,12 @@ def main():
         import tiktoken
         encoding = tiktoken.get_encoding("o200k_base")
     metadata = {
-        "protocol": 1, "platform": platform.platform(), "machine": platform.machine(),
+        "protocol": 2, "platform": platform.platform(), "machine": platform.machine(),
         "processor": platform.processor(), "cpu_count": os.cpu_count(), "python": platform.python_version(),
         "runs": args.runs, "cases": args.cases, "warmups": 3, "order_seed": 20260922,
         "freshness": "stat", "cache_state": "warm; full index built before queries",
         "tokenizer": "o200k_base" if encoding else None,
+        "output_measurement": "first raw sample; JSON comparison removes only elapsed fields",
         "scope": "synthetic local corpus; process wall time; no cold-cache/RSS/agent-task claim",
         "binaries": {}, "results": [],
     }
@@ -125,10 +166,13 @@ def main():
         for backend in ("scan", "index"):
             for name in args.cases:
                 query = CASES[name]
+                is_json = "--json" in query
+                is_def = query[0] == "def"
                 extra = ["--no-index"] if backend == "scan" else []
                 if not name.startswith("ranked"):
                     extra += ["--sort", "path"]
-                commands = {label: [str(binary), *query, ".", *common, *extra]
+                root_args = ["--root", "."] if is_def else ["."]
+                commands = {label: [str(binary), *query, *root_args, *common, *extra]
                             for label, binary in binaries.items()}
                 samples = {label: [] for label in binaries}
                 outputs = {label: [] for label in binaries}
@@ -147,14 +191,17 @@ def main():
                 oracle = None
                 if not name.startswith("ranked"):
                     rg_query = ["-n", "--with-filename", *query[2:]] if query[:2] == ["--budget", "0"] else query
+                    if is_def:
+                        rg_query = ["-l", "-w", query[1], *(["-i"] if "-i" in query else [])]
                     oracle, _ = run([rg, "--no-config", "--color", "never", "--sort", "path", *rg_query, "src"],
                                     root, environments["candidate"])
                 for label in binaries:
                     values = samples[label]
                     outs = outputs[label]
                     first = outs[0]
-                    # No timing-bearing --stats/JSON records are requested.
-                    if any((o.returncode, o.stdout, o.stderr) != (first.returncode, first.stdout, first.stderr) for o in outs):
+                    first_stdout = stable_stdout(first.stdout, is_json)
+                    if any((o.returncode, stable_stdout(o.stdout, is_json), o.stderr)
+                           != (first.returncode, first_stdout, first.stderr) for o in outs):
                         raise RuntimeError(f"nondeterministic output: {backend}/{name}/{label}")
                     stream = first.stdout + first.stderr
                     row[label] = {
@@ -163,16 +210,20 @@ def main():
                         "samples_ms": values, "exit": first.returncode,
                         "stdout_bytes": len(first.stdout), "stderr_bytes": len(first.stderr),
                         "stdout_sha256": digest(first.stdout),
+                        "stable_stdout_sha256": digest(first_stdout),
                         "tokens_both_streams": len(encoding.encode(stream.decode(), disallowed_special=())) if encoding else None,
-                        "rg_stdout_and_status_equal": (first.stdout == oracle.stdout and first.returncode == oracle.returncode) if oracle else None,
+                        "rg_stdout_and_status_equal": (first.stdout == oracle.stdout and first.returncode == oracle.returncode) if oracle and not is_json and not is_def else None,
+                        "json_exact_contract": json_exact_contract(first, oracle) if is_json else None,
+                        "definition_contract": definition_contract(first, oracle) if is_def else None,
                     }
-                row["stdout_and_status_unchanged"] = (outputs["baseline"][0].returncode, outputs["baseline"][0].stdout) == (outputs["candidate"][0].returncode, outputs["candidate"][0].stdout)
+                row["stdout_and_status_unchanged"] = (outputs["baseline"][0].returncode, stable_stdout(outputs["baseline"][0].stdout, is_json)) == (outputs["candidate"][0].returncode, stable_stdout(outputs["candidate"][0].stdout, is_json))
                 row["median_change_percent"] = 100 * (row["candidate"]["median_ms"] / row["baseline"]["median_ms"] - 1)
                 metadata["results"].append(row)
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(json.dumps(metadata, indent=2) + "\n")
     print(f"Wrote {len(metadata['results'])} paired cases to {args.output}")
-    failures = [r for r in metadata["results"] if r["candidate"]["rg_stdout_and_status_equal"] is False]
+    failures = [r for r in metadata["results"] if r["candidate"]["rg_stdout_and_status_equal"] is False
+                or r["candidate"]["json_exact_contract"] is False or r["candidate"]["definition_contract"] is False]
     if failures:
         raise SystemExit(f"candidate parity failures: {[(r['backend'], r['case']) for r in failures]}")
 

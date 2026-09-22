@@ -147,6 +147,13 @@ overrides the format default; `--no-ladder` conflicts with `--matching`.
 Exact matching still honors `-i`, `-S`, regexes and fixed strings. It does not
 change file selection, classification, freshness, or output budgets.
 
+`def` also honors `-i` and `-S` without enabling discovery. Requested case
+variants remain exact hits, even when a same-case definition also exists.
+Non-ASCII definition names absent from the symbol/module index use the scan
+fallback because the current symbol and word indexes can truncate them.
+Existing indexed symbol/module results are retained; the fallback costs a
+scan of the selected files.
+
 File searches exit 0 for exact hits, 1 for no exact hits (including
 discovery-only answers), and 2 for errors, including output-write failures.
 Stdin always uses exact matching and rejects explicit discovery. JSON keeps

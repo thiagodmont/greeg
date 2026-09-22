@@ -205,7 +205,7 @@ struct Common {
     #[arg(long = "kind", value_name = "KINDS", global = true)]
     kind: Option<String>,
     /// Matching policy: exact (no relaxation) or discover (retry empty answers).
-    /// Default: exact for -l, -c, --budget 0 and --json; discover for ranked text.
+    /// Default: exact for -l, -c, --mode files|count, --budget 0 and --json; discover for ranked text.
     #[arg(long, value_parser = ["exact", "discover"], global = true)]
     matching: Option<String>,
     /// Legacy spelling of --matching exact (conflicts with --matching)

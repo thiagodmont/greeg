@@ -1084,7 +1084,7 @@ def mb(x):
     return "n/a" if x is None else f"{round(x)} MB"
 
 
-def matching_report():
+def matching_report(output_dir):
     matrix_name = "w01a-matching-darwin-arm64.json"
     recheck_name = "w01a-ranked-recheck-darwin-arm64.json"
     matrix = load_json(os.path.join(RESULTS, matrix_name))
@@ -1093,6 +1093,18 @@ def matching_report():
     recheck = load_json(os.path.join(RESULTS, recheck_name))
     binaries = matrix["binaries"]
     machine = [r for r in matrix["results"] if r["candidate"]["rg_stdout_and_status_equal"] is not None]
+    if not machine:
+        return []
+    def result_link(name):
+        from urllib.parse import quote
+        return quote(os.path.relpath(os.path.realpath(os.path.join(RESULTS, name)), output_dir))
+
+    def tokens(result):
+        count = result.get("tokens_both_streams")
+        return str(count) if matrix.get("tokenizer") and count is not None else "n/a"
+
+    token_note = (f"Tokens count stdout plus stderr with `{matrix['tokenizer']}`."
+                  if matrix.get("tokenizer") else "Token counts were not measured (n/a).")
     passed = lambda label: sum(r[label]["rg_stdout_and_status_equal"] for r in machine)
     out = [
         "## W01a: exact-search defaults (2026-09-22)", "",
@@ -1102,7 +1114,7 @@ def matching_report():
         f"{matrix['corpus']['files']} generated Rust files ({matrix['corpus']['bytes']:,} bytes). "
         f"{matrix['runs']} randomized paired runs per case after {matrix['warmups']} warmups; "
         "release binaries, one reader thread, warm caches, `--fresh stat`, sessions/statistics disabled. "
-        "Times include process startup. Tokens count stdout plus stderr with `o200k_base`.", "",
+        f"Times include process startup. {token_note}", "",
         f"**Correctness:** stdout and exit-status parity with {matrix['ripgrep']} improved from "
         f"{passed('baseline')}/{len(machine)} to {passed('candidate')}/{len(machine)} machine-output cases. "
         "The improvement removes unwanted suggestions on exact misses; it is not a general ripgrep-compatibility score.", "",
@@ -1117,19 +1129,23 @@ def matching_report():
         out.append(f"| {row['backend']} | {row['case'].replace('_', ' ')} | "
                    f"{before['median_ms']:.3f} → {after['median_ms']:.3f} | "
                    f"{before['p95_ms']:.3f} → {after['p95_ms']:.3f} | "
-                   f"{before['tokens_both_streams']} → {after['tokens_both_streams']} |")
+                   f"{tokens(before)} → {tokens(after)} |")
     hits = [r for r in machine if r["case"].startswith("hit_")]
     changes = [r["median_change_percent"] for r in hits]
     unchanged = all(r["stdout_and_status_unchanged"] for r in hits)
-    out += ["", f"Successful machine-query stdout and status unchanged: **{'yes' if unchanged else 'no'}**. "
-            f"Median latency changes ranged from {min(changes):+.1f}% to {max(changes):+.1f}%.", ""]
+    if hits:
+        out += ["", f"Successful machine-query stdout and status unchanged: **{'yes' if unchanged else 'no'}**. "
+                f"Median latency changes ranged from {min(changes):+.1f}% to {max(changes):+.1f}%.", ""]
     if recheck:
-        original = next(r for r in matrix["results"] if r["backend"] == "scan" and r["case"] == "ranked_hit")
-        tail_change = 100 * (original["candidate"]["p95_ms"] / original["baseline"]["p95_ms"] - 1)
+        original = next((r for r in matrix["results"] if r["backend"] == "scan" and r["case"] == "ranked_hit"), None)
+        trigger = ""
+        if original:
+            tail_change = 100 * (original["candidate"]["p95_ms"] / original["baseline"]["p95_ms"] - 1)
+            trigger = f"The first run's scan-ranked-hit p95 changed {tail_change:+.1f}%, triggering a {recheck['runs']}-pair recheck. "
         flagged = sum(r["median_change_percent"] > 10 or r["candidate"]["p95_ms"] / r["baseline"]["p95_ms"] > 1.2
                       for r in recheck["results"])
         out += ["### Ranked-query recheck", "",
-                f"The first run's scan-ranked-hit p95 changed {tail_change:+.1f}%, triggering a {recheck['runs']}-pair recheck. "
+                trigger +
                 f"Both runs are retained. Recheck cases exceeding the 10% median / 20% p95 investigation thresholds: **{flagged}**.", "",
                 "| Backend | Case | Median ms, before → after | p95 ms, before → after |",
                 "|---|---|---:|---:|"]
@@ -1138,21 +1154,69 @@ def matching_report():
             out.append(f"| {row['backend']} | {row['case'].replace('_', ' ')} | "
                        f"{before['median_ms']:.3f} → {after['median_ms']:.3f} | "
                        f"{before['p95_ms']:.3f} → {after['p95_ms']:.3f} |")
-        out += ["", f"[Ranked recheck and raw samples](../bench/results/{recheck_name})."]
-    out += ["", f"[Original matrix and raw samples](../bench/results/{matrix_name}) include binary/corpus digests. "
+        out += ["", f"[Ranked recheck and raw samples]({result_link(recheck_name)})."]
+    out += ["", f"[Original matrix and raw samples]({result_link(matrix_name)}) include binary/corpus digests. "
             "Reproduce with `python3 bench/matching.py BASELINE CANDIDATE --runs 31 --tokens --output matrix.json`; "
-            "for the recheck use `--runs 151 --cases ranked_hit ranked_discovery`.", "",
+            "for the recheck use `python3 bench/matching.py BASELINE CANDIDATE --runs 151 --cases ranked_hit ranked_discovery --tokens --output recheck.json`.", "",
             "**Limits:** this is a warm synthetic-corpus comparison, not a new full-corpus result or whole-agent-task token estimate. "
             "Cold cache, peak RSS, concurrency, and agent-task savings were not measured here. "
             "The older corpus results below retain their original versions and dates.", ""]
     return out
 
 
+def matching_review_report(output_dir):
+    from urllib.parse import quote
+    out = []
+    for filename, title, show_rows in [
+        ("exact-search-json-darwin-arm64.json", "JSON exact-default coverage", True),
+        ("exact-search-review-darwin-arm64.json", "Review fixes: initial measurements", False),
+        ("exact-search-review-recheck-darwin-arm64.json", "Review fixes: optimized lookup recheck", True),
+    ]:
+        data = load_json(os.path.join(RESULTS, filename))
+        if not data or not data["results"]:
+            continue
+        rows = data["results"]
+        contracts = ("rg_stdout_and_status_equal", "json_exact_contract", "definition_contract")
+        def passed(label):
+            checks = [r[label][k] for r in rows for k in contracts if r[label].get(k) is not None]
+            return f"{sum(checks)}/{len(checks)}" if checks else "not measured"
+        flagged = sum(r["median_change_percent"] > 10 or r["candidate"]["p95_ms"] > 1.2 * r["baseline"]["p95_ms"] for r in rows)
+        link = quote(os.path.relpath(os.path.realpath(os.path.join(RESULTS, filename)), output_dir))
+        out += [f"## {title}", "",
+                f"`{data['binaries']['baseline']['version']}` → `{data['binaries']['candidate']['version']}`; "
+                f"{data['runs']} randomized pairs per case, {data['warmups']} warmups on the same 256-file warm synthetic corpus. "
+                f"Contract checks passed: **{passed('baseline')} → {passed('candidate')}**. "
+                f"Cases above the 10% median / 20% p95 investigation thresholds: **{flagged}**.", ""]
+        if show_rows:
+            out += ["| Backend | Case | Median ms, before → after | p95 ms, before → after | Tokens, before → after |",
+                    "|---|---|---:|---:|---:|"]
+            for row in rows:
+                b, c = row["baseline"], row["candidate"]
+                counts = [str(r["tokens_both_streams"]) if data.get("tokenizer") and r.get("tokens_both_streams") is not None else "n/a" for r in (b, c)]
+                out.append(f"| {row['backend']} | {row['case'].replace('_', ' ')} | "
+                           f"{b['median_ms']:.3f} → {c['median_ms']:.3f} | {b['p95_ms']:.3f} → {c['p95_ms']:.3f} | {' → '.join(counts)} |")
+            out.append("")
+        token_flag = " --tokens" if data.get("tokenizer") else ""
+        out += [f"[Raw samples, environment, and binary/corpus digests]({link}). "
+                f"Reproduce: `python3 bench/matching.py BASELINE CANDIDATE --cases {' '.join(data['cases'])} --runs {data['runs']}{token_flag} --output {filename}`.", ""]
+    if out:
+        out += ["JSON contracts compare match paths, lines, offsets, submatches, status, exact rung, and total hit counts with ripgrep. "
+                "Repeat-output checks remove only elapsed fields; byte/token measurements retain them and use the first raw sample, so small JSON size differences reflect timing values. "
+                "Definition checks compare paths and status on this controlled fixture, not general symbol-resolution accuracy. "
+                "The initial review run used a full name-table case-fold scan; the final recheck uses prefix ranges. "
+                "Both runs remain available. The corrected indexed case-insensitive hit now returns definitions instead of an empty answer, so its increased output is expected. "
+                "Non-ASCII definition names absent from the symbol/module index use a scan fallback; its latency on large repositories is not measured here.", ""]
+    return out
+
+
 def report(args):
+    path = args.out or os.path.join(ROOT, "references", "BENCH.md")
     speed_res = load_json(os.path.join(RESULTS, "speed.json"))
     oracle_res = load_json(os.path.join(RESULTS, "oracle.json"), {}) or {}
     out = ["# Benchmarks", "", "Generated by `bench/bench.py report` from `bench/results/`. Rows measured under an older protocol are marked ⚠ and left out of the means. Protocol 2 (2026-09-02) fixed the comparison so both sides do the same work. Protocol 3 (2026-09-04) added the SCIP-covered useful-line ratio next to the strict one, and changed no earlier number.", ""]
-    out += matching_report()
+    output_dir = os.path.dirname(os.path.realpath(path))
+    out += matching_report(output_dir)
+    out += matching_review_report(output_dir)
     if speed_res:
         h = speed_res["host"]
         corpora = speed_res["corpora"]
@@ -1253,7 +1317,6 @@ def report(args):
         if older:
             out += ["", f"⚠ {', '.join(older)}: measured before protocol 2 (uniform sampling over definitions including zero-reference names, useful-line ratio with layout lines in the denominator and duplicate locations counted, no rg-def column, no intervals); rerun pending (`bench/bench.py oracle {' '.join(older)}`)."]
         out.append("")
-    path = args.out or os.path.join(ROOT, "references", "BENCH.md")
     with open(path, "w") as fh:
         fh.write("\n".join(out))
     print(f"wrote {os.path.relpath(path, ROOT)}")

@@ -40,9 +40,51 @@ The first run's scan-ranked-hit p95 changed +39.0%, triggering a 151-pair rechec
 
 [Ranked recheck and raw samples](../bench/results/w01a-ranked-recheck-darwin-arm64.json).
 
-[Original matrix and raw samples](../bench/results/w01a-matching-darwin-arm64.json) include binary/corpus digests. Reproduce with `python3 bench/matching.py BASELINE CANDIDATE --runs 31 --tokens --output matrix.json`; for the recheck use `--runs 151 --cases ranked_hit ranked_discovery`.
+[Original matrix and raw samples](../bench/results/w01a-matching-darwin-arm64.json) include binary/corpus digests. Reproduce with `python3 bench/matching.py BASELINE CANDIDATE --runs 31 --tokens --output matrix.json`; for the recheck use `python3 bench/matching.py BASELINE CANDIDATE --runs 151 --cases ranked_hit ranked_discovery --tokens --output recheck.json`.
 
 **Limits:** this is a warm synthetic-corpus comparison, not a new full-corpus result or whole-agent-task token estimate. Cold cache, peak RSS, concurrency, and agent-task savings were not measured here. The older corpus results below retain their original versions and dates.
+
+## JSON exact-default coverage
+
+`greeg 0.6.0+1acde07fa` → `greeg 0.6.0+b116aa6c3.dirty`; 31 randomized pairs per case, 3 warmups on the same 256-file warm synthetic corpus. Contract checks passed: **2/4 → 4/4**. Cases above the 10% median / 20% p95 investigation thresholds: **0**.
+
+| Backend | Case | Median ms, before → after | p95 ms, before → after | Tokens, before → after |
+|---|---|---:|---:|---:|
+| scan | case miss json | 10.471 → 7.488 | 17.752 → 10.874 | 2689 → 224 |
+| scan | hit json | 7.538 → 7.590 | 10.601 → 11.386 | 2695 → 2699 |
+| index | case miss json | 7.711 → 6.898 | 9.488 → 8.510 | 2657 → 224 |
+| index | hit json | 6.870 → 7.070 | 9.052 → 8.465 | 2695 → 2699 |
+
+[Raw samples, environment, and binary/corpus digests](../bench/results/exact-search-json-darwin-arm64.json). Reproduce: `python3 bench/matching.py BASELINE CANDIDATE --cases case_miss_json hit_json --runs 31 --tokens --output exact-search-json-darwin-arm64.json`.
+
+## Review fixes: initial measurements
+
+`greeg 0.6.0+1acde07fa.dirty` → `greeg 0.6.0+b116aa6c3.dirty`; 31 randomized pairs per case, 3 warmups on the same 256-file warm synthetic corpus. Contract checks passed: **25/26 → 26/26**. Cases above the 10% median / 20% p95 investigation thresholds: **5**.
+
+[Raw samples, environment, and binary/corpus digests](../bench/results/exact-search-review-darwin-arm64.json). Reproduce: `python3 bench/matching.py BASELINE CANDIDATE --cases case_miss_files word_miss_count split_miss_unlimited fuzzy_miss_unlimited absent_files hit_files hit_count hit_unlimited case_miss_json hit_json def_hit def_case_hit def_case_miss ranked_hit ranked_discovery --runs 31 --tokens --output exact-search-review-darwin-arm64.json`.
+
+## Review fixes: optimized lookup recheck
+
+`greeg 0.6.0+1acde07fa.dirty` → `greeg 0.6.0+b116aa6c3.dirty`; 151 randomized pairs per case, 3 warmups on the same 256-file warm synthetic corpus. Contract checks passed: **11/12 → 12/12**. Cases above the 10% median / 20% p95 investigation thresholds: **0**.
+
+| Backend | Case | Median ms, before → after | p95 ms, before → after | Tokens, before → after |
+|---|---|---:|---:|---:|
+| scan | hit files | 6.696 → 6.835 | 10.851 → 10.305 | 55 → 55 |
+| scan | case miss json | 6.724 → 6.747 | 10.716 → 10.538 | 224 → 228 |
+| scan | split miss unlimited | 6.758 → 6.777 | 10.250 → 10.197 | 3 → 3 |
+| scan | def hit | 7.276 → 7.293 | 10.745 → 10.925 | 214 → 214 |
+| scan | def case hit | 7.362 → 7.420 | 9.300 → 9.380 | 214 → 214 |
+| scan | def case miss | 6.993 → 7.024 | 8.194 → 8.067 | 35 → 35 |
+| index | hit files | 6.489 → 6.510 | 9.114 → 8.819 | 55 → 55 |
+| index | case miss json | 6.736 → 6.818 | 8.295 → 8.536 | 224 → 224 |
+| index | split miss unlimited | 6.724 → 6.573 | 8.721 → 8.552 | 3 → 3 |
+| index | def hit | 6.788 → 6.748 | 8.548 → 8.677 | 254 → 254 |
+| index | def case hit | 6.494 → 6.675 | 8.511 → 8.942 | 29 → 278 |
+| index | def case miss | 6.292 → 6.303 | 7.746 → 7.922 | 35 → 35 |
+
+[Raw samples, environment, and binary/corpus digests](../bench/results/exact-search-review-recheck-darwin-arm64.json). Reproduce: `python3 bench/matching.py BASELINE CANDIDATE --cases hit_files case_miss_json split_miss_unlimited def_hit def_case_hit def_case_miss --runs 151 --tokens --output exact-search-review-recheck-darwin-arm64.json`.
+
+JSON contracts compare match paths, lines, offsets, submatches, status, exact rung, and total hit counts with ripgrep. Repeat-output checks remove only elapsed fields; byte/token measurements retain them and use the first raw sample, so small JSON size differences reflect timing values. Definition checks compare paths and status on this controlled fixture, not general symbol-resolution accuracy. The initial review run used a full name-table case-fold scan; the final recheck uses prefix ranges. Both runs remain available. The corrected indexed case-insensitive hit now returns definitions instead of an empty answer, so its increased output is expected. Non-ASCII definition names absent from the symbol/module index use a scan fallback; its latency on large repositories is not measured here.
 
 ## Speed
 

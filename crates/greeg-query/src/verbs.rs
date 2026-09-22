@@ -278,6 +278,27 @@ fn kind_filter_ok(kinds: &[HitKind], _k: DefKind) -> bool {
     kinds.is_empty() || kinds.contains(&HitKind::Def)
 }
 
+fn case_variant_names(idx: &Index, name: &str) -> Vec<String> {
+    let Some(first) = name.chars().next() else {
+        return Vec::new();
+    };
+    let mut names = Vec::new();
+    for (_, seg) in idx.segments() {
+        if let Some(sv) = seg.symbols() {
+            for prefix in [first.to_ascii_lowercase(), first.to_ascii_uppercase()] {
+                for nid in sv.prefix_range(&prefix.to_string()) {
+                    let candidate = sv.name(nid);
+                    if candidate.eq_ignore_ascii_case(name) && !names.iter().any(|n| n == candidate)
+                    {
+                        names.push(candidate.to_string());
+                    }
+                }
+            }
+        }
+    }
+    names
+}
+
 /// `greeg def NAME`.
 pub fn def(
     o: &Options,
@@ -298,11 +319,24 @@ pub fn def(
     if o.use_index
         && let Some(op) = indexed::open_fresh(o, threads)?
         && op.idx.has_symbols()
+        // Fall back for truncated Unicode names; retain existing symbol/module results.
+        && (name.is_ascii()
+            || !op.idx.lookup(name).is_empty()
+            || !op.idx.module_files(name, 1).is_empty())
     {
         let idx = &op.idx;
         res.source = "index";
         res.fresh = op.fresh_method;
         let mut syms = idx.lookup(name);
+        let fold_case =
+            o.case_insensitive || (o.smart_case && !name.chars().any(|c| c.is_uppercase()));
+        if fold_case {
+            for candidate in case_variant_names(idx, name) {
+                if candidate != name {
+                    syms.extend(idx.lookup(&candidate));
+                }
+            }
+        }
         // the file that is the module: listed after every symbol; an agent
         // wants to open it when nothing else declares the name
         let file_mods = idx.module_files(name, 64);
@@ -310,28 +344,7 @@ pub fn def(
         if syms.is_empty() && file_mods.is_empty() && o.matching == crate::MatchingPolicy::Discover
         {
             // ladder over names: case-insensitive, split tokens, fuzzy
-            let lower = name.to_lowercase();
-            let mut alts: Vec<String> = Vec::new();
-            for (_, seg) in idx.segments() {
-                if let Some(sv) = seg.symbols() {
-                    // case-insensitive: scan the prefix range of the first char in both cases
-                    for first in [
-                        lower.chars().next().unwrap_or('a').to_ascii_lowercase(),
-                        lower.chars().next().unwrap_or('a').to_ascii_uppercase(),
-                    ] {
-                        let r = sv.prefix_range(&first.to_string());
-                        for nid in r {
-                            let n = sv.name(nid);
-                            if n.len() == name.len()
-                                && n.eq_ignore_ascii_case(name)
-                                && !alts.contains(&n.to_string())
-                            {
-                                alts.push(n.to_string());
-                            }
-                        }
-                    }
-                }
-            }
+            let mut alts = case_variant_names(idx, name);
             if !alts.is_empty() {
                 rung = Rung::CaseInsensitive;
             } else {
@@ -513,6 +526,7 @@ pub fn def(
     }
     // scan fallback: definition hits by regex
     let mut so = o.clone();
+    so.use_index &= name.is_ascii();
     so.pattern = name.to_string();
     so.fixed_strings = true;
     so.word = true;

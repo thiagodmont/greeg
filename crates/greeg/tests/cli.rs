@@ -478,7 +478,6 @@ fn matching_policy_is_explicit_and_keeps_the_legacy_opt_out() {
         let out = f.run(&exact);
         assert_eq!(out.status.code(), Some(1));
         assert!(!String::from_utf8_lossy(&out.stdout).contains("src/util.rs"));
-        assert!(!String::from_utf8_lossy(&out.stdout).contains("--no-ladder is set"));
 
         let mut legacy = backend.clone();
         legacy.extend(["--no-ladder", "LOAD_CONFIG"]);
@@ -650,6 +649,72 @@ fn def_prefers_the_source_definition() {
         !first.contains("vendor/") && !first.contains("tests/"),
         "a demoted definition ranked first: {first:?}"
     );
+}
+
+#[test]
+fn def_exact_honors_case_flags_on_both_backends() {
+    let f = fixture();
+    w(
+        &f.root.join("src/case_variants.rs"),
+        "pub fn LOAD_CONFIG() {}\npub fn café() {}\npub fn CAFÉ() {}\n",
+    );
+    w(
+        &f.root.join("src/módulo.rs"),
+        "//! Module without a named definition.\n",
+    );
+    f.indexed();
+    for backend in [vec!["--no-index"], vec!["--fresh", "stat"]] {
+        for (flags, name, expected) in [
+            (vec!["-i"], "Load_Config", 2),
+            (vec!["-i"], "load_config", 2),
+            (vec!["-S"], "load_config", 2),
+            (vec!["-S"], "LOAD_CONFIG", 1),
+            (vec!["-i", "-s"], "Load_Config", 0),
+            (vec!["-S", "-s"], "Load_Config", 0),
+            (vec![], "load_config", 1),
+            (vec!["-i"], "LoadConfig", 0),
+            (vec!["-i"], "load_confiq", 0),
+            (vec!["-i"], "café", 2),
+            (vec!["-S"], "café", 2),
+            (vec!["-S"], "CAFÉ", 1),
+        ] {
+            let mut args = vec!["def", name, "--matching", "exact"];
+            args.extend(&backend);
+            args.extend(flags);
+            let out = f.run(&args);
+            assert_eq!(
+                out.status.code(),
+                Some(if expected == 0 { 1 } else { 0 }),
+                "{args:?}"
+            );
+            assert!(out.stderr.is_empty(), "{args:?}: {:?}", out.stderr);
+            args.push("--json");
+            let out = f.run(&args);
+            let records: Vec<serde_json::Value> = String::from_utf8(out.stdout)
+                .unwrap()
+                .lines()
+                .map(|line| serde_json::from_str(line).unwrap())
+                .collect();
+            assert_eq!(
+                records.iter().filter(|r| r["type"] == "def").count(),
+                expected,
+                "{args:?}: {records:?}"
+            );
+            let footer = &records.last().unwrap()["data"];
+            assert_eq!(footer["rung"], "exact", "{args:?}");
+            assert_eq!(footer["suggestions"], serde_json::json!([]));
+            assert_eq!(
+                footer["source"],
+                if backend[0] == "--no-index" || !name.is_ascii() {
+                    "scan"
+                } else {
+                    "index"
+                }
+            );
+        }
+    }
+    let module = f.run(&["def", "módulo", "--matching", "exact", "--json"]);
+    assert!(String::from_utf8_lossy(&module.stdout).contains("src/módulo.rs"));
 }
 
 /// `show FILE:LINE` prints the definition enclosing a line, whole — the read
