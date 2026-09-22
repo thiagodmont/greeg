@@ -1,0 +1,40 @@
+.gitignore
+  s_09357c044b6e84::t_bbf9600f5464e6 5
+crates/greeg-query/src/indexed.rs
+  s_09357c044b6e84::t_bbf9600f5464e6 1177,1300
+  s_09357c044b6e84::t_68900ae39d74ee 2,40,255,370,406,610,763,928,1015
+bench/matching.py
+  s_09357c044b6e84::t_bbf9600f5464e6 2
+crates/greeg-query/src/verbs.rs
+  s_09357c044b6e84::t_6c39d433d06b6b 1,63,76,645,1398
+ARCHITECTURE.md
+  s_09357c044b6e84::t_f09c5fd6b4ce2e 1-326
+crates/greeg/tests/cli.rs
+  s_09357c044b6e84::t_bbf9600f5464e6 1-2,104,215,425
+AGENTS.md
+  s_09357c044b6e84::t_9ededb7c58219a 1-33
+README.md
+  s_09357c044b6e84::t_5bfe5fe35d2536 82,161,213,246-247,269
+crates/greeg-query/src/lib.rs
+  s_09357c044b6e84::t_b0175ad876910d 190,465,762,864,1878,2094
+crates/greeg-query/src/shape.rs
+  s_09357c044b6e84::t_0a09d93071d9fc 2,30,478
+crates/greeg/src/main.rs
+  s_09357c044b6e84::t_88b13d74bb9438 620,1661
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "4839010405d550a3c0d3754e437321d6e5af1bfb",
+  "prompts": {},
+  "sessions": {
+    "s_09357c044b6e84": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0c9a2-d91e-7fc2-8558-a87341dafdb2",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
