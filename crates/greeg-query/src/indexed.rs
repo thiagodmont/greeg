@@ -1174,10 +1174,18 @@ mod tests {
         assert_eq!(r.rung, Rung::Exact);
         assert_eq!(rels(&r), ["src/main.rs", "src/new.rs"]);
         assert!(r.related_index.is_empty());
-        // `-w` keeps the whole-word answer: nothing opened, the ladder's
-        // next rung finds the near-misses
+        // Exact `-w` stays empty; explicitly requested discovery finds the
+        // near-misses on the ladder's next rung.
         let r = crate::scan(&Options {
             pattern: "zeta".to_string(),
+            ..o.clone()
+        })
+        .unwrap();
+        assert_eq!(r.rung, Rung::Exact);
+        assert!(r.files.is_empty());
+        let r = crate::scan(&Options {
+            pattern: "zeta".to_string(),
+            matching: crate::MatchingPolicy::Discover,
             ..o.clone()
         })
         .unwrap();
@@ -1290,8 +1298,16 @@ mod tests {
             pattern: "needle_xyz".into(),
             ..Default::default()
         };
-        // the walk never enters vendor/, so the index has no such file: rung 5 only counts it
+        // Exact search does not probe excluded files. Discovery's rung 5
+        // counts them without turning them into matches.
         let r = crate::scan(&o).unwrap();
+        assert_eq!(r.stats.total_hits, 0);
+        assert!(r.ignored_only.is_none());
+        let r = crate::scan(&Options {
+            matching: crate::MatchingPolicy::Discover,
+            ..o.clone()
+        })
+        .unwrap();
         assert_eq!(r.stats.total_hits, 0);
         assert!(r.ignored_only.is_some());
         // named on the command line, the file is searched (as ripgrep does), by scan mode

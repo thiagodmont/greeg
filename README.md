@@ -138,19 +138,27 @@ still runs as plain `rg`/`grep`.
 > For RTK: add `exclude_commands = ["grep", "rg"]` under `[hooks]` in its config.
 
 Any other agent can just call `greeg` directly: it prints to stdout and exits
-`0` on hits, `1` on none, `2` on error, exactly like ripgrep.
+`0` on exact hits, `1` on none (including discovery-only results), `2` on error.
 
 ## Using it
 
-Everything you already know from ripgrep works:
+Common ripgrep flags work alongside ranked output:
 
 ```bash
 greeg get_queryset                  # ranked hits, definitions first, ~600 tokens
 greeg -w respond -l                 # files only, rg-shaped, pipe-safe
 greeg 'fn poll_read' -t rs -C 3     # ripgrep flags behave as they do in rg
 greeg createSourceFile --json       # ripgrep JSON Lines + kind/symbol/facets/footer
-greeg respond --budget 0            # unlimited, path order, byte-for-byte rg parity
+greeg respond --budget 0            # unlimited exact matches, path order
 ```
+
+File searches with `-l`, `-c`, `--mode files|count`, `--budget 0`, or `--json`
+default to **exact matching**: a miss never becomes a case, word-boundary, or
+fuzzy-name match. Ranked text keeps the discovery ladder. Use
+`--matching exact` to disable it there, or `--matching discover` to explicitly
+request relaxed results in another format. `--no-ladder` remains a spelling
+of `--matching exact`; use one or the other. Relaxed results still exit `1`
+and name the rung in the footer. See the [matching contract](docs/MATCHING.md).
 
 And then the part grep can't do. Asking about *symbols* instead of *text*:
 
@@ -189,7 +197,7 @@ and answers in a few milliseconds from the index.
    a token budget (2,000 by default) and the footer always says what was cut.
 
 Test, vendored, generated, minified and mock files are **demoted, never
-hidden**. `--budget 0`, `-l` and `-c` keep ripgrep's match set exactly.
+hidden**. `--budget 0`, `-l` and `-c` disable query relaxation by default.
 
 The index lives outside your repo (under `~/Library/Caches/greeg` on macOS,
 `$XDG_CACHE_HOME/greeg` elsewhere), so it never dirties the working tree and
@@ -250,7 +258,7 @@ binary files ripgrep would have searched.
 **greeg flags**: `--budget N` (tokens, default 2000, `0` = unlimited) ·
 `--mode files|outline|content|block` · `--kind def,call,…` · `--near PATH` ·
 `--no-tests --no-vendored --no-generated --all` · `--per-file N` · `--chain` ·
-`--no-ladder` · `--fresh auto|none|stat|fsevents` · `--no-index` ·
+`--matching exact|discover` · `--no-ladder` · `--fresh auto|none|stat|fsevents` · `--no-index` ·
 `--index-dir DIR` · `--stats` · `--precise` · `--session ID` · `--no-session`
 
 **Languages with full syntax support**: Python, TypeScript/TSX, JavaScript,

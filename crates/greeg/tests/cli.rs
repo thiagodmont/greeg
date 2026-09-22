@@ -113,6 +113,9 @@ impl Fixture {
             .arg(&self.index)
             .current_dir(&self.root)
             .env("GREEG_STATS", "0")
+            // Detached builds currently inherit this variable rather than
+            // forwarding --index-dir. Keep their writes in this fixture too.
+            .env("GREEG_INDEX_DIR", &self.index)
             .output()
             .expect("run greeg")
     }
@@ -432,6 +435,132 @@ fn budget_zero_is_ripgrep_shaped_and_path_ordered() {
     );
 }
 
+/// An exact miss must not put case/word/name suggestions into a stream a
+/// caller may pipe into another command. Exercise the real executable and
+/// both backends; a nonzero status alone cannot protect a pipe's consumer.
+#[test]
+fn machine_modes_do_not_emit_relaxed_matches() {
+    let f = fixture();
+    f.indexed();
+    for backend in [vec!["--no-index"], vec!["--fresh", "stat"]] {
+        for mode in [
+            vec!["-l"],
+            vec!["-c"],
+            vec!["--mode", "files"],
+            vec!["--mode", "count"],
+            vec!["--budget", "0"],
+        ] {
+            for query in [
+                vec!["LOAD_CONFIG"],
+                vec!["-w", "load_conf"],
+                vec!["LoadConfig"],
+                vec!["load_confiq"],
+            ] {
+                let args: Vec<_> = backend.iter().chain(&mode).chain(&query).copied().collect();
+                let out = f.run(&args);
+                assert_eq!(out.status.code(), Some(1), "{args:?}");
+                assert!(out.stdout.is_empty(), "{args:?}: {:?}", out.stdout);
+                assert!(
+                    !String::from_utf8_lossy(&out.stderr).contains("after the escalation ladder")
+                );
+            }
+        }
+        for query in ["LOAD_CONFIG", "LoadConfig", "load_confiq"] {
+            let mut args = backend.clone();
+            args.extend(["--json", query]);
+            let out = f.run(&args);
+            assert_eq!(out.status.code(), Some(1), "{args:?}");
+            let records: Vec<serde_json::Value> = String::from_utf8(out.stdout)
+                .unwrap()
+                .lines()
+                .map(|l| serde_json::from_str(l).unwrap())
+                .collect();
+            assert!(!records.iter().any(|r| r["type"] == "match"), "{args:?}");
+            let footer = records.iter().find(|r| r["type"] == "footer").unwrap();
+            assert_eq!(footer["data"]["hits_total"], 0);
+            assert_eq!(footer["data"]["rung"], "exact");
+        }
+    }
+}
+
+#[test]
+fn matching_policy_is_explicit_and_keeps_the_legacy_opt_out() {
+    let f = fixture();
+    f.indexed();
+    for backend in [vec!["--no-index"], vec!["--fresh", "stat"]] {
+        let mut exact = backend.clone();
+        exact.extend(["--matching", "exact", "LOAD_CONFIG"]);
+        let out = f.run(&exact);
+        assert_eq!(out.status.code(), Some(1));
+        assert!(!String::from_utf8_lossy(&out.stdout).contains("src/util.rs"));
+        assert!(!String::from_utf8_lossy(&out.stdout).contains("--no-ladder is set"));
+
+        let mut legacy = backend.clone();
+        legacy.extend(["--no-ladder", "LOAD_CONFIG"]);
+        assert_eq!(f.run(&legacy).stdout, out.stdout);
+
+        for mode in [
+            vec!["-l"],
+            vec!["-c"],
+            vec!["--budget", "0"],
+            vec!["--json"],
+        ] {
+            let mut args = backend.clone();
+            args.extend(mode);
+            args.extend(["--matching", "discover", "LOAD_CONFIG"]);
+            let out = f.run(&args);
+            assert_eq!(out.status.code(), Some(1), "relaxed matches still exit 1");
+            assert!(
+                String::from_utf8_lossy(&out.stdout).contains("src/util.rs"),
+                "{args:?}"
+            );
+            let all = format!(
+                "{}{}",
+                String::from_utf8_lossy(&out.stdout),
+                String::from_utf8_lossy(&out.stderr)
+            );
+            assert!(all.contains("case-insensitive"), "{args:?}: {all}");
+        }
+    }
+    for args in [
+        vec!["--matching", "discover", "--no-ladder", "load_config"],
+        vec!["--no-ladder", "--matching", "exact", "load_config"],
+        vec!["--matching", "unknown", "load_config"],
+    ] {
+        let out = f.run(&args);
+        assert_eq!(out.status.code(), Some(2), "{args:?}");
+        assert!(out.stdout.is_empty());
+    }
+}
+
+#[test]
+fn exact_policy_preserves_requested_case_and_word_semantics() {
+    let f = fixture();
+    f.indexed();
+    for backend in [vec!["--no-index"], vec!["--fresh", "stat"]] {
+        for flags in [
+            vec!["-i", "LOAD_CONFIG"],
+            vec!["-w", "load_config"],
+            vec!["-S", "load_config"],
+        ] {
+            let mut args = backend.clone();
+            args.extend(flags);
+            args.extend(["-l", "--sort", "path"]);
+            let default = f.run(&args);
+            assert_eq!(default.status.code(), Some(0), "{args:?}");
+            args.extend(["--matching", "exact"]);
+            assert_eq!(default.stdout, f.run(&args).stdout);
+            args.pop();
+            args.push("discover");
+            assert_eq!(default.stdout, f.run(&args).stdout);
+            assert_eq!(
+                String::from_utf8(default.stdout).unwrap(),
+                "src/handler.rs\nsrc/util.rs\n"
+            );
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // exit codes and flags
 // ---------------------------------------------------------------------------
@@ -602,4 +731,59 @@ fn stdin_is_searched_like_ripgrep() {
     c.stdin.take().unwrap().write_all(b"alpha\nbeta\n").unwrap();
     let o = c.wait_with_output().unwrap();
     assert_eq!(String::from_utf8_lossy(&o.stdout).trim(), "alpha");
+}
+
+#[test]
+fn stdin_does_not_silently_accept_discovery() {
+    use std::io::Write;
+    use std::process::Stdio;
+    for flags in [
+        vec![],
+        vec!["--matching", "exact"],
+        vec!["--matching", "discover"],
+    ] {
+        let mut child = Command::new(BIN)
+            .args(["--no-session", "ALPHA"])
+            .args(&flags)
+            .env("GREEG_STATS", "0")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut input = child.stdin.take().unwrap();
+        if !flags.contains(&"discover") {
+            input.write_all(b"alpha\n").unwrap();
+        }
+        drop(input);
+        let out = child.wait_with_output().unwrap();
+        assert!(out.stdout.is_empty());
+        assert_eq!(
+            out.status.code(),
+            Some(if flags.contains(&"discover") { 2 } else { 1 })
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn output_failure_overrides_an_exact_match() {
+    use std::os::fd::OwnedFd;
+    use std::os::unix::net::UnixStream;
+    use std::process::Stdio;
+
+    let f = fixture();
+    // Close the reader before launching, so the broken pipe is deterministic.
+    let (writer, reader) = UnixStream::pair().unwrap();
+    drop(reader);
+    let output = Command::new(BIN)
+        .args(["--no-session", "--no-index", "-l", "load_config", "."])
+        .current_dir(&f.root)
+        .env("GREEG_STATS", "0")
+        .stdout(Stdio::from(OwnedFd::from(writer)))
+        .stderr(Stdio::piped())
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(2));
+    assert!(!output.stderr.is_empty());
 }

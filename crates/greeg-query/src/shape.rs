@@ -861,7 +861,7 @@ fn hints(
             footer.hints.push(format!(
                 "{hits}{more} hits in {files}{more} ignored/hidden files: add --no-ignore --hidden"
             ));
-        } else if o.ladder {
+        } else if o.matching == crate::MatchingPolicy::Discover {
             footer.hints.push(
                 "no hits after the escalation ladder; try a shorter or split identifier".into(),
             );
@@ -869,7 +869,7 @@ fn hints(
             // the ladder never ran, so it did not fail to find anything
             footer
                 .hints
-                .push("no hits; --no-ladder is set, so nothing was relaxed".into());
+                .push("no hits; exact matching, nothing was relaxed".into());
         }
         return;
     }

@@ -125,18 +125,23 @@ already mapped an old generation keeps a valid view until it exits.
    the top hits. What an agent needs first from a 357-hit query is the shape of
    the answer, and 50 lines of it won't tell you that.
 
-`--budget 0`, `-l` and `-c` bypass shaping entirely and reproduce ripgrep's
-match set exactly, because the agent hook rewrites pipelines like
-`rg -l … | xargs …` and anything but bare paths on stdout would break them.
+`--budget 0`, `-l` and `-c` bypass token shaping and default to exact matching.
+Their stdout contains only result rows; diagnostics and the footer go to
+stderr. They never relax a failed query unless `--matching discover` is explicit.
 
 ### When nothing matches
 
-A query that finds nothing climbs a ladder, and the footer says which rung
+A ranked text query that finds nothing climbs a ladder, and the footer says which rung
 answered: drop `-w`, then case-insensitive, then split the query on
 camelCase/snake_case boundaries and look for names built from those tokens,
 then a bounded fuzzy search over the symbol names, then hits that exist only in
 ignored or hidden files. `SpawnBlocking` finds `spawn_blocking` this way.
-`--no-ladder` turns it off.
+`--matching exact` (or the retained `--no-ladder` spelling) turns it off.
+Files/count modes, unlimited output and JSON default to exact matching;
+`--matching discover` explicitly enables the ladder for file searches in
+those formats. The query layer carries a `MatchingPolicy` independent of
+rendering; its default is exact, and the CLI selects discovery for ranked text.
+See [the matching contract](MATCHING.md) for defaults, statuses and migration.
 
 ### Session memory
 

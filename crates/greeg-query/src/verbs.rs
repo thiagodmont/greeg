@@ -307,7 +307,8 @@ pub fn def(
         // wants to open it when nothing else declares the name
         let file_mods = idx.module_files(name, 64);
         let mut rung = Rung::Exact;
-        if syms.is_empty() && file_mods.is_empty() && o.ladder {
+        if syms.is_empty() && file_mods.is_empty() && o.matching == crate::MatchingPolicy::Discover
+        {
             // ladder over names: case-insensitive, split tokens, fuzzy
             let lower = name.to_lowercase();
             let mut alts: Vec<String> = Vec::new();
@@ -611,7 +612,7 @@ pub fn refs(o: &Options, name: &str, kinds: &[HitKind]) -> Result<RefsResult> {
     let scan_r = scan(&so)?;
     // the scan above ran the freshness check; the lookups below reuse its result
     let mut d = o.clone();
-    d.ladder = false;
+    d.matching = crate::MatchingPolicy::Exact;
     d.budget = 400;
     d.fresh = greeg_index::fresh::Mode::None;
     let defs = def(&d, name, &[], None)
@@ -737,7 +738,7 @@ pub fn callers(o: &Options, name: &str, depth: usize) -> Result<CallersResult> {
             seen.push(cname.clone());
             let mut so2 = so.clone();
             so2.pattern = cname.clone();
-            so2.ladder = false;
+            so2.matching = crate::MatchingPolicy::Exact;
             if let Ok(mut r2) = scan(&so2) {
                 let idxs: Vec<usize> = (0..r2.files.len().min(60)).collect();
                 crate::refine(&mut r2, &idxs);
@@ -858,7 +859,7 @@ pub fn impls(o: &Options, name: &str) -> Result<ImplsResult> {
     so.kinds = vec![HitKind::Type];
     so.mode = Mode::Content;
     so.budget = 0;
-    so.ladder = false;
+    so.matching = crate::MatchingPolicy::Exact;
     let mut extras = Vec::new();
     if let Ok(mut r) = scan(&so) {
         let idxs: Vec<usize> = (0..r.files.len().min(200)).collect();
@@ -1372,7 +1373,7 @@ pub fn impact(o: &Options, name: &str) -> Result<ImpactResult> {
         }
     }
     let mut co = o.clone();
-    co.ladder = false;
+    co.matching = crate::MatchingPolicy::Exact;
     co.fresh = greeg_index::fresh::Mode::None; // `refs` already ran the check
     let callers = callers(&co, name, 2)?;
     Ok(ImpactResult {

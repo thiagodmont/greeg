@@ -36,6 +36,14 @@ pub enum Mode {
     Block,
 }
 
+/// Whether an empty answer may retry with relaxed word/case/name matching.
+/// Exact still honors the caller's explicit flags, including `-i` and `-S`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MatchingPolicy {
+    Exact,
+    Discover,
+}
+
 #[derive(Clone, Debug)]
 pub struct Options {
     pub pattern: String,
@@ -62,7 +70,7 @@ pub struct Options {
     pub no_generated: bool,
     pub all: bool,
     pub kinds: Vec<HitKind>,
-    pub ladder: bool,
+    pub matching: MatchingPolicy,
     pub max_columns: usize,
     pub per_file_cap: usize,
     pub context: Option<usize>,
@@ -105,7 +113,7 @@ impl Default for Options {
             no_generated: false,
             all: false,
             kinds: vec![],
-            ladder: true,
+            matching: MatchingPolicy::Exact,
             max_columns: 200,
             per_file_cap: 4,
             context: None,
@@ -2044,7 +2052,7 @@ pub fn normalize_paths(o: &Options) -> Option<Options> {
     Some(o2)
 }
 
-/// Scan with the escalation ladder (rungs 1–5, ARCHITECTURE.md).
+/// Search under the selected policy; only discovery may climb the escalation ladder.
 pub fn scan(o: &Options) -> Result<ScanResult> {
     let normalized = normalize_paths(o);
     let o = normalized.as_ref().unwrap_or(o);
@@ -2054,7 +2062,7 @@ pub fn scan(o: &Options) -> Result<ScanResult> {
     }
     let plain = ScanBounds::default();
     let mut r = scan_once(o, &plain)?;
-    if r.stats.total_hits > 0 || !o.ladder {
+    if r.stats.total_hits > 0 || o.matching == MatchingPolicy::Exact {
         return Ok(r);
     }
     let mut elapsed = r.stats.elapsed_ms;

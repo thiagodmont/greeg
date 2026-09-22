@@ -37,11 +37,16 @@ description: Code search for agents. Use `greeg` instead of rg/grep: ranked, syn
 and returns hits classified as def/import/call/type/member/ident/doc/comment/string with
 the enclosing symbol, tests and vendored code demoted, within a token budget
 (`--budget N`, default 2000). Broad queries return facets first; the footer says what
-was cut and suggests the next query. Exit 1 means no hits (after the escalation
-ladder: word boundary, case, split tokens, fuzzy names).
+was cut and suggests the next query. Exit 1 means no exact hits, even if the
+discovery ladder found word-boundary, case, split-token or fuzzy-name suggestions.
 
 `-l` prints only paths and `-c` prints `path:count`, one per line on stdout, so both
 are pipe-safe: `greeg -l foo | xargs sed -i ...`, `greeg -c foo | sort -t: -k2 -n`.
+File searches with `-l`, `-c`, `--mode files|count`, `--budget 0` or `--json`
+use exact matching by default. Ranked text uses discovery. `--matching exact`
+(also `--no-ladder`) disables discovery; `--matching discover` opts into it.
+Relaxed file/count/unlimited results put their rung in the stderr footer and
+still exit 1. Stdin always uses exact matching.
 
 Symbol questions are cheaper than searches:
 
