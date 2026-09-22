@@ -1,0 +1,14 @@
+AGENTS.md
+  h_5539fd3470b479 19-24
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "50b2e4963ac101dddb937953ea9d7d35261a79ee",
+  "prompts": {},
+  "humans": {
+    "h_5539fd3470b479": {
+      "author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
