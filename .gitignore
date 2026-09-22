@@ -2,3 +2,4 @@ target/
 spikes/target/
 __pycache__/
 bench/agent/runs/
+docs/

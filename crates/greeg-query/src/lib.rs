@@ -36,6 +36,14 @@ pub enum Mode {
     Block,
 }
 
+/// Whether an empty answer may retry with relaxed word/case/name matching.
+/// Exact still honors the caller's explicit flags, including `-i` and `-S`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MatchingPolicy {
+    Exact,
+    Discover,
+}
+
 #[derive(Clone, Debug)]
 pub struct Options {
     pub pattern: String,
@@ -62,7 +70,7 @@ pub struct Options {
     pub no_generated: bool,
     pub all: bool,
     pub kinds: Vec<HitKind>,
-    pub ladder: bool,
+    pub matching: MatchingPolicy,
     pub max_columns: usize,
     pub per_file_cap: usize,
     pub context: Option<usize>,
@@ -105,7 +113,7 @@ impl Default for Options {
             no_generated: false,
             all: false,
             kinds: vec![],
-            ladder: true,
+            matching: MatchingPolicy::Exact,
             max_columns: 200,
             per_file_cap: 4,
             context: None,
@@ -179,7 +187,7 @@ impl HitKind {
             _ => return None,
         })
     }
-    /// Ranking weight (ARCHITECTURE.md; calls above imports, imports are the
+    /// Ranking weight (calls above imports, imports are the
     /// least informative code kind).
     pub fn weight(self) -> f32 {
         match self {
@@ -454,7 +462,7 @@ pub struct ScanResult {
     pub ignored_partial: bool,
     /// Identifiers containing the query, with file counts, from the index's
     /// word dictionary (a bare identifier answered from the word postings has
-    /// no near-miss hits of its own; ARCHITECTURE.md).
+    /// no near-miss hits of its own).
     pub related_index: Vec<(String, usize)>,
 }
 
@@ -751,7 +759,7 @@ pub fn is_mock_path(rel: &str) -> bool {
     false
 }
 
-/// Location weight (ARCHITECTURE.md) shared by search and the verbs.
+/// Location weight shared by search and the verbs.
 pub(crate) fn loc_weight(flags: FileFlags, rel: &str, all: bool) -> f32 {
     if all {
         1.0
@@ -853,7 +861,7 @@ fn close_angle(line: &[u8], open: usize) -> Option<usize> {
     None
 }
 
-/// Byte-context rule for kinds that are not stored as spans (ARCHITECTURE.md),
+/// Byte-context rule for kinds that are not stored as spans,
 /// language-aware. `ms`/`me` are offsets into `_src`; `line` is the line
 /// containing the match and starts at `line_start` in `_src`. Only the line is
 /// consulted, so every rule is line-local.
@@ -1867,7 +1875,7 @@ fn scan_once(o: &Options, bounds: &ScanBounds) -> Result<ScanResult> {
         filter_kinds: true,
     };
     if o.use_index && !o.no_ignore && !o.hidden {
-        // A panic anywhere in the index path degrades to scan mode (ARCHITECTURE.md):
+        // A panic anywhere in the index path degrades to scan mode:
         // the answer is still correct, one line goes to stderr, and the index is rebuilt.
         match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             indexed::try_index(&cx, threads, t0)
@@ -2044,7 +2052,7 @@ pub fn normalize_paths(o: &Options) -> Option<Options> {
     Some(o2)
 }
 
-/// Scan with the escalation ladder (rungs 1–5, ARCHITECTURE.md).
+/// Search under the selected policy; only discovery may climb the escalation ladder.
 pub fn scan(o: &Options) -> Result<ScanResult> {
     let normalized = normalize_paths(o);
     let o = normalized.as_ref().unwrap_or(o);
@@ -2054,7 +2062,7 @@ pub fn scan(o: &Options) -> Result<ScanResult> {
     }
     let plain = ScanBounds::default();
     let mut r = scan_once(o, &plain)?;
-    if r.stats.total_hits > 0 || !o.ladder {
+    if r.stats.total_hits > 0 || o.matching == MatchingPolicy::Exact {
         return Ok(r);
     }
     let mut elapsed = r.stats.elapsed_ms;
@@ -2083,7 +2091,7 @@ pub fn scan(o: &Options) -> Result<ScanResult> {
         }
         r = r2;
     }
-    // rungs 3 and 4 need the symbol names (ARCHITECTURE.md)
+    // rungs 3 and 4 need the symbol names
     if o.use_index && !o.no_ignore && !o.hidden && (o.fixed_strings || is_plain_word(&o.pattern)) {
         let threads = if o.threads == 0 {
             default_threads()

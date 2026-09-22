@@ -1,4 +1,4 @@
-//! Symbol verbs (ARCHITECTURE.md): `def`, `refs`, `callers`, `impls`,
+//! Symbol verbs: `def`, `refs`, `callers`, `impls`,
 //! `outline`, `map`, `impact`. Each verb returns plain data; rendering lives
 //! in the CLI. All verbs work without an index (slower, via scan mode) except
 //! `map`, which needs the symbol table.
@@ -60,7 +60,7 @@ fn dir_of(rel: &str) -> &str {
     rel.rsplit_once('/').map(|(d, _)| d).unwrap_or("")
 }
 
-/// Import reachability (ARCHITECTURE.md): 1.0 direct, 0.8 within two hops,
+/// Import reachability: 1.0 direct, 0.8 within two hops,
 /// 0.6 same directory, 0.4 otherwise. `origins` are file ids.
 pub fn reach(idx: &Index, origins: &[u32], target: u32) -> f32 {
     if origins.is_empty() {
@@ -73,7 +73,7 @@ pub fn reach(idx: &Index, origins: &[u32], target: u32) -> f32 {
         if o == target {
             return 1.0;
         }
-        // edges follow edits: an edited origin or target keeps its imports (ARCHITECTURE.md)
+        // edges follow edits: an edited origin or target keeps its imports
         let out = idx.out_edges(o);
         if out.contains(&target) {
             return 1.0;
@@ -278,6 +278,27 @@ fn kind_filter_ok(kinds: &[HitKind], _k: DefKind) -> bool {
     kinds.is_empty() || kinds.contains(&HitKind::Def)
 }
 
+fn case_variant_names(idx: &Index, name: &str) -> Vec<String> {
+    let Some(first) = name.chars().next() else {
+        return Vec::new();
+    };
+    let mut names = Vec::new();
+    for (_, seg) in idx.segments() {
+        if let Some(sv) = seg.symbols() {
+            for prefix in [first.to_ascii_lowercase(), first.to_ascii_uppercase()] {
+                for nid in sv.prefix_range(&prefix.to_string()) {
+                    let candidate = sv.name(nid);
+                    if candidate.eq_ignore_ascii_case(name) && !names.iter().any(|n| n == candidate)
+                    {
+                        names.push(candidate.to_string());
+                    }
+                }
+            }
+        }
+    }
+    names
+}
+
 /// `greeg def NAME`.
 pub fn def(
     o: &Options,
@@ -298,39 +319,32 @@ pub fn def(
     if o.use_index
         && let Some(op) = indexed::open_fresh(o, threads)?
         && op.idx.has_symbols()
+        // Fall back for truncated Unicode names; retain existing symbol/module results.
+        && (name.is_ascii()
+            || !op.idx.lookup(name).is_empty()
+            || !op.idx.module_files(name, 1).is_empty())
     {
         let idx = &op.idx;
         res.source = "index";
         res.fresh = op.fresh_method;
         let mut syms = idx.lookup(name);
+        let fold_case =
+            o.case_insensitive || (o.smart_case && !name.chars().any(|c| c.is_uppercase()));
+        if fold_case {
+            for candidate in case_variant_names(idx, name) {
+                if candidate != name {
+                    syms.extend(idx.lookup(&candidate));
+                }
+            }
+        }
         // the file that is the module: listed after every symbol; an agent
         // wants to open it when nothing else declares the name
         let file_mods = idx.module_files(name, 64);
         let mut rung = Rung::Exact;
-        if syms.is_empty() && file_mods.is_empty() && o.ladder {
+        if syms.is_empty() && file_mods.is_empty() && o.matching == crate::MatchingPolicy::Discover
+        {
             // ladder over names: case-insensitive, split tokens, fuzzy
-            let lower = name.to_lowercase();
-            let mut alts: Vec<String> = Vec::new();
-            for (_, seg) in idx.segments() {
-                if let Some(sv) = seg.symbols() {
-                    // case-insensitive: scan the prefix range of the first char in both cases
-                    for first in [
-                        lower.chars().next().unwrap_or('a').to_ascii_lowercase(),
-                        lower.chars().next().unwrap_or('a').to_ascii_uppercase(),
-                    ] {
-                        let r = sv.prefix_range(&first.to_string());
-                        for nid in r {
-                            let n = sv.name(nid);
-                            if n.len() == name.len()
-                                && n.eq_ignore_ascii_case(name)
-                                && !alts.contains(&n.to_string())
-                            {
-                                alts.push(n.to_string());
-                            }
-                        }
-                    }
-                }
-            }
+            let mut alts = case_variant_names(idx, name);
             if !alts.is_empty() {
                 rung = Rung::CaseInsensitive;
             } else {
@@ -512,6 +526,7 @@ pub fn def(
     }
     // scan fallback: definition hits by regex
     let mut so = o.clone();
+    so.use_index &= name.is_ascii();
     so.pattern = name.to_string();
     so.fixed_strings = true;
     so.word = true;
@@ -611,7 +626,7 @@ pub fn refs(o: &Options, name: &str, kinds: &[HitKind]) -> Result<RefsResult> {
     let scan_r = scan(&so)?;
     // the scan above ran the freshness check; the lookups below reuse its result
     let mut d = o.clone();
-    d.ladder = false;
+    d.matching = crate::MatchingPolicy::Exact;
     d.budget = 400;
     d.fresh = greeg_index::fresh::Mode::None;
     let defs = def(&d, name, &[], None)
@@ -641,7 +656,7 @@ pub fn refs(o: &Options, name: &str, kinds: &[HitKind]) -> Result<RefsResult> {
     })
 }
 
-/// One calling function (`callers`, ARCHITECTURE.md).
+/// One calling function (`callers`).
 #[derive(Clone, Debug)]
 pub struct Caller {
     pub rel: String,
@@ -737,7 +752,7 @@ pub fn callers(o: &Options, name: &str, depth: usize) -> Result<CallersResult> {
             seen.push(cname.clone());
             let mut so2 = so.clone();
             so2.pattern = cname.clone();
-            so2.ladder = false;
+            so2.matching = crate::MatchingPolicy::Exact;
             if let Ok(mut r2) = scan(&so2) {
                 let idxs: Vec<usize> = (0..r2.files.len().min(60)).collect();
                 crate::refine(&mut r2, &idxs);
@@ -858,7 +873,7 @@ pub fn impls(o: &Options, name: &str) -> Result<ImplsResult> {
     so.kinds = vec![HitKind::Type];
     so.mode = Mode::Content;
     so.budget = 0;
-    so.ladder = false;
+    so.matching = crate::MatchingPolicy::Exact;
     let mut extras = Vec::new();
     if let Ok(mut r) = scan(&so) {
         let idxs: Vec<usize> = (0..r.files.len().min(200)).collect();
@@ -1372,7 +1387,7 @@ pub fn impact(o: &Options, name: &str) -> Result<ImpactResult> {
         }
     }
     let mut co = o.clone();
-    co.ladder = false;
+    co.matching = crate::MatchingPolicy::Exact;
     co.fresh = greeg_index::fresh::Mode::None; // `refs` already ran the check
     let callers = callers(&co, name, 2)?;
     Ok(ImpactResult {
@@ -1394,9 +1409,7 @@ mod tests {
     use greeg_index::fresh::Mode as Fresh;
     use std::fs;
 
-    /// `def NAME` lists the file that *is* the module after every symbol
-    /// (ARCHITECTURE.md): `sleep.rs` follows `fn sleep`, `net/mod.rs` and
-    /// `pkg/__init__.py` answer on their own, and generic stems never match.
+    /// Module files follow symbols; generic file stems never match.
     #[test]
     fn def_lists_file_modules_after_symbols() {
         let base = std::env::temp_dir().join(format!("greeg-def-modules-{}", std::process::id()));

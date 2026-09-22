@@ -1,5 +1,5 @@
 //! Shape a `ScanResult` to a budget: choose content vs facets, rank, cap per
-//! file, add adaptive context, and compute the footer (ARCHITECTURE.md).
+//! file, add adaptive context, and compute the footer.
 //! Every emitted line is accounted for against the budget:
 //! file headers, `+N more` lines, collapsed groups, footer and hints.
 
@@ -27,7 +27,7 @@ pub struct ShownHit {
     pub block: Option<(u32, Vec<Vec<u8>>)>,
     /// The block was cut to fit the budget.
     pub block_clipped: bool,
-    /// Context was already shown earlier in this session (ARCHITECTURE.md).
+    /// Context was already shown earlier in this session.
     pub seen_before: bool,
 }
 
@@ -475,7 +475,7 @@ pub fn shape(r: &mut ScanResult) -> Report {
     }
     // A bare identifier query with at least one whole-word match is about that
     // word: hits inside longer identifiers (`fooBar` for `foo`) are collapsed to
-    // the `related` line instead of spending answer lines on them (ARCHITECTURE.md).
+    // the `related` line instead of spending answer lines on them.
     let mut related: Vec<(String, usize)> = Vec::new();
     let mut near_misses_left = false;
     if !parity && identifier_query(o) {
@@ -861,7 +861,7 @@ fn hints(
             footer.hints.push(format!(
                 "{hits}{more} hits in {files}{more} ignored/hidden files: add --no-ignore --hidden"
             ));
-        } else if o.ladder {
+        } else if o.matching == crate::MatchingPolicy::Discover {
             footer.hints.push(
                 "no hits after the escalation ladder; try a shorter or split identifier".into(),
             );
@@ -869,7 +869,7 @@ fn hints(
             // the ladder never ran, so it did not fail to find anything
             footer
                 .hints
-                .push("no hits; --no-ladder is set, so nothing was relaxed".into());
+                .push("no hits; exact matching, nothing was relaxed".into());
         }
         return;
     }

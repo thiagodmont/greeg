@@ -8,7 +8,7 @@ mod verbs_out;
 use anyhow::Result;
 use clap::{ArgAction, Args, CommandFactory, Parser, Subcommand};
 use greeg_query::shape::{Layout, Report, ShownFile};
-use greeg_query::{HitKind, Mode, Options, ScanResult};
+use greeg_query::{HitKind, MatchingPolicy, Mode, Options, ScanResult};
 use std::io::{BufWriter, Write};
 use std::path::PathBuf;
 
@@ -204,8 +204,12 @@ struct Common {
     /// Only hits of these kinds: def import call type member ident doc comment string (comma-separated)
     #[arg(long = "kind", value_name = "KINDS", global = true)]
     kind: Option<String>,
-    /// Disable the zero-hit escalation ladder
-    #[arg(long = "no-ladder", global = true)]
+    /// Matching policy: exact (no relaxation) or discover (retry empty answers).
+    /// Default: exact for -l, -c, --mode files|count, --budget 0 and --json; discover for ranked text.
+    #[arg(long, value_parser = ["exact", "discover"], global = true)]
+    matching: Option<String>,
+    /// Legacy spelling of --matching exact (conflicts with --matching)
+    #[arg(long = "no-ladder", conflicts_with = "matching", global = true)]
     no_ladder: bool,
     /// Maximum hits shown per file
     #[arg(long = "per-file", default_value_t = 4, global = true)]
@@ -613,7 +617,7 @@ fn main() {
 
 fn main_inner() -> Result<()> {
     // One line per panic, no backtrace hint: the index path is wrapped in
-    // catch_unwind and degrades to a scan (ARCHITECTURE.md).
+    // catch_unwind and degrades to a scan.
     std::panic::set_hook(Box::new(|info| {
         let msg = info
             .payload()
@@ -708,7 +712,18 @@ fn build_options(c: &Common, pattern: String, paths: Vec<PathBuf>) -> Result<Opt
         no_generated: c.no_generated,
         all: c.all,
         kinds,
-        ladder: !c.no_ladder,
+        matching: match c.matching.as_deref() {
+            Some("discover") => MatchingPolicy::Discover,
+            Some("exact") => MatchingPolicy::Exact,
+            _ if c.no_ladder
+                || c.json
+                || c.budget == 0
+                || matches!(mode, Mode::Files | Mode::Count) =>
+            {
+                MatchingPolicy::Exact
+            }
+            _ => MatchingPolicy::Discover,
+        },
         max_columns: c.max_columns,
         per_file_cap: c.per_file,
         context: c.context,
@@ -1110,8 +1125,13 @@ fn parse_location(s: &str) -> Result<(String, u32)> {
 /// C6: no path given and stdin is a pipe or file: search it like ripgrep.
 fn run_stdin(c: &Common, mut opts: Options, fmt: Fmt) -> Result<()> {
     use std::io::Read;
+    if c.matching.as_deref() == Some("discover") {
+        anyhow::bail!(
+            "--matching discover requires file input; stdin supports exact matching only"
+        );
+    }
     opts.budget = 0;
-    opts.ladder = false;
+    opts.matching = MatchingPolicy::Exact;
     opts.use_index = false;
     opts.max_columns = 0;
     let mut data = Vec::new();
@@ -1638,7 +1658,7 @@ fn render_footer(
         }
     }
     // `skipped` only when non-zero, term by term: `skipped 1 binary, 0 huge`
-    // spends five tokens saying nothing (ARCHITECTURE.md)
+    // spends five tokens saying nothing
     if ft.skipped_binary + ft.skipped_huge > 0 {
         let mut parts: Vec<String> = Vec::with_capacity(2);
         if ft.skipped_binary > 0 {

@@ -113,4 +113,3 @@ reported raw and capped at that size, and the savings use the capped figure.
 `~/.config/greeg/config.toml` change it. `GREEG_STATS=0` overrides the config
 file, and the benchmark scripts set it so their own runs stay out of your
 report.
-

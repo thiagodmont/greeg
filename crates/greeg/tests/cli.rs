@@ -1,17 +1,5 @@
-//! End-to-end tests of the shipped contract, over a fixture tree in a
-//! tempdir, under plain `cargo test`.
-//!
-//! What lives here and what does not. `bench/parity.py` checks `(path, line)`
-//! parity against a real ripgrep over the fetched corpora; it needs the
-//! network and only runs in the `e2e` CI job. These tests need neither, and
-//! they assert on the output contract in ARCHITECTURE.md rather than on
-//! ripgrep: footer shape, demotion, `related`, `-l`/`-c` stream shape, exit codes,
-//! rejected flags, and the one property that catches most index bugs without
-//! any golden text — **an indexed answer equals a scan-mode answer**.
-//!
-//! Every test gets its own index directory and no session file, so they are
-//! hermetic and can run in parallel, and `GREEG_STATS=0` keeps them out of
-//! the user's own stats.
+//! CLI contract and scan/index parity tests using isolated local fixtures.
+//! No external corpus or ripgrep installation is required.
 
 use std::collections::BTreeSet;
 use std::fs;
@@ -113,6 +101,8 @@ impl Fixture {
             .arg(&self.index)
             .current_dir(&self.root)
             .env("GREEG_STATS", "0")
+            // Detached builds inherit this variable, not --index-dir.
+            .env("GREEG_INDEX_DIR", &self.index)
             .output()
             .expect("run greeg")
     }
@@ -222,7 +212,7 @@ fn an_edit_is_visible_to_an_indexed_search() {
 }
 
 // ---------------------------------------------------------------------------
-// footer contract (ARCHITECTURE.md, "What the output means")
+// footer contract
 // ---------------------------------------------------------------------------
 
 /// "A whole answer ... ends with just `N hits · M files`".
@@ -432,6 +422,129 @@ fn budget_zero_is_ripgrep_shaped_and_path_ordered() {
     );
 }
 
+// A nonzero exit cannot prevent a pipeline from consuming incorrect stdout.
+#[test]
+fn machine_modes_do_not_emit_relaxed_matches() {
+    let f = fixture();
+    f.indexed();
+    for backend in [vec!["--no-index"], vec!["--fresh", "stat"]] {
+        for mode in [
+            vec!["-l"],
+            vec!["-c"],
+            vec!["--mode", "files"],
+            vec!["--mode", "count"],
+            vec!["--budget", "0"],
+        ] {
+            for query in [
+                vec!["LOAD_CONFIG"],
+                vec!["-w", "load_conf"],
+                vec!["LoadConfig"],
+                vec!["load_confiq"],
+            ] {
+                let args: Vec<_> = backend.iter().chain(&mode).chain(&query).copied().collect();
+                let out = f.run(&args);
+                assert_eq!(out.status.code(), Some(1), "{args:?}");
+                assert!(out.stdout.is_empty(), "{args:?}: {:?}", out.stdout);
+                assert!(
+                    !String::from_utf8_lossy(&out.stderr).contains("after the escalation ladder")
+                );
+            }
+        }
+        for query in ["LOAD_CONFIG", "LoadConfig", "load_confiq"] {
+            let mut args = backend.clone();
+            args.extend(["--json", query]);
+            let out = f.run(&args);
+            assert_eq!(out.status.code(), Some(1), "{args:?}");
+            let records: Vec<serde_json::Value> = String::from_utf8(out.stdout)
+                .unwrap()
+                .lines()
+                .map(|l| serde_json::from_str(l).unwrap())
+                .collect();
+            assert!(!records.iter().any(|r| r["type"] == "match"), "{args:?}");
+            let footer = records.iter().find(|r| r["type"] == "footer").unwrap();
+            assert_eq!(footer["data"]["hits_total"], 0);
+            assert_eq!(footer["data"]["rung"], "exact");
+        }
+    }
+}
+
+#[test]
+fn matching_policy_is_explicit_and_keeps_the_legacy_opt_out() {
+    let f = fixture();
+    f.indexed();
+    for backend in [vec!["--no-index"], vec!["--fresh", "stat"]] {
+        let mut exact = backend.clone();
+        exact.extend(["--matching", "exact", "LOAD_CONFIG"]);
+        let out = f.run(&exact);
+        assert_eq!(out.status.code(), Some(1));
+        assert!(!String::from_utf8_lossy(&out.stdout).contains("src/util.rs"));
+
+        let mut legacy = backend.clone();
+        legacy.extend(["--no-ladder", "LOAD_CONFIG"]);
+        assert_eq!(f.run(&legacy).stdout, out.stdout);
+
+        for mode in [
+            vec!["-l"],
+            vec!["-c"],
+            vec!["--budget", "0"],
+            vec!["--json"],
+        ] {
+            let mut args = backend.clone();
+            args.extend(mode);
+            args.extend(["--matching", "discover", "LOAD_CONFIG"]);
+            let out = f.run(&args);
+            assert_eq!(out.status.code(), Some(1), "relaxed matches still exit 1");
+            assert!(
+                String::from_utf8_lossy(&out.stdout).contains("src/util.rs"),
+                "{args:?}"
+            );
+            let all = format!(
+                "{}{}",
+                String::from_utf8_lossy(&out.stdout),
+                String::from_utf8_lossy(&out.stderr)
+            );
+            assert!(all.contains("case-insensitive"), "{args:?}: {all}");
+        }
+    }
+    for args in [
+        vec!["--matching", "discover", "--no-ladder", "load_config"],
+        vec!["--no-ladder", "--matching", "exact", "load_config"],
+        vec!["--matching", "unknown", "load_config"],
+    ] {
+        let out = f.run(&args);
+        assert_eq!(out.status.code(), Some(2), "{args:?}");
+        assert!(out.stdout.is_empty());
+    }
+}
+
+#[test]
+fn exact_policy_preserves_requested_case_and_word_semantics() {
+    let f = fixture();
+    f.indexed();
+    for backend in [vec!["--no-index"], vec!["--fresh", "stat"]] {
+        for flags in [
+            vec!["-i", "LOAD_CONFIG"],
+            vec!["-w", "load_config"],
+            vec!["-S", "load_config"],
+        ] {
+            let mut args = backend.clone();
+            args.extend(flags);
+            args.extend(["-l", "--sort", "path"]);
+            let default = f.run(&args);
+            assert_eq!(default.status.code(), Some(0), "{args:?}");
+            args.extend(["--matching", "exact"]);
+            assert_eq!(default.stdout, f.run(&args).stdout);
+            args.pop();
+            args.push("discover");
+            assert_eq!(default.stdout, f.run(&args).stdout);
+            assert_eq!(
+                String::from_utf8(default.stdout).unwrap(),
+                "src/handler.rs\nsrc/util.rs\n"
+            );
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // exit codes and flags
 // ---------------------------------------------------------------------------
@@ -538,6 +651,72 @@ fn def_prefers_the_source_definition() {
     );
 }
 
+#[test]
+fn def_exact_honors_case_flags_on_both_backends() {
+    let f = fixture();
+    w(
+        &f.root.join("src/case_variants.rs"),
+        "pub fn LOAD_CONFIG() {}\npub fn café() {}\npub fn CAFÉ() {}\n",
+    );
+    w(
+        &f.root.join("src/módulo.rs"),
+        "//! Module without a named definition.\n",
+    );
+    f.indexed();
+    for backend in [vec!["--no-index"], vec!["--fresh", "stat"]] {
+        for (flags, name, expected) in [
+            (vec!["-i"], "Load_Config", 2),
+            (vec!["-i"], "load_config", 2),
+            (vec!["-S"], "load_config", 2),
+            (vec!["-S"], "LOAD_CONFIG", 1),
+            (vec!["-i", "-s"], "Load_Config", 0),
+            (vec!["-S", "-s"], "Load_Config", 0),
+            (vec![], "load_config", 1),
+            (vec!["-i"], "LoadConfig", 0),
+            (vec!["-i"], "load_confiq", 0),
+            (vec!["-i"], "café", 2),
+            (vec!["-S"], "café", 2),
+            (vec!["-S"], "CAFÉ", 1),
+        ] {
+            let mut args = vec!["def", name, "--matching", "exact"];
+            args.extend(&backend);
+            args.extend(flags);
+            let out = f.run(&args);
+            assert_eq!(
+                out.status.code(),
+                Some(if expected == 0 { 1 } else { 0 }),
+                "{args:?}"
+            );
+            assert!(out.stderr.is_empty(), "{args:?}: {:?}", out.stderr);
+            args.push("--json");
+            let out = f.run(&args);
+            let records: Vec<serde_json::Value> = String::from_utf8(out.stdout)
+                .unwrap()
+                .lines()
+                .map(|line| serde_json::from_str(line).unwrap())
+                .collect();
+            assert_eq!(
+                records.iter().filter(|r| r["type"] == "def").count(),
+                expected,
+                "{args:?}: {records:?}"
+            );
+            let footer = &records.last().unwrap()["data"];
+            assert_eq!(footer["rung"], "exact", "{args:?}");
+            assert_eq!(footer["suggestions"], serde_json::json!([]));
+            assert_eq!(
+                footer["source"],
+                if backend[0] == "--no-index" || !name.is_ascii() {
+                    "scan"
+                } else {
+                    "index"
+                }
+            );
+        }
+    }
+    let module = f.run(&["def", "módulo", "--matching", "exact", "--json"]);
+    assert!(String::from_utf8_lossy(&module.stdout).contains("src/módulo.rs"));
+}
+
 /// `show FILE:LINE` prints the definition enclosing a line, whole — the read
 /// the agent would otherwise guess at with `sed -n`.
 #[test]
@@ -602,4 +781,59 @@ fn stdin_is_searched_like_ripgrep() {
     c.stdin.take().unwrap().write_all(b"alpha\nbeta\n").unwrap();
     let o = c.wait_with_output().unwrap();
     assert_eq!(String::from_utf8_lossy(&o.stdout).trim(), "alpha");
+}
+
+#[test]
+fn stdin_does_not_silently_accept_discovery() {
+    use std::io::Write;
+    use std::process::Stdio;
+    for flags in [
+        vec![],
+        vec!["--matching", "exact"],
+        vec!["--matching", "discover"],
+    ] {
+        let mut child = Command::new(BIN)
+            .args(["--no-session", "ALPHA"])
+            .args(&flags)
+            .env("GREEG_STATS", "0")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut input = child.stdin.take().unwrap();
+        if !flags.contains(&"discover") {
+            input.write_all(b"alpha\n").unwrap();
+        }
+        drop(input);
+        let out = child.wait_with_output().unwrap();
+        assert!(out.stdout.is_empty());
+        assert_eq!(
+            out.status.code(),
+            Some(if flags.contains(&"discover") { 2 } else { 1 })
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn output_failure_overrides_an_exact_match() {
+    use std::os::fd::OwnedFd;
+    use std::os::unix::net::UnixStream;
+    use std::process::Stdio;
+
+    let f = fixture();
+    // Close the reader before launching, so the broken pipe is deterministic.
+    let (writer, reader) = UnixStream::pair().unwrap();
+    drop(reader);
+    let output = Command::new(BIN)
+        .args(["--no-session", "--no-index", "-l", "load_config", "."])
+        .current_dir(&f.root)
+        .env("GREEG_STATS", "0")
+        .stdout(Stdio::from(OwnedFd::from(writer)))
+        .stderr(Stdio::piped())
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(2));
+    assert!(!output.stderr.is_empty());
 }

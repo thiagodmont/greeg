@@ -125,18 +125,45 @@ already mapped an old generation keeps a valid view until it exits.
    the top hits. What an agent needs first from a 357-hit query is the shape of
    the answer, and 50 lines of it won't tell you that.
 
-`--budget 0`, `-l` and `-c` bypass shaping entirely and reproduce ripgrep's
-match set exactly, because the agent hook rewrites pipelines like
-`rg -l … | xargs …` and anything but bare paths on stdout would break them.
+`--budget 0`, `-l` and `-c` bypass token shaping and default to exact matching.
+Their stdout contains only result rows; diagnostics and the footer go to
+stderr. They never relax a failed query unless `--matching discover` is explicit.
 
 ### When nothing matches
 
-A query that finds nothing climbs a ladder, and the footer says which rung
+A ranked text query that finds nothing climbs a ladder, and the footer says which rung
 answered: drop `-w`, then case-insensitive, then split the query on
 camelCase/snake_case boundaries and look for names built from those tokens,
 then a bounded fuzzy search over the symbol names, then hits that exist only in
 ignored or hidden files. `SpawnBlocking` finds `spawn_blocking` this way.
-`--no-ladder` turns it off.
+`--matching exact` (or the retained `--no-ladder` spelling) turns it off.
+Files/count modes, unlimited output and JSON default to exact matching;
+`--matching discover` explicitly enables the ladder for file searches in
+those formats. The query layer carries a `MatchingPolicy` independent of
+rendering; its default is exact, and the CLI selects discovery for ranked text.
+
+`--mode files|count` follows the same defaults as `-l`/`-c`. An explicit policy
+overrides the format default; `--no-ladder` conflicts with `--matching`.
+Exact matching still honors `-i`, `-S`, regexes and fixed strings. It does not
+change file selection, classification, freshness, or output budgets.
+
+`def` also honors `-i` and `-S` without enabling discovery. Requested case
+variants remain exact hits, even when a same-case definition also exists.
+Non-ASCII definition names absent from the symbol/module index use the scan
+fallback because the current symbol and word indexes can truncate them.
+Existing indexed symbol/module results are retained; the fallback costs a
+scan of the selected files.
+
+File searches exit 0 for exact hits, 1 for no exact hits (including
+discovery-only answers), and 2 for errors, including output-write failures.
+Stdin always uses exact matching and rejects explicit discovery. JSON keeps
+its existing summary/footer records on a miss, without match records.
+
+Callers that previously consumed relaxed file lists, counts, unlimited output
+or JSON must now opt in with `--matching discover`. Library callers replace
+`Options::ladder` with `Options::matching`; its default is exact. These policies
+do not promise complete enumeration under a positive budget or resolve the
+remaining symbol-verb and selection inconsistencies.
 
 ### Session memory
 
@@ -302,5 +329,6 @@ machine can fail the build.
 corpus and query family, in both indexed and scan mode. `bench/soak.py` fires
 randomized queries at randomized edits.
 
-Results and method: [`BENCH.md`](BENCH.md). Measuring greeg against your own
-agent traffic: [`STATS.md`](STATS.md).
+Results and method: [BENCH.md](BENCH.md). Usage statistics: [STATS.md](STATS.md).
+Raw results live in [`bench/results/`](../bench/results/). For measurements on
+your own agent traffic, see [the README](../README.md#is-it-actually-helping).
