@@ -14,18 +14,27 @@ import bench
 from report_catalog import ReportDataError, ReportDatasets, load_catalog, validate_dataset
 
 
+def config_dataset():
+    return {"protocol": 2, "runs": 2, "warmups": 0,
+            "binaries": {label: {"version": label} for label in ("baseline", "candidate")},
+            "results": [{"agent": "codex", "case": "installed_noop", **{
+                label: {"median_ms": 1.0, "p95_ms": 2.0, "failed_invocations": 0, "contract": True}
+                for label in ("baseline", "candidate")}}]}
+
+
 class ReportValidationTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         self.filename = "atomic-config-review-2026-09-23-darwin-arm64.json"
-        self.data = json.loads((Path(bench.RESULTS) / self.filename).read_text())
+        self.data = config_dataset()
         override = patch.object(bench, "RESULTS", str(self.root))
         override.start()
         self.addCleanup(override.stop)
         self.store = ReportDatasets(self.root)
         self.entry = next(e for e in self.store.entries if e.filename == self.filename)
+        validate_dataset(self.data, self.entry)
 
     def test_malformed_present_data_preserves_previous_report(self):
         variants = [("{broken", "JSON"), ("[]", "object")]
@@ -81,15 +90,26 @@ class ReportValidationTests(unittest.TestCase):
         with self.assertRaisesRegex(ReportDataError, "JSON"):
             ReportDatasets(self.root).get(self.entry)
 
-    def test_invalid_encoding_and_inconsistent_failures_are_rejected(self):
+    def test_invalid_encoding_is_rejected(self):
         (self.root / self.filename).write_bytes(b"\xff")
         with self.assertRaisesRegex(ReportDataError, "cannot read dataset"):
             self.store.get(self.entry)
-        for failures in (1, self.data["runs"] + 1):
-            data = copy.deepcopy(self.data)
-            data["results"][0]["candidate"]["failed_invocations"] = failures
-            with self.subTest(failures=failures), self.assertRaises(ReportDataError):
-                validate_dataset(data, self.entry)
+
+    def test_failure_count_cannot_exceed_runs(self):
+        sample = self.data["results"][0]["candidate"]
+        sample.update(failed_invocations=self.data["runs"], contract=False)
+        validate_dataset(self.data, self.entry)
+        sample["failed_invocations"] += 1
+        with self.assertRaisesRegex(ReportDataError, r"candidate\.failed_invocations: expected count <= runs"):
+            validate_dataset(self.data, self.entry)
+
+    def test_failed_invocations_cannot_have_a_passing_contract(self):
+        sample = self.data["results"][0]["candidate"]
+        sample.update(failed_invocations=1, contract=False)
+        validate_dataset(self.data, self.entry)
+        sample["contract"] = True
+        with self.assertRaisesRegex(ReportDataError, r"candidate\.contract: expected false when invocations failed"):
+            validate_dataset(self.data, self.entry)
 
     def test_protocol_two_requires_failure_counts(self):
         data = copy.deepcopy(self.data)
@@ -140,10 +160,15 @@ class CatalogTests(unittest.TestCase):
                 self.assertIsNotNone(store.get(entry))
 
     def test_matching_contract_applicability_cannot_break_counts(self):
-        store = ReportDatasets(Path(bench.HERE) / "results")
-        entry = store.section("matching")[0]
-        data = copy.deepcopy(store.get(entry))
-        row = next(r for r in data["results"] if r["candidate"]["rg_stdout_and_status_equal"] is not None)
+        entry = next(e for e in load_catalog(self.path) if e.section == "matching")
+        data = {"protocol": 1, "runs": 1, "warmups": 0, "platform": "test", "cpu_count": 1,
+                "corpus": {"files": 1, "bytes": 10}, "ripgrep": "test",
+                "binaries": {label: {"version": label} for label in ("baseline", "candidate")},
+                "results": [{"backend": "scan", "case": "hit_files", "stdout_and_status_unchanged": True,
+                             **{label: {"median_ms": 1.0, "p95_ms": 1.0, "rg_stdout_and_status_equal": True}
+                                for label in ("baseline", "candidate")}}]}
+        validate_dataset(data, entry)
+        row = data["results"][0]
         row["baseline"]["rg_stdout_and_status_equal"] = None
         with self.assertRaisesRegex(ReportDataError, "baseline.rg_stdout_and_status_equal"):
             validate_dataset(data, entry)
@@ -154,7 +179,7 @@ class CatalogTests(unittest.TestCase):
             path = root / "reports.toml"
             path.write_text(self.source + '\n[[datasets]]\nid = "new_run"\nsection = "hook_config"\n'
                             'filename = "new-run.json"\ntitle = "New measurement"\nanalysis = "thresholds"\n')
-            data = json.loads((Path(bench.RESULTS) / "atomic-config-review-2026-09-23-darwin-arm64.json").read_text())
+            data = config_dataset()
             (root / "new-run.json").write_text(json.dumps(data))
             store = ReportDatasets(root, path)
             self.assertEqual(store.section("hook_config")[-1].id, "new_run")

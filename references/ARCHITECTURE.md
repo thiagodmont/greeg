@@ -407,7 +407,8 @@ machine can fail the build.
 
 Paired reports are registered in `bench/reports.toml`: filenames, titles, order
 within each section, optional analysis and configuration recheck relationships.
-Add measurements in an existing report family there without changing renderers.
+Add measurements to `hook`, `hook_config` or `matching_review` there without
+changing renderers; `matching` and `matching_recheck` each allow exactly one dataset.
 `bench/report_catalog.py` validates the catalog and report-facing fields for
 matching, hook and installer protocols 1/2, and reads each dataset once per render.
 Unknown result metadata is allowed; unknown catalog options and protocols fail.
