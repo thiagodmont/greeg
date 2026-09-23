@@ -1085,8 +1085,8 @@ def mb(x):
 
 
 def matching_report(output_dir):
-    matrix_name = "w01a-matching-darwin-arm64.json"
-    recheck_name = "w01a-ranked-recheck-darwin-arm64.json"
+    matrix_name = "exact-search-matching-2026-09-22-darwin-arm64.json"
+    recheck_name = "exact-search-ranked-recheck-2026-09-22-darwin-arm64.json"
     matrix = load_json(os.path.join(RESULTS, matrix_name))
     if not matrix:
         return []
@@ -1107,7 +1107,7 @@ def matching_report(output_dir):
                   if matrix.get("tokenizer") else "Token counts were not measured (n/a).")
     passed = lambda label: sum(r[label]["rg_stdout_and_status_equal"] for r in machine)
     out = [
-        "## W01a: exact-search defaults (2026-09-22)", "",
+        "## Exact-search defaults (2026-09-22)", "",
         f"Focused comparison of `{binaries['baseline']['version']}` against `{binaries['candidate']['version']}`. "
         "The candidate contains the exact/discovery policy change. These measurements are separate from the older full-corpus tables below.", "",
         f"{matrix['platform']}, {matrix['cpu_count']} logical CPUs; "
