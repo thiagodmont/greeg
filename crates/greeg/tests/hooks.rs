@@ -409,12 +409,31 @@ fn config_permissions_survive_restrictive_umasks() {
                     });
                 }
                 let out = command.output().unwrap();
-                assert!(out.status.success(), "{agent}, {mask:o}: {out:?}");
+                let action = if uninstall { "uninstall" } else { "install" };
+                assert!(
+                    out.status.success(),
+                    "{agent}, mask {mask:o}, {action}: {out:?}"
+                );
                 let expected = if uninstall { 0o640 } else { 0o600 };
-                assert_eq!(fs::metadata(&path).unwrap().mode() & 0o777, expected);
-                assert_eq!(fs::metadata(&lock).unwrap().mode() & 0o777, expected);
-                assert_eq!(fs::metadata(&parent).unwrap().mode(), parent_mode);
-                assert!(fs::read_to_string(&path).is_ok());
+                assert_eq!(
+                    fs::metadata(&path).unwrap().mode() & 0o777,
+                    expected,
+                    "{agent}, mask {mask:o}, {action}: config mode"
+                );
+                assert_eq!(
+                    fs::metadata(&lock).unwrap().mode() & 0o777,
+                    expected,
+                    "{agent}, mask {mask:o}, {action}: lock mode"
+                );
+                assert_eq!(
+                    fs::metadata(&parent).unwrap().mode(),
+                    parent_mode,
+                    "{agent}, mask {mask:o}, {action}: parent mode"
+                );
+                assert!(
+                    fs::read_to_string(&path).is_ok(),
+                    "{agent}, mask {mask:o}, {action}: config readable"
+                );
                 fs::set_permissions(&path, fs::Permissions::from_mode(0o640)).unwrap();
                 fs::set_permissions(&lock, fs::Permissions::from_mode(0o640)).unwrap();
             }

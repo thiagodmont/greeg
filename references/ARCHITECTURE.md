@@ -405,6 +405,12 @@ indexes (`rust-analyzer`, `scip-python`, `scip-typescript`), and regression
 gates keyed by host, so a laptop records its numbers but only the reference
 machine can fail the build.
 
+Paired reports share table formatting, result links and latency thresholds in
+`bench/reporting.py`; protocol-specific contracts and explanations stay in
+`bench/bench.py`. Empty datasets produce no section, and failed or undefined
+timing pairs produce no threshold comparison. Configuration recheck identity
+claims require both datasets and matching recorded binary digests.
+
 `bench/parity.py` checks that greeg's match set equals ripgrep's across every
 corpus and query family, in both indexed and scan mode. `bench/soak.py` fires
 randomized queries at randomized edits.

@@ -463,7 +463,7 @@ Invocation failures: 0. Timeouts/launch failures retain their elapsed time and p
 
 Cases above the +10% median / +20% p95 investigation thresholds: **0/20**. Maximum median/p95 increases: 3.2%/15.1%.
 
-The review measurements compare the original atomic-write implementation with the no-op snapshot and umask fixes. The initial 51-pair run flagged Codex installed no-op p95 (+40.2%, 5.31 → 7.44 ms), while its median fell 1.5%. This triggered the retained 151-pair recheck above; both runs use the same binary digests. Restrictive-umask and stale-no-op guarantees are covered by Rust regression tests; these timing fixtures use an ordinary umask. Recurring hook and token measurements above predate these review fixes.
+The review measurements compare the original atomic-write implementation with the no-op snapshot and umask fixes. Both the initial run and latency recheck are retained above. Both runs use the same binary digests. Restrictive-umask and stale-no-op guarantees are covered by Rust regression tests; these timing fixtures use an ordinary umask. Recurring hook and token measurements above predate these review fixes.
 
 ## Speed
 
