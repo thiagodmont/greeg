@@ -4,6 +4,7 @@
 python3 bench/hook_config.py BASELINE CANDIDATE --runs 51 --output result.json
 """
 import argparse
+from datetime import datetime, timezone
 import hashlib
 import json
 import math
@@ -21,6 +22,12 @@ from typing import NamedTuple
 from hooks import benchmark_environment
 
 
+class SkillFixture(NamedTuple):
+    before: bytes | None
+    after: bytes | None
+    unchanged: bool = False
+
+
 class Case(NamedTuple):
     name: str
     uninstall: bool
@@ -28,6 +35,8 @@ class Case(NamedTuple):
     expected: bytes | dict | None
     code: int = 0
     retained: tuple[bytes, ...] = ()
+    skill: SkillFixture | None = None
+    dry_run: bool = False
 
 
 def fixtures(agent):
@@ -89,16 +98,61 @@ def fixtures(agent):
     ]
 
 
+def skill_fixtures(agent, generated):
+    legacy, separator, _ = generated.rpartition(b"\n<!-- greeg-managed-skill:v1 ")
+    if not separator or not legacy:
+        raise ValueError("candidate must generate a managed skill with a v1 marker")
+    installed = next(case.original for case in fixtures(agent) if case.name == "installed_noop")
+    removed = {"hooks": {"PreToolUse": []}} if agent == "claude" else {}
+    custom = b"---\nname: greeg\n---\nUser instructions.\n"
+    edited = generated + b"\nUser addition.\n"
+    cases = []
+    for name, before, after, unchanged in [
+        ("fresh_install", None, generated, False),
+        ("managed_noop", generated, generated, True),
+        ("legacy_upgrade", legacy, generated, False),
+        ("custom_install", custom, custom, True),
+        ("edited_install", edited, edited, True),
+    ]:
+        cases.append(Case(name, False, installed, installed,
+                          skill=SkillFixture(before, after, unchanged)))
+    for name, before, after in [
+        ("managed_uninstall", generated, None),
+        ("legacy_uninstall", legacy, None),
+        ("custom_uninstall", custom, custom),
+        ("edited_uninstall", edited, edited),
+        ("absent_skill_uninstall", None, None),
+    ]:
+        cases.append(Case(name, True, installed, removed,
+                          skill=SkillFixture(before, after, after is not None)))
+    cases.append(Case("managed_dry_uninstall", True, installed, installed,
+                      skill=SkillFixture(generated, generated, True), dry_run=True))
+    return cases
+
+
+def file_identity(path):
+    stat = path.stat()
+    return stat.st_dev, stat.st_ino, stat.st_size, stat.st_mode, stat.st_mtime_ns, stat.st_ctime_ns
+
+
 def invoke(binary, agent, case, base, env):
     home = base / "home"
     if home.exists():
         shutil.rmtree(home)
     path = home / (".claude/settings.json" if agent == "claude" else ".codex/config.toml")
-    _, uninstall, original, expected, code, retained = case
+    uninstall, original, expected, code, retained = case.uninstall, case.original, case.expected, case.code, case.retained
     if original is not None:
         path.parent.mkdir(parents=True)
         path.write_bytes(original)
+    skill_path = home / f".{agent}/skills/greeg/SKILL.md"
+    identity = None
+    if case.skill and case.skill.before is not None:
+        skill_path.parent.mkdir(parents=True, exist_ok=True)
+        skill_path.write_bytes(case.skill.before)
+        identity = file_identity(skill_path)
     args = [str(binary), "hook", agent] + (["--uninstall"] if uninstall else [])
+    if case.dry_run:
+        args.append("--dry-run")
     start = time.perf_counter()
     try:
         run = subprocess.run(args, cwd=base, env=env, stdin=subprocess.DEVNULL,
@@ -109,6 +163,12 @@ def invoke(binary, agent, case, base, env):
                 "stdout_bytes": len(getattr(exc, "stdout", None) or b""),
                 "stderr_bytes": len(getattr(exc, "stderr", None) or b"")}
     elapsed = (time.perf_counter() - start) * 1000
+    skill_ok = True
+    if case.skill:
+        actual_skill = skill_path.read_bytes() if skill_path.exists() else None
+        skill_ok = actual_skill == case.skill.after
+        if case.skill.unchanged:
+            skill_ok = skill_ok and skill_path.exists() and file_identity(skill_path) == identity
     actual = path.read_bytes() if path.exists() else None
     text_preserved = all(fragment in (actual or b"") for fragment in retained)
     if isinstance(expected, dict):
@@ -116,7 +176,7 @@ def invoke(binary, agent, case, base, env):
             actual = json.loads(actual) if agent == "claude" else tomllib.loads(actual.decode())
         except (ValueError, AttributeError, TypeError):
             actual = None
-    return {"ms": elapsed, "contract": run.returncode == code and actual == expected and text_preserved,
+    return {"ms": elapsed, "contract": run.returncode == code and actual == expected and text_preserved and skill_ok,
             "status": run.returncode, "stdout_bytes": len(run.stdout), "stderr_bytes": len(run.stderr)}
 
 
@@ -137,19 +197,22 @@ def main():
     parser.add_argument("baseline", type=Path)
     parser.add_argument("candidate", type=Path)
     parser.add_argument("--runs", type=int, default=51)
+    parser.add_argument("--suite", choices=("configuration", "skills"), default="configuration")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     if args.runs < 1:
         parser.error("--runs must be positive")
     binaries = {k: getattr(args, k).resolve(strict=True) for k in ("baseline", "candidate")}
-    report = {"protocol": 2, "platform": platform.platform(), "python": platform.python_version(),
+    report = {"protocol": 2, "suite": args.suite, "platform": platform.platform(), "python": platform.python_version(),
+              "measured_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
               "runs": args.runs, "warmups": 3, "seed": 20260923,
               "scope": "Installer configuration ownership and process wall time; no live-host, native-search or agent-token claim",
               "failure_policy": "Invocation timeouts/launch errors are failed contracts with actual elapsed time and partial output sizes; timing ratios omitted for rows with invocation failures",
               "environment_policy": "Isolated HOME/CODEX_HOME/config/cache/index; scrub inherited GREEG settings; stats disabled",
               "harness_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
-              "fixtures_sha256": hashlib.sha256(repr([(a, fixtures(a)) for a in ("claude", "codex")]).encode()).hexdigest(),
               "binaries": {}, "results": []}
+    if args.suite == "skills":
+        report["scope"] = "Generated-skill lifecycle and configuration contracts; no live-host, native-search or agent-task token claim"
     rng = random.Random(report["seed"])
     with tempfile.TemporaryDirectory(prefix="greeg-hook-config-") as temp:
         base = Path(temp)
@@ -159,8 +222,19 @@ def main():
             version = subprocess.run([str(binary), "--version"], env=env, cwd=base,
                                      capture_output=True, text=True, check=True, timeout=10).stdout.strip()
             report["binaries"][name] = {"version": version, "sha256": hashlib.sha256(binary.read_bytes()).hexdigest()}
-        for agent in ("claude", "codex"):
-            for case in fixtures(agent):
+        cases = {agent: fixtures(agent) for agent in ("claude", "codex")}
+        if args.suite == "skills":
+            report["skill_templates"] = {}
+            for agent in cases:
+                subprocess.run([str(binaries["candidate"]), "hook", agent], cwd=base, env=env,
+                               capture_output=True, check=True, timeout=10)
+                generated = (base / f"home/.{agent}/skills/greeg/SKILL.md").read_bytes()
+                report["skill_templates"][agent] = generated.decode()
+                cases[agent] = skill_fixtures(agent, generated)
+            report["fixture_policy"] = "Both arms receive identical skill fixtures derived from candidate templates recorded here; no-op and preservation cases require identical content, inode, mode, mtime and ctime. Rust tests independently cover marker validation, atomicity and conflicts."
+        report["fixtures_sha256"] = hashlib.sha256(repr(sorted(cases.items())).encode()).hexdigest()
+        for agent, agent_cases in cases.items():
+            for case in agent_cases:
                 samples = {label: [] for label in binaries}
                 for i in range(3 + args.runs):
                     labels = list(binaries)
@@ -175,6 +249,7 @@ def main():
                         None if any(row[k]["failed_invocations"] for k in binaries)
                         else (row["candidate"][f"{metric}_ms"] / row["baseline"][f"{metric}_ms"] - 1) * 100)
                 report["results"].append(row)
+    report["completed_at"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, indent=2) + "\n")
     for label in binaries:

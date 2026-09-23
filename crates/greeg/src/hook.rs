@@ -377,6 +377,8 @@ pub fn install_claude(uninstall: bool, dry_run: bool) -> Result<()> {
     let config = crate::hook_config::Config::read(&sp)?;
     let (out, had) = edit_claude_config(config.text(), uninstall)
         .with_context(|| format!("edit {}", sp.display()))?;
+    let skill =
+        crate::hook_skill::Skill::read(&kp, &skill_text(Agent::Claude), Agent::Claude, uninstall)?;
     if dry_run {
         println!(
             "{}: {}",
@@ -393,39 +395,34 @@ pub fn install_claude(uninstall: bool, dry_run: bool) -> Result<()> {
                 "would add PreToolUse hook `greeg hook run` (matcher Bash)"
             }
         );
-        println!(
-            "{}: {}",
-            kp.display(),
-            if uninstall {
-                "would remove"
-            } else {
-                "would write the greeg skill"
-            }
-        );
+        println!("{}: {}", kp.display(), skill.description(true));
         return Ok(());
     }
     config.write(&out)?;
+    skill.apply()?;
     if uninstall {
-        let _ = std::fs::remove_file(&kp);
         println!(
-            "removed the greeg hook from {} and {}",
+            "{}: {}\n{}: {}",
             sp.display(),
-            kp.display()
+            if had {
+                "greeg hook removed"
+            } else {
+                "no greeg hook present"
+            },
+            kp.display(),
+            skill.description(false)
         );
     } else {
-        if let Some(p) = kp.parent() {
-            std::fs::create_dir_all(p)?;
-        }
-        std::fs::write(&kp, skill_text(Agent::Claude))?;
         println!(
-            "{}: {}\n{}: skill written\nrestart Claude Code (or /hooks) to pick up the hook; test with: echo '{{\"tool_name\":\"Bash\",\"tool_input\":{{\"command\":\"rg -n foo src\"}}}}' | greeg hook run\nnote: PreToolUse hooks run in parallel (last updatedInput wins); pair Bash(rg:*) allow rules with Bash(greeg:*)",
+            "{}: {}\n{}: {}\nrestart Claude Code (or /hooks) to pick up the hook; test with: echo '{{\"tool_name\":\"Bash\",\"tool_input\":{{\"command\":\"rg -n foo src\"}}}}' | greeg hook run\nnote: PreToolUse hooks run in parallel (last updatedInput wins); pair Bash(rg:*) allow rules with Bash(greeg:*)",
             sp.display(),
             if had {
                 "hook already installed"
             } else {
                 "PreToolUse hook `greeg hook run` added"
             },
-            kp.display()
+            kp.display(),
+            skill.description(false)
         );
     }
     Ok(())
@@ -590,6 +587,8 @@ pub fn install_codex(uninstall: bool, dry_run: bool) -> Result<()> {
     let config = crate::hook_config::Config::read(&cp)?;
     let (out, had) = edit_codex_config(config.text().unwrap_or(""), uninstall)
         .with_context(|| format!("edit {}", cp.display()))?;
+    let skill =
+        crate::hook_skill::Skill::read(&kp, &skill_text(Agent::Codex), Agent::Codex, uninstall)?;
     if dry_run {
         println!(
             "{}: {}",
@@ -606,39 +605,34 @@ pub fn install_codex(uninstall: bool, dry_run: bool) -> Result<()> {
                 "would append PreToolUse hook `greeg hook run --agent codex` (matcher Bash)"
             }
         );
-        println!(
-            "{}: {}",
-            kp.display(),
-            if uninstall {
-                "would remove"
-            } else {
-                "would write the greeg skill"
-            }
-        );
+        println!("{}: {}", kp.display(), skill.description(true));
         return Ok(());
     }
     config.write(&out)?;
+    skill.apply()?;
     if uninstall {
-        let _ = std::fs::remove_file(&kp);
         println!(
-            "removed the greeg hook from {} and {}",
+            "{}: {}\n{}: {}",
             cp.display(),
-            kp.display()
+            if had {
+                "greeg hook removed"
+            } else {
+                "no greeg hook present"
+            },
+            kp.display(),
+            skill.description(false)
         );
     } else {
-        if let Some(p) = kp.parent() {
-            std::fs::create_dir_all(p)?;
-        }
-        std::fs::write(&kp, skill_text(Agent::Codex))?;
         println!(
-            "{}: {}\n{}: skill written\nstart Codex and run /hooks to trust the new hook (untrusted hooks are skipped); test with: echo '{{\"tool_name\":\"Bash\",\"tool_input\":{{\"command\":\"rg -n foo src\"}}}}' | greeg hook run --agent codex\nnote: PreToolUse hooks run in parallel (the last rewrite to finish wins)",
+            "{}: {}\n{}: {}\nstart Codex and run /hooks to trust the new hook (untrusted hooks are skipped); test with: echo '{{\"tool_name\":\"Bash\",\"tool_input\":{{\"command\":\"rg -n foo src\"}}}}' | greeg hook run --agent codex\nnote: PreToolUse hooks run in parallel (the last rewrite to finish wins)",
             cp.display(),
             if had {
                 "hook already installed"
             } else {
                 "PreToolUse hook `greeg hook run --agent codex` appended"
             },
-            kp.display()
+            kp.display(),
+            skill.description(false)
         );
     }
     Ok(())

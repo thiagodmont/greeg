@@ -83,7 +83,19 @@ impl Config {
         self.prepare(text)?.commit()
     }
 
-    fn prepare(&self, text: &str) -> Result<Pending<'_>> {
+    pub fn remove(&self) -> Result<()> {
+        if self.text.is_none() {
+            return self.check_current();
+        }
+        let _lock = self.lock()?;
+        self.check_current()?;
+        fs::remove_file(&self.path).context("remove managed file; original unchanged")?;
+        File::open(self.path.parent().unwrap())
+            .and_then(|directory| directory.sync_all())
+            .context("managed file removed but directory sync failed")
+    }
+
+    fn lock(&self) -> Result<File> {
         let parent = self.path.parent().context("configuration has no parent")?;
         fs::create_dir_all(parent)?;
         let name = self
@@ -142,6 +154,12 @@ impl Config {
                 "configuration changed; retry"
             );
         }
+        Ok(lock)
+    }
+
+    fn prepare(&self, text: &str) -> Result<Pending<'_>> {
+        let lock = self.lock()?;
+        let parent = self.path.parent().context("configuration has no parent")?;
         for _ in 0..32 {
             let path = parent.join(format!(
                 ".greeg-config-{}-{}.tmp",
@@ -184,7 +202,7 @@ impl Config {
         bail!("unable to create an exclusive temporary configuration")
     }
 
-    fn check_current(&self) -> Result<()> {
+    pub fn check_current(&self) -> Result<()> {
         let current = Self::read(&self.path)
             .context("configuration changed or cannot be rechecked; retry")?;
         let same_metadata = match (&self.metadata, &current.metadata) {
@@ -415,11 +433,52 @@ mod tests {
         let second = Config::read(&f.config()).unwrap();
         let error = second.write("second").unwrap_err();
         assert!(error.to_string().contains("busy"));
+        assert!(second.remove().unwrap_err().to_string().contains("busy"));
         assert_eq!(fs::read_to_string(f.config()).unwrap(), "original");
         drop(pending);
         f.assert_no_temps();
         second.write("second").unwrap();
         assert_eq!(fs::read_to_string(f.config()).unwrap(), "second");
+    }
+
+    #[test]
+    fn removal_rechecks_snapshot_and_preserves_replacements() {
+        for change in ["write", "replace", "symlink", "hardlink", "chmod"] {
+            let f = Fixture::new();
+            let path = f.config();
+            fs::write(&path, "original").unwrap();
+            let snapshot = Config::read(&path).unwrap();
+            let other = f.0.join("other");
+            fs::write(&other, "external").unwrap();
+            match change {
+                "write" => fs::write(&path, "edited").unwrap(),
+                "replace" => fs::rename(&other, &path).unwrap(),
+                "symlink" => {
+                    fs::remove_file(&path).unwrap();
+                    symlink(&other, &path).unwrap();
+                }
+                "hardlink" => fs::hard_link(&path, f.0.join("alias")).unwrap(),
+                "chmod" => fs::set_permissions(&path, fs::Permissions::from_mode(0o400)).unwrap(),
+                _ => unreachable!(),
+            }
+            let bytes = fs::read(&path).unwrap();
+            let metadata = fs::symlink_metadata(&path).unwrap();
+            assert!(snapshot.remove().is_err(), "{change}");
+            assert_eq!(fs::read(&path).unwrap(), bytes);
+            assert!(unchanged(&metadata, &fs::symlink_metadata(&path).unwrap()));
+            if change == "hardlink" {
+                assert!(Config::read(&path).unwrap().remove().is_err());
+                assert!(path.exists());
+            }
+        }
+        let f = Fixture::new();
+        let absent = Config::read(&f.config()).unwrap();
+        absent.remove().unwrap();
+        assert!(!f.0.join(".greeg-settings.json.lock").exists());
+        fs::write(f.config(), "new").unwrap();
+        assert!(absent.remove().is_err());
+        Config::read(&f.config()).unwrap().remove().unwrap();
+        assert!(!f.config().exists());
     }
 
     #[test]
@@ -478,7 +537,10 @@ mod tests {
         let path = PathBuf::from(path);
         let config = Config::read(&path).unwrap();
         let pending = config.prepare("replacement").unwrap();
-        fs::write(path.with_extension("ready"), pending.path.to_str().unwrap()).unwrap();
+        let ready = path.with_extension("ready");
+        let staged = path.with_extension("ready.tmp");
+        fs::write(&staged, pending.path.to_str().unwrap()).unwrap();
+        fs::rename(staged, ready).unwrap();
         loop {
             std::thread::park();
         }

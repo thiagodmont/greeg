@@ -393,7 +393,6 @@ fn config_permissions_survive_restrictive_umasks() {
             let lock = parent.join(format!(".greeg-{name}.lock"));
             let skill = parent.join("skills/greeg/SKILL.md");
             fs::create_dir_all(skill.parent().unwrap()).unwrap();
-            fs::write(&skill, "existing skill").unwrap();
             let parent_mode = fs::metadata(&parent).unwrap().mode();
             for uninstall in [false, true] {
                 let mut command = f.command(BIN);
@@ -434,6 +433,12 @@ fn config_permissions_survive_restrictive_umasks() {
                     fs::read_to_string(&path).is_ok(),
                     "{agent}, mask {mask:o}, {action}: config readable"
                 );
+                if uninstall {
+                    assert!(!skill.exists());
+                } else {
+                    assert_eq!(fs::metadata(&skill).unwrap().mode() & 0o777, 0o600);
+                    assert!(fs::read_to_string(&skill).is_ok());
+                }
                 fs::set_permissions(&path, fs::Permissions::from_mode(0o640)).unwrap();
                 fs::set_permissions(&lock, fs::Permissions::from_mode(0o640)).unwrap();
             }
@@ -556,5 +561,248 @@ fn malformed_settings_do_not_change_configs_or_skills() {
                 assert_eq!(fs::read_to_string(&skill).unwrap(), "user skill");
             }
         }
+    }
+}
+
+#[test]
+fn custom_skills_survive_install_and_uninstall() {
+    for agent in ["claude", "codex"] {
+        let f = Fixture::new();
+        let skill = f.0.join(format!("home/.{agent}/skills/greeg/SKILL.md"));
+        fs::create_dir_all(skill.parent().unwrap()).unwrap();
+        let original = b"---\nname: greeg\n---\nMy search instructions.\n";
+        fs::write(&skill, original).unwrap();
+        for uninstall in [false, true] {
+            let mut command = f.command(BIN);
+            command.args(["hook", agent]);
+            if uninstall {
+                command.arg("--uninstall");
+            }
+            let out = command.output().unwrap();
+            assert!(out.status.success(), "{agent}: {out:?}");
+            assert_eq!(
+                fs::read(&skill).unwrap(),
+                original,
+                "{agent}, uninstall={uninstall}"
+            );
+            assert!(
+                String::from_utf8_lossy(&out.stdout).contains("skill preserved"),
+                "{out:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn skill_symlinks_are_refused_before_configuration_changes() {
+    use std::os::unix::fs::symlink;
+    for agent in ["claude", "codex"] {
+        for args in [vec![], vec!["--uninstall"], vec!["--dry-run"]] {
+            let f = Fixture::new();
+            let parent = f.0.join(format!("home/.{agent}"));
+            let skill = parent.join("skills/greeg/SKILL.md");
+            fs::create_dir_all(skill.parent().unwrap()).unwrap();
+            let target = f.0.join("user-notes");
+            fs::write(&target, "keep").unwrap();
+            symlink(&target, &skill).unwrap();
+            let out = f
+                .command(BIN)
+                .args(["hook", agent])
+                .args(args)
+                .output()
+                .unwrap();
+            assert_eq!(out.status.code(), Some(2), "{agent}: {out:?}");
+            assert_eq!(fs::read_to_string(&target).unwrap(), "keep");
+            assert!(
+                fs::symlink_metadata(&skill)
+                    .unwrap()
+                    .file_type()
+                    .is_symlink()
+            );
+            let config = parent.join(if agent == "claude" {
+                "settings.json"
+            } else {
+                "config.toml"
+            });
+            assert!(!config.exists());
+        }
+    }
+}
+
+#[test]
+fn managed_skill_lifecycle_is_atomic_and_preserves_user_edits() {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    for agent in ["claude", "codex"] {
+        let f = Fixture::new();
+        let parent = f.0.join(format!("home/.{agent}"));
+        let skill = parent.join("skills/greeg/SKILL.md");
+        let install = || {
+            let out = f.command(BIN).args(["hook", agent]).output().unwrap();
+            assert!(out.status.success(), "{agent}: {out:?}");
+            out
+        };
+        install();
+        let generated = fs::read_to_string(&skill).unwrap();
+        let (legacy, _) = generated
+            .rsplit_once("\n<!-- greeg-managed-skill:v1 ")
+            .unwrap();
+        let metadata = fs::metadata(&skill).unwrap();
+        let out = install();
+        assert!(String::from_utf8_lossy(&out.stdout).contains("skill already current"));
+        assert_eq!(fs::metadata(&skill).unwrap().ino(), metadata.ino());
+        assert_eq!(
+            fs::metadata(&skill).unwrap().modified().unwrap(),
+            metadata.modified().unwrap()
+        );
+        assert_eq!(fs::read_to_string(&skill).unwrap(), generated);
+
+        for (body, expected_message) in [
+            (
+                generated.as_str(),
+                "would remove the unmodified greeg skill",
+            ),
+            ("custom skill", "skill preserved"),
+        ] {
+            fs::write(&skill, body).unwrap();
+            let out = f
+                .command(BIN)
+                .args(["hook", agent, "--uninstall", "--dry-run"])
+                .output()
+                .unwrap();
+            assert!(out.status.success(), "{out:?}");
+            assert!(String::from_utf8_lossy(&out.stdout).contains(expected_message));
+            assert_eq!(fs::read_to_string(&skill).unwrap(), body);
+        }
+
+        fs::write(&skill, legacy).unwrap();
+        fs::set_permissions(&skill, fs::Permissions::from_mode(0o640)).unwrap();
+        let mut original = fs::File::open(&skill).unwrap();
+        install();
+        assert_eq!(fs::read_to_string(&skill).unwrap(), generated);
+        assert_eq!(fs::metadata(&skill).unwrap().mode() & 0o777, 0o640);
+        let mut old_body = String::new();
+        original.read_to_string(&mut old_body).unwrap();
+        assert_eq!(
+            old_body, legacy,
+            "legacy adoption must replace, not truncate"
+        );
+
+        let previous = "previous generated instructions\n";
+        let old_managed = format!(
+            "{previous}\n<!-- greeg-managed-skill:v1 agent={agent} blake3={} -->\n",
+            blake3::hash(previous.as_bytes()).to_hex()
+        );
+        fs::write(&skill, old_managed).unwrap();
+        install();
+        assert_eq!(fs::read_to_string(&skill).unwrap(), generated);
+
+        let edited = generated.replace("# greeg", "# My greeg");
+        fs::write(&skill, &edited).unwrap();
+        install();
+        assert_eq!(fs::read_to_string(&skill).unwrap(), edited);
+        let out = f
+            .command(BIN)
+            .args(["hook", agent, "--uninstall"])
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{out:?}");
+        assert_eq!(fs::read_to_string(&skill).unwrap(), edited);
+        assert!(String::from_utf8_lossy(&out.stdout).contains("skill preserved"));
+        for body in [generated.as_str(), legacy] {
+            fs::write(&skill, body).unwrap();
+            let out = f
+                .command(BIN)
+                .args(["hook", agent, "--uninstall"])
+                .output()
+                .unwrap();
+            assert!(out.status.success(), "{out:?}");
+            assert!(!skill.exists());
+        }
+    }
+}
+
+#[test]
+fn invalid_skill_files_stop_before_configuration_changes() {
+    for agent in ["claude", "codex"] {
+        for directory in [false, true] {
+            let f = Fixture::new();
+            let parent = f.0.join(format!("home/.{agent}"));
+            let skill = parent.join("skills/greeg/SKILL.md");
+            fs::create_dir_all(skill.parent().unwrap()).unwrap();
+            if directory {
+                fs::create_dir(&skill).unwrap();
+            } else {
+                fs::write(&skill, b"\xffuser data").unwrap();
+            }
+            for uninstall in [false, true] {
+                let mut command = f.command(BIN);
+                command.args(["hook", agent]);
+                if uninstall {
+                    command.arg("--uninstall");
+                }
+                let out = command.output().unwrap();
+                assert_eq!(out.status.code(), Some(2), "{out:?}");
+                let config = parent.join(if agent == "claude" {
+                    "settings.json"
+                } else {
+                    "config.toml"
+                });
+                assert!(!config.exists());
+                if directory {
+                    assert!(skill.is_dir());
+                } else {
+                    assert_eq!(fs::read(&skill).unwrap(), b"\xffuser data");
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn failed_skill_publication_reports_applied_configuration() {
+    use std::os::unix::process::CommandExt;
+    for agent in ["claude", "codex"] {
+        let f = Fixture::new();
+        let mut command = f.command(BIN);
+        command.args(["hook", agent]);
+        // SAFETY: only async-signal-safe calls run in the forked child.
+        unsafe {
+            command.pre_exec(|| {
+                libc::signal(libc::SIGXFSZ, libc::SIG_IGN);
+                let limit = libc::rlimit {
+                    rlim_cur: 512,
+                    rlim_max: 512,
+                };
+                if libc::setrlimit(libc::RLIMIT_FSIZE, &limit) != 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
+        let out = command.output().unwrap();
+        assert_eq!(out.status.code(), Some(2), "{out:?}");
+        assert!(String::from_utf8_lossy(&out.stderr).contains("hook configuration was applied"));
+        let parent = f.0.join(format!("home/.{agent}"));
+        let config = parent.join(if agent == "claude" {
+            "settings.json"
+        } else {
+            "config.toml"
+        });
+        assert!(
+            fs::read_to_string(config)
+                .unwrap()
+                .contains("greeg hook run")
+        );
+        let skill = parent.join("skills/greeg/SKILL.md");
+        assert!(!skill.exists());
+        assert!(
+            !fs::read_dir(skill.parent().unwrap())
+                .unwrap()
+                .any(|entry| entry
+                    .unwrap()
+                    .path()
+                    .extension()
+                    .is_some_and(|extension| extension == "tmp"))
+        );
     }
 }

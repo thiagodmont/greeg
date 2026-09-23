@@ -313,6 +313,92 @@ Hook process median latency changes ranged from -1.1% to +3.6%. Cases above the 
 
 [Raw samples, reply sizes, and binary/corpus digests](../bench/results/atomic-config-rewrites-2026-09-23-darwin-arm64.json). Reproduce: `python3 bench/hooks.py BASELINE CANDIDATE --runs 151 --tokens --output atomic-config-rewrites-2026-09-23-darwin-arm64.json`.
 
+## Generated skills: recurring hook regression (2026-09-23)
+
+Measurement time: 2026-09-23T15:14:56.373966Z (recorded).
+
+Initial 151-pair run: all 28 hook contracts and 40 exact search comparisons pass, with identical reply bytes/tokens. One p95 exceeds the +20% investigation threshold: Codex count_miss changes 6.438 → 7.799 ms (+21.2%) while its median decreases. This run is retained alongside the larger confirmation below.
+
+`greeg 0.6.0+9fb9f030e` → `greeg 0.6.0+9fb9f030e.dirty`; 151 randomized pairs per case after 3 warmups. The candidate passed 28/28 hook eligibility/explicit-policy checks. Candidate file/count match-row and exit-status checks: 20/20 against ripgrep 15.2.0. Explicit source paths and expected hit/miss assertions exercise both scan and full-index searches, including files over 4 MiB and explicit size limits. The oracle ignores row ordering and does not require identical stderr.
+
+Hook process median latency changes ranged from -2.1% to +2.4%. Cases above the 10% median / 20% p95 investigation thresholds: **1**.
+
+| Host protocol | Case | Median ms, before → after | p95 ms, before → after | Reply tokens, before → after |
+|---|---|---:|---:|---:|
+| claude | ranked | 4.237 → 4.324 | 6.746 → 6.283 | 46 → 46 |
+| claude | files | 3.999 → 4.092 | 4.830 → 4.625 | 48 → 48 |
+| claude | count miss | 3.933 → 3.979 | 4.735 → 4.512 | 49 → 49 |
+| claude | quoted | 3.707 → 3.765 | 5.591 → 5.271 | 51 → 51 |
+| claude | trailing newline | 3.658 → 3.682 | 4.981 → 5.131 | 46 → 46 |
+| claude | size limit | 4.279 → 4.269 | 6.831 → 7.959 | 46 → 46 |
+| claude | recursive grep | 4.110 → 4.100 | 5.584 → 5.839 | 0 → 0 |
+| claude | grep file | 3.738 → 3.761 | 4.884 → 5.494 | 0 → 0 |
+| claude | json | 3.635 → 3.687 | 4.566 → 4.959 | 0 → 0 |
+| claude | executable path | 3.611 → 3.650 | 4.656 → 4.755 | 0 → 0 |
+| claude | comment | 4.031 → 4.104 | 6.316 → 5.467 | 0 → 0 |
+| claude | pipeline | 3.689 → 3.719 | 5.348 → 5.294 | 0 → 0 |
+| claude | compound | 3.710 → 3.713 | 5.603 → 5.478 | 0 → 0 |
+| claude | config | 3.396 → 3.406 | 4.172 → 4.646 | 0 → 0 |
+| codex | ranked | 3.565 → 3.616 | 4.194 → 4.331 | 51 → 51 |
+| codex | files | 3.738 → 3.767 | 4.418 → 4.301 | 53 → 53 |
+| codex | count miss | 4.556 → 4.480 | 6.438 → 7.799 | 54 → 54 |
+| codex | quoted | 3.894 → 3.960 | 7.016 → 7.348 | 56 → 56 |
+| codex | trailing newline | 3.894 → 3.987 | 6.297 → 6.426 | 51 → 51 |
+| codex | size limit | 3.757 → 3.771 | 4.322 → 4.669 | 51 → 51 |
+| codex | recursive grep | 3.832 → 3.902 | 4.740 → 4.868 | 0 → 0 |
+| codex | grep file | 3.522 → 3.571 | 4.543 → 4.398 | 0 → 0 |
+| codex | json | 3.667 → 3.723 | 4.536 → 5.090 | 0 → 0 |
+| codex | executable path | 3.858 → 3.908 | 5.458 → 5.091 | 0 → 0 |
+| codex | comment | 3.859 → 3.841 | 6.081 → 6.612 | 0 → 0 |
+| codex | pipeline | 4.264 → 4.175 | 6.659 → 6.149 | 0 → 0 |
+| codex | compound | 3.831 → 3.918 | 5.290 → 5.127 | 0 → 0 |
+| codex | config | 3.977 → 4.050 | 5.575 → 5.674 | 0 → 0 |
+
+[Raw samples, reply sizes, and binary/corpus digests](../bench/results/skill-hook-regression-2026-09-23-darwin-arm64.json). Reproduce: `python3 bench/hooks.py BASELINE CANDIDATE --runs 151 --tokens --output skill-hook-regression-2026-09-23-darwin-arm64.json`.
+
+## Generated skills: recurring hook confirmation (2026-09-23)
+
+Measurement time: 2026-09-23T15:16:49.229448Z (recorded).
+
+A 301-pair confirmation with the same binary digests has no cases above +10% median / +20% p95. Maximum median/p95 increases are +5.6%/+13.7%; Codex count_miss p95 is 4.686 → 4.780 ms (+2.0%). All 28 hook contracts and 40 search comparisons pass, with unchanged reply bytes/tokens. Both runs are retained; these warm synthetic measurements do not establish cold-cache or agent-task performance.
+
+`greeg 0.6.0+9fb9f030e` → `greeg 0.6.0+9fb9f030e.dirty`; 301 randomized pairs per case after 3 warmups. The candidate passed 28/28 hook eligibility/explicit-policy checks. Candidate file/count match-row and exit-status checks: 20/20 against ripgrep 15.2.0. Explicit source paths and expected hit/miss assertions exercise both scan and full-index searches, including files over 4 MiB and explicit size limits. The oracle ignores row ordering and does not require identical stderr.
+
+Hook process median latency changes ranged from -0.4% to +5.6%. Cases above the 10% median / 20% p95 investigation thresholds: **0**.
+
+| Host protocol | Case | Median ms, before → after | p95 ms, before → after | Reply tokens, before → after |
+|---|---|---:|---:|---:|
+| claude | ranked | 4.412 → 4.418 | 6.393 → 6.099 | 46 → 46 |
+| claude | files | 3.674 → 3.668 | 5.490 → 5.236 | 48 → 48 |
+| claude | count miss | 3.668 → 3.743 | 5.765 → 5.351 | 49 → 49 |
+| claude | quoted | 3.740 → 3.744 | 5.368 → 5.373 | 51 → 51 |
+| claude | trailing newline | 4.009 → 4.075 | 6.152 → 6.403 | 46 → 46 |
+| claude | size limit | 3.446 → 3.516 | 4.884 → 4.860 | 46 → 46 |
+| claude | recursive grep | 3.397 → 3.451 | 5.172 → 5.302 | 0 → 0 |
+| claude | grep file | 3.565 → 3.574 | 5.242 → 5.232 | 0 → 0 |
+| claude | json | 3.722 → 3.719 | 5.121 → 5.328 | 0 → 0 |
+| claude | executable path | 3.457 → 3.490 | 5.540 → 5.575 | 0 → 0 |
+| claude | comment | 4.054 → 4.039 | 5.839 → 6.072 | 0 → 0 |
+| claude | pipeline | 4.078 → 4.100 | 8.948 → 9.959 | 0 → 0 |
+| claude | compound | 3.591 → 3.612 | 4.110 → 4.270 | 0 → 0 |
+| claude | config | 3.749 → 3.806 | 5.528 → 5.425 | 0 → 0 |
+| codex | ranked | 3.550 → 3.603 | 4.998 → 4.873 | 51 → 51 |
+| codex | files | 3.827 → 3.900 | 6.278 → 6.372 | 53 → 53 |
+| codex | count miss | 3.696 → 3.719 | 4.686 → 4.780 | 54 → 54 |
+| codex | quoted | 3.939 → 3.988 | 5.604 → 5.655 | 56 → 56 |
+| codex | trailing newline | 3.672 → 3.749 | 5.348 → 5.313 | 51 → 51 |
+| codex | size limit | 3.817 → 3.859 | 5.454 → 5.267 | 51 → 51 |
+| codex | recursive grep | 4.084 → 4.276 | 6.397 → 6.558 | 0 → 0 |
+| codex | grep file | 4.806 → 4.888 | 8.809 → 9.129 | 0 → 0 |
+| codex | json | 4.398 → 4.620 | 9.104 → 8.172 | 0 → 0 |
+| codex | executable path | 4.295 → 4.402 | 8.159 → 8.196 | 0 → 0 |
+| codex | comment | 7.742 → 7.840 | 20.949 → 19.004 | 0 → 0 |
+| codex | pipeline | 7.065 → 7.304 | 10.963 → 11.512 | 0 → 0 |
+| codex | compound | 8.618 → 9.100 | 20.366 → 23.153 | 0 → 0 |
+| codex | config | 8.937 → 9.083 | 17.195 → 19.253 | 0 → 0 |
+
+[Raw samples, reply sizes, and binary/corpus digests](../bench/results/skill-hook-recheck-2026-09-23-darwin-arm64.json). Reproduce: `python3 bench/hooks.py BASELINE CANDIDATE --runs 301 --tokens --output skill-hook-recheck-2026-09-23-darwin-arm64.json`.
+
 The initial run triggered a longer paired recheck; both are retained. Reply tokens count only hook JSON with the recorded tokenizer, not search results or total agent usage. Explicit matching and file-size flags add reply cost; declined commands emit no reply and continue with the original tool. Tests use synthetic fixtures and the recorded response shapes, not live host approvals. No new cold-cache, RSS, native-search performance, or whole-task token claim is made.
 
 ## Disposable edit and soak corpora (2026-09-23)
@@ -524,6 +610,88 @@ Invocation failures: 0. Timeouts/launch failures retain their elapsed time and p
 Cases above the +10% median / +20% p95 investigation thresholds: **0/20**. Maximum median/p95 increases: 3.2%/15.1%.
 
 The review measurements compare the original atomic-write implementation with the no-op snapshot and umask fixes. Both the initial run and latency recheck are retained above. Both runs use the same binary digests. Restrictive-umask and stale-no-op guarantees are covered by Rust regression tests; these timing fixtures use an ordinary umask. Recurring hook and token measurements above predate these review fixes.
+
+## Generated skill ownership (2026-09-23)
+
+Measurement time: 2026-09-23T15:13:27.993943Z (recorded).
+
+Atomic skill creation and legacy adoption add 6.9–8.2 ms at the median; managed/legacy removal adds 2.1–3.8 ms for snapshot checks, locking and directory sync. These exceed investigation thresholds and are an installation/removal reliability cost. Already-current skills remain near 4 ms without rewriting. The complete generated skill text increases from 789 to 840 o200k_base tokens for Claude and 764 to 818 for Codex (ownership marker only; not an agent-task savings measurement). Rust tests cover unsafe paths, conflicts and failed publication.
+
+`greeg 0.6.0+9fb9f030e` → `greeg 0.6.0+9fb9f030e.dirty`; 51 randomized paired runs per case after 3 warmups. Each invocation uses a reset disposable home and an isolated configuration/cache. Timing includes process startup and installation/removal, excluding fixture reset and validation.
+
+**Skill and configuration contracts:** 8/22 → 22/22. Checks cover skill creation, managed no-ops, legacy adoption, edited/custom preservation, managed/legacy removal, absent skills and dry runs, alongside configuration outcomes. Preservation and no-op cases require identical content, inode, mode, mtime and ctime. Baseline failures are not equivalent successful work; their timing differences are not speedup claims.
+
+| Host | Case | Median ms, before → after | p95 ms, before → after |
+|---|---|---:|---:|
+| claude | fresh install | 4.342 → 11.992 | 4.894 → 13.377 |
+| claude | managed noop | 4.082 → 3.962 | 5.224 → 5.162 |
+| claude | legacy upgrade | 4.165 → 12.414 | 5.173 → 13.928 |
+| claude | custom install | 4.110 → 3.993 | 5.340 → 5.057 |
+| claude | edited install | 3.762 → 3.845 | 4.946 → 4.879 |
+| claude | managed uninstall | 12.431 → 15.794 | 13.368 → 18.315 |
+| claude | legacy uninstall | 12.074 → 15.854 | 14.095 → 17.896 |
+| claude | custom uninstall | 12.049 → 12.090 | 13.715 → 13.883 |
+| claude | edited uninstall | 11.501 → 11.494 | 14.819 → 15.193 |
+| claude | absent skill uninstall | 11.938 → 12.110 | 13.062 → 12.852 |
+| claude | managed dry uninstall | 3.708 → 3.728 | 4.493 → 4.832 |
+| codex | fresh install | 4.286 → 11.160 | 5.009 → 12.874 |
+| codex | managed noop | 3.806 → 3.788 | 4.725 → 4.862 |
+| codex | legacy upgrade | 4.180 → 11.542 | 5.247 → 12.796 |
+| codex | custom install | 4.016 → 4.031 | 7.325 → 5.263 |
+| codex | edited install | 4.077 → 3.824 | 5.569 → 4.833 |
+| codex | managed uninstall | 12.965 → 15.055 | 14.422 → 17.725 |
+| codex | legacy uninstall | 12.832 → 15.586 | 13.849 → 17.723 |
+| codex | custom uninstall | 12.759 → 12.772 | 13.157 → 13.056 |
+| codex | edited uninstall | 12.804 → 12.787 | 13.128 → 13.082 |
+| codex | absent skill uninstall | 11.306 → 11.326 | 13.033 → 12.528 |
+| codex | managed dry uninstall | 3.939 → 4.013 | 4.612 → 4.533 |
+
+[Raw samples, output bytes/statuses, fixture/harness hashes and binary digests](../bench/results/skill-ownership-2026-09-23-darwin-arm64.json). Reproduce: `python3 bench/hook_config.py BASELINE CANDIDATE --suite skills --runs 51 --output skill-ownership-2026-09-23-darwin-arm64.json`.
+
+These checks validate skill lifecycle and configuration editing, not live host approval behavior. No agent-task token, native-search latency, atomic-write or concurrent-edit safety claim is made. Positional hook IDs may shift on removal; stored trust records are retained unchanged.
+
+Invocation failures: 0. Timeouts/launch failures retain their elapsed time and partial output sizes, fail the contract, and suppress the affected timing ratios. Version probes remain preflight checks.
+
+## Generated skills: configuration regression (2026-09-23)
+
+Measurement time: 2026-09-23T15:14:09.153688Z (recorded).
+
+All 20 existing configuration contracts remain valid. Six installation cases exceed latency thresholds because they now atomically publish a missing skill, adding 6.8–7.7 ms at the median. The fixture named installed_noop has an installed hook but no skill; it is only a configuration no-op. See the skill lifecycle suite for a true managed-skill no-op. Other configuration-case median increases stay below 10%.
+
+`greeg 0.6.0+9fb9f030e` → `greeg 0.6.0+9fb9f030e.dirty`; 51 randomized paired runs per case after 3 warmups. Each invocation uses a reset disposable home and an isolated configuration/cache. Timing includes process startup and installation/removal, excluding fixture reset and validation.
+
+**Configuration contracts:** 20/20 → 20/20. Checks cover mixed handlers, prefix lookalikes, non-command handlers, wrong matchers, invalid UTF-8, missing-file uninstall and initial installation. Protocol 2 also checks byte-identical installed no-ops, matcher-less cleanup, custom matcher preservation, and retained TOML comments/trust data. Baseline failures are not equivalent successful work; their timing differences are not speedup claims.
+
+| Host | Case | Median ms, before → after | p95 ms, before → after |
+|---|---|---:|---:|
+| claude | mixed uninstall | 12.231 → 12.264 | 15.006 → 14.412 |
+| claude | prefix uninstall | 3.881 → 3.946 | 4.873 → 5.812 |
+| claude | prompt uninstall | 3.485 → 3.661 | 4.606 → 4.571 |
+| claude | wrong matcher install | 12.960 → 19.935 | 13.491 → 21.759 |
+| claude | installed noop | 4.216 → 11.366 | 5.016 → 12.559 |
+| claude | matcherless uninstall | 11.302 → 11.429 | 12.532 → 12.951 |
+| claude | custom matcher uninstall | 11.509 → 11.785 | 13.290 → 13.216 |
+| claude | invalid utf8 | 3.702 → 3.588 | 4.023 → 4.158 |
+| claude | absent uninstall | 3.474 → 3.583 | 4.507 → 5.096 |
+| claude | empty install | 12.530 → 20.254 | 13.419 → 22.109 |
+| codex | mixed uninstall | 12.245 → 12.315 | 15.600 → 15.580 |
+| codex | prefix uninstall | 3.979 → 4.003 | 6.109 → 6.369 |
+| codex | prompt uninstall | 3.669 → 3.745 | 4.195 → 4.359 |
+| codex | wrong matcher install | 13.425 → 20.966 | 16.462 → 23.780 |
+| codex | installed noop | 4.216 → 11.387 | 11.161 → 15.139 |
+| codex | matcherless uninstall | 12.991 → 13.144 | 14.955 → 14.787 |
+| codex | custom matcher uninstall | 13.184 → 13.191 | 14.637 → 14.333 |
+| codex | invalid utf8 | 3.537 → 3.671 | 4.786 → 5.013 |
+| codex | absent uninstall | 3.835 → 4.054 | 5.878 → 5.767 |
+| codex | empty install | 13.510 → 20.358 | 25.550 → 28.162 |
+
+[Raw samples, output bytes/statuses, fixture/harness hashes and binary digests](../bench/results/skill-config-regression-2026-09-23-darwin-arm64.json). Reproduce: `python3 bench/hook_config.py BASELINE CANDIDATE --runs 51 --output skill-config-regression-2026-09-23-darwin-arm64.json`.
+
+These checks validate configuration editing, not live host approval behavior. No token, native-search latency, atomic-write or concurrent-edit safety claim is made. Positional hook IDs may shift on removal; stored trust records are retained unchanged.
+
+Invocation failures: 0. Timeouts/launch failures retain their elapsed time and partial output sizes, fail the contract, and suppress the affected timing ratios. Version probes remain preflight checks.
+
+Cases above the +10% median / +20% p95 investigation thresholds: **6/20**. Maximum median/p95 increases: 170.1%/150.4%.
 
 ## Speed
 

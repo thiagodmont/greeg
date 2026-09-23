@@ -3,6 +3,7 @@
 mod doctor;
 mod hook;
 mod hook_config;
+mod hook_skill;
 mod stats;
 mod verbs_out;
 

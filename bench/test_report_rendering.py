@@ -92,6 +92,8 @@ class PairedRenderingTests(unittest.TestCase):
     def test_headings_link_known_prs_and_do_not_guess_missing_ones(self):
         entry = Dataset("test", "hook", "test.json", "Measurement")
         self.assertEqual(report_heading(entry), ["## Measurement", ""])
+        self.assertEqual(report_heading(replace(entry, notes="Run-specific limits.")),
+                         ["## Measurement", "", "Run-specific limits.", ""])
         self.assertEqual(report_heading(replace(entry, title="Recheck", pr=18), level=3),
                          ["### Recheck", "", "Originating PR: [#18](https://github.com/thiagodmont/greeg/pull/18).", ""])
 
