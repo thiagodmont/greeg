@@ -265,6 +265,16 @@ fn kind_counts_and_multiline_noncode_agree_across_backends() {
 }
 
 #[test]
+fn a_definition_after_many_uses_is_shown_by_both_backends() {
+    let body = format!("{}fn marker() {{}}\n", "// marker\n".repeat(70));
+    let f = Fixture::new(&[("src/late.rs", &body)]);
+    f.indexed();
+    for o in [f.run(&["marker", "--json"]), f.scan(&["marker", "--json"])] {
+        assert!(stdout(&o).contains(r#""line_number":71"#), "{o:?}");
+    }
+}
+
+#[test]
 fn scan_excludes_header_marked_generated_files() {
     let f = Fixture::new(&[(
         "src/auto.rs",

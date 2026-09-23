@@ -6,7 +6,7 @@
 use crate::Options;
 use anyhow::Result;
 use greeg_index::Index;
-use greeg_index::skipped::{DIR, IGNORED};
+use greeg_index::skipped::{DIR, IGNORED, UNKNOWN};
 use greeg_lang::FileFlags;
 use ignore::overrides::Override;
 use ignore::types::Types;
@@ -74,6 +74,17 @@ impl<'a> Selection<'a> {
     /// ripgrep checks an override glob before ignore rules and hidden names,
     /// and a type after ignore rules but before hidden names.
     pub(crate) fn reaches(&self, rel: &str, bits: u8) -> Reach {
+        if bits & UNKNOWN != 0 {
+            // children not listed exactly: whatever the request selects there
+            let inside = |p: &String| {
+                rel.is_empty()
+                    || p.is_empty()
+                    || p.starts_with(rel) && p.as_bytes().get(rel.len()) == Some(&b'/')
+            };
+            let overlaps =
+                crate::indexed::path_allowed(rel, &self.paths) || self.paths.iter().any(inside);
+            return if overlaps { Reach::Dir } else { Reach::No };
+        }
         if bits & DIR != 0 {
             let walked = crate::indexed::path_allowed(rel, &self.paths)
                 && self
@@ -179,5 +190,24 @@ impl<'a> Selection<'a> {
         } else {
             0
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_unlisted_directory_needs_the_scan_where_the_request_reaches_it() {
+        let o = Options {
+            globs: vec!["*.rs".into()],
+            ..Default::default()
+        };
+        let whole = Selection::new(&o, Vec::new()).unwrap();
+        assert_eq!(whole.reaches("src", UNKNOWN), Reach::Dir);
+        let docs = Selection::new(&o, vec!["docs".into()]).unwrap();
+        assert_eq!(docs.reaches("src", UNKNOWN), Reach::No);
+        assert_eq!(docs.reaches("", UNKNOWN), Reach::Dir);
+        assert_eq!(docs.reaches("docs/a", UNKNOWN), Reach::Dir);
     }
 }

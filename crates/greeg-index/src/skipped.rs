@@ -13,13 +13,17 @@ use anyhow::{Context, Result, bail};
 use hashbrown::HashSet;
 use std::collections::BTreeMap;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// A directory (otherwise a regular file).
 pub const DIR: u8 = 1;
 /// Excluded by an ignore rule (otherwise only for its hidden name, or a
 /// tracked-only ignore file).
 pub const IGNORED: u8 = 2;
+/// The directory's children could not be listed exactly (a read error, or
+/// a name that is not UTF-8): the entry stands for the directory itself,
+/// and only a scan covers it.
+pub const UNKNOWN: u8 = 4;
 
 /// One directory's skipped children: (name, bits).
 pub type Children = Vec<(String, u8)>;
@@ -55,21 +59,31 @@ impl Skipped {
         }
     }
 
-    /// Every skipped entry as (root-relative path, bits).
+    /// Every skipped entry as (root-relative path, bits); an `UNKNOWN`
+    /// entry's path is its directory.
     pub fn entries(&self) -> impl Iterator<Item = (String, u8)> + '_ {
-        self.by_dir
-            .iter()
-            .flat_map(|(d, kids)| kids.iter().map(move |(n, b)| (join(d, n), *b)))
+        self.by_dir.iter().flat_map(|(d, kids)| {
+            kids.iter().map(move |(n, b)| {
+                if n.is_empty() {
+                    (d.clone(), *b)
+                } else {
+                    (join(d, n), *b)
+                }
+            })
+        })
     }
 
     pub fn serialize(&self) -> Vec<u8> {
         let mut out = Vec::new();
         let n: usize = self.by_dir.values().map(Vec::len).sum();
         out.extend_from_slice(&(n as u32).to_le_bytes());
-        for (rel, bits) in self.entries() {
-            out.push(bits);
-            out.extend_from_slice(&(rel.len() as u32).to_le_bytes());
-            out.extend_from_slice(rel.as_bytes());
+        for (d, kids) in &self.by_dir {
+            for (name, bits) in kids {
+                let rel = join(d, name);
+                out.push(*bits);
+                out.extend_from_slice(&(rel.len() as u32).to_le_bytes());
+                out.extend_from_slice(rel.as_bytes());
+            }
         }
         out
     }
@@ -106,16 +120,19 @@ impl Skipped {
         format::write_atomic_with(path, format::COMP_SKIPPED, &self.serialize(), false)
     }
 
-    /// The record the manifest of the index in `dir` names. `None` when it
-    /// names none (built before the record existed) or it cannot be read:
-    /// coverage is then unknown.
-    pub fn read(dir: &Path, name: &str) -> Option<Skipped> {
-        if name.is_empty() || name.starts_with('/') || name.split('/').any(|c| c == "..") {
-            return None;
-        }
-        let bytes = fs::read(dir.join(name)).ok()?;
-        Skipped::parse(format::check_header(&bytes, format::COMP_SKIPPED).ok()?).ok()
+    /// A record file's contents; `None` when it is not a valid record.
+    pub fn from_file_bytes(bytes: &[u8]) -> Option<Skipped> {
+        Skipped::parse(format::check_header(bytes, format::COMP_SKIPPED).ok()?).ok()
     }
+}
+
+/// Where the record a manifest names lives. `None` when it names none
+/// (built before the record existed): coverage is then unknown.
+pub fn path(dir: &Path, name: &str) -> Option<PathBuf> {
+    if name.is_empty() || name.starts_with('/') || name.split('/').any(|c| c == "..") {
+        return None;
+    }
+    Some(dir.join(name))
 }
 
 /// The skipped children of each walked directory in `dirs`: every regular
@@ -138,7 +155,7 @@ pub fn list(
             .map(|part| {
                 sc.spawn(move || {
                     part.iter()
-                        .filter_map(|d| Some((d.to_string(), children(root, d, kept, hidden)?)))
+                        .map(|d| (d.to_string(), children(root, d, kept, hidden)))
                         .collect::<Vec<_>>()
                 })
             })
@@ -150,25 +167,25 @@ pub fn list(
     })
 }
 
-fn children(
-    root: &Path,
-    d: &str,
-    kept: &HashSet<&str>,
-    hidden: &HashSet<&str>,
-) -> Option<Children> {
-    let rd = fs::read_dir(if d.is_empty() {
+fn children(root: &Path, d: &str, kept: &HashSet<&str>, hidden: &HashSet<&str>) -> Children {
+    let unknown = || vec![(String::new(), UNKNOWN)];
+    let Ok(rd) = fs::read_dir(if d.is_empty() {
         root.to_path_buf()
     } else {
         root.join(d)
-    })
-    .ok()?;
+    }) else {
+        return unknown();
+    };
     let mut kids = Vec::new();
-    for e in rd.flatten() {
+    for e in rd {
+        let Ok(e) = e else { return unknown() };
         let Ok(ft) = e.file_type() else { continue };
         if !ft.is_dir() && !ft.is_file() {
             continue;
         }
-        let name = e.file_name().to_string_lossy().into_owned();
+        let Some(name) = e.file_name().to_str().map(str::to_string) else {
+            return unknown();
+        };
         let rel = join(d, &name);
         let yielded = kept.contains(rel.as_str());
         if yielded && !(ft.is_file() && is_ignore_file(&name)) {
@@ -181,7 +198,7 @@ fn children(
         kids.push((name, bits));
     }
     kids.sort();
-    Some(kids)
+    kids
 }
 
 #[cfg(test)]
@@ -210,6 +227,47 @@ mod tests {
         s2.update(&[("src".into(), vec![]), ("".into(), vec![(".x".into(), 0)])]);
         assert_eq!(s2.entries().collect::<Vec<_>>(), [(".x".to_string(), 0)]);
         assert!(Skipped::parse(&[1, 0, 0, 0]).is_err());
-        assert!(Skipped::read(Path::new("/"), "../x").is_none());
+        assert!(path(Path::new("/"), "../x").is_none());
+    }
+
+    #[test]
+    fn a_directory_that_cannot_be_listed_is_unknown() {
+        let kept = HashSet::new();
+        let got = list(
+            Path::new("/nonexistent-greeg-root"),
+            &["", "a"],
+            &kept,
+            &kept,
+        );
+        assert_eq!(
+            got,
+            [
+                ("".to_string(), vec![(String::new(), UNKNOWN)]),
+                ("a".to_string(), vec![(String::new(), UNKNOWN)])
+            ]
+        );
+        let mut s = Skipped::default();
+        s.update(&got);
+        let back = Skipped::parse(&s.serialize()).unwrap();
+        assert_eq!(
+            back.entries().collect::<Vec<_>>(),
+            [("".to_string(), UNKNOWN), ("a".to_string(), UNKNOWN)]
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_name_that_is_not_utf8_makes_its_directory_unknown() {
+        use std::os::unix::ffi::OsStrExt;
+        let base = std::env::temp_dir().join(format!("greeg-skipped-utf8-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        fs::create_dir_all(&base).unwrap();
+        fs::write(base.join(std::ffi::OsStr::from_bytes(b".h\xff.rs")), "x").unwrap();
+        let kept = HashSet::new();
+        assert_eq!(
+            list(&base, &[""], &kept, &kept),
+            [("".to_string(), vec![(String::new(), UNKNOWN)])]
+        );
+        let _ = fs::remove_dir_all(&base);
     }
 }

@@ -730,6 +730,8 @@ impl Sink for CollectSink<'_> {
             };
             last_kept = keep;
             if keep {
+                // the qualifying occurrence always fits the per-line limit
+                subs.truncate(self.max_per_line.saturating_sub(1));
                 let primary = subs.len();
                 subs.push((ms, me));
                 self.hits.push(LineHit {
@@ -1581,11 +1583,12 @@ pub(crate) fn process_file(
     } else {
         MAX_HITS_PER_FILE
     };
+    // definition lines past the cap are kept in both backends (C10)
     let mut sink = CollectSink::new(
         cx.matcher,
         lang,
         cap,
-        cx.classify && lang.has_grammar(),
+        (cx.classify || kind_of.is_some()) && lang.has_grammar(),
         o.multiline,
     );
     sink.base = bom as u32;
@@ -2369,6 +2372,27 @@ mod tests {
                 kind: None,
             }
         );
+    }
+
+    #[test]
+    fn a_qualifying_occurrence_fits_the_per_line_limit() {
+        // ten commented occurrences are seen before the call qualifies the line
+        let src: &'static [u8] = b"/* n n n n n n n n n n */ n();\n";
+        let o = opts("n");
+        let m: &'static RegexMatcher = Box::leak(Box::new(build_matcher(&o).unwrap()));
+        let kinds = ScanKinds::new(Lang::Rust, src, src.len());
+        let kind_of = |ms: u32, me: u32, ls: u32| kinds.kind(ms, me, ls);
+        let want = [HitKind::Call];
+        let mut sink = CollectSink::new(m, Lang::Rust, 64, false, false);
+        sink.filter = Some((&kind_of, &want));
+        let mut sb = SearcherBuilder::new();
+        sb.line_number(true);
+        sb.build().search_slice(m, src, &mut sink).unwrap();
+        assert_eq!((sink.total, sink.total_all), (1, 1));
+        let h = &sink.hits[0];
+        assert_eq!(h.subs.len(), sink.max_per_line, "{h:?}");
+        assert_eq!(h.kind, Some(HitKind::Call));
+        assert_eq!(&src[h.subs[h.primary].0 as usize..][..3], b"n()");
     }
 
     #[test]

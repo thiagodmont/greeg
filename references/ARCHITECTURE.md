@@ -109,8 +109,10 @@ already mapped an old generation keeps a valid view until it exits.
    glob select a hidden or ignored file, and a type a hidden one. Such files
    are read from disk next to the candidates, listed by the `skipped` record.
    `--hidden`, `--no-ignore`, a glob that would enter a skipped directory, a
-   hidden or ignored directory named on the command line, and an index built
-   before the record existed are answered by a scan. `map` refuses them.
+   hidden or ignored directory named on the command line, a directory whose
+   entries could not be listed exactly (a read error or a name that is not
+   UTF-8), and an index built before the record existed are answered by a
+   scan. `map` refuses them.
 3. **Verify.** A pool of reader threads reads candidates in *prior order*
    (best files first) and matches them with the real regex engine. Ordering by
    prior means the budget can stop early and still hold the best hits.

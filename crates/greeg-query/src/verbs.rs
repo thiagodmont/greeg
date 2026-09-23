@@ -369,7 +369,7 @@ pub fn def(
         && (name.is_ascii()
             || !op.idx.lookup(name).is_empty()
             || !op.idx.module_files(name, 1).is_empty())
-        && let Some(also) = sel.coverage(&op.idx, None)
+        && let Some(also) = sel.coverage(&op.idx, op.pending.as_ref())
     {
         let idx = &op.idx;
         res.source = "index";
@@ -886,7 +886,7 @@ pub fn impls(o: &Options, name: &str) -> Result<ImplsResult> {
         && let Some(op) = indexed::open_fresh(o, threads)?
         && op.idx.has_symbols()
         // skipped files hold no symbols; the type-position scan below reads them
-        && sel.coverage(&op.idx, None).is_some()
+        && sel.coverage(&op.idx, op.pending.as_ref()).is_some()
     {
         let idx = &op.idx;
         source = "index";
@@ -1343,7 +1343,7 @@ pub fn map(o: &Options, dir: &str) -> Result<MapResult> {
         bail!("`map` needs the symbol table; the index build is still in phase 1");
     }
     let sel = Selection::new(o, Vec::new())?;
-    let Some(also) = sel.coverage(idx, None) else {
+    let Some(also) = sel.coverage(idx, op.pending.as_ref()) else {
         bail!(
             "`map` summarizes the index, which cannot cover this request: --hidden, --no-ignore, a glob that selects a hidden or ignored directory, or an index still recording what it skips (retry in a moment)"
         );

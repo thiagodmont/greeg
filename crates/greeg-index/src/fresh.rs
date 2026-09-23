@@ -60,6 +60,7 @@ impl Changes {
             && self.added.is_empty()
             && self.added_dirs.is_empty()
             && self.touched_dirs.is_empty()
+            && self.skipped.is_empty()
     }
     pub fn count(&self) -> usize {
         self.modified.len() + self.added.len()
@@ -638,6 +639,27 @@ mod tests {
         fs::create_dir_all(root.join("pkg")).unwrap();
         fs::create_dir_all(root.join(".git")).unwrap();
         (base, root, dir)
+    }
+
+    #[test]
+    fn a_reader_keeps_its_skipped_record_across_a_rebuild() {
+        let (base, root, dir) = tree("skipped-rebuild");
+        fs::write(root.join(".hidden.rs"), "fn h() {}\n").unwrap();
+        fs::write(root.join("pkg/a.rs"), "fn a() {}\n").unwrap();
+        let opts = BuildOpts {
+            reader_threads: 1,
+            quiet: true,
+            phase1_only: true,
+            ..Default::default()
+        };
+        build(&root, &dir, &opts).unwrap();
+        let before = Index::open(&dir).unwrap();
+        // the rebuild removes the previous generation's record
+        build(&root, &dir, &opts).unwrap();
+        assert!(!dir.join(&before.manifest.skipped).exists());
+        let sk = before.skipped().expect("record kept by the open index");
+        assert!(sk.entries().any(|(rel, _)| rel == ".hidden.rs"));
+        let _ = fs::remove_dir_all(&base);
     }
 
     fn id_of(idx: &Index, rel: &str) -> u32 {

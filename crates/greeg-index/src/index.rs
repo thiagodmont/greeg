@@ -284,6 +284,9 @@ pub struct Index {
     prev: HashMap<u32, u32>,
     /// Superseded id → the delta file id that replaced it.
     next: HashMap<u32, u32>,
+    /// The `skipped` record, mapped at open like every component, so a
+    /// rebuild that removes it does not leave this reader without it.
+    skipped: Option<Mmap>,
 }
 
 impl Index {
@@ -401,6 +404,8 @@ impl Index {
                 corrupt: Default::default(),
             });
         }
+        let skipped = crate::skipped::path(dir, &manifest.skipped)
+            .and_then(|p| mmap(&p, Advice::Sequential).ok());
         Ok(Index {
             dir: dir.to_path_buf(),
             manifest,
@@ -410,6 +415,7 @@ impl Index {
             graph: OnceLock::new(),
             prev: prev_map,
             next: next_map,
+            skipped,
         })
     }
 
@@ -466,7 +472,7 @@ impl Index {
     }
     /// What the walk left out, when this index recorded it.
     pub fn skipped(&self) -> Option<crate::skipped::Skipped> {
-        crate::skipped::Skipped::read(&self.dir, &self.manifest.skipped)
+        crate::skipped::Skipped::from_file_bytes(self.skipped.as_deref()?)
     }
 
     /// Is `rel` a directory the index walked?
