@@ -205,6 +205,46 @@ recorded fixture and flags, not all ripgrep inputs. Configure the host to disabl
 the hook when original output or unverified behavior is required. No grep, JSON,
 or pipeline rewrite should be re-enabled without end-to-end equivalence tests.
 
+### Hook configuration updates
+
+Both installers share a configuration snapshot and publication helper in the
+CLI crate. Reads require a regular file and do not follow a config-file symlink.
+Edits are parsed before publication. Changed configurations acquire a persistent
+same-directory `.greeg-<filename>.lock` using a nonblocking advisory lock, then
+validate the original content, identity and timestamps. Busy writers return an
+error to retry. No-op edits and dry runs do not create locks or temporary files.
+No-op updates recheck the snapshot before allowing subsequent skill changes.
+
+The replacement is written exclusively to a same-directory temporary file,
+metadata is preserved, and the file is synced before a final snapshot check.
+Existing files are replaced by rename; initially absent files are published by
+hard link, which cannot overwrite a concurrent creation. The directory is synced
+after publication. Failures before publication leave the original intact and
+clean up the temporary file; a directory-sync error explicitly reports that
+publication already occurred. A forced kill can leave a temporary file, but the
+original remains complete and the OS releases the lock. Lock files are retained
+to keep one stable inode for cooperating writers; do not delete them during use.
+
+Replacement requires current-user ownership and a single link, preserves existing
+permissions, and creates new configurations with mode `0600`. Newly created lock
+and temporary files explicitly receive mode `0600` regardless of umask; existing
+lock permissions and caller-owned parent directories are not changed. macOS copies
+metadata, including ACLs and extended attributes, and updates the modification
+time to reflect the new content. Linux preserves the mode and
+group for ordinary files; source or replacement files with extended attributes or ACLs are refused
+instead of silently losing that metadata. Parent-directory permissions are not
+modified. Config-file symlinks and nonregular files are refused rather than
+followed or replaced; directory symlinks remain supported.
+
+This is optimistic conflict detection for third-party editors, not a filesystem
+compare-and-swap: an uncoordinated write after the final check can still race with
+rename. The lock coordinates current greeg writers only. Parent-directory swaps
+and arbitrary same-user tampering are outside this contract. File and directory
+syncs improve durability but are not a tested power-loss guarantee. Configuration
+publication and generated-skill changes are not a joint transaction; a later
+skill error can occur after configuration publication. Skill ownership and
+atomic skill writes remain separate work.
+
 ### Session memory
 
 A query that names an agent session (`--session ID`, or the parent agent
@@ -364,6 +404,12 @@ against `grep`, `rg` and `rg -j4`, an accuracy oracle scored against SCIP
 indexes (`rust-analyzer`, `scip-python`, `scip-typescript`), and regression
 gates keyed by host, so a laptop records its numbers but only the reference
 machine can fail the build.
+
+Paired reports share table formatting, result links and latency thresholds in
+`bench/reporting.py`; protocol-specific contracts and explanations stay in
+`bench/bench.py`. Empty datasets produce no section, and failed or undefined
+timing pairs produce no threshold comparison. Configuration recheck identity
+claims require both datasets and matching recorded binary digests.
 
 `bench/parity.py` checks that greeg's match set equals ripgrep's across every
 corpus and query family, in both indexed and scan mode. `bench/soak.py` fires

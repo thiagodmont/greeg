@@ -2,6 +2,7 @@
 
 mod doctor;
 mod hook;
+mod hook_config;
 mod stats;
 mod verbs_out;
 

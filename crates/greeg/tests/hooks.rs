@@ -1,6 +1,7 @@
 //! Hook protocol and shell argument tests on disposable local fixtures.
 use serde_json::{Value, json};
 use std::fs;
+use std::io::Read;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
@@ -340,6 +341,147 @@ fn invalid_utf8_settings_are_not_replaced() {
     assert_eq!(out.status.code(), Some(2), "{out:?}");
     assert_eq!(fs::read(&path).unwrap(), original);
     assert!(!f.0.join("home/.claude/skills").exists());
+}
+
+#[test]
+fn config_install_does_not_modify_the_original_inode() {
+    for agent in ["claude", "codex"] {
+        let f = Fixture::new();
+        let path =
+            f.0.join("home")
+                .join(format!(".{agent}"))
+                .join(if agent == "claude" {
+                    "settings.json"
+                } else {
+                    "config.toml"
+                });
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let original = if agent == "claude" {
+            "{}\n"
+        } else {
+            "# original\n"
+        };
+        fs::write(&path, original).unwrap();
+        let mut opened = fs::File::open(&path).unwrap();
+        let out = f.command(BIN).args(["hook", agent]).output().unwrap();
+        assert!(out.status.success(), "{out:?}");
+        let mut retained = String::new();
+        opened.read_to_string(&mut retained).unwrap();
+        assert_eq!(retained, original);
+        assert!(
+            fs::read_to_string(&path)
+                .unwrap()
+                .contains("greeg hook run")
+        );
+    }
+}
+
+#[test]
+fn config_permissions_survive_restrictive_umasks() {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    use std::os::unix::process::CommandExt;
+    for agent in ["claude", "codex"] {
+        for mask in [0, 0o777] {
+            let f = Fixture::new();
+            let parent = f.0.join("home").join(format!(".{agent}"));
+            let name = if agent == "claude" {
+                "settings.json"
+            } else {
+                "config.toml"
+            };
+            let path = parent.join(name);
+            let lock = parent.join(format!(".greeg-{name}.lock"));
+            let skill = parent.join("skills/greeg/SKILL.md");
+            fs::create_dir_all(skill.parent().unwrap()).unwrap();
+            fs::write(&skill, "existing skill").unwrap();
+            let parent_mode = fs::metadata(&parent).unwrap().mode();
+            for uninstall in [false, true] {
+                let mut command = f.command(BIN);
+                command.args(["hook", agent]);
+                if uninstall {
+                    command.arg("--uninstall");
+                }
+                // SAFETY: umask runs only in the forked child, before exec.
+                unsafe {
+                    command.pre_exec(move || {
+                        libc::umask(mask);
+                        Ok(())
+                    });
+                }
+                let out = command.output().unwrap();
+                let action = if uninstall { "uninstall" } else { "install" };
+                assert!(
+                    out.status.success(),
+                    "{agent}, mask {mask:o}, {action}: {out:?}"
+                );
+                let expected = if uninstall { 0o640 } else { 0o600 };
+                assert_eq!(
+                    fs::metadata(&path).unwrap().mode() & 0o777,
+                    expected,
+                    "{agent}, mask {mask:o}, {action}: config mode"
+                );
+                assert_eq!(
+                    fs::metadata(&lock).unwrap().mode() & 0o777,
+                    expected,
+                    "{agent}, mask {mask:o}, {action}: lock mode"
+                );
+                assert_eq!(
+                    fs::metadata(&parent).unwrap().mode(),
+                    parent_mode,
+                    "{agent}, mask {mask:o}, {action}: parent mode"
+                );
+                assert!(
+                    fs::read_to_string(&path).is_ok(),
+                    "{agent}, mask {mask:o}, {action}: config readable"
+                );
+                fs::set_permissions(&path, fs::Permissions::from_mode(0o640)).unwrap();
+                fs::set_permissions(&lock, fs::Permissions::from_mode(0o640)).unwrap();
+            }
+        }
+    }
+}
+
+#[test]
+fn failed_config_write_preserves_config_and_skill() {
+    use std::os::unix::process::CommandExt;
+    for agent in ["claude", "codex"] {
+        let f = Fixture::new();
+        let parent = f.0.join("home").join(format!(".{agent}"));
+        let path = parent.join(if agent == "claude" {
+            "settings.json"
+        } else {
+            "config.toml"
+        });
+        let skill = parent.join("skills/greeg/SKILL.md");
+        fs::create_dir_all(skill.parent().unwrap()).unwrap();
+        let original = if agent == "claude" {
+            "{\"user_setting\": true}\n"
+        } else {
+            "# retain original configuration\n"
+        };
+        fs::write(&path, original).unwrap();
+        fs::write(&skill, "user skill").unwrap();
+        let mut command = f.command(BIN);
+        command.args(["hook", agent]);
+        // SAFETY: only async-signal-safe system calls run in the forked child.
+        unsafe {
+            command.pre_exec(|| {
+                libc::signal(libc::SIGXFSZ, libc::SIG_IGN);
+                let limit = libc::rlimit {
+                    rlim_cur: 8,
+                    rlim_max: 8,
+                };
+                if libc::setrlimit(libc::RLIMIT_FSIZE, &limit) != 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
+        let out = command.output().unwrap();
+        assert_eq!(out.status.code(), Some(2), "{out:?}");
+        assert_eq!(fs::read_to_string(&path).unwrap(), original);
+        assert_eq!(fs::read_to_string(&skill).unwrap(), "user skill");
+    }
 }
 
 #[test]

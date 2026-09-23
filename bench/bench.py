@@ -16,6 +16,8 @@ them. External tools: git, hyperfine, rg, grep; for the oracle rust-analyzer
 """
 import argparse, datetime, json, math, os, platform, random, re, shlex, shutil, statistics, subprocess, sys, tempfile, time, tomllib
 
+from reporting import latency_summary, paired_table, result_link
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 RESULTS = os.path.join(HERE, "results")
@@ -1088,21 +1090,13 @@ def matching_report(output_dir):
     matrix_name = "exact-search-matching-2026-09-22-darwin-arm64.json"
     recheck_name = "exact-search-ranked-recheck-2026-09-22-darwin-arm64.json"
     matrix = load_json(os.path.join(RESULTS, matrix_name))
-    if not matrix:
+    if not matrix or not matrix.get("results"):
         return []
     recheck = load_json(os.path.join(RESULTS, recheck_name))
     binaries = matrix["binaries"]
     machine = [r for r in matrix["results"] if r["candidate"]["rg_stdout_and_status_equal"] is not None]
     if not machine:
         return []
-    def result_link(name):
-        from urllib.parse import quote
-        return quote(os.path.relpath(os.path.realpath(os.path.join(RESULTS, name)), output_dir))
-
-    def tokens(result):
-        count = result.get("tokens_both_streams")
-        return str(count) if matrix.get("tokenizer") and count is not None else "n/a"
-
     token_note = (f"Tokens count stdout plus stderr with `{matrix['tokenizer']}`."
                   if matrix.get("tokenizer") else "Token counts were not measured (n/a).")
     passed = lambda label: sum(r[label]["rg_stdout_and_status_equal"] for r in machine)
@@ -1119,43 +1113,30 @@ def matching_report(output_dir):
         f"{passed('baseline')}/{len(machine)} to {passed('candidate')}/{len(machine)} machine-output cases. "
         "The improvement removes unwanted suggestions on exact misses; it is not a general ripgrep-compatibility score.", "",
         "### Exact misses", "",
-        "| Backend | Case | Median ms, before → after | p95 ms, before → after | Tokens, before → after |",
-        "|---|---|---:|---:|---:|",
     ]
-    for row in machine:
-        if row["case"].startswith("hit_"):
-            continue
-        before, after = row["baseline"], row["candidate"]
-        out.append(f"| {row['backend']} | {row['case'].replace('_', ' ')} | "
-                   f"{before['median_ms']:.3f} → {after['median_ms']:.3f} | "
-                   f"{before['p95_ms']:.3f} → {after['p95_ms']:.3f} | "
-                   f"{tokens(before)} → {tokens(after)} |")
+    out += paired_table([r for r in machine if not r["case"].startswith("hit_")], "backend", "Backend",
+                        tokenizer=matrix.get("tokenizer"), token_key="tokens_both_streams")
     hits = [r for r in machine if r["case"].startswith("hit_")]
-    changes = [r["median_change_percent"] for r in hits]
     unchanged = all(r["stdout_and_status_unchanged"] for r in hits)
     if hits:
+        summary = latency_summary(hits)
+        timing = (f"Median latency changes ranged from {summary['median_min']:+.1f}% to {summary['median_max']:+.1f}%."
+                  if summary else "Latency comparison unavailable.")
         out += ["", f"Successful machine-query stdout and status unchanged: **{'yes' if unchanged else 'no'}**. "
-                f"Median latency changes ranged from {min(changes):+.1f}% to {max(changes):+.1f}%.", ""]
-    if recheck:
+                + timing, ""]
+    if recheck and recheck.get("results"):
         original = next((r for r in matrix["results"] if r["backend"] == "scan" and r["case"] == "ranked_hit"), None)
         trigger = ""
-        if original:
-            tail_change = 100 * (original["candidate"]["p95_ms"] / original["baseline"]["p95_ms"] - 1)
-            trigger = f"The first run's scan-ranked-hit p95 changed {tail_change:+.1f}%, triggering a {recheck['runs']}-pair recheck. "
-        flagged = sum(r["median_change_percent"] > 10 or r["candidate"]["p95_ms"] / r["baseline"]["p95_ms"] > 1.2
-                      for r in recheck["results"])
-        out += ["### Ranked-query recheck", "",
-                trigger +
-                f"Both runs are retained. Recheck cases exceeding the 10% median / 20% p95 investigation thresholds: **{flagged}**.", "",
-                "| Backend | Case | Median ms, before → after | p95 ms, before → after |",
-                "|---|---|---:|---:|"]
-        for row in recheck["results"]:
-            before, after = row["baseline"], row["candidate"]
-            out.append(f"| {row['backend']} | {row['case'].replace('_', ' ')} | "
-                       f"{before['median_ms']:.3f} → {after['median_ms']:.3f} | "
-                       f"{before['p95_ms']:.3f} → {after['p95_ms']:.3f} |")
-        out += ["", f"[Ranked recheck and raw samples]({result_link(recheck_name)})."]
-    out += ["", f"[Original matrix and raw samples]({result_link(matrix_name)}) include binary/corpus digests. "
+        original_summary = latency_summary([original]) if original else None
+        if original_summary:
+            trigger = f"The first run's scan-ranked-hit p95 changed {original_summary['p95_max']:+.1f}%, triggering a {recheck['runs']}-pair recheck. "
+        summary = latency_summary(recheck["results"])
+        investigation = (f"Recheck cases exceeding the 10% median / 20% p95 investigation thresholds: **{summary['flagged']}**."
+                         if summary else "Recheck latency comparison unavailable.")
+        out += ["### Ranked-query recheck", "", trigger + "Both runs are retained. " + investigation, ""]
+        out += paired_table(recheck["results"], "backend", "Backend")
+        out += ["", f"[Ranked recheck and raw samples]({result_link(RESULTS, output_dir, recheck_name)})."]
+    out += ["", f"[Original matrix and raw samples]({result_link(RESULTS, output_dir, matrix_name)}) include binary/corpus digests. "
             "Reproduce with `python3 bench/matching.py BASELINE CANDIDATE --runs 31 --tokens --output matrix.json`; "
             "for the recheck use `python3 bench/matching.py BASELINE CANDIDATE --runs 151 --cases ranked_hit ranked_discovery --tokens --output recheck.json`.", "",
             "**Limits:** this is a warm synthetic-corpus comparison, not a new full-corpus result or whole-agent-task token estimate. "
@@ -1165,7 +1146,6 @@ def matching_report(output_dir):
 
 
 def matching_review_report(output_dir):
-    from urllib.parse import quote
     out = []
     for filename, title, show_rows in [
         ("exact-search-json-darwin-arm64.json", "JSON exact-default coverage", True),
@@ -1173,28 +1153,25 @@ def matching_review_report(output_dir):
         ("exact-search-review-recheck-darwin-arm64.json", "Review fixes: optimized lookup recheck", True),
     ]:
         data = load_json(os.path.join(RESULTS, filename))
-        if not data or not data["results"]:
+        if not data or not data.get("results"):
             continue
         rows = data["results"]
         contracts = ("rg_stdout_and_status_equal", "json_exact_contract", "definition_contract")
         def passed(label):
             checks = [r[label][k] for r in rows for k in contracts if r[label].get(k) is not None]
             return f"{sum(checks)}/{len(checks)}" if checks else "not measured"
-        flagged = sum(r["median_change_percent"] > 10 or r["candidate"]["p95_ms"] > 1.2 * r["baseline"]["p95_ms"] for r in rows)
-        link = quote(os.path.relpath(os.path.realpath(os.path.join(RESULTS, filename)), output_dir))
+        summary = latency_summary(rows)
+        timing = (f"Cases above the 10% median / 20% p95 investigation thresholds: **{summary['flagged']}**."
+                  if summary else "Latency comparison unavailable.")
+        link = result_link(RESULTS, output_dir, filename)
         out += [f"## {title}", "",
                 f"`{data['binaries']['baseline']['version']}` → `{data['binaries']['candidate']['version']}`; "
                 f"{data['runs']} randomized pairs per case, {data['warmups']} warmups on the same {data['corpus']['files']}-file warm synthetic corpus. "
                 f"Contract checks passed: **{passed('baseline')} → {passed('candidate')}**. "
-                f"Cases above the 10% median / 20% p95 investigation thresholds: **{flagged}**.", ""]
+                + timing, ""]
         if show_rows:
-            out += ["| Backend | Case | Median ms, before → after | p95 ms, before → after | Tokens, before → after |",
-                    "|---|---|---:|---:|---:|"]
-            for row in rows:
-                b, c = row["baseline"], row["candidate"]
-                counts = [str(r["tokens_both_streams"]) if data.get("tokenizer") and r.get("tokens_both_streams") is not None else "n/a" for r in (b, c)]
-                out.append(f"| {row['backend']} | {row['case'].replace('_', ' ')} | "
-                           f"{b['median_ms']:.3f} → {c['median_ms']:.3f} | {b['p95_ms']:.3f} → {c['p95_ms']:.3f} | {' → '.join(counts)} |")
+            out += paired_table(rows, "backend", "Backend", tokenizer=data.get("tokenizer"),
+                                token_key="tokens_both_streams")
             out.append("")
         token_flag = " --tokens" if data.get("tokenizer") else ""
         out += [f"[Raw samples, environment, and binary/corpus digests]({link}). "
@@ -1210,23 +1187,23 @@ def matching_review_report(output_dir):
 
 
 def hook_report(output_dir):
-    from urllib.parse import quote
-
     out = []
     for filename, title in [
         ("hook-contract-darwin-arm64.json", "Hook contract: initial measurements"),
         ("hook-contract-recheck-darwin-arm64.json", "Hook contract: latency recheck"),
         ("hook-review-darwin-arm64.json", "Hook contract: review fixes"),
         ("hook-config-rewrites-2026-09-23-darwin-arm64.json", "Hook contract: rewrite regression"),
+        ("atomic-config-rewrites-2026-09-23-darwin-arm64.json", "Hook contract: rewrite regression after atomic configuration"),
     ]:
         source = os.path.join(RESULTS, filename)
         data = load_json(source)
         if not data or not data.get("results"):
             continue
         rows = data["results"]
-        changes = [r["median_change_percent"] for r in rows]
-        flagged = [r for r in rows if r["median_change_percent"] > 10 or
-                   r["candidate"]["p95_ms"] / r["baseline"]["p95_ms"] > 1.2]
+        summary = latency_summary(rows)
+        timing = (f"Hook process median latency changes ranged from {summary['median_min']:+.1f}% to {summary['median_max']:+.1f}%. "
+                  f"Cases above the 10% median / 20% p95 investigation thresholds: **{summary['flagged']}**."
+                  if summary else "Latency comparison unavailable.")
         searches = [r for r in data["search_contracts"] if r["binary"] == "candidate"]
         parity = (f"Candidate file/count match-row and exit-status checks: "
                   f"{sum(r['stdout_and_status_equal'] for r in searches)}/{len(searches)} against {data['ripgrep']}. "
@@ -1235,21 +1212,14 @@ def hook_report(output_dir):
                   if data.get("protocol", 1) >= 2 else
                   "Protocol 1's search checks read empty stdin and do not establish corpus parity. "
                   "Only its hook-process measurements remain valid; use protocol 2 below for search validation.")
-        link = quote(os.path.relpath(os.path.realpath(source), os.path.realpath(output_dir)))
+        link = result_link(RESULTS, output_dir, filename)
         out += [f"## {title}", "",
                 f"`{data['binaries']['baseline']['version']}` → `{data['binaries']['candidate']['version']}`; "
                 f"{data['runs']} randomized pairs per case after {data['warmups']} warmups. "
                 f"The candidate passed {sum(r['candidate']['contract'] for r in rows)}/{len(rows)} hook eligibility/explicit-policy checks. "
-                + parity, "",
-                f"Hook process median latency changes ranged from {min(changes):+.1f}% to {max(changes):+.1f}%. "
-                f"Cases above the 10% median / 20% p95 investigation thresholds: **{len(flagged)}**.", "",
-                "| Host protocol | Case | Median ms, before → after | p95 ms, before → after | Reply tokens, before → after |",
-                "|---|---|---:|---:|---:|"]
-        for row in rows:
-            b, c = row["baseline"], row["candidate"]
-            tokens = [str(v['reply_tokens']) if data.get('tokenizer') and v.get('reply_tokens') is not None else 'n/a' for v in (b, c)]
-            out.append(f"| {row['agent']} | {row['case'].replace('_', ' ')} | "
-                       f"{b['median_ms']:.3f} → {c['median_ms']:.3f} | {b['p95_ms']:.3f} → {c['p95_ms']:.3f} | {' → '.join(tokens)} |")
+                + parity, "", timing, ""]
+        out += paired_table(rows, "agent", "Host protocol", tokenizer=data.get("tokenizer"),
+                            token_key="reply_tokens", token_title="Reply tokens")
         token_flag = " --tokens" if data.get("tokenizer") else ""
         out += ["", f"[Raw samples, reply sizes, and binary/corpus digests]({link}). "
                 f"Reproduce: `python3 bench/hooks.py BASELINE CANDIDATE --runs {data['runs']}{token_flag} --output {filename}`.", ""]
@@ -1267,17 +1237,30 @@ def hook_config_report(output_dir):
     for filename, title in [
         ("hook-config-2026-09-23-darwin-arm64.json", "Hook configuration ownership (2026-09-23)"),
         ("hook-config-review-2026-09-23-darwin-arm64.json", "Hook configuration ownership: review fixes (2026-09-23)"),
+        ("atomic-config-2026-09-23-darwin-arm64.json", "Atomic configuration: installer regression (2026-09-23)"),
+        ("atomic-config-review-2026-09-23-darwin-arm64.json", "Atomic configuration: review fixes (2026-09-23)"),
+        ("atomic-config-review-confirmation-2026-09-23-darwin-arm64.json", "Atomic configuration: review latency recheck (2026-09-23)"),
     ]:
         out += hook_config_dataset_report(output_dir, filename, title)
+    initial = load_json(os.path.join(RESULTS, "atomic-config-review-2026-09-23-darwin-arm64.json"))
+    recheck = load_json(os.path.join(RESULTS, "atomic-config-review-confirmation-2026-09-23-darwin-arm64.json"))
+    if initial and initial.get("results") and recheck and recheck.get("results"):
+        same_binaries = all(initial.get("binaries", {}).get(label, {}).get("sha256") and
+                            initial["binaries"][label]["sha256"] == recheck.get("binaries", {}).get(label, {}).get("sha256")
+                            for label in ("baseline", "candidate"))
+        out += ["The review measurements compare the original atomic-write implementation with the no-op snapshot and umask fixes. "
+                "Both the initial run and latency recheck are retained above. "
+                + ("Both runs use the same binary digests. " if same_binaries else "The binary digests differ or are unavailable; these runs are not a controlled recheck. ")
+                + "Restrictive-umask and stale-no-op guarantees are covered by Rust regression tests; these timing fixtures use an ordinary umask. "
+                "Recurring hook and token measurements above predate these review fixes.", ""]
     return out
 
 
 def hook_config_dataset_report(output_dir, filename, title):
     data = load_json(os.path.join(RESULTS, filename))
-    if not data:
+    if not data or not data.get("results"):
         return []
-    from urllib.parse import quote
-    link = quote(os.path.relpath(os.path.realpath(os.path.join(RESULTS, filename)), output_dir))
+    link = result_link(RESULTS, output_dir, filename)
     rows = data["results"]
     passed = {label: sum(row[label]["contract"] for row in rows) for label in ("baseline", "candidate")}
     extended = data.get("protocol", 1) >= 2
@@ -1291,14 +1274,8 @@ def hook_config_dataset_report(output_dir, filename, title):
            f"**Configuration contracts:** {passed['baseline']}/{len(rows)} → {passed['candidate']}/{len(rows)}. "
            "Checks cover mixed handlers, prefix lookalikes, non-command handlers, wrong matchers, invalid UTF-8, "
            "missing-file uninstall and initial installation. " + coverage + "Baseline failures are not equivalent successful work; "
-           "their timing differences are not speedup claims.", "",
-           "| Host | Case | Median ms, before → after | p95 ms, before → after |",
-           "|---|---|---:|---:|"]
-    for row in rows:
-        before, after = row["baseline"], row["candidate"]
-        out.append(f"| {row['agent']} | {row['case'].replace('_', ' ')} | "
-                   f"{before['median_ms']:.3f} → {after['median_ms']:.3f} | "
-                   f"{before['p95_ms']:.3f} → {after['p95_ms']:.3f} |")
+           "their timing differences are not speedup claims.", ""]
+    out += paired_table(rows, "agent", "Host")
     out += ["", f"[Raw samples, output bytes/statuses, fixture/harness hashes and binary digests]({link}). "
             f"Reproduce: `python3 bench/hook_config.py BASELINE CANDIDATE --runs {data['runs']} --output {filename}`.", "",
             "These checks validate configuration editing, not live host approval behavior. "
@@ -1308,6 +1285,24 @@ def hook_config_dataset_report(output_dir, filename, title):
         failures = sum(row[label].get("failed_invocations", 0) for row in rows for label in ("baseline", "candidate"))
         out += [f"Invocation failures: {failures}. Timeouts/launch failures retain their elapsed time and partial output sizes, "
                 "fail the contract, and suppress the affected timing ratios. Version probes remain preflight checks.", ""]
+    summary = latency_summary(rows)
+    if filename.startswith("atomic-config-review-") and summary:
+        out += [f"Cases above the +10% median / +20% p95 investigation thresholds: **{summary['flagged']}/{len(rows)}**. "
+                f"Maximum median/p95 increases: {summary['median_max']:.1f}%/{summary['p95_max']:.1f}%.", ""]
+    if filename == "atomic-config-2026-09-23-darwin-arm64.json" and summary:
+        changed = {"mixed_uninstall", "wrong_matcher_install", "matcherless_uninstall", "custom_matcher_uninstall", "empty_install"}
+        deltas = [r["candidate"]["median_ms"] - r["baseline"]["median_ms"] for r in rows if r["case"] in changed]
+        quiet = [r["candidate"]["median_ms"] - r["baseline"]["median_ms"] for r in rows if r["case"] not in changed]
+        if not deltas or not quiet:
+            return out
+        out += [f"**Latency investigation:** {summary['flagged']}/{len(rows)} cases exceed the +10% median or +20% p95 thresholds. "
+                f"Changed configurations add {min(deltas):.2f}–{max(deltas):.2f} ms at the median; "
+                f"no-op/error cases change by {min(quiet):+.2f}–{max(quiet):+.2f} ms. "
+                "The changed path now locks, rereads, preserves metadata, syncs a temporary file and syncs the directory; "
+                "the baseline writes in place without these guarantees. This is an accepted installation/removal cost "
+                "for reliability, not a speed improvement. These operations do not run during hook rewrites or searches; "
+                "the separate rewrite regression measures the recurring hook path. Atomicity, conflicts and interruption "
+                "are covered by deterministic Rust tests, not inferred from these timing fixtures.", ""]
     return out
 
 
@@ -1320,8 +1315,7 @@ def corpus_report(output_dir):
         data = load_json(os.path.join(RESULTS, filename))
     if not data:
         return []
-    from urllib.parse import quote
-    link = quote(os.path.relpath(os.path.realpath(os.path.join(RESULTS, filename)), output_dir))
+    link = result_link(RESULTS, output_dir, filename)
     setup = data["snapshot_setup"]
     corpus = data["corpus_before"]
     out = ["## Disposable edit and soak corpora (2026-09-23)", "",
@@ -1342,7 +1336,7 @@ def corpus_report(output_dir):
             "make process scheduling or duration-limited iteration counts deterministic.", "",
             f"[Commands, raw output, setup samples and binary/corpus/harness digests]({link}).", ""]
     if filename != original:
-        original_link = quote(os.path.relpath(os.path.realpath(os.path.join(RESULTS, original)), output_dir))
+        original_link = result_link(RESULTS, output_dir, original)
         out += [f"[Initial measurements]({original_link}) are preserved verbatim. "
                 "Their edit harness abbreviated freshness diagnostics to 53 characters. "
                 "The recheck preserves complete emitted diagnostic lines (including the CLI’s explicit ellipsis for long plans) "

@@ -139,9 +139,18 @@ edits preserve the original text. Invalid or unreadable settings stop the edit.
 Comments on retained TOML entries and stored trust data are preserved, but
 removing handlers can change positional hook IDs; review `/hooks` after changing the configuration.
 
-This covers handler ownership. Atomic configuration writes, concurrent-edit
-protection and preservation of user-edited generated skills remain follow-ups;
-`--dry-run` previews configuration actions without writing.
+Configuration changes use a synced temporary file and atomic publication. A
+nonblocking lock serializes greeg writers; changed content or file identity
+causes a conflict instead of overwriting a detected external edit. Config-file
+symlinks, hard links and files owned by another user cannot be replaced.
+Existing permissions are retained; new configurations use mode `0600`.
+On macOS, metadata is copied; on Linux, configurations with extended attributes
+or ACLs are left unchanged with an error. See the
+[configuration update contract](references/ARCHITECTURE.md#hook-configuration-updates)
+for concurrency and interruption limits.
+
+Preservation of user-edited generated skills remains a follow-up. Configuration
+and skill updates are separate operations; `--dry-run` writes neither.
 
 The hook preserves supported search arguments and requests exact matching; text
 results still use greeg's ranking and token budget. An explicit file-size flag
