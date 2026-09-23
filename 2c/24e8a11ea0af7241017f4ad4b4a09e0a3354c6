@@ -1,0 +1,28 @@
+references/BENCH.md
+  s_b1057b2933cdb0::t_0e3bd8c673089e 88-89,113,123,162
+  s_b1057b2933cdb0::t_33f605e3ef977f 163
+bench/reports.toml
+  s_b1057b2933cdb0::t_0e3bd8c673089e 53,309,314,318,322
+bench/bench.py
+  s_b1057b2933cdb0::t_0e3bd8c673089e 1151,1154,1180,1183
+bench/report_catalog.py
+  s_b1057b2933cdb0::t_0e3bd8c673089e 55,98-99,160
+bench/test_report_rendering.py
+  s_b1057b2933cdb0::t_0e3bd8c673089e 143-151
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "2c24e8a11ea0af7241017f4ad4b4a09e0a3354c6",
+  "prompts": {},
+  "sessions": {
+    "s_b1057b2933cdb0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0aa73425-0ec9-4b76-ae94-35b6bdff17bb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
