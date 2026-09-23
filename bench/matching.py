@@ -28,6 +28,8 @@ CASES = {
     "fuzzy_miss_unlimited": ["--budget", "0", "load_confiq"],
     "absent_files": ["-l", "nonexistent_zzzz_symbol"],
     "hit_files": ["-l", "load_config"],
+    "type_files": ["-l", "load_config", "-t", "rust"],
+    "glob_files": ["-l", "load_config", "-g", "*.rs"],
     "hit_count": ["-c", "-i", "LOAD_CONFIG"],
     "hit_unlimited": ["--budget", "0", "load_config"],
     "case_miss_json": ["--json", "LOAD_CONFIG"],
