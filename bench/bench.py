@@ -1262,8 +1262,12 @@ def hook_report(output_dir):
 
 
 def corpus_report(output_dir):
-    filename = "disposable-corpora-2026-09-23-darwin-arm64.json"
+    original = "disposable-corpora-2026-09-23-darwin-arm64.json"
+    filename = "disposable-corpora-review-2026-09-23-darwin-arm64.json"
     data = load_json(os.path.join(RESULTS, filename))
+    if not data:
+        filename = original
+        data = load_json(os.path.join(RESULTS, filename))
     if not data:
         return []
     from urllib.parse import quote
@@ -1287,6 +1291,13 @@ def corpus_report(output_dir):
             "do not compare the query timings with historical in-place runs. A fixed seed does not "
             "make process scheduling or duration-limited iteration counts deterministic.", "",
             f"[Commands, raw output, setup samples and binary/corpus/harness digests]({link}).", ""]
+    if filename != original:
+        original_link = quote(os.path.relpath(os.path.realpath(os.path.join(RESULTS, original)), output_dir))
+        out += [f"[Initial measurements]({original_link}) are preserved verbatim. "
+                "Their edit harness abbreviated freshness diagnostics to 53 characters. "
+                "The recheck preserves complete emitted diagnostic lines (including the CLI’s explicit ellipsis for long plans) "
+                "and exercises collision-safe fixtures. "
+                "Setup samples are retained from the initial run; the corpus-copy implementation is unchanged.", ""]
     return out
 
 

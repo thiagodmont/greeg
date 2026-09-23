@@ -1,8 +1,13 @@
 import os
+import contextlib
+import io
+import edits
+import soak
 import signal
 import errno
 import shutil
 import stat
+import time
 from unittest.mock import patch
 
 from corpus import Corpus
@@ -14,6 +19,23 @@ import unittest
 
 
 BENCH = Path(__file__).resolve().parent
+
+
+def stop_process_group(process):
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    process.wait(timeout=5)
+
+
+def communicate_bounded(process, timeout):
+    try:
+        return process.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        stop_process_group(process)
+        process.communicate(timeout=5)
+        raise
 
 
 class CorpusSafetyTests(unittest.TestCase):
@@ -37,7 +59,7 @@ class CorpusSafetyTests(unittest.TestCase):
             note = source / "notes.txt"
             note.write_bytes(b"untracked work\x00")
             fake = root / "greeg"
-            fake.write_text(f"#!{sys.executable}\n")
+            fake.write_text(f"#!{sys.executable}\nimport sys\nassert '--no-session' in sys.argv\n")
             fake.chmod(0o700)
             result = subprocess.run([sys.executable, str(BENCH / "soak.py"), "0",
                                      str(fake), str(source)], capture_output=True, env=env)
@@ -140,24 +162,81 @@ class CorpusSafetyTests(unittest.TestCase):
                     source.mkdir()
                     (source / "main.py").write_bytes(b"caller data")
                     fake = root / "fake"
-                    fake.write_text(f"#!{sys.executable}\nimport sys, time\n" +
-                                    ("time.sleep(30)\n" if interrupt else "sys.exit(2)\n"))
+                    ready = root / "ready"
+                    fake.write_text(f"#!{sys.executable}\nimport sys, time\nfrom pathlib import Path\n" +
+                                    (f"Path({str(ready)!r}).touch()\ntime.sleep(30)\n" if interrupt else "sys.exit(2)\n"))
                     fake.chmod(0o700)
                     args = ["1", "./fake", str(source)] if script == "soak.py" else [str(source), "./fake"]
                     with subprocess.Popen([sys.executable, str(BENCH / script), *args], cwd=root,
-                                          stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) as process:
-                        line = process.stdout.readline()
-                        if line.startswith("Random seed:"):
-                            line = process.stdout.readline()
-                        self.assertTrue(line.startswith("Disposable corpus:"), line)
-                        work = Path(line.split(": ", 1)[1].split(" (source:", 1)[0].strip())
-                        if interrupt:
-                            process.send_signal(signal.SIGTERM)
-                        stdout, stderr = process.communicate(timeout=10)
-                        self.assertNotEqual(process.returncode, 0, stdout + stderr)
+                                          stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                          text=True, start_new_session=True) as process:
+                        try:
+                            if interrupt:
+                                deadline = time.monotonic() + 10
+                                while not ready.exists() and process.poll() is None and time.monotonic() < deadline:
+                                    time.sleep(0.01)
+                                self.assertTrue(ready.exists(), "fake command did not start")
+                                process.send_signal(signal.SIGTERM)
+                            stdout, stderr = communicate_bounded(process, timeout=10)
+                            self.assertNotEqual(process.returncode, 0, stdout + stderr)
+                        finally:
+                            stop_process_group(process)
+                    line = next(line for line in stdout.splitlines() if line.startswith("Disposable corpus:"))
+                    work = Path(line.split(": ", 1)[1].split(" (source:", 1)[0].strip())
                     self.assertFalse(work.parent.exists())
                     self.assertEqual((source / "main.py").read_bytes(), b"caller data")
                     self.assertEqual(list(source.iterdir()), [source / "main.py"])
+
+    def test_hung_test_process_is_killed_and_timeout_still_fails(self):
+        with subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"],
+                              stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                              start_new_session=True) as process:
+            try:
+                with self.assertRaises(subprocess.TimeoutExpired):
+                    communicate_bounded(process, timeout=0.05)
+                self.assertIsNotNone(process.poll())
+            finally:
+                stop_process_group(process)
+
+    def test_soak_skips_existing_rename_destinations(self):
+        for symlink in [False, True]:
+            with self.subTest(symlink=symlink), tempfile.TemporaryDirectory() as source:
+                root = Path(source)
+                (root / "file.py").write_text("original")
+                (root / "sentinel").write_text("keep")
+                target = root / "file.py.soak"
+                if symlink:
+                    target.symlink_to(root / "sentinel")
+                else:
+                    target.write_text("occupied")
+                with Corpus(source) as corpus:
+                    cwd = str(corpus.root)
+                    with patch.object(soak, "owned", {cwd: corpus}, create=True), patch.object(soak, "edited", {}), patch.object(soak.random, "choice", return_value="rename"):
+                        soak.edit_burst(cwd, ["file.py"])
+                    self.assertEqual(corpus.path("file.py").read_text(), "original")
+                    self.assertEqual((corpus.root / "file.py.soak").read_text(), "keep" if symlink else "occupied")
+
+    def test_edit_fixtures_avoid_existing_symlinks(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "source"
+            source.mkdir()
+            outside = Path(tmp) / "outside"
+            outside.mkdir()
+            (source / "zz_new_dir").symlink_to(outside, target_is_directory=True)
+            (source / "zz_new_file.py").symlink_to(outside / "missing")
+            with Corpus(source) as corpus:
+                result = subprocess.CompletedProcess([], 0, stdout=b"", stderr=b"")
+                with patch.object(edits, "corpus", corpus, create=True), patch.object(edits, "greeg", "fake", create=True), patch.object(edits, "run", return_value=result), patch.object(edits, "compare", return_value=True), contextlib.redirect_stdout(io.StringIO()):
+                    self.assertEqual(edits.exercise(), 0)
+            self.assertEqual(list(outside.iterdir()), [])
+
+    def test_edit_diagnostics_preserve_full_plan(self):
+        diagnostic = "greeg: fresh stat 1 ms · plan And([" + ", ".join(["Gram(638628)"] * 12) + "])"
+        result = subprocess.CompletedProcess([], 1, stdout=b"", stderr=diagnostic.encode())
+        output = io.StringIO()
+        with patch.object(edits, "greeg", "fake", create=True), patch.object(edits, "run", return_value=result), patch.object(edits.time, "sleep"), contextlib.redirect_stdout(output):
+            self.assertTrue(edits.compare(["missing"], "diagnostic"))
+        self.assertIn(diagnostic.removeprefix("greeg: "), output.getvalue())
 
     @unittest.skipUnless((BENCH.parent / "target/release/greeg").is_file() and shutil.which("rg"),
                          "release binary and ripgrep required")

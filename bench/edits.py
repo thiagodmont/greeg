@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Edit-burst correctness: mutate a corpus, compare greeg (index) with rg after each step.
 Usage: edits.py CORPUS_DIR GREEG_BIN   (mutates only a disposable snapshot)"""
-import json, os, random, sys, time, shutil
+import json, os, random, sys, time, shutil, tempfile
 from corpus import Corpus, executable, interrupted_cleanup
 def run(args, **kw):
     if args[0] == "rg":
@@ -27,7 +27,7 @@ def compare(q, label):
     src = "index" if "greeg: index" in p.stderr.decode() else "scan"
     fresh = [l for l in p.stderr.decode().splitlines() if "fresh" in l]
     ok = rg == gg and oracle.returncode in (0, 1) and p.returncode == oracle.returncode
-    print(f"  {label:28} {' '.join(q):22} rg={len(rg):5} greeg={len(gg):5} {'OK ' if ok else 'DIFF'} via {src} {ms:6.1f} ms  {fresh[0][7:60] if fresh else ''}")
+    print(f"  {label:28} {' '.join(q):22} rg={len(rg):5} greeg={len(gg):5} {'OK ' if ok else 'DIFF'} via {src} {ms:6.1f} ms  {fresh[0].removeprefix('greeg: ') if fresh else ''}")
     if not ok:
         for x in list(rg-gg)[:3]: print("     missing", x)
         for x in list(gg-rg)[:3]: print("     extra", x)
@@ -107,10 +107,13 @@ def exercise():
     for q in queries: ok &= compare(q, "after 200 edits")
     print("== 1 new file, 1 new dir with 3 files, 1 deleted, 1 dir renamed")
     d = (os.path.dirname(files[0]) or ".") if files else "."
-    corpus.path(os.path.join(d,"zz_new_file.py")).write_text("ZZEDITMARK = 1\n")
-    os.makedirs(corpus.path("zz_new_dir/sub"), exist_ok=True)
+    with tempfile.NamedTemporaryFile(mode="w", prefix="zz_new_file_", suffix=".py",
+                                     dir=corpus.path(d), delete=False) as file:
+        file.write("ZZEDITMARK = 1\n")
+    new_dir = os.path.relpath(tempfile.mkdtemp(prefix="zz_new_dir_", dir=corpus.root), corpus.root)
+    corpus.path(f"{new_dir}/sub").mkdir()
     for i in range(3):
-        corpus.path(f"zz_new_dir/sub/f{i}.rs").write_text(f"fn zz{i}() {{ let ZZEDITMARK = {i}; }}\n")
+        corpus.path(f"{new_dir}/sub/f{i}.rs").write_text(f"fn zz{i}() {{ let ZZEDITMARK = {i}; }}\n")
     if files:
         corpus.path(files[min(200, len(files) - 1)]).unlink()
     # rename a directory that has files
@@ -119,7 +122,7 @@ def exercise():
     for cand in dirs:
         if os.path.isdir(corpus.path(cand)) and cand.count("/")>=1:
             rn=cand; break
-    if rn:
+    if rn and not os.path.lexists(corpus.root / (rn + "_renamed")):
         shutil.move(corpus.path(rn), corpus.path(rn+"_renamed"))
     for q in queries: ok &= compare(q, "after adds/deletes/rename")
     print("== graph after edits: an edited importer keeps reach 1.0 to what it imports")

@@ -103,8 +103,8 @@ def edit_burst(cwd, files):
     ops = []
     for f in random.sample(files, min(12, len(files))):
         kind = random.choice(["modify", "modify", "modify", "delete", "rename", "create"])
-        p = owned[cwd].path(f)
         try:
+            p = owned[cwd].path(f)
             if kind == "modify" and os.path.isfile(p):
                 with open(p, "a") as fh:
                     fh.write("\n// soak edit ZZSOAK%d fn soak_marker_%d() {}\n" % (random.randint(0, 9999), random.randint(0, 9999)))
@@ -113,15 +113,17 @@ def edit_burst(cwd, files):
                 os.remove(p)
                 ops.append(("delete", f))
             elif kind == "rename" and os.path.isfile(p):
+                if os.path.lexists(owned[cwd].root / (f + ".soak")):
+                    continue
                 os.rename(p, owned[cwd].path(f + ".soak"))
                 ops.append(("rename", f))
             elif kind == "create":
                 d = os.path.dirname(p)
                 np = owned[cwd].path(os.path.relpath(os.path.join(d, "soak_new_%d.rs" % random.randint(0, 99999)), cwd))
-                with open(np, "w") as fh:
+                with open(np, "x") as fh:
                     fh.write("pub fn soak_created_%d() { let request = 1; }\n" % random.randint(0, 9999))
                 ops.append(("create", os.path.relpath(np, cwd)))
-        except OSError:
+        except (OSError, ValueError):
             pass
     edited.setdefault(cwd, []).extend(ops)
 

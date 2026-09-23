@@ -1,0 +1,76 @@
+{
+  "protocol": 1,
+  "platform": "macOS-26.5-arm64-arm-64bit-Mach-O",
+  "python": "3.13.6 (main, Aug 26 2025, 21:03:22) [Clang 17.0.0 (clang-1700.0.13.5)]",
+  "scope": "Harness safety and setup overhead only; no application latency or token improvement claim",
+  "binary": {
+    "version": "greeg 0.6.0+50b2e4963.dirty",
+    "sha256": "912a98e162b6e6d21f6f5f3da7c56c24b988f2da75e1e013358f29ae229ba9af"
+  },
+  "source_revision": "ea91b33ca57ff0581b38e735cc108f831bccbdaa",
+  "corpus_before": {
+    "sha256": "099d77214d65813fd057b7ebab02e36cf6cec292d87982d3eb12c8e0f9daf861",
+    "files": 4369,
+    "bytes": 263914347
+  },
+  "commands": [
+    {
+      "args": [
+        "bench/edits.py",
+        "/Users/thiagodmont/.cache/greeg-bench/corpora/tokio",
+        "/Users/thiagodmont/Documents/projects/greeg/target/release/greeg"
+      ],
+      "returncode": 0,
+      "wall_ms": 6994.139000307769,
+      "stdout": "Disposable corpus: /var/folders/pw/6r2swtzx1z7cs16yhyqky72m0000gn/T/greeg-bench-9imv5f55/work\n== baseline\n  baseline                     ZZEDITMARK             rg=    0 greeg=    0 OK  via index    8.3 ms  fresh stat 2.9 ms (0 changed) \u00b7 plan And([Gram(6386283), Gram(6580596), Gram(6644841), Gram(6911085), Gram(7168370), Gram(7630177), Gram(8021348), Gram(80267\u2026\n  baseline                     -w self                rg=10559 greeg=10559 OK  via index   49.3 ms  fresh stat 3.3 ms (0 changed) \u00b7 plan words [\"self\"] \u00b7 And([Gram(6646886), Gram(7562604)])\n  baseline                     fn                     rg= 9181 greeg= 9181 OK  via index   45.2 ms  fresh stat 3.1 ms (0 changed) \u00b7 plan Gram(6712864)\n== 200 files modified\n  after 200 edits              ZZEDITMARK             rg=  200 greeg=  200 OK  via scan   22.6 ms  \n  after 200 edits              -w self                rg=10559 greeg=10559 OK  via index   58.5 ms  fresh stat 3.4 ms (0 changed) \u00b7 plan words [\"self\"] \u00b7 And([Gram(6646886), Gram(7562604)])\n  after 200 edits              fn                     rg= 9181 greeg= 9181 OK  via index   44.1 ms  fresh stat 2.8 ms (0 changed) \u00b7 plan Gram(6712864)\n== 1 new file, 1 new dir with 3 files, 1 deleted, 1 dir renamed\n  after adds/deletes/rename    ZZEDITMARK             rg=  204 greeg=  204 OK  via index   13.0 ms  fresh stat 4.5 ms (7 changed, delta after the answer) \u00b7 plan And([Gram(6386283), Gram(6580596), Gram(6644841), Gram(6911085), Gram(7168370), Gram(7630177), Gram(8021348), Gram(80267\u2026\n  after adds/deletes/rename    -w self                rg=10559 greeg=10559 OK  via index   47.6 ms  fresh stat 3.0 ms (0 changed) \u00b7 plan words [\"self\"] \u00b7 And([Gram(6646886), Gram(7562604)])\n  after adds/deletes/rename    fn                     rg= 9183 greeg= 9183 OK  via index   45.4 ms  fresh stat 3.2 ms (0 changed) \u00b7 plan Gram(6712864)\n== graph after edits: an edited importer keeps reach 1.0 to what it imports\n  edited importer              def bsd --from ess-test/examples_renamed/simple_echo_tcp.rs reach=1.0 OK  via index   21.5 ms\n  edited both                  def bsd --from ess-test/examples_renamed/simple_echo_tcp.rs reach=1.0 OK  via index   20.5 ms\n== restore initial snapshot\n  after restore                ZZEDITMARK             rg=    0 greeg=    0 OK  via scan   22.4 ms  \n  after restore                -w self                rg=10559 greeg=10559 OK  via index   84.9 ms  fresh stat 8.3 ms (0 changed) \u00b7 plan words [\"self\"] \u00b7 And([Gram(6646886), Gram(7562604)])\n  after restore                fn                     rg= 9181 greeg= 9181 OK  via index   47.2 ms  fresh stat 3.1 ms (0 changed) \u00b7 plan Gram(6712864)\nEDITS PASS\n",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "bench/soak.py",
+        "0.5",
+        "/Users/thiagodmont/Documents/projects/greeg/target/release/greeg",
+        "/Users/thiagodmont/.cache/greeg-bench/corpora/tokio",
+        "--seed",
+        "20260923"
+      ],
+      "returncode": 0,
+      "wall_ms": 32397.02812489122,
+      "stdout": "Random seed: 20260923\nDisposable corpus: /var/folders/pw/6r2swtzx1z7cs16yhyqky72m0000gn/T/greeg-bench-hujv6gkx/work (source: /Users/thiagodmont/.cache/greeg-bench/corpora/tokio)\n\u2026 50 iterations, 0 mismatches, 0 crashes, worst 84 ms\n\u2026 100 iterations, 0 mismatches, 0 crashes, worst 84 ms\n\u2026 150 iterations, 0 mismatches, 0 crashes, worst 84 ms\n\u2026 200 iterations, 0 mismatches, 0 crashes, worst 84 ms\n\u2026 250 iterations, 0 mismatches, 0 crashes, worst 84 ms\n\u2026 300 iterations, 0 mismatches, 0 crashes, worst 84 ms\n\u2026 350 iterations, 0 mismatches, 0 crashes, worst 84 ms\n\u2026 400 iterations, 0 mismatches, 0 crashes, worst 84 ms\nSOAK PASS: 447 iterations in 0.5 min, 0 mismatches, 0 crashes, worst query 96 ms\n",
+      "stderr": ""
+    }
+  ],
+  "snapshot_setup": {
+    "runs": 11,
+    "samples_ms": [
+      1713.35295913741,
+      1578.620333224535,
+      1524.3901661597192,
+      1547.7462499402463,
+      1531.1857080087066,
+      1633.9951250702143,
+      1709.509083069861,
+      1638.0808330141008,
+      1562.978375237435,
+      1524.8115421272814,
+      1483.2512084394693
+    ],
+    "median_ms": 1562.978375237435,
+    "p95_ms": 1713.35295913741,
+    "method": "Warm serial setup; includes snapshot and work copies, excludes cleanup and index creation; nearest-rank p95",
+    "reproduce": "Time Corpus(source) construction with time.perf_counter(), clean up via its context manager outside the interval, repeat 11 times serially on a warm source; nearest-rank p95.",
+    "source_artifact": "disposable-corpora-2026-09-23-darwin-arm64.json"
+  },
+  "source_digest_method": "SHA-256 of sorted relative paths, mode/mtime_ns/byte-length tuple and file or symlink bytes; excludes .git metadata",
+  "corpus_after": {
+    "sha256": "099d77214d65813fd057b7ebab02e36cf6cec292d87982d3eb12c8e0f9daf861",
+    "files": 4369,
+    "bytes": 263914347
+  },
+  "source_unchanged": true,
+  "harness_sha256": {
+    "bench/corpus.py": "997a18bce60e936c2fc8ab531526184797f1a59d114f49b8adcfdeaa2ee31e31",
+    "bench/edits.py": "3673dd4e413d7d43496b7e6996d334a11cccc3a52215f7cc3a955b5ccbae5b94",
+    "bench/soak.py": "f14fadb375d5e9230729bba22c54f58a80d4b3b4704b5bf8f339ef68da9ac2ab"
+  }
+}

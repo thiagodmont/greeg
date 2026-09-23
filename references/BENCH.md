@@ -202,13 +202,15 @@ The initial run triggered a longer paired recheck; both are retained. Reply toke
 Source snapshot: 4,369 files, 263,914,347 bytes; source content/mode/mtime digest unchanged after both workloads: **True**. Test binary: `greeg 0.6.0+50b2e4963.dirty`.
 
 - EDITS PASS (exit 0).
-- SOAK PASS: 433 iterations in 0.5 min, 0 mismatches, 0 crashes, worst query 137 ms (exit 0).
+- SOAK PASS: 447 iterations in 0.5 min, 0 mismatches, 0 crashes, worst query 96 ms (exit 0).
 
 Warm setup (11 runs) copied the snapshot and working tree in **1563.0 ms median / 1713.4 ms p95**. This excludes index creation and cleanup; allow two corpus copies plus a private index. Copying and initialization precede the soak timer, while restores count toward it.
 
 These are harness-safety checks, not paired native-search performance or token measurements. Isolated configuration, fresh indexes and snapshot restores change the workload conditions; do not compare the query timings with historical in-place runs. A fixed seed does not make process scheduling or duration-limited iteration counts deterministic.
 
-[Commands, raw output, setup samples and binary/corpus/harness digests](../bench/results/disposable-corpora-2026-09-23-darwin-arm64.json).
+[Commands, raw output, setup samples and binary/corpus/harness digests](../bench/results/disposable-corpora-review-2026-09-23-darwin-arm64.json).
+
+[Initial measurements](../bench/results/disposable-corpora-2026-09-23-darwin-arm64.json) are preserved verbatim. Their edit harness abbreviated freshness diagnostics to 53 characters. The recheck preserves complete emitted diagnostic lines (including the CLI’s explicit ellipsis for long plans) and exercises collision-safe fixtures. Setup samples are retained from the initial run; the corpus-copy implementation is unchanged.
 
 ## Speed
 
