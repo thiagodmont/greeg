@@ -13,6 +13,7 @@ pub mod ignores;
 pub mod index;
 pub mod lock;
 pub mod plan;
+pub mod private;
 pub mod resolve;
 pub mod symtab;
 pub mod words;
