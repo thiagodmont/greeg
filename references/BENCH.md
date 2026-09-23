@@ -197,6 +197,19 @@ Hook process median latency changes ranged from -2.1% to +3.6%. Cases above the 
 
 The initial run triggered a longer paired recheck; both are retained. Reply tokens count only hook JSON with the recorded tokenizer, not search results or total agent usage. Explicit matching and file-size flags add reply cost; declined commands emit no reply and continue with the original tool. Tests use synthetic fixtures and the recorded response shapes, not live host approvals. No new cold-cache, RSS, native-search performance, or whole-task token claim is made.
 
+## Disposable edit and soak corpora (2026-09-23)
+
+Source snapshot: 4,369 files, 263,914,347 bytes; source content/mode/mtime digest unchanged after both workloads: **True**. Test binary: `greeg 0.6.0+50b2e4963.dirty`.
+
+- EDITS PASS (exit 0).
+- SOAK PASS: 433 iterations in 0.5 min, 0 mismatches, 0 crashes, worst query 137 ms (exit 0).
+
+Warm setup (11 runs) copied the snapshot and working tree in **1563.0 ms median / 1713.4 ms p95**. This excludes index creation and cleanup; allow two corpus copies plus a private index. Copying and initialization precede the soak timer, while restores count toward it.
+
+These are harness-safety checks, not paired native-search performance or token measurements. Isolated configuration, fresh indexes and snapshot restores change the workload conditions; do not compare the query timings with historical in-place runs. A fixed seed does not make process scheduling or duration-limited iteration counts deterministic.
+
+[Commands, raw output, setup samples and binary/corpus/harness digests](../bench/results/disposable-corpora-2026-09-23-darwin-arm64.json).
+
 ## Speed
 
 Host `darwin-arm64-apple-m4-pro` (12 CPUs), 2026-09-06T14:35:26. `greeg 0.3.0`, `ripgrep 15.2.0`, `grep (BSD grep, GNU compatible) 2.6.0-Fr`, hyperfine 1.20.0. hyperfine `-N --warmup 3 --runs 10` with `--prepare 'sleep 0.15'` before every timing run, warm page cache. Cells are **medians** with min–max in parentheses.

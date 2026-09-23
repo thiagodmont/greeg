@@ -1261,6 +1261,35 @@ def hook_report(output_dir):
     return out
 
 
+def corpus_report(output_dir):
+    filename = "disposable-corpora-2026-09-23-darwin-arm64.json"
+    data = load_json(os.path.join(RESULTS, filename))
+    if not data:
+        return []
+    from urllib.parse import quote
+    link = quote(os.path.relpath(os.path.realpath(os.path.join(RESULTS, filename)), output_dir))
+    setup = data["snapshot_setup"]
+    corpus = data["corpus_before"]
+    out = ["## Disposable edit and soak corpora (2026-09-23)", "",
+           f"Source snapshot: {corpus['files']:,} files, {corpus['bytes']:,} bytes; "
+           f"source content/mode/mtime digest unchanged after both workloads: **{data['source_unchanged']}**. "
+           f"Test binary: `{data['binary']['version']}`.", ""]
+    for command in data["commands"]:
+        summary = next((line for line in reversed(command["stdout"].splitlines())
+                        if line.startswith(("EDITS ", "SOAK "))), "No workload summary")
+        out.append(f"- {summary} (exit {command['returncode']}).")
+    out += ["", f"Warm setup ({setup['runs']} runs) copied the snapshot and working tree in "
+            f"**{setup['median_ms']:.1f} ms median / {setup['p95_ms']:.1f} ms p95**. "
+            "This excludes index creation and cleanup; allow two corpus copies plus a private index. "
+            "Copying and initialization precede the soak timer, while restores count toward it.", "",
+            "These are harness-safety checks, not paired native-search performance or token measurements. "
+            "Isolated configuration, fresh indexes and snapshot restores change the workload conditions; "
+            "do not compare the query timings with historical in-place runs. A fixed seed does not "
+            "make process scheduling or duration-limited iteration counts deterministic.", "",
+            f"[Commands, raw output, setup samples and binary/corpus/harness digests]({link}).", ""]
+    return out
+
+
 def report(args):
     path = args.out or os.path.join(ROOT, "references", "BENCH.md")
     speed_res = load_json(os.path.join(RESULTS, "speed.json"))
@@ -1270,6 +1299,7 @@ def report(args):
     out += matching_report(output_dir)
     out += matching_review_report(output_dir)
     out += hook_report(output_dir)
+    out += corpus_report(output_dir)
     if speed_res:
         h = speed_res["host"]
         corpora = speed_res["corpora"]
