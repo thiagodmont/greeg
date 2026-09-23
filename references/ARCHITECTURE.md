@@ -350,10 +350,20 @@ to keep it there.
 * **Back-to-back calls**: a manifest verified in the last 100 ms is trusted, so
   several tool calls in one agent turn pay for a single check.
 
-Known limits of the stat check: a same-size edit whose mtime is restored is
-missed, a file replaced by a symlink is followed, and ignore inputs other than
-`.gitignore`, `.ignore` and `.rgignore` (such as `.git/info/exclude` or a global
-excludes file) do not invalidate the file set. `--no-index` scans the tree when that matters.
+A known file that is no longer a regular file (replaced by a symlink, FIFO
+or device) counts as deleted, and added entries are indexed only when they
+are regular files, as a scan would. Indexed paths are opened without
+following a symlink and without blocking, then checked to be regular; parent
+directories are not yet checked the same way.
+
+Ignore files inside the tree are tracked like files. Ignore inputs outside
+it (ancestor ignore files, the repository's `info/exclude`, the global git
+excludes file and the git configuration that names it) are recorded as a
+digest in the manifest; a different digest rebuilds the index and the query
+scans meanwhile.
+
+Known limit of the stat check: a same-size edit whose mtime is restored is
+missed. `--no-index` scans the tree when that matters.
 
 A search that finds changes **answers first**. It drops the stale versions from
 its candidates, reads the changed files directly, prints the answer, and only
@@ -361,7 +371,7 @@ then spawns a detached process to extract them and publish a delta segment.
 You still get the working tree as it was at query time. The tree-sitter work is
 what moved off the critical path.
 
-Past a threshold (an edited `.gitignore`, more than 2,000 changed files, 16
+Past a threshold (a changed ignore file or ignore input, more than 2,000 changed files, 16
 accumulated deltas, or 5 % of the tree) greeg spawns a full rebuild and answers
 the query with a scan.
 
