@@ -317,9 +317,10 @@ record-count compaction retains the newest half, and byte-limit compaction aims
 for half the byte budget. Expired/invalid records are removed on the next accepted
 write. New/empty logs trigger a bounded sweep of up to 4,096 directory entries,
 removing only recognized, single-link, user-owned regular log files whose mtime
-is at least 24 hours old. Enumeration runs after releasing the append lock; each
-expired candidate is rechecked under a nonblocking lock before deletion. A busy
-writer stops cleanup without waiting. Other entries and the stable lock remain intact.
+is at least 24 hours old. Enumeration runs after releasing the append lock and
+collects a bounded batch of expired names, then closes the directory stream before
+deleting anything. Each candidate is rechecked under a nonblocking lock before
+deletion. A busy writer stops cleanup without waiting. Other entries and the stable lock remain intact.
 This is opportunistic cleanup, not a global disk quota or a background eraser;
 inactive logs beyond the sweep limit and crash-left temporary files may remain.
 

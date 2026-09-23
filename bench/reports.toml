@@ -262,3 +262,23 @@ pr = 21
 measured_at = 2026-09-23T16:57:25.076374Z
 timestamp_source = "measurement"
 notes = "These 51-pair incremental measurements compare the retained original session binary with anchored cleanup and shorter lock scope. Both binaries pass 14/14 session/search contracts; stdout, stderr, statuses, bytes and tokens remain unchanged, with scan/index matching-file parity. No case exceeds +10% median or +20% p95: maximum increases are +2.4% median and +19.0% p95. Directory-rename and busy-writer cleanup safety are covered by deterministic Rust regressions; these small-directory timings do not establish a large-directory contention speedup. Original costs versus merged main remain documented above."
+
+[[datasets]]
+id = "private_sessions_sweep"
+section = "session"
+filename = "private-sessions-sweep-2026-09-23-darwin-arm64.json"
+title = "Session cleanup: collect before deletion (2026-09-23)"
+pr = 21
+measured_at = 2026-09-23T17:16:33.700442Z
+timestamp_source = "measurement"
+notes = "Initial 51-pair comparison against the retained cleanup-review binary: 14/14 contracts pass on both binaries with unchanged stdout/stderr/status, bytes and tokens. All medians stay below +10%; scan expiry p95 increases 17.48 → 45.05 ms (+157.7%), so the larger confirmation is retained below. That case compacts an existing nonempty log and does not enter the directory sweep. The 512-log cleanup test passed before and after the change on this Mac; no filesystem-specific skipped-entry defect was reproduced. This is defensive separation of enumeration and deletion, not a proven speedup."
+
+[[datasets]]
+id = "private_sessions_sweep_confirmation"
+section = "session"
+filename = "private-sessions-sweep-confirmation-2026-09-23-darwin-arm64.json"
+title = "Session cleanup: collect-before-delete confirmation (2026-09-23)"
+pr = 21
+measured_at = 2026-09-23T17:17:29.216244Z
+timestamp_source = "measurement"
+notes = "The 151-pair confirmation uses the same binary digests, passes 14/14 contracts on both binaries, and preserves exact output/status, bytes/tokens and scan/index matching-file parity. Maximum increases are +1.2% median and +7.1% p95; no investigation thresholds are crossed. The initial scan-expiry tail flag does not repeat (+1.6%, or 0.13 ms). Both runs remain available. These small-directory timing fixtures do not measure bulk-sweep latency or peak RSS; Rust coverage checks removal of 512 expired logs, fresh-file preservation, renamed directories and busy writers."

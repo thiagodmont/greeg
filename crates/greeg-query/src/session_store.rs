@@ -386,6 +386,7 @@ impl Store {
         }
         let _ = directory.into_raw_fd();
         let stream = DirectoryStream(stream);
+        let mut expired = Vec::new();
         for _ in 0..4096 {
             // SAFETY: the stream is live and exclusively accessed here.
             let entry = unsafe { libc::readdir(stream.0) };
@@ -412,9 +413,12 @@ impl Store {
             if name == self.name || !(safe || hashed) {
                 continue;
             }
-            if !self.expired_log(name) {
-                continue;
+            if self.expired_log(name) {
+                expired.push(name.to_owned());
             }
+        }
+        drop(stream);
+        for name in expired {
             let Ok(lock) = self.file(".lock", libc::O_RDWR | libc::O_CREAT) else {
                 return;
             };
@@ -423,8 +427,8 @@ impl Store {
             }
             let _lock = Lock(lock);
             // A writer may have refreshed or replaced the log during enumeration.
-            if self.expired_log(name) {
-                self.unlink(name);
+            if self.expired_log(&name) {
+                self.unlink(&name);
             }
         }
     }
@@ -815,6 +819,30 @@ mod tests {
         assert!(start.elapsed() < Duration::from_secs(2));
         drop(lock);
         store.append(&record(1), 100_000).unwrap();
+    }
+
+    #[test]
+    fn pruning_removes_a_bulk_batch_and_preserves_fresh_logs() {
+        let f = Fixture::new();
+        let store = f.store("active");
+        let old = SystemTime::now() - Duration::from_secs(MAX_AGE_SECS + 1);
+        for n in 0..512 {
+            let path = store.path.join(format!("expired-{n}.jsonl"));
+            fs::write(&path, "expired").unwrap();
+            File::open(path)
+                .unwrap()
+                .set_times(fs::FileTimes::new().set_modified(old))
+                .unwrap();
+        }
+        fs::write(store.path.join("fresh.jsonl"), "keep").unwrap();
+        store.prune();
+        for n in 0..512 {
+            assert!(!store.path.join(format!("expired-{n}.jsonl")).exists());
+        }
+        assert_eq!(
+            fs::read_to_string(store.path.join("fresh.jsonl")).unwrap(),
+            "keep"
+        );
     }
 
     #[test]
