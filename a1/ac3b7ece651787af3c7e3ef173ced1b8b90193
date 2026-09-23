@@ -1,0 +1,26 @@
+references/ARCHITECTURE.md
+  s_09357c044b6e84::t_97ae44f89de973 267-268,270-271
+crates/greeg/src/hook_config.rs
+  s_09357c044b6e84::t_97ae44f89de973 157-164
+  s_09357c044b6e84::t_9e49e72fffa114 18-26,107,146,238,428
+bench/hook_config.py
+  s_09357c044b6e84::t_97ae44f89de973 255,257
+crates/greeg/tests/hooks.rs
+  s_09357c044b6e84::t_180ed71daf632f 713
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "a1ac3b7ece651787af3c7e3ef173ced1b8b90193",
+  "prompts": {},
+  "sessions": {
+    "s_09357c044b6e84": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0c9a2-d91e-7fc2-8558-a87341dafdb2",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
