@@ -304,7 +304,7 @@ pub fn pair_id(cwd: &Path, argv: &[String]) -> String {
 }
 
 /// The stats directory, opened privately. The default location is greeg's
-/// own and is tightened to 0700; a directory named by `GREEG_STATS_DIR` is
+/// own and is tightened to 0700; any directory named by `GREEG_STATS_DIR` is
 /// refused rather than chmodded when other users can access it. `None` when
 /// it does not exist and `create` is false (reading never creates it).
 fn records(dir: &Path, create: bool) -> Result<Option<PrivateDir>> {
@@ -312,11 +312,9 @@ fn records(dir: &Path, create: bool) -> Result<Option<PrivateDir>> {
         return Ok(None);
     }
     let parent = dir.parent().context("stats directory has no parent")?;
-    let name = dir
-        .file_name()
-        .and_then(|n| n.to_str())
-        .context("stats directory needs a UTF-8 name")?;
-    let owned = greeg_index::cache_base().is_ok_and(|b| dir == b.join("stats"));
+    let name = dir.file_name().context("stats directory has no name")?;
+    let owned = std::env::var_os("GREEG_STATS_DIR").is_none()
+        && greeg_index::cache_base().is_ok_and(|b| dir == b.join("stats"));
     let d = if owned {
         PrivateDir::open(parent, name)
     } else {
@@ -550,17 +548,23 @@ fn read_lines<T: for<'a> Deserialize<'a>>(d: &PrivateDir, name: &str) -> Vec<T> 
         return Vec::new();
     };
     let len = f.metadata().map(|m| m.len()).unwrap_or(0);
+    // a tail starts one byte early, so a window opening on a line boundary
+    // keeps that line: everything up to the first newline is dropped
     let tail = len > READ_BYTES;
-    if tail && f.seek(SeekFrom::Start(len - READ_BYTES)).is_err() {
+    if tail && f.seek(SeekFrom::Start(len - READ_BYTES - 1)).is_err() {
         return Vec::new();
     }
     let mut bytes = Vec::new();
-    if f.take(READ_BYTES).read_to_end(&mut bytes).is_err() {
+    if f.take(READ_BYTES + 1).read_to_end(&mut bytes).is_err() {
         return Vec::new();
     }
-    let s = String::from_utf8_lossy(&bytes);
-    s.lines()
-        .skip(usize::from(tail))
+    let start = if tail {
+        memchr::memchr(b'\n', &bytes).map_or(bytes.len(), |i| i + 1)
+    } else {
+        0
+    };
+    String::from_utf8_lossy(&bytes[start..])
+        .lines()
         .filter_map(|l| serde_json::from_str(l).ok())
         .collect()
 }
@@ -2392,8 +2396,9 @@ fn is_executable(p: &Path) -> bool {
 
 /// The ripgrep that replays recorded searches: chosen with `--rg`, or the
 /// first `rg` on an absolute PATH entry (never `.` or another relative
-/// entry). It must report itself as ripgrep, and its identity is checked
-/// again before every run.
+/// entry). It must report itself as ripgrep. Its identity is checked again
+/// before every run to notice an upgrade mid-replay; whoever can replace a
+/// binary at that path already runs code as this user.
 struct TrustedRg {
     path: PathBuf,
     id: FileId,
@@ -2547,7 +2552,18 @@ fn run_bounded(mut cmd: std::process::Command, what: &str, timeout: Duration) ->
     unsafe {
         libc::killpg(pid, libc::SIGKILL);
     }
-    let status = child.wait()?;
+    // a process stuck in uninterruptible I/O ignores SIGKILL: reap on a budget
+    let reap_by = Instant::now() + Duration::from_secs(5);
+    let status = loop {
+        if let Some(s) = child.try_wait()? {
+            break s;
+        }
+        anyhow::ensure!(
+            Instant::now() < reap_by,
+            "{what} could not be stopped; it may be blocked on I/O"
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    };
     anyhow::ensure!(finished, "{what} did not finish within {timeout:?}");
     let collect = |rx: std::sync::mpsc::Receiver<(usize, Vec<u8>)>| {
         rx.recv_timeout(
@@ -2670,7 +2686,6 @@ pub fn replay(o: &ReplayOpts) -> Result<()> {
         Some(b) => Greeg::at(b, &dir)?,
         None => Greeg::current()?,
     };
-    let rg = TrustedRg::find(o.rg.as_deref())?;
     // unique ids, newest hook record first, only those a run actually followed
     let mut seen = std::collections::HashSet::new();
     let mut todo: Vec<&HookEvent> = Vec::new();
@@ -2700,6 +2715,7 @@ pub fn replay(o: &ReplayOpts) -> Result<()> {
         );
         return Ok(());
     }
+    let rg = TrustedRg::find(o.rg.as_deref())?;
     eprintln!(
         "greeg stats replay: {} unique queries, {} timed runs each after a warm-up, greeg {}{}, {} at {}; run this on a quiet machine",
         todo.len(),
@@ -3193,6 +3209,19 @@ mod tests {
         put(&d, "events.jsonl", &Event::Hook(hook(1, "tail")));
         let ev = load_events(&d);
         assert!(matches!(&ev[..], [Event::Hook(h)] if h.id == "tail"));
+        // a window that opens exactly on a line boundary keeps that line
+        let exact = tmp();
+        let line = serde_json::to_string(&Event::Hook(hook(2, "edge"))).unwrap() + "\n";
+        let mut body = "x".repeat(4096) + "\n" + &line;
+        body.push_str(&"\n".repeat(READ_BYTES as usize - line.len()));
+        std::fs::write(exact.join("events.jsonl"), &body).unwrap();
+        let ev = load_events(&exact);
+        assert!(
+            matches!(&ev[..], [Event::Hook(h)] if h.id == "edge"),
+            "{}",
+            ev.len()
+        );
+        let _ = std::fs::remove_dir_all(&exact);
         let huge = "x".repeat(MAX_RECORD_BYTES);
         assert!(append_in(&d, "events.jsonl", &huge).is_err());
         // reading a missing directory does not create it

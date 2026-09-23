@@ -130,6 +130,7 @@ pub fn refresh_now(root: &Path, dir: &Path, threads: usize) -> Result<()> {
     {
         Ok(mut f) => {
             use std::io::Write as _;
+            let _ = greeg_index::owner_only(&f);
             let _ = writeln!(f, "{}", std::process::id());
         }
         Err(_) => {

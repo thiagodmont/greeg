@@ -524,6 +524,7 @@ fn run_index(
     {
         Ok(mut f) => {
             use std::io::Write as _;
+            let _ = greeg_index::owner_only(&f);
             let _ = writeln!(f, "{}", std::process::id());
         }
         Err(_) => {

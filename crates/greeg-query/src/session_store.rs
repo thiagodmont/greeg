@@ -299,6 +299,7 @@ mod tests {
     #[cfg(target_os = "linux")]
     #[test]
     fn posix_acl_is_refused_without_changing_permissions() {
+        use std::os::fd::AsRawFd;
         let f = Fixture::new();
         let store = f.store("acl");
         seed(&store, 1);

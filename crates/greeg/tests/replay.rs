@@ -88,26 +88,31 @@ impl Fixture {
             .unwrap()
             .write_all(payload.to_string().as_bytes())
             .unwrap();
-        let reply: Value =
-            serde_json::from_slice(&hook.wait_with_output().unwrap().stdout).unwrap();
-        let rewritten = reply["hookSpecificOutput"]["updatedInput"]["command"]
-            .as_str()
+        assert!(hook.wait_with_output().unwrap().status.success());
+        let rewritten = self.last_hook()["rewritten"]
+            .as_array()
             .unwrap()
-            .to_owned();
-        let words: Vec<&str> = rewritten.split(' ').skip(1).collect();
-        let run = self.command().args(&words).output().unwrap();
+            .iter()
+            .skip(1)
+            .map(|w| w.as_str().unwrap().to_owned())
+            .collect::<Vec<_>>();
+        let run = self.command().args(&rewritten).output().unwrap();
         assert_eq!(run.status.code(), Some(0), "{run:?}");
+    }
+
+    fn last_hook(&self) -> Value {
+        fs::read_to_string(self.0.join("stats/events.jsonl"))
+            .unwrap()
+            .lines()
+            .map(|l| serde_json::from_str::<Value>(l).unwrap())
+            .rfind(|v| v["kind"] == "hook")
+            .unwrap()
     }
 
     /// Append a copy of the last hook record with a different original argv.
     fn tamper(&self, original: &[&str]) {
         let events = self.0.join("stats/events.jsonl");
-        let text = fs::read_to_string(&events).unwrap();
-        let mut hook: Value = text
-            .lines()
-            .map(|l| serde_json::from_str::<Value>(l).unwrap())
-            .rfind(|v| v["kind"] == "hook")
-            .unwrap();
+        let mut hook = self.last_hook();
         hook["original"] = json!(original);
         hook["ts"] = json!(hook["ts"].as_u64().unwrap() + 1);
         let mut f = fs::OpenOptions::new().append(true).open(&events).unwrap();
@@ -172,4 +177,15 @@ fn replay_never_runs_a_recorded_path_or_a_relative_path_entry() {
     assert!(!out.status.success(), "{out:?}");
     assert!(!f.0.join("sentinel").exists());
     assert_eq!(f.rg_log(), "");
+}
+
+#[test]
+fn nothing_to_replay_needs_no_ripgrep() {
+    let f = Fixture::new();
+    let out = f.replay(&[], Some(""));
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        out.status.success() && stderr.contains("nothing to replay"),
+        "{stderr}"
+    );
 }

@@ -38,12 +38,30 @@ pub fn create_private_dir(dir: &Path) -> std::io::Result<()> {
 }
 
 /// Options that create files owner-only (0600); the caller adds the mode of
-/// access. Index components, manifests, locks and markers all use them.
+/// access and then calls [`owner_only`] on a file it created.
 pub fn private_file() -> std::fs::OpenOptions {
     use std::os::unix::fs::OpenOptionsExt;
     let mut o = std::fs::OpenOptions::new();
     o.mode(0o600);
     o
+}
+
+/// Set a file greeg just created to exactly 0600: the umask can remove bits
+/// from the creation mode.
+pub fn owner_only(f: &std::fs::File) -> std::io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    f.set_permissions(std::fs::Permissions::from_mode(0o600))
+}
+
+/// Create or truncate a file greeg owns in an index directory, owner-only.
+pub fn create_private(path: &Path) -> std::io::Result<std::fs::File> {
+    let f = private_file()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(path)?;
+    owner_only(&f)?;
+    Ok(f)
 }
 
 /// Open an indexed path only while it is still a regular file: a symlink is
@@ -202,12 +220,7 @@ pub fn read_manifest(dir: &Path) -> Option<Manifest> {
 /// Rewrite the manifest atomically. Callers hold the writer lock (`lock::writer`).
 pub fn write_manifest(dir: &Path, m: &Manifest) -> Result<()> {
     let tmp = format::tmp_path(&dir.join("manifest"));
-    private_file()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .open(&tmp)?
-        .write_all(&serde_json::to_vec_pretty(m)?)?;
+    create_private(&tmp)?.write_all(&serde_json::to_vec_pretty(m)?)?;
     std::fs::rename(&tmp, dir.join("manifest"))?;
     Ok(())
 }

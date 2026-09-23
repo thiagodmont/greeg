@@ -93,15 +93,17 @@ prints it: the release, or `0.4.0+ff9011a` for a build from that commit, with
 Replay runs one ripgrep for the whole session: the one given with `--rg
 /absolute/path`, or the first `rg` on an absolute `PATH` entry (`.` and other
 relative entries are skipped). It must print `ripgrep …` for `--version`, and
-it is checked again before every run; if it changes, the replay stops. A record
+it is checked again before every run; if it changes (an upgrade mid-replay, say),
+the replay stops. This is not a defence against someone who can replace that
+binary: they can already run code as you. A record
 is replayed only if its program is exactly `rg` and the hook would still rewrite
 its arguments. Older `grep` or `./rg` records are skipped with the reason. The
 greeg side runs the hook's current rewrite of those arguments, not the stored
 argv. No replayed command inherits `RIPGREP_CONFIG_PATH`, which matches how the
 hook recorded it. A query whose tree contains that ripgrep is skipped.
 
-Every command, including `--version` probes, runs in its own process group with
-one deadline (`--timeout`) covering its run and its output. The group is killed
+Every command runs in its own process group with one deadline (`--timeout`)
+covering its run and its output; `--version` probes get a fixed 10 seconds. The group is killed
 when the command finishes or times out, so a background child holding the output
 open cannot hang the replay. Only the first 4 MB of each stream is kept; larger
 output is counted and its token estimate scaled.

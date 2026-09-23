@@ -218,12 +218,8 @@ impl<K: Key> Sink<K> {
         ));
         let mut keys: Vec<K> = self.map.keys().cloned().collect();
         keys.sort_unstable();
-        let f = crate::private_file()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .open(&path)
-            .with_context(|| format!("create {}", path.display()))?;
+        let f =
+            crate::create_private(&path).with_context(|| format!("create {}", path.display()))?;
         let mut w = BufWriter::with_capacity(256 << 10, f);
         let mut rec = Vec::with_capacity(4096);
         for k in &keys {

@@ -529,16 +529,22 @@ fn index_files_are_private_under_a_permissive_umask() {
         c.output().unwrap()
     };
     let private_below = |dir: &Path, root_mode: u32| {
-        let mode = |p: &Path| fs::symlink_metadata(p).unwrap().permissions().mode() & 0o777;
-        assert_eq!(mode(dir), root_mode, "{}", dir.display());
+        let mode = |p: &Path| {
+            fs::symlink_metadata(p)
+                .ok()
+                .map(|m| m.permissions().mode() & 0o777)
+        };
+        assert_eq!(mode(dir), Some(root_mode), "{}", dir.display());
         let mut stack: Vec<PathBuf> = fs::read_dir(dir)
             .unwrap()
             .map(|e| e.unwrap().path())
             .collect();
         while let Some(p) = stack.pop() {
-            assert_eq!(mode(&p) & 0o077, 0, "{} is {:o}", p.display(), mode(&p));
-            if p.is_dir() {
-                stack.extend(fs::read_dir(&p).unwrap().map(|e| e.unwrap().path()));
+            // a temporary file can be renamed away between listing and stat
+            let Some(m) = mode(&p) else { continue };
+            assert_eq!(m & 0o077, 0, "{} is {m:o}", p.display());
+            if let Ok(entries) = fs::read_dir(&p) {
+                stack.extend(entries.flatten().map(|e| e.path()));
             }
         }
     };
@@ -554,11 +560,13 @@ fn index_files_are_private_under_a_permissive_umask() {
         .arg(&f.index)
         .arg("edited");
     assert_eq!(permissive(c).status.code(), Some(0));
-    let deadline = Instant::now() + Duration::from_secs(10);
-    while !f.index.join("delta").exists() && Instant::now() < deadline {
+    // wait for the detached refresh to publish the delta and finish
+    let published = || f.index.join("delta").exists() && !f.index.join("REFRESHING").exists();
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while !published() && Instant::now() < deadline {
         std::thread::sleep(Duration::from_millis(50));
     }
-    assert!(f.index.join("delta").exists(), "no delta published");
+    assert!(published(), "no delta published");
     private_below(&f.index, 0o700);
 
     // an existing directory someone else chose is used, not chmodded

@@ -4,10 +4,11 @@
 //! belong to this user, have the expected type and a single link, and carry
 //! no extended ACL; their mode is tightened to 0700/0600 when needed.
 
-use std::ffi::{CStr, CString};
+use std::ffi::{CStr, CString, OsStr};
 use std::fs::{self, File};
 use std::io::{self, Write};
 use std::os::fd::{AsRawFd, FromRawFd, IntoRawFd};
+use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -17,15 +18,20 @@ fn invalid(message: &str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, message)
 }
 
-fn cname(name: &str) -> io::Result<CString> {
-    if name.contains('/') {
+/// A single path component: never empty, `.`, `..` or containing `/`.
+fn cname(name: impl AsRef<OsStr>) -> io::Result<CString> {
+    let bytes = name.as_ref().as_bytes();
+    if matches!(bytes, b"" | b"." | b"..") || bytes.contains(&b'/') {
         return Err(invalid("private storage names are single path components"));
     }
-    CString::new(name).map_err(|_| invalid("invalid private storage name"))
+    CString::new(bytes).map_err(|_| invalid("invalid private storage name"))
 }
 
-fn open_at(dir: &File, name: &str, flags: i32) -> io::Result<File> {
-    let name = cname(name)?;
+fn open_at(dir: &File, name: impl AsRef<OsStr>, flags: i32) -> io::Result<File> {
+    openat_c(dir, &cname(name)?, flags)
+}
+
+fn openat_c(dir: &File, name: &CStr, flags: i32) -> io::Result<File> {
     // SAFETY: the directory descriptor and NUL-terminated name remain valid.
     let fd = unsafe {
         libc::openat(
@@ -42,8 +48,9 @@ fn open_at(dir: &File, name: &str, flags: i32) -> io::Result<File> {
     Ok(unsafe { File::from_raw_fd(fd) })
 }
 
-/// Check an opened object and tighten its mode, or with `repair` false,
-/// refuse one that other users can access.
+/// Check an opened object and tighten its mode. With `repair` false it is
+/// never chmodded: one that other users can access is refused, and one with
+/// only owner bits (a sticky or setgid bit, say) is left as it is.
 fn private(file: &File, directory: bool, repair: bool) -> io::Result<()> {
     let m = file.metadata()?;
     // SAFETY: geteuid has no preconditions.
@@ -60,13 +67,14 @@ fn private(file: &File, directory: bool, repair: bool) -> io::Result<()> {
     }
     no_extended_acl(file)?;
     let mode = if directory { 0o700 } else { 0o600 };
-    if m.mode() & 0o7777 != mode {
-        if !repair && m.mode() & 0o077 != 0 {
+    if !repair {
+        if m.mode() & 0o077 != 0 {
             return Err(io::Error::new(
                 io::ErrorKind::PermissionDenied,
                 "directory is accessible by other users; restrict it to its owner (chmod 700)",
             ));
         }
+    } else if m.mode() & 0o7777 != mode {
         file.set_permissions(fs::Permissions::from_mode(mode))?;
     }
     Ok(())
@@ -152,17 +160,17 @@ impl PrivateDir {
     /// Open `parent/name`, a directory greeg owns, creating it 0700 when
     /// missing and tightening it otherwise. Missing parents are created 0700;
     /// existing parents are never chmodded.
-    pub fn open(parent: &Path, name: &str) -> io::Result<Self> {
-        Self::open_with(parent, name, true)
+    pub fn open(parent: &Path, name: impl AsRef<OsStr>) -> io::Result<Self> {
+        Self::open_with(parent, name.as_ref(), true)
     }
 
     /// `open`, but an existing directory the caller chose is only checked:
     /// one that other users can access is refused, never chmodded.
-    pub fn open_chosen(parent: &Path, name: &str) -> io::Result<Self> {
-        Self::open_with(parent, name, false)
+    pub fn open_chosen(parent: &Path, name: impl AsRef<OsStr>) -> io::Result<Self> {
+        Self::open_with(parent, name.as_ref(), false)
     }
 
-    fn open_with(parent: &Path, name: &str, repair: bool) -> io::Result<Self> {
+    fn open_with(parent: &Path, name: &OsStr, repair: bool) -> io::Result<Self> {
         fs::DirBuilder::new()
             .recursive(true)
             .mode(0o700)
@@ -185,8 +193,11 @@ impl PrivateDir {
     }
 
     /// Open a checked private file. With `O_CREAT` (and no `O_EXCL`) an
-    /// existing file is reused and a new one is created 0600.
+    /// existing file is reused and a new one is created 0600. `O_TRUNC`
+    /// applies only after the checks pass.
     pub fn file(&self, name: &str, flags: i32) -> io::Result<File> {
+        let truncate = flags & libc::O_TRUNC != 0;
+        let flags = flags & !libc::O_TRUNC;
         let file = if flags & libc::O_CREAT != 0 && flags & libc::O_EXCL == 0 {
             match open_at(&self.dir, name, flags | libc::O_EXCL) {
                 Ok(file) => file,
@@ -199,6 +210,9 @@ impl PrivateDir {
             open_at(&self.dir, name, flags)?
         };
         private(&file, false, true)?;
+        if truncate {
+            file.set_len(0)?;
+        }
         Ok(file)
     }
 
@@ -291,7 +305,8 @@ impl PrivateDir {
     /// Up to `limit` entry names, read from an independent directory stream.
     pub fn names(&self, limit: usize) -> Vec<String> {
         let mut out = Vec::new();
-        let Ok(directory) = open_at(&self.dir, ".", libc::O_RDONLY | libc::O_DIRECTORY) else {
+        // a new open description keeps each listing's offset independent
+        let Ok(directory) = openat_c(&self.dir, c".", libc::O_RDONLY | libc::O_DIRECTORY) else {
             return out;
         };
         // SAFETY: directory owns a readable directory descriptor.
@@ -313,5 +328,75 @@ impl PrivateDir {
             }
         }
         out
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn own_dir() -> std::path::PathBuf {
+        static N: AtomicU64 = AtomicU64::new(0);
+        loop {
+            let d = std::env::temp_dir().join(format!(
+                "greeg-private-{}-{}",
+                std::process::id(),
+                N.fetch_add(1, Ordering::Relaxed)
+            ));
+            match fs::DirBuilder::new().mode(0o700).create(&d) {
+                Ok(()) => return d,
+                Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
+                Err(e) => panic!("create {}: {e}", d.display()),
+            }
+        }
+    }
+
+    #[test]
+    fn names_are_single_components() {
+        let base = own_dir();
+        let d = PrivateDir::open(&base, "store").unwrap();
+        for bad in ["", ".", "..", "a/b", "../x"] {
+            assert!(d.file(bad, libc::O_RDONLY).is_err(), "{bad:?}");
+            assert!(d.open_unchecked(bad, libc::O_RDONLY).is_err(), "{bad:?}");
+        }
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn chosen_directories_are_never_chmodded() {
+        let base = own_dir();
+        let chosen = base.join("chosen");
+        fs::create_dir(&chosen).unwrap();
+        fs::set_permissions(&chosen, fs::Permissions::from_mode(0o1700)).unwrap();
+        PrivateDir::open_chosen(&base, "chosen").unwrap();
+        let mode = |p: &Path| fs::metadata(p).unwrap().mode() & 0o7777;
+        assert_eq!(mode(&chosen), 0o1700);
+        fs::set_permissions(&chosen, fs::Permissions::from_mode(0o750)).unwrap();
+        assert!(PrivateDir::open_chosen(&base, "chosen").is_err());
+        assert_eq!(mode(&chosen), 0o750);
+        // a non-UTF-8 name is a valid directory name (APFS rejects the bytes)
+        #[cfg(target_os = "linux")]
+        {
+            let odd = std::ffi::OsStr::from_bytes(b"st\xffts");
+            PrivateDir::open(&base, odd).unwrap();
+            assert!(base.join(odd).is_dir());
+        }
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn truncation_waits_for_the_checks() {
+        let base = own_dir();
+        let d = PrivateDir::open(&base, "store").unwrap();
+        let outside = base.join("outside");
+        fs::write(&outside, "keep").unwrap();
+        fs::hard_link(&outside, base.join("store/linked")).unwrap();
+        let flags = libc::O_WRONLY | libc::O_CREAT | libc::O_TRUNC;
+        assert!(d.file("linked", flags).is_err());
+        assert_eq!(fs::read_to_string(&outside).unwrap(), "keep");
+        fs::write(base.join("store/own"), "old").unwrap();
+        d.file("own", flags).unwrap();
+        assert_eq!(fs::read_to_string(base.join("store/own")).unwrap(), "");
+        let _ = fs::remove_dir_all(&base);
     }
 }
