@@ -1148,10 +1148,10 @@ def matching_report(output_dir, datasets=None):
     return out
 
 
-def matching_review_report(output_dir, datasets=None):
+def matching_review_report(output_dir, datasets=None, section="matching_review"):
     datasets = datasets or ReportDatasets(RESULTS)
     out = []
-    for entry in datasets.section("matching_review"):
+    for entry in datasets.section(section):
         filename, title = entry.filename, entry.title
         data = datasets.get(entry)
         if not data or not data.get("results"):
@@ -1177,7 +1177,7 @@ def matching_review_report(output_dir, datasets=None):
         token_flag = " --tokens" if data.get("tokenizer") else ""
         out += [f"[Raw samples, environment, and binary/corpus digests]({link}). "
                 f"Reproduce: `python3 bench/matching.py BASELINE CANDIDATE --cases {' '.join(data['cases'])} --runs {data['runs']}{token_flag} --output {filename}`.", ""]
-    if out:
+    if out and section == "matching_review":
         out += ["JSON contracts compare match paths, lines, offsets, submatches, status, exact rung, and total hit counts with ripgrep. "
                 "Repeat-output checks remove only elapsed fields; byte/token measurements retain them and use the first raw sample, so small JSON size differences reflect timing values. "
                 "Definition checks compare paths and status on this controlled fixture, not general symbol-resolution accuracy. "
@@ -1396,6 +1396,7 @@ def report(args):
         datasets.get(entry)
     out += matching_report(output_dir, datasets)
     out += matching_review_report(output_dir, datasets)
+    out += matching_review_report(output_dir, datasets, section="matching_regression")
     out += hook_report(output_dir, datasets)
     out += corpus_report(output_dir)
     out += hook_config_report(output_dir, datasets)

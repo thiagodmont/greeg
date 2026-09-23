@@ -142,3 +142,12 @@ class PairedRenderingTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MatchingRegressionReportTests(unittest.TestCase):
+    def test_regression_section_renders_without_review_closing_notes(self):
+        regression = "\n".join(bench.matching_review_report(bench.RESULTS, section="matching_regression"))
+        self.assertIn("Quick correctness fixes: exact-search regression", regression)
+        self.assertNotIn("The initial review run used", regression)
+        review = "\n".join(bench.matching_review_report(bench.RESULTS))
+        self.assertIn("The initial review run used", review)

@@ -302,3 +302,20 @@ pr = 22
 measured_at = 2026-09-23T18:05:44.259551Z
 timestamp_source = "measurement"
 notes = "Same binary digests, same 51-pair protocol. 28/28 hook contracts and 40/40 search comparisons pass with identical replies. The Codex grep_file tail flag does not repeat (+11.6% p95, +0.9% median). Two other cases flag instead and did not flag in the first run: Claude count_miss p95 +45.3% and Claude comment median +10.8% (3.077 → 3.410 ms, 0.33 ms). The median change across cases is +1.0%. Non-repeating flags on a loaded host (load ≈5.2) are treated as noise. The decline path now allocates a reason string, and accepted rewrites are byte-identical."
+
+[[datasets]]
+id = "quick_correctness_fixes"
+section = "matching_regression"
+filename = "quick-correctness-fixes-2026-09-23-darwin-arm64.json"
+title = "Quick correctness fixes: exact-search regression (2026-09-23)"
+pr = 24
+show_rows = false
+notes = "Merged main against the JSON exit status, detached index directory, generated-file, ignore-input digest and regular-file fixes. `--fresh stat` runs the freshness check, including the ignore-input digest, on every query. All 30 cases keep identical stdout, exit status and tokens, and every ripgrep comparison passes. Scan medians change by +0.4% and index medians by +1.8% (median across cases). One p95 flag, scan case_miss_files +36.4% with a +0.5% median, is on a path that never computes the digest. Host load average was 10.8–11.5 from an unrelated workload. The harness records no execution time; the result file was written at 2026-09-23T19:02:41Z."
+
+[[datasets]]
+id = "quick_correctness_fixes_confirmation"
+section = "matching_regression"
+filename = "quick-correctness-fixes-confirmation-2026-09-23-darwin-arm64.json"
+title = "Quick correctness fixes: confirmation (2026-09-23)"
+pr = 24
+notes = "Same binaries, 151 pairs. Output, status and tokens are unchanged in 30/30 cases, and ripgrep comparisons pass. The earlier scan tail flag does not repeat. The only flag is scan fuzzy_miss_unlimited p95 +20.4% (9.96 → 11.99 ms, +0.5% median), again on the scan path. Index medians rise by +0.9% (+0.066 ms) across cases, with a range of −0.5% to +3.4%: the cost of the per-check ignore digest and the descriptor type check on candidate reads, accepted as a safety cost. The harness uses a private HOME (no global git config) and a synthetic 256-file warm corpus, so deeper trees or larger configs add a few stat calls, not reads. No cold-cache, RSS or large-repository claim is made. The result file was written at 2026-09-23T19:04:58Z; load average was 9.5–13.3."

@@ -52,7 +52,7 @@ class Dataset:
     comparison_limits: str = ""
 
 
-SECTIONS = {"matching", "matching_recheck", "matching_review", "hook", "hook_config", "session"}
+SECTIONS = {"matching", "matching_recheck", "matching_review", "matching_regression", "hook", "hook_config", "session"}
 
 
 def load_catalog(path):
@@ -95,8 +95,8 @@ def load_catalog(path):
         require(re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_.-]*\.json", item["filename"]),
                 path, f"{field}.filename", "JSON basename without directory traversal")
         require(type(item.get("show_rows", True)) is bool, path, f"{field}.show_rows", "boolean")
-        require(item.get("show_rows", True) or item["section"] == "matching_review",
-                path, f"{field}.show_rows", "false only for matching_review")
+        require(item.get("show_rows", True) or item["section"] in ("matching_review", "matching_regression"),
+                path, f"{field}.show_rows", "false only for matching review/regression")
         require(item.get("analysis", "") in ("", "publication", "thresholds"), path, f"{field}.analysis", "supported analysis")
         for key in ("notes", "recheck_of", "comparison_intro", "comparison_limits"):
             require(isinstance(item.get(key, ""), str), path, f"{field}.{key}", "string")
@@ -157,7 +157,7 @@ def validate_dataset(data, entry):
             count(data.get("cpu_count"), "cpu_count", 1)
             string(data.get("platform"), "platform")
             string(data.get("ripgrep"), "ripgrep")
-        if entry.section == "matching_review":
+        if entry.section in ("matching_review", "matching_regression"):
             check(isinstance(data.get("cases"), list) and all(text(c) for c in data["cases"]), "cases", "string array")
     if entry.section == "session":
         boolean(data.get("scan_index_files_equal"), "scan_index_files_equal")
