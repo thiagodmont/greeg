@@ -3,26 +3,48 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
+    inputs:
+      macos:
+        description: also run the test job on macOS
+        type: boolean
+        default: false
+permissions:
+  contents: read
 jobs:
   test:
     strategy:
+      fail-fast: false
       matrix:
-        # macos-latest disabled 2026-09-08 (GitHub Actions billing: mac minutes are 10x
-        # ubuntu). Add it back to this list to restore the darwin leg.
-        os: [ubuntu-latest]
+        # macOS runs only on demand (GitHub Actions billing: mac minutes are 10x ubuntu).
+        os: ${{ fromJSON(inputs.macos && '["ubuntu-latest","macos-latest"]' || '["ubuntu-latest"]') }}
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
         with:
           components: clippy, rustfmt
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo build --release --workspace
-      - run: cargo test --workspace
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - run: cargo build --release --workspace --locked
+      - run: cargo test --workspace --locked
+      - name: known gaps still reproduce
+        # Each ignored test in known_gaps.rs asserts a fix; one that passes must lose its #[ignore].
+        shell: bash
+        run: |
+          out=$(cargo test --locked -p greeg --test known_gaps -- --ignored 2>&1) && status=0 || status=$?
+          fixed=$(grep -E '^test .* \.\.\. ok$' <<<"$out" || true)
+          if [ -n "$fixed" ]; then
+            printf 'Fixed known gaps; remove their #[ignore]:\n%s\n' "$fixed"
+            exit 1
+          fi
+          if [ "$status" -eq 0 ] || ! grep -qE '^test result: FAILED\. 0 passed' <<<"$out"; then
+            printf '%s\n' "$out"
+            exit 1
+          fi
       - name: benchmark harness and report tests
         run: python3 -m unittest discover -s bench -p 'test_*.py'
       - run: cargo fmt --all --check
-      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - name: binary size gate (< 25 MB)
         shell: bash
         run: |
@@ -34,18 +56,26 @@ jobs:
           ./target/release/greeg --version
           ./target/release/greeg -F "fn main" crates --no-index --budget 400
           ./target/release/greeg doctor --root . || true
+  msrv:
+    # rust-version in Cargo.toml; compiles every target without running tests.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@49fda20b3f489226feadfba7767be1db54e2cee1 # 1.90
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - run: cargo check --workspace --all-targets --locked
   kernels:
     # criterion kernels. Hosted runners have no baseline under bench/baselines/, so they only
     # record (the JSON is uploaded as an artifact); the 5 % gate runs on the reference machine
     # in nightly.yml with --require-baseline.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo bench -p greeg-index --bench kernels -- --warm-up-time 1 --measurement-time 2 --noplot
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - run: cargo bench --locked -p greeg-index --bench kernels -- --warm-up-time 1 --measurement-time 2 --noplot
       - run: python3 bench/bench.py gate kernels --record-only
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: kernels-${{ github.sha }}
           path: bench/results/
@@ -64,10 +94,10 @@ jobs:
     env:
       GREEG_BENCH_CACHE: ${{ github.workspace }}/.bench-cache/corpora
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - uses: actions/cache@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: .bench-cache
           key: corpora-small-${{ runner.os }}-${{ hashFiles('bench/corpora.toml') }}
@@ -82,7 +112,7 @@ jobs:
           fi
           hyperfine --version; rg --version | head -1
           test -x /usr/bin/time || echo "::warning::/usr/bin/time missing: RSS columns will be n/a"
-      - run: cargo build --release -p greeg
+      - run: cargo build --release --locked -p greeg
       - run: python3 bench/bench.py fetch tokio ktor django
       - name: parity vs rg (sets on fetched corpora + behaviour matrix)
         run: python3 bench/parity.py "$GREEG_BENCH_CACHE" "$PWD/target/release/greeg" --corpora tokio,ktor,django
@@ -91,7 +121,7 @@ jobs:
       - name: speed (protocol 2, 5 runs)
         run: python3 bench/bench.py speed --corpora tokio,ktor,django --runs 5 --no-splice
       - run: python3 bench/bench.py gate speed --record-only
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
           name: bench-results-${{ runner.os }}-${{ github.sha }}

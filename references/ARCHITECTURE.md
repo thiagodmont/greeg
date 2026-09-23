@@ -191,6 +191,8 @@ Direct `greeg` calls retain the exact/discovery defaults described above.
 | Nonempty inherited `RIPGREP_CONFIG_PATH`, even with `--no-config` | Decline conservatively; do not interpret configuration |
 
 Declining produces no hook response and no successful-rewrite statistics record.
+`greeg hook explain 'COMMAND'` prints the command the hook would run (exit 0)
+or `declined: REASON` (exit 1), without writing statistics.
 The original tool runs under the host's normal permission handling. Accepted
 commands use the existing `Bash` / `tool_input.command` protocol; Codex replies
 retain the required `permissionDecision: allow`, while Claude replies omit that
@@ -341,12 +343,17 @@ to keep it there.
 * **macOS, large trees**: the manifest stores an FSEvents stream id. The query
   asks the kernel's persistent log which directories changed since then, and
   rescans only those. About 12 ms for a 200-file change set.
-* **Everywhere else**: a parallel `lstat` of every known file, comparing size,
-  mtime and inode, plus directory mtimes to catch additions and deletions.
+* **Everywhere else**: a parallel `lstat` of every known file, comparing size
+  and mtime only, plus directory mtimes to catch additions and deletions.
   41 ms for 66k files. Below about 8,000 files this beats FSEvents, whose
   stream setup costs ~11 ms no matter how small the tree.
 * **Back-to-back calls**: a manifest verified in the last 100 ms is trusted, so
   several tool calls in one agent turn pay for a single check.
+
+Known limits of the stat check: a same-size edit whose mtime is restored is
+missed, a file replaced by a symlink is followed, and ignore inputs other than
+`.gitignore`, `.ignore` and `.rgignore` (such as `.git/info/exclude` or a global
+excludes file) do not invalidate the file set. `--no-index` scans the tree when that matters.
 
 A search that finds changes **answers first**. It drops the stale versions from
 its candidates, reads the changed files directly, prints the answer, and only
@@ -437,7 +444,9 @@ coverage against your fixtures.
 
 ## When things go wrong
 
-The index is a cache, and every failure path ends in a correct answer.
+The index is a cache, and the failures below end in a correct answer.
+Structural checks cover shape, not content: a dictionary mutated without
+changing its lengths can still produce a silent no-hit answer.
 
 A panic anywhere in the index path is caught, degrades to a scan, and queues a
 background rebuild. A corrupt posting list reads as "every file" and marks the
@@ -468,6 +477,11 @@ migration code, by design.
 | Extra languages | `dlopen` a user-compiled parser | WASM grammars or a plugin format | no new dependencies; the tree-sitter C ABI is stable |
 
 ## Measuring it
+
+`crates/greeg/tests/known_gaps.rs` holds reproduced defects that are not fixed
+yet. Each test asserts the intended behavior and is ignored; CI runs them with
+`--ignored` and fails if one passes, so the fix that closes a gap also removes
+its `#[ignore]`. List them with `cargo test --test known_gaps -- --ignored`.
 
 `bench/bench.py` drives the benchmark protocol: pinned corpora, hyperfine runs
 against `grep`, `rg` and `rg -j4`, an accuracy oracle scored against SCIP

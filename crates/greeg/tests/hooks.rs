@@ -159,6 +159,38 @@ fn declined_commands_emit_no_reply_or_stats() {
 }
 
 #[test]
+fn explain_reports_the_rewrite_or_the_decline_reason() {
+    let f = Fixture::new();
+    let explain = |command: &str, config: bool| {
+        let mut c = f.command(BIN);
+        c.args(["hook", "explain", command]).env("GREEG_STATS", "1");
+        if config {
+            c.env("RIPGREP_CONFIG_PATH", f.0.join("unread-config"));
+        }
+        let out = c.output().unwrap();
+        assert!(out.stderr.is_empty(), "{command}: {out:?}");
+        (out.status.code(), String::from_utf8(out.stdout).unwrap())
+    };
+    let (code, out) = explain("rg -l needle .", false);
+    assert_eq!(code, Some(0));
+    assert!(
+        out.starts_with("greeg --matching exact ") && out.ends_with("-l needle .\n"),
+        "{out}"
+    );
+    assert_eq!(
+        explain("rg needle | head", false),
+        (
+            Some(1),
+            "declined: pipeline, list or background job\n".into()
+        )
+    );
+    let (code, out) = explain("rg needle", true);
+    assert_eq!(code, Some(1));
+    assert!(out.starts_with("declined: RIPGREP_CONFIG_PATH"), "{out}");
+    assert!(!f.0.join("stats").exists());
+}
+
+#[test]
 fn rewritten_queries_keep_exact_hits_and_misses_on_both_backends() {
     let f = Fixture::new();
     let build = f.command(BIN).args(["index", "--quiet"]).output().unwrap();
