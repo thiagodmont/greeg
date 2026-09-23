@@ -1,6 +1,6 @@
 # greeg
 
-**A grep for coding agents.** Same flags as ripgrep. It answers from a
+**A grep for coding agents.** Familiar ripgrep flags. It answers from a
 persistent index, knows which hits are *definitions*, ranks them, and fits the
 answer in a token budget instead of dumping every match.
 
@@ -118,18 +118,25 @@ greeg doctor            # index location, freshness mode, languages, disk use
 
 ## Point your agent at it
 
-One command installs a hook that rewrites the agent's `rg` and `grep` calls to
-`greeg`, plus a skill file so the agent knows the extra verbs. **You don't have
-to change how you prompt.** The agent keeps writing `grep`, and greeg answers.
+One command installs a hook that rewrites supported simple `rg` calls to
+`greeg --matching exact`, plus a skill file so the agent knows the extra verbs.
+**You don't have to change how you prompt.** The agent keeps writing `rg`, and
+greeg answers eligible calls.
 
 ```bash
 greeg hook claude       # Claude Code   (--dry-run to preview, --uninstall to remove)
 greeg hook codex        # Codex         (then run /hooks in Codex to trust it)
 ```
 
-The hook only rewrites what greeg can reproduce exactly. Anything it can't
-(`-v`, `-o`, `--files`, `-m`, redirections, shell expansions) is left alone and
-still runs as plain `rg`/`grep`.
+The hook preserves supported search arguments and requests exact matching; text
+results still use greeg's ranking and token budget. An explicit file-size flag
+preserves ripgrep's requested limit (unlimited by default), so files over 4 MiB
+are not silently omitted. It leaves grep variants,
+JSON/stats output, explicit executable paths, pipelines, compound commands,
+comments, redirections and shell expansions with the original tool. An inherited
+`RIPGREP_CONFIG_PATH` also disables rewriting. See the
+[hook capability matrix](references/ARCHITECTURE.md#agent-hook-contract) for the
+supported subset and validation limits.
 
 > **If you use `Bash(rg:*)` allow rules**, add `Bash(greeg:*)` next to them.
 >
