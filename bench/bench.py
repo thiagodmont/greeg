@@ -1217,6 +1217,7 @@ def hook_report(output_dir):
         ("hook-contract-darwin-arm64.json", "Hook contract: initial measurements"),
         ("hook-contract-recheck-darwin-arm64.json", "Hook contract: latency recheck"),
         ("hook-review-darwin-arm64.json", "Hook contract: review fixes"),
+        ("hook-config-rewrites-2026-09-23-darwin-arm64.json", "Hook contract: rewrite regression"),
     ]:
         source = os.path.join(RESULTS, filename)
         data = load_json(source)
@@ -1258,6 +1259,55 @@ def hook_report(output_dir):
                 "Explicit matching and file-size flags add reply cost; declined commands emit no reply and continue with the original tool. "
                 "Tests use synthetic fixtures and the recorded response shapes, not live host approvals. "
                 "No new cold-cache, RSS, native-search performance, or whole-task token claim is made.", ""]
+    return out
+
+
+def hook_config_report(output_dir):
+    out = []
+    for filename, title in [
+        ("hook-config-2026-09-23-darwin-arm64.json", "Hook configuration ownership (2026-09-23)"),
+        ("hook-config-review-2026-09-23-darwin-arm64.json", "Hook configuration ownership: review fixes (2026-09-23)"),
+    ]:
+        out += hook_config_dataset_report(output_dir, filename, title)
+    return out
+
+
+def hook_config_dataset_report(output_dir, filename, title):
+    data = load_json(os.path.join(RESULTS, filename))
+    if not data:
+        return []
+    from urllib.parse import quote
+    link = quote(os.path.relpath(os.path.realpath(os.path.join(RESULTS, filename)), output_dir))
+    rows = data["results"]
+    passed = {label: sum(row[label]["contract"] for row in rows) for label in ("baseline", "candidate")}
+    extended = data.get("protocol", 1) >= 2
+    coverage = ("Protocol 2 also checks byte-identical installed no-ops, matcher-less cleanup, "
+                "custom matcher preservation, and retained TOML comments/trust data. " if extended else "")
+    out = [f"## {title}", "",
+           f"`{data['binaries']['baseline']['version']}` → `{data['binaries']['candidate']['version']}`; "
+           f"{data['runs']} randomized paired runs per case after {data['warmups']} warmups. "
+           "Each invocation uses a reset disposable home and an isolated configuration/cache. "
+           "Timing includes process startup and installation/removal, excluding fixture reset and validation.", "",
+           f"**Configuration contracts:** {passed['baseline']}/{len(rows)} → {passed['candidate']}/{len(rows)}. "
+           "Checks cover mixed handlers, prefix lookalikes, non-command handlers, wrong matchers, invalid UTF-8, "
+           "missing-file uninstall and initial installation. " + coverage + "Baseline failures are not equivalent successful work; "
+           "their timing differences are not speedup claims.", "",
+           "| Host | Case | Median ms, before → after | p95 ms, before → after |",
+           "|---|---|---:|---:|"]
+    for row in rows:
+        before, after = row["baseline"], row["candidate"]
+        out.append(f"| {row['agent']} | {row['case'].replace('_', ' ')} | "
+                   f"{before['median_ms']:.3f} → {after['median_ms']:.3f} | "
+                   f"{before['p95_ms']:.3f} → {after['p95_ms']:.3f} |")
+    out += ["", f"[Raw samples, output bytes/statuses, fixture/harness hashes and binary digests]({link}). "
+            f"Reproduce: `python3 bench/hook_config.py BASELINE CANDIDATE --runs {data['runs']} --output {filename}`.", "",
+            "These checks validate configuration editing, not live host approval behavior. "
+            "No token, native-search latency, atomic-write or concurrent-edit safety claim is made. "
+            "Positional hook IDs may shift on removal; stored trust records are retained unchanged.", ""]
+    if extended:
+        failures = sum(row[label].get("failed_invocations", 0) for row in rows for label in ("baseline", "candidate"))
+        out += [f"Invocation failures: {failures}. Timeouts/launch failures retain their elapsed time and partial output sizes, "
+                "fail the contract, and suppress the affected timing ratios. Version probes remain preflight checks.", ""]
     return out
 
 
@@ -1311,6 +1361,7 @@ def report(args):
     out += matching_review_report(output_dir)
     out += hook_report(output_dir)
     out += corpus_report(output_dir)
+    out += hook_config_report(output_dir)
     if speed_res:
         h = speed_res["host"]
         corpora = speed_res["corpora"]

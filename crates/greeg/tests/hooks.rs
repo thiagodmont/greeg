@@ -35,6 +35,7 @@ impl Fixture {
         let mut c = Command::new(program);
         c.current_dir(self.0.join("tree"))
             .env("HOME", self.0.join("home"))
+            .env("CODEX_HOME", self.0.join("home/.codex"))
             .env("XDG_CONFIG_HOME", self.0.join("config"))
             .env("XDG_CACHE_HOME", self.0.join("cache"))
             .env("GREEG_INDEX_DIR", self.0.join("index"))
@@ -247,4 +248,171 @@ fn shell_receives_literal_arguments_without_side_effects() {
         );
     }
     assert!(!f.0.join("tree/sentinel").exists());
+}
+
+#[test]
+fn uninstall_preserves_shared_json_handlers() {
+    let f = Fixture::new();
+    let path = f.0.join("home/.claude/settings.json");
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let other = json!({"type": "command", "command": "audit", "timeout": 7});
+    let prefix = json!({"type": "command", "command": "greeg hook-helper"});
+    let input = json!({"permissions": {"allow": ["Bash(audit)"]}, "hooks": {"PreToolUse": [
+        {"matcher": "Bash", "label": "shared", "hooks": [
+            {"type": "command", "command": "greeg hook run"}, other.clone(), prefix.clone()
+        ]}
+    ]}});
+    fs::write(&path, input.to_string()).unwrap();
+    let out = f
+        .command(BIN)
+        .args(["hook", "claude", "--uninstall"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{out:?}");
+    let actual: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    assert_eq!(
+        actual["hooks"]["PreToolUse"][0]["hooks"],
+        json!([other, prefix])
+    );
+    assert_eq!(actual["hooks"]["PreToolUse"][0]["label"], "shared");
+    assert_eq!(actual["permissions"], input["permissions"]);
+}
+
+#[test]
+fn uninstall_preserves_shared_toml_handlers() {
+    let f = Fixture::new();
+    let path = f.0.join("home/.codex/config.toml");
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let input = r#"# user configuration
+[[hooks.PreToolUse]]
+matcher = "Bash"
+label = "shared"
+[[hooks.PreToolUse.hooks]]
+type = "command"
+command = "greeg hook run --agent codex"
+[[hooks.PreToolUse.hooks]]
+# keep this handler
+command = "audit"
+type = "command"
+timeout = 7
+[[hooks.PreToolUse.hooks]]
+type = "command"
+command = "greeg hook-helper"
+[hooks.state."config.toml:pre_tool_use:0:1"]
+trusted_hash = "sha256:keep"
+enabled = true
+"#;
+    fs::write(&path, input).unwrap();
+    let out = f
+        .command(BIN)
+        .args(["hook", "codex", "--uninstall"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{out:?}");
+    let actual = fs::read_to_string(&path).unwrap();
+    let doc: toml_edit::DocumentMut = actual.parse().unwrap();
+    let entry = doc["hooks"]["PreToolUse"]
+        .as_array_of_tables()
+        .unwrap()
+        .get(0)
+        .unwrap();
+    let handlers = entry["hooks"].as_array_of_tables().unwrap();
+    assert_eq!(entry["matcher"].as_str(), Some("Bash"));
+    assert_eq!(entry["label"].as_str(), Some("shared"));
+    assert_eq!(handlers.len(), 2);
+    assert_eq!(handlers.get(0).unwrap()["command"].as_str(), Some("audit"));
+    assert_eq!(
+        handlers.get(1).unwrap()["command"].as_str(),
+        Some("greeg hook-helper")
+    );
+    assert!(actual.contains("# keep this handler"));
+    assert!(actual.contains("trusted_hash = \"sha256:keep\""));
+}
+
+#[test]
+fn invalid_utf8_settings_are_not_replaced() {
+    let f = Fixture::new();
+    let path = f.0.join("home/.claude/settings.json");
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let original = b"{\xff}";
+    fs::write(&path, original).unwrap();
+    let out = f.command(BIN).args(["hook", "claude"]).output().unwrap();
+    assert_eq!(out.status.code(), Some(2), "{out:?}");
+    assert_eq!(fs::read(&path).unwrap(), original);
+    assert!(!f.0.join("home/.claude/skills").exists());
+}
+
+#[test]
+fn config_dry_runs_and_missing_uninstalls_do_not_write() {
+    for agent in ["claude", "codex"] {
+        let f = Fixture::new();
+        let (relative, contents) = if agent == "claude" {
+            (
+                ".claude/settings.json",
+                "{\"hooks\": {\"PreToolUse\": [{\"matcher\":\"Bash\",\"hooks\":[{\"type\":\"command\",\"command\":\"greeg hook run\"},{\"type\":\"command\",\"command\":\"audit\"}]}]}}",
+            )
+        } else {
+            (
+                ".codex/config.toml",
+                "[hooks]\nPreToolUse=[{matcher='Bash',hooks=[{type='command',command='greeg hook run --agent codex'},{type='command',command='audit'}]}]\n",
+            )
+        };
+        let path = f.0.join("home").join(relative);
+        let out = f
+            .command(BIN)
+            .args(["hook", agent, "--uninstall"])
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{out:?}");
+        assert!(!path.parent().unwrap().exists());
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, contents).unwrap();
+        for args in [
+            vec!["hook", agent, "--dry-run"],
+            vec!["hook", agent, "--uninstall", "--dry-run"],
+        ] {
+            let out = f.command(BIN).args(args).output().unwrap();
+            assert!(out.status.success(), "{out:?}");
+            assert_eq!(fs::read_to_string(&path).unwrap(), contents);
+            assert!(!path.parent().unwrap().join("skills").exists());
+        }
+    }
+}
+
+#[test]
+fn malformed_settings_do_not_change_configs_or_skills() {
+    for agent in ["claude", "codex"] {
+        for contents in [
+            b"\xff".as_slice(),
+            b"invalid",
+            if agent == "claude" {
+                br#"{"hooks":3}"#
+            } else {
+                b"hooks=3"
+            },
+        ] {
+            for uninstall in [false, true] {
+                let f = Fixture::new();
+                let parent = f.0.join("home").join(format!(".{agent}"));
+                let path = parent.join(if agent == "claude" {
+                    "settings.json"
+                } else {
+                    "config.toml"
+                });
+                let skill = parent.join("skills/greeg/SKILL.md");
+                fs::create_dir_all(skill.parent().unwrap()).unwrap();
+                fs::write(&path, contents).unwrap();
+                fs::write(&skill, "user skill").unwrap();
+                let mut c = f.command(BIN);
+                c.args(["hook", agent]);
+                if uninstall {
+                    c.arg("--uninstall");
+                }
+                let out = c.output().unwrap();
+                assert_eq!(out.status.code(), Some(2), "{agent}: {out:?}");
+                assert_eq!(fs::read(&path).unwrap(), contents);
+                assert_eq!(fs::read_to_string(&skill).unwrap(), "user skill");
+            }
+        }
+    }
 }

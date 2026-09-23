@@ -128,6 +128,21 @@ greeg hook claude       # Claude Code   (--dry-run to preview, --uninstall to re
 greeg hook codex        # Codex         (then run /hooks in Codex to trust it)
 ```
 
+Install/uninstall recognizes exact command handlers: `greeg hook run` (also
+`--agent claude`) for Claude, and `greeg hook run --agent codex` for Codex.
+Uninstall removes those handlers while preserving other handlers and entry
+metadata. Prefix lookalikes, wrappers and custom commands are left alone.
+Newly empty entries are removed only when they have no custom metadata and
+their matcher is absent or exactly `Bash`; pre-existing empty entries stay intact.
+New registrations append without moving existing entries; no-op configuration
+edits preserve the original text. Invalid or unreadable settings stop the edit.
+Comments on retained TOML entries and stored trust data are preserved, but
+removing handlers can change positional hook IDs; review `/hooks` after changing the configuration.
+
+This covers handler ownership. Atomic configuration writes, concurrent-edit
+protection and preservation of user-edited generated skills remain follow-ups;
+`--dry-run` previews configuration actions without writing.
+
 The hook preserves supported search arguments and requests exact matching; text
 results still use greeg's ranking and token budget. An explicit file-size flag
 preserves ripgrep's requested limit (unlimited by default), so files over 4 MiB
