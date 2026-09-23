@@ -296,8 +296,10 @@ at a time, and on those greeg is a few tokens *larger* than grep.** The savings
 come from the repo-wide searches, where grep dumps everything and greeg budgets
 it. So a handful of queries carry most of the win.
 
-The records live under your cache directory, mode 0600, never leave the machine,
-and `greeg stats clear` deletes them. See [`references/STATS.md`](references/STATS.md) for per-session
+The records live in a private cache directory (`0700`, files `0600`), stay under
+about 33 MB per file kind, never leave the machine, and `greeg stats clear`
+deletes them. Replay runs only a ripgrep found on an absolute `PATH` entry, or the
+one you pass with `--rg /absolute/path`. See [`references/STATS.md`](references/STATS.md) for per-session
 breakdowns and build-to-build comparisons.
 
 ## Reference

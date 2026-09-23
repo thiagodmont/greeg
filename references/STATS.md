@@ -82,11 +82,31 @@ sessions · newest first · saved = replayed rewrites vs rg/grep capped at 30,00
 A session that only grepped single files comes out slightly negative. The ones
 that searched a whole repository carry the total.
 
-## Comparing two builds
+## Build versions
 
 Every record names the greeg build that made it, exactly as `greeg --version`
 prints it: the release, or `0.4.0+ff9011a` for a build from that commit, with
 `.dirty` appended if the tree had uncommitted changes.
+
+## What replay runs
+
+Replay runs one ripgrep for the whole session: the one given with `--rg
+/absolute/path`, or the first `rg` on an absolute `PATH` entry (`.` and other
+relative entries are skipped). It must print `ripgrep …` for `--version`, and
+it is checked again before every run; if it changes, the replay stops. A record
+is replayed only if its program is exactly `rg` and the hook would still rewrite
+its arguments. Older `grep` or `./rg` records are skipped with the reason. The
+greeg side runs the hook's current rewrite of those arguments, not the stored
+argv. No replayed command inherits `RIPGREP_CONFIG_PATH`, which matches how the
+hook recorded it. A query whose tree contains that ripgrep is skipped.
+
+Every command, including `--version` probes, runs in its own process group with
+one deadline (`--timeout`) covering its run and its output. The group is killed
+when the command finishes or times out, so a background child holding the output
+open cannot hang the replay. Only the first 4 MB of each stream is kept; larger
+output is counted and its token estimate scaled.
+
+## Comparing builds
 
 A query keeps one replay per build. `greeg stats replay --binary PATH` replays
 with another build (it gets an index directory of its own, since index formats
@@ -102,8 +122,17 @@ back if you want the time comparison to mean anything.
 
 The records hold search patterns and paths, which is why this is opt-in. They
 live under the user cache dir (`~/Library/Caches/greeg/stats` on macOS,
-`~/.cache/greeg/stats` elsewhere), mode 0600, never leave the machine, rotate
-at 16 MB, and `greeg stats clear` deletes them.
+`~/.cache/greeg/stats` elsewhere), never leave the machine, and `greeg stats
+clear` deletes them.
+
+The directory is private (`0700`, files `0600`) and is opened once, with every
+file reached through it without following symlinks. A record file that is a
+symlink or has a second hard link is refused. The default directory is
+tightened to `0700` if it was created by an older release. A directory named by
+`GREEG_STATS_DIR` is never chmodded: greeg refuses to use it if other users can
+access it. Each file rotates to one older generation at 16 MB, and reads take at
+most the newest 17 MB of a file, so records stay bounded at about 33 MB per file
+kind. A record over 256 KB is dropped. Reading never creates the directory.
 
 Output itself is never stored. Only its size and token estimate.
 
