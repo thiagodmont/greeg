@@ -1,0 +1,88 @@
+README.md
+  s_09357c044b6e84::t_d5fd6ef376273a 152-158
+bench/reporting.py
+  s_09357c044b6e84::t_33a4b1c81e45f2 21-22
+bench/results/skill-hook-regression-2026-09-23-darwin-arm64.json
+  s_09357c044b6e84::t_04d8009e395dbb 1-9646,9657
+  s_09357c044b6e84::t_1fa8aeb9caddaf 9647-9656
+bench/reports.toml
+  s_09357c044b6e84::t_1fa8aeb9caddaf 159-195
+bench/test_report_catalog.py
+  s_09357c044b6e84::t_bf33b172af7060 229-239
+bench/results/skill-ownership-2026-09-23-darwin-arm64.json
+  s_09357c044b6e84::t_1fa8aeb9caddaf 3200-3228
+  s_09357c044b6e84::t_ab0f58dc420e68 1-3199,3229
+bench/test_hook_config.py
+  s_09357c044b6e84::t_e0c56b787c34c8 34-53
+  s_09357c044b6e84::t_ba0b904ace287c 13-33
+references/BENCH.md
+  s_09357c044b6e84::t_1d3ba9fb61fbfb 316-401,614-694
+  s_09357c044b6e84::t_c0285a73a65fbe 695
+bench/test_report_rendering.py
+  s_09357c044b6e84::t_33a4b1c81e45f2 95-96
+bench/bench.py
+  s_09357c044b6e84::t_4d815f2ba885e1 1285-1286
+  s_09357c044b6e84::t_ba0b904ace287c 1266-1273,1279-1280,1284
+crates/greeg/src/hook_config.rs
+  s_09357c044b6e84::t_d5fd6ef376273a 540-543
+  s_09357c044b6e84::t_d800a9a70aeb0b 86-98,157-162,205,482
+  s_09357c044b6e84::t_309520825e5cdb 436,444-481
+  s_5a9911c03a495e::t_34bc19703aa662 483
+references/ARCHITECTURE.md
+  s_09357c044b6e84::t_33a4b1c81e45f2 438,441-442
+  s_09357c044b6e84::t_d5fd6ef376273a 245-250,252-274
+  s_09357c044b6e84::t_4d815f2ba885e1 251,439-440
+crates/greeg/tests/hooks.rs
+  s_09357c044b6e84::t_295d20b81809c0 566-582,592-607,614-615,627,720-722
+  s_09357c044b6e84::t_9db424a8c3471e 646-648,653-656,660-663,667-671,685-688,691-694,703-707,713-717
+  s_09357c044b6e84::t_c547c1fafc46ad 740-742,745-749,772-775,786-795,798-806
+  s_09357c044b6e84::t_49ce5a07eaf805 436-441,583-591,608-613,616-626,628-645,649-652,657-659,664-666,672-684,689-690,695-702,708-712,718-719
+  s_09357c044b6e84::t_1cc2b46a469aa7 723-739,743-744,750-771,776-785,796-797,807-808
+bench/report_catalog.py
+  s_09357c044b6e84::t_ba0b904ace287c 136-137
+  s_09357c044b6e84::t_33a4b1c81e45f2 47,101
+bench/results/skill-config-regression-2026-09-23-darwin-arm64.json
+  s_09357c044b6e84::t_876edd29cb6165 1-2906,2918
+  s_09357c044b6e84::t_1fa8aeb9caddaf 2907-2917
+bench/results/skill-hook-recheck-2026-09-23-darwin-arm64.json
+  s_09357c044b6e84::t_334e9e060997b1 1-18046,18057
+  s_09357c044b6e84::t_1fa8aeb9caddaf 18047-18056
+crates/greeg/src/hook.rs
+  s_09357c044b6e84::t_e66468cd596251 380-381,398,402,405,407-413,417,424-425,590-591,608,612,615,617-623,635
+  s_09357c044b6e84::t_26f0a124480857 627,634
+crates/greeg/src/hook_skill.rs
+  s_09357c044b6e84::t_d800a9a70aeb0b 1-14,19-43,46-54,60-69,73-85
+  s_09357c044b6e84::t_309520825e5cdb 15-18,44-45,55-59,70-72
+  s_09357c044b6e84::t_92863a2f2224aa 86-116
+bench/hook_config.py
+  s_09357c044b6e84::t_c87a125d5f4c2a 7,25-30,38-39,101-137,143,147-152,154-155,166-171,179,200,206-207,214-215,225-228,231-237,252
+  s_09357c044b6e84::t_ba0b904ace287c 229-230
+bench/hooks.py
+  s_09357c044b6e84::t_1b08877863de8f 9,90,177
+crates/greeg/src/main.rs
+  s_09357c044b6e84::t_d800a9a70aeb0b 6
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "8704e8a80f1efc79bc75bf6491947c2ddd28023a",
+  "prompts": {},
+  "sessions": {
+    "s_09357c044b6e84": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0c9a2-d91e-7fc2-8558-a87341dafdb2",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    },
+    "s_5a9911c03a495e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca98-151d-7e30-be36-b1e0a4269aa4",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
