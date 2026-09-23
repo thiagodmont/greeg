@@ -1217,7 +1217,7 @@ def hook_report(output_dir):
         ("hook-contract-darwin-arm64.json", "Hook contract: initial measurements"),
         ("hook-contract-recheck-darwin-arm64.json", "Hook contract: latency recheck"),
         ("hook-review-darwin-arm64.json", "Hook contract: review fixes"),
-        ("hook-config-rewrites-2026-09-23-darwin-arm64.json", "Hook contract: configuration ownership regression"),
+        ("hook-config-rewrites-2026-09-23-darwin-arm64.json", "Hook contract: rewrite regression"),
     ]:
         source = os.path.join(RESULTS, filename)
         data = load_json(source)
@@ -1263,7 +1263,16 @@ def hook_report(output_dir):
 
 
 def hook_config_report(output_dir):
-    filename = "hook-config-2026-09-23-darwin-arm64.json"
+    out = []
+    for filename, title in [
+        ("hook-config-2026-09-23-darwin-arm64.json", "Hook configuration ownership (2026-09-23)"),
+        ("hook-config-review-2026-09-23-darwin-arm64.json", "Hook configuration ownership: review fixes (2026-09-23)"),
+    ]:
+        out += hook_config_dataset_report(output_dir, filename, title)
+    return out
+
+
+def hook_config_dataset_report(output_dir, filename, title):
     data = load_json(os.path.join(RESULTS, filename))
     if not data:
         return []
@@ -1271,14 +1280,17 @@ def hook_config_report(output_dir):
     link = quote(os.path.relpath(os.path.realpath(os.path.join(RESULTS, filename)), output_dir))
     rows = data["results"]
     passed = {label: sum(row[label]["contract"] for row in rows) for label in ("baseline", "candidate")}
-    out = ["## Hook configuration ownership (2026-09-23)", "",
+    extended = data.get("protocol", 1) >= 2
+    coverage = ("Protocol 2 also checks byte-identical installed no-ops, matcher-less cleanup, "
+                "custom matcher preservation, and retained TOML comments/trust data. " if extended else "")
+    out = [f"## {title}", "",
            f"`{data['binaries']['baseline']['version']}` → `{data['binaries']['candidate']['version']}`; "
            f"{data['runs']} randomized paired runs per case after {data['warmups']} warmups. "
            "Each invocation uses a reset disposable home and an isolated configuration/cache. "
            "Timing includes process startup and installation/removal, excluding fixture reset and validation.", "",
            f"**Configuration contracts:** {passed['baseline']}/{len(rows)} → {passed['candidate']}/{len(rows)}. "
            "Checks cover mixed handlers, prefix lookalikes, non-command handlers, wrong matchers, invalid UTF-8, "
-           "missing-file uninstall and initial installation. Baseline failures are not equivalent successful work; "
+           "missing-file uninstall and initial installation. " + coverage + "Baseline failures are not equivalent successful work; "
            "their timing differences are not speedup claims.", "",
            "| Host | Case | Median ms, before → after | p95 ms, before → after |",
            "|---|---|---:|---:|"]
@@ -1292,6 +1304,10 @@ def hook_config_report(output_dir):
             "These checks validate configuration editing, not live host approval behavior. "
             "No token, native-search latency, atomic-write or concurrent-edit safety claim is made. "
             "Positional hook IDs may shift on removal; stored trust records are retained unchanged.", ""]
+    if extended:
+        failures = sum(row[label].get("failed_invocations", 0) for row in rows for label in ("baseline", "candidate"))
+        out += [f"Invocation failures: {failures}. Timeouts/launch failures retain their elapsed time and partial output sizes, "
+                "fail the contract, and suppress the affected timing ratios. Version probes remain preflight checks.", ""]
     return out
 
 

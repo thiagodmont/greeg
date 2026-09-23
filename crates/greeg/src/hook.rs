@@ -184,8 +184,11 @@ fn edit_claude_config(text: Option<&str>, uninstall: bool) -> Result<(String, bo
                 .unwrap();
             handlers.retain(|h| !json_handler_owned(h, Agent::Claude));
             !(handlers.is_empty()
-                && entry.as_object().is_some_and(|e| e.len() == 2)
-                && entry.get("matcher").and_then(Value::as_str) == Some("Bash"))
+                && entry.as_object().is_some_and(|e| {
+                    e.len() == 1
+                        || (e.len() == 2
+                            && e.get("matcher").and_then(Value::as_str) == Some("Bash"))
+                }))
         });
     } else if had {
         return Ok((original.to_owned(), true));
@@ -303,7 +306,9 @@ fn remove_toml_handlers(entry: &mut dyn TableLike, agent: Agent) -> bool {
         }
         _ => return false,
     };
-    empty && entry.len() == 2 && entry.get("matcher").and_then(Item::as_str) == Some("Bash")
+    empty
+        && (entry.len() == 1
+            || (entry.len() == 2 && entry.get("matcher").and_then(Item::as_str) == Some("Bash")))
 }
 
 /// Same as [`json_bash_hooks`] for the inline `[[hooks.PreToolUse]]` tables of
@@ -1536,6 +1541,72 @@ args = ["-y", "@upstash/context7-mcp"]
             let (again, had) = edit_codex_config(&out, true).unwrap();
             assert!(!had);
             assert_eq!(again, out);
+        }
+    }
+
+    #[test]
+    fn claude_uninstall_removes_only_empty_default_entries() {
+        for metadata in [
+            json!({}),
+            json!({"matcher": "Bash"}),
+            json!({"matcher": "Edit"}),
+            json!({"label": "keep"}),
+        ] {
+            let mut entry = metadata.clone();
+            entry["hooks"] = json!([{"type": "command", "command": "greeg hook run"}]);
+            let input = json!({"hooks": {"PreToolUse": [entry, {"hooks": []}]}}).to_string();
+            let (out, had) = edit_claude_config(Some(&input), true).unwrap();
+            assert!(had);
+            let value: Value = serde_json::from_str(&out).unwrap();
+            let expected = if metadata == json!({}) || metadata == json!({"matcher": "Bash"}) {
+                json!([{"hooks": []}])
+            } else {
+                let mut preserved = metadata;
+                preserved["hooks"] = json!([]);
+                json!([preserved, {"hooks": []}])
+            };
+            assert_eq!(value["hooks"]["PreToolUse"], expected);
+        }
+    }
+
+    #[test]
+    fn codex_uninstall_removes_only_empty_default_entries() {
+        for metadata in ["", "matcher='Bash'", "matcher='Edit'", "label='keep'"] {
+            let handler = "{type='command',command='greeg hook run --agent codex'}";
+            let bodies = [
+                format!(
+                    "[[hooks.PreToolUse]]\n{metadata}\n[[hooks.PreToolUse.hooks]]\ntype='command'\ncommand='greeg hook run --agent codex'\n[[hooks.PreToolUse]]\nhooks=[]\n"
+                ),
+                format!(
+                    "[[hooks.PreToolUse]]\n{metadata}\nhooks=[{handler}]\n[[hooks.PreToolUse]]\nhooks=[]\n"
+                ),
+                format!(
+                    "[hooks]\nPreToolUse=[{{{}hooks=[{handler}]}},{{hooks=[]}}]\n",
+                    if metadata.is_empty() {
+                        String::new()
+                    } else {
+                        format!("{metadata},")
+                    }
+                ),
+            ];
+            for input in bodies {
+                let (out, had) = edit_codex_config(&input, true).unwrap();
+                assert!(had);
+                let doc: DocumentMut = out.parse().unwrap();
+                let pre = &doc["hooks"]["PreToolUse"];
+                let entries = pre
+                    .as_array_of_tables()
+                    .map(|a| a.len())
+                    .or_else(|| pre.as_array().map(|a| a.len()))
+                    .unwrap();
+                let remove = metadata.is_empty() || metadata == "matcher='Bash'";
+                assert_eq!(entries, if remove { 1 } else { 2 }, "{input}");
+                assert!(!out.contains(CODEX_HOOK_COMMAND));
+                if !remove {
+                    assert!(out.contains(metadata));
+                }
+                assert_eq!(edit_codex_config(&out, true).unwrap(), (out, false));
+            }
         }
     }
 

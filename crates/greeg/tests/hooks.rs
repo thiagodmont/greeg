@@ -317,6 +317,8 @@ enabled = true
         .get(0)
         .unwrap();
     let handlers = entry["hooks"].as_array_of_tables().unwrap();
+    assert_eq!(entry["matcher"].as_str(), Some("Bash"));
+    assert_eq!(entry["label"].as_str(), Some("shared"));
     assert_eq!(handlers.len(), 2);
     assert_eq!(handlers.get(0).unwrap()["command"].as_str(), Some("audit"));
     assert_eq!(

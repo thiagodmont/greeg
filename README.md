@@ -132,6 +132,8 @@ Install/uninstall recognizes exact command handlers: `greeg hook run` (also
 `--agent claude`) for Claude, and `greeg hook run --agent codex` for Codex.
 Uninstall removes those handlers while preserving other handlers and entry
 metadata. Prefix lookalikes, wrappers and custom commands are left alone.
+Newly empty entries are removed only when they have no custom metadata and
+their matcher is absent or exactly `Bash`; pre-existing empty entries stay intact.
 New registrations append without moving existing entries; no-op configuration
 edits preserve the original text. Invalid or unreadable settings stop the edit.
 Comments on retained TOML entries and stored trust data are preserved, but

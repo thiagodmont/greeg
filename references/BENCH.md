@@ -195,7 +195,7 @@ Hook process median latency changes ranged from -2.1% to +3.6%. Cases above the 
 
 [Raw samples, reply sizes, and binary/corpus digests](../bench/results/hook-review-darwin-arm64.json). Reproduce: `python3 bench/hooks.py BASELINE CANDIDATE --runs 151 --tokens --output hook-review-darwin-arm64.json`.
 
-## Hook contract: configuration ownership regression
+## Hook contract: rewrite regression
 
 `greeg 0.6.0+3dc7d33d3` → `greeg 0.6.0+3dc7d33d3.dirty`; 151 randomized pairs per case after 3 warmups. The candidate passed 28/28 hook eligibility/explicit-policy checks. Candidate file/count match-row and exit-status checks: 20/20 against ripgrep 15.2.0. Explicit source paths and expected hit/miss assertions exercise both scan and full-index searches, including files over 4 MiB and explicit size limits. The oracle ignores row ordering and does not require identical stderr.
 
@@ -277,6 +277,41 @@ These are harness-safety checks, not paired native-search performance or token m
 [Raw samples, output bytes/statuses, fixture/harness hashes and binary digests](../bench/results/hook-config-2026-09-23-darwin-arm64.json). Reproduce: `python3 bench/hook_config.py BASELINE CANDIDATE --runs 51 --output hook-config-2026-09-23-darwin-arm64.json`.
 
 These checks validate configuration editing, not live host approval behavior. No token, native-search latency, atomic-write or concurrent-edit safety claim is made. Positional hook IDs may shift on removal; stored trust records are retained unchanged.
+
+## Hook configuration ownership: review fixes (2026-09-23)
+
+`greeg 0.6.0+3dc7d33d3.dirty` → `greeg 0.6.0+3d09de45e.dirty`; 51 randomized paired runs per case after 3 warmups. Each invocation uses a reset disposable home and an isolated configuration/cache. Timing includes process startup and installation/removal, excluding fixture reset and validation.
+
+**Configuration contracts:** 18/20 → 20/20. Checks cover mixed handlers, prefix lookalikes, non-command handlers, wrong matchers, invalid UTF-8, missing-file uninstall and initial installation. Protocol 2 also checks byte-identical installed no-ops, matcher-less cleanup, custom matcher preservation, and retained TOML comments/trust data. Baseline failures are not equivalent successful work; their timing differences are not speedup claims.
+
+| Host | Case | Median ms, before → after | p95 ms, before → after |
+|---|---|---:|---:|
+| claude | mixed uninstall | 3.972 → 3.985 | 7.016 → 6.400 |
+| claude | prefix uninstall | 3.807 → 3.840 | 5.168 → 5.119 |
+| claude | prompt uninstall | 3.948 → 4.264 | 5.227 → 5.837 |
+| claude | wrong matcher install | 4.091 → 4.254 | 5.304 → 5.599 |
+| claude | installed noop | 4.122 → 4.135 | 5.203 → 5.031 |
+| claude | matcherless uninstall | 3.876 → 3.972 | 4.402 → 4.271 |
+| claude | custom matcher uninstall | 3.934 → 3.921 | 4.345 → 4.293 |
+| claude | invalid utf8 | 3.782 → 3.759 | 4.124 → 4.038 |
+| claude | absent uninstall | 3.793 → 3.862 | 6.516 → 5.226 |
+| claude | empty install | 4.555 → 4.884 | 6.580 → 6.392 |
+| codex | mixed uninstall | 4.280 → 4.237 | 4.885 → 4.624 |
+| codex | prefix uninstall | 4.036 → 3.953 | 4.906 → 4.897 |
+| codex | prompt uninstall | 3.908 → 3.811 | 5.070 → 4.337 |
+| codex | wrong matcher install | 4.083 → 4.078 | 4.778 → 4.780 |
+| codex | installed noop | 3.869 → 3.956 | 4.227 → 4.280 |
+| codex | matcherless uninstall | 3.883 → 3.733 | 4.432 → 4.357 |
+| codex | custom matcher uninstall | 3.815 → 3.911 | 4.875 → 4.852 |
+| codex | invalid utf8 | 3.611 → 3.754 | 4.060 → 4.191 |
+| codex | absent uninstall | 3.601 → 3.523 | 4.179 → 4.150 |
+| codex | empty install | 4.051 → 4.171 | 4.518 → 4.676 |
+
+[Raw samples, output bytes/statuses, fixture/harness hashes and binary digests](../bench/results/hook-config-review-2026-09-23-darwin-arm64.json). Reproduce: `python3 bench/hook_config.py BASELINE CANDIDATE --runs 51 --output hook-config-review-2026-09-23-darwin-arm64.json`.
+
+These checks validate configuration editing, not live host approval behavior. No token, native-search latency, atomic-write or concurrent-edit safety claim is made. Positional hook IDs may shift on removal; stored trust records are retained unchanged.
+
+Invocation failures: 0. Timeouts/launch failures retain their elapsed time and partial output sizes, fail the contract, and suppress the affected timing ratios. Version probes remain preflight checks.
 
 ## Speed
 
