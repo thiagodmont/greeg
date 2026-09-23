@@ -450,6 +450,8 @@ Hook process median latency changes ranged from -1.8% to +3.8%. Cases above the 
 
 ## Hook decline reasons: recurring hook regression (2026-09-23)
 
+Originating PR: [#22](https://github.com/thiagodmont/greeg/pull/22).
+
 Measurement time: 2026-09-23T18:04:58.145742Z (recorded).
 
 Initial 51-pair run of merged main against typed decline reasons and `greeg hook explain`. All 28 hook contracts and 40 scan/index search comparisons pass, with identical rewritten commands and reply bytes/tokens. No median exceeds +10% (maximum +5.1%). One p95 exceeds +20%: Codex grep_file 5.23 → 6.95 ms (+33.0%) on a host with load average ≈5.5; the recheck below retains it.
@@ -492,6 +494,8 @@ Hook process median latency changes ranged from -5.1% to +5.1%. Cases above the 
 [Raw samples, reply sizes, and binary/corpus digests](../bench/results/hook-decline-reasons-2026-09-23-darwin-arm64.json). Reproduce: `python3 bench/hooks.py BASELINE CANDIDATE --runs 51 --tokens --output hook-decline-reasons-2026-09-23-darwin-arm64.json`.
 
 ## Hook decline reasons: recheck (2026-09-23)
+
+Originating PR: [#22](https://github.com/thiagodmont/greeg/pull/22).
 
 Measurement time: 2026-09-23T18:05:44.259551Z (recorded).
 
