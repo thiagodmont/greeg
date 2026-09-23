@@ -248,6 +248,23 @@ greeg --no-index PATTERN    # scan the tree like ripgrep, ignore the index
 How all of this is put together, what each index component holds, and why the
 shape was chosen: [`references/ARCHITECTURE.md`](references/ARCHITECTURE.md).
 
+## Session memory
+
+Session memory is separate from opt-in statistics. Agent searches remember recently
+shown files and context for up to 24 hours. `--no-session` disables those reads and
+writes; it does not disable indexing or opt-in statistics.
+
+Session logs use a private `0700` directory and `0600` files under the index
+location. Each log is limited to 2,000 records and 4 MiB; individual records are
+limited to 256 KiB. Expired records cannot influence ranking or context deduplication.
+New records contain normalized query tokens and shown paths/ranges, but no raw
+pattern field. These tokens and paths can still reveal sensitive activity.
+
+Unsafe storage is refused. Session persistence is best effort: a busy lock or I/O
+failure can skip a record while the search still succeeds. See the
+[session storage contract](references/ARCHITECTURE.md#session-memory) for retention,
+compatibility and concurrency limits.
+
 ## Is it actually helping?
 
 Don't take my benchmarks on faith. greeg can measure itself against *your*

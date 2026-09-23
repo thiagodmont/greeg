@@ -1228,6 +1228,42 @@ def hook_report(output_dir, datasets=None):
     return out
 
 
+def session_report(output_dir, datasets):
+    out = []
+    for entry in datasets.section("session"):
+        data = datasets.get(entry)
+        if not data or not data["results"]:
+            continue
+        rows = data["results"]
+        out += report_heading(entry)
+        out += [f"Scan/index matching-file parity: **{'pass' if data['scan_index_files_equal'] else 'FAIL'}** across both binaries.", ""]
+        passed = [sum(row[label]["contract"] for row in rows) for label in ("baseline", "candidate")]
+        searches = [sum(row[label]["search_equal"] for row in rows) for label in ("baseline", "candidate")]
+        out += [f"`{data['binaries']['baseline']['version']}` → `{data['binaries']['candidate']['version']}`; "
+                f"{data['runs']} randomized pairs per case after {data['warmups']} warmups. "
+                f"Session/search contracts: **{passed[0]}/{len(rows)} → {passed[1]}/{len(rows)}**. "
+                f"Exact stdout/stderr/status comparisons against the same backend’s baseline: **{searches[0]}/{len(rows)} → {searches[1]}/{len(rows)}**.", "",
+                "The disposable corpus and reset logs exercise scan and full-index queries with sessions disabled, "
+                "fresh/100-record logs, 2,000-record compaction/expiry, an oversized log, and a symlink. "
+                "Checks require private modes, bounded retained records, and untouched symlink targets. "
+                "Fixture reset, validation and index builds are outside the timed process. "
+                "Storage contract failures are not equivalent successful work; timing differences are not speedup claims.", ""]
+        out += paired_table(rows, "backend", "Backend", tokenizer=data.get("tokenizer"),
+                            token_key="tokens_both_streams", token_title="Output tokens")
+        change = latency_summary(rows)
+        if change:
+            out += ["", f"Cases above +10% median / +20% p95 investigation thresholds: **{change['flagged']}/{len(rows)}**. "
+                    f"Maximum median/p95 increases: {change['median_max']:.1f}%/{change['p95_max']:.1f}%."]
+        link = result_link(datasets.root, output_dir, entry.filename)
+        tokens = " --tokens" if data.get("tokenizer") else ""
+        out += ["", f"[Raw samples, binary/harness/corpus digests and fixtures]({link}). "
+                f"Reproduce: `python3 bench/sessions.py BASELINE CANDIDATE --runs {data['runs']}{tokens} --output {entry.filename}`.", "",
+                "Tokens count stdout plus stderr, not the stored log or whole agent tasks. "
+                "Warm synthetic timings do not establish cold-cache latency, peak RSS, live agent quality, "
+                "power-loss durability or concurrent-filesystem safety. Rust tests cover the storage safety contracts.", ""]
+    return out
+
+
 def hook_config_report(output_dir, datasets=None):
     datasets = datasets or ReportDatasets(RESULTS)
     out = []
@@ -1363,6 +1399,7 @@ def report(args):
     out += hook_report(output_dir, datasets)
     out += corpus_report(output_dir)
     out += hook_config_report(output_dir, datasets)
+    out += session_report(output_dir, datasets)
     if speed_res:
         h = speed_res["host"]
         corpora = speed_res["corpora"]

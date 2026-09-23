@@ -226,6 +226,26 @@ class CatalogTests(unittest.TestCase):
             for link in re.findall(r"\]\(([^)]+\.json)\)", text):
                 self.assertTrue((root / unquote(link)).is_file(), link)
 
+    def test_session_report_validates_search_contract_and_uses_shared_tables(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            path = root / "reports.toml"
+            path.write_text(self.source + '\n[[datasets]]\nid = "session_test"\nsection = "session"\nfilename = "session.json"\ntitle = "Session test"\n')
+            data = config_dataset()
+            row = data["results"][0]
+            data["scan_index_files_equal"] = True
+            row["backend"] = row.pop("agent")
+            for label in ("baseline", "candidate"):
+                row[label]["search_equal"] = True
+            (root / "session.json").write_text(json.dumps(data))
+            store = ReportDatasets(root, path)
+            text = "\n".join(bench.session_report(str(root), store))
+            self.assertIn("Session/search contracts: **1/1 → 1/1**", text)
+            self.assertIn("bench/sessions.py BASELINE CANDIDATE --runs 2", text)
+            del row["candidate"]["search_equal"]
+            with self.assertRaisesRegex(ReportDataError, "search_equal"):
+                validate_dataset(data, store.section("session")[0])
+
     def test_recheck_notes_stay_with_their_dataset_when_new_reports_follow(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

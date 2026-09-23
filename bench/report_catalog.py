@@ -52,7 +52,7 @@ class Dataset:
     comparison_limits: str = ""
 
 
-SECTIONS = {"matching", "matching_recheck", "matching_review", "hook", "hook_config"}
+SECTIONS = {"matching", "matching_recheck", "matching_review", "hook", "hook_config", "session"}
 
 
 def load_catalog(path):
@@ -159,6 +159,8 @@ def validate_dataset(data, entry):
             string(data.get("ripgrep"), "ripgrep")
         if entry.section == "matching_review":
             check(isinstance(data.get("cases"), list) and all(text(c) for c in data["cases"]), "cases", "string array")
+    if entry.section == "session":
+        boolean(data.get("scan_index_files_equal"), "scan_index_files_equal")
     if entry.section == "hook":
         string(data.get("ripgrep"), "ripgrep")
         searches = data.get("search_contracts")
@@ -172,7 +174,7 @@ def validate_dataset(data, entry):
     for i, row in enumerate(rows):
         field = f"results[{i}]"
         obj(row, field)
-        group = "backend" if matching else "agent"
+        group = "backend" if matching or entry.section == "session" else "agent"
         string(row.get(group), f"{field}.{group}")
         string(row.get("case"), field + ".case")
         key = row[group], row["case"]
@@ -188,12 +190,15 @@ def validate_dataset(data, entry):
                 value = sample[metric]
                 check(value is None or (type(value) in (int, float) and 0 <= value <= sys.float_info.max),
                       prefix + "." + metric, "finite nonnegative timing or null")
-            failure_default = None if entry.section == "hook_config" and protocol == 2 else 0
+            failure_default = None if entry.section in ("hook_config", "session") and protocol == 2 else 0
             count(sample.get("failed_invocations", failure_default), prefix + ".failed_invocations")
             check(sample.get("failed_invocations", 0) <= data["runs"], prefix + ".failed_invocations", "count <= runs")
-            token_key = "tokens_both_streams" if matching else "reply_tokens"
+            token_key = "tokens_both_streams" if matching or entry.section == "session" else "reply_tokens"
             if sample.get(token_key) is not None:
                 count(sample[token_key], prefix + "." + token_key)
+            if entry.section == "session":
+                boolean(sample.get("search_equal"), prefix + ".search_equal")
+                check(not sample.get("contract") or sample["search_equal"], prefix + ".contract", "false when search output differs")
             if matching:
                 for contract in ("rg_stdout_and_status_equal", "json_exact_contract", "definition_contract"):
                     boolean(sample.get(contract), prefix + "." + contract, nullable=True)

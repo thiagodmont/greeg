@@ -11,6 +11,7 @@ greeg-lang = { path = "../greeg-lang" }
 greeg-index = { path = "../greeg-index" }
 anyhow.workspace = true
 bstr.workspace = true
+blake3.workspace = true
 globset.workspace = true
 grep-matcher.workspace = true
 grep-regex.workspace = true

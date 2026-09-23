@@ -232,3 +232,21 @@ analysis = "thresholds"
 recheck_of = "skill_lifecycle_review"
 comparison_intro = "These incremental measurements compare the original skill implementation with the explicit lock-release and read-only removal fixes."
 comparison_limits = "Read-only removal and inherited-lock behavior are covered by Rust regressions; timing fixtures use ordinary permissions. Initial skill creation/removal costs versus merged main remain documented above."
+
+[[datasets]]
+id = "private_sessions"
+section = "session"
+filename = "private-sessions-2026-09-23-darwin-arm64.json"
+title = "Private session memory (2026-09-23)"
+measured_at = 2026-09-23T16:30:04.831538Z
+timestamp_source = "measurement"
+notes = "Initial 51-pair run: session/search contracts improve 6/14 → 14/14, while all search output comparisons pass and output tokens stay unchanged. Fresh/warm session median overhead is 0.1–0.4 ms. Compaction and expiry of 2,000 records add 0.8–0.9 ms (11.9–16.0%), exceeding the median threshold: writers re-read bounded current history under a lock and publish replacements atomically. One fresh scan p95 crosses +20%; the larger confirmation is retained below. Oversized-log timing is not an equivalent-work speedup because the candidate refuses that history."
+
+[[datasets]]
+id = "private_sessions_confirmation"
+section = "session"
+filename = "private-sessions-confirmation-2026-09-23-darwin-arm64.json"
+title = "Private session memory: confirmation (2026-09-23)"
+measured_at = 2026-09-23T16:31:06.495386Z
+timestamp_source = "measurement"
+notes = "The 151-pair confirmation uses the same binary digests and passes all 14 candidate contracts with unchanged output bytes/tokens. Fresh/warm median overhead is 0.1–0.3 ms. Compaction/expiry retain four median flags (+10.9–14.2%, or 0.6–0.8 ms) from reloading bounded history under a lock and atomic replacement. This is an explicit session-persistence reliability cost, not a search speedup. No p95 exceeds +20%; the initial fresh scan tail flag did not repeat. Sessions-disabled median changes are +5.5% scan / +1.6% index. Both runs are retained; they do not measure whole-task quality or cold-cache behavior."
