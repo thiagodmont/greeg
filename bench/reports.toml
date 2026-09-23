@@ -282,3 +282,21 @@ pr = 21
 measured_at = 2026-09-23T17:17:29.216244Z
 timestamp_source = "measurement"
 notes = "The 151-pair confirmation uses the same binary digests, passes 14/14 contracts on both binaries, and preserves exact output/status, bytes/tokens and scan/index matching-file parity. Maximum increases are +1.2% median and +7.1% p95; no investigation thresholds are crossed. The initial scan-expiry tail flag does not repeat (+1.6%, or 0.13 ms). Both runs remain available. These small-directory timing fixtures do not measure bulk-sweep latency or peak RSS; Rust coverage checks removal of 512 expired logs, fresh-file preservation, renamed directories and busy writers."
+
+[[datasets]]
+id = "hook_decline_reasons"
+section = "hook"
+filename = "hook-decline-reasons-2026-09-23-darwin-arm64.json"
+title = "Hook decline reasons: recurring hook regression (2026-09-23)"
+measured_at = 2026-09-23T18:04:58.145742Z
+timestamp_source = "measurement"
+notes = "Initial 51-pair run of merged main against typed decline reasons and `greeg hook explain`. All 28 hook contracts and 40 scan/index search comparisons pass, with identical rewritten commands and reply bytes/tokens. No median exceeds +10% (maximum +5.1%). One p95 exceeds +20%: Codex grep_file 5.23 → 6.95 ms (+33.0%) on a host with load average ≈5.5; the recheck below retains it."
+
+[[datasets]]
+id = "hook_decline_reasons_recheck"
+section = "hook"
+filename = "hook-decline-reasons-recheck-2026-09-23-darwin-arm64.json"
+title = "Hook decline reasons: recheck (2026-09-23)"
+measured_at = 2026-09-23T18:05:44.259551Z
+timestamp_source = "measurement"
+notes = "Same binary digests, same 51-pair protocol. 28/28 hook contracts and 40/40 search comparisons pass with identical replies. The Codex grep_file tail flag does not repeat (+11.6% p95, +0.9% median). Two other cases flag instead and did not flag in the first run: Claude count_miss p95 +45.3% and Claude comment median +10.8% (0.5 ms). The median change across cases is +1.0%. Non-repeating flags on a loaded host (load ≈5.2) are treated as noise. The decline path now allocates a reason string, and accepted rewrites are byte-identical."

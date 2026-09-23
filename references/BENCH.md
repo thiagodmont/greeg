@@ -448,6 +448,92 @@ Hook process median latency changes ranged from -1.8% to +3.8%. Cases above the 
 
 [Raw samples, reply sizes, and binary/corpus digests](../bench/results/skill-hook-final-2026-09-23-darwin-arm64.json). Reproduce: `python3 bench/hooks.py BASELINE CANDIDATE --runs 301 --tokens --output skill-hook-final-2026-09-23-darwin-arm64.json`.
 
+## Hook decline reasons: recurring hook regression (2026-09-23)
+
+Measurement time: 2026-09-23T18:04:58.145742Z (recorded).
+
+Initial 51-pair run of merged main against typed decline reasons and `greeg hook explain`. All 28 hook contracts and 40 scan/index search comparisons pass, with identical rewritten commands and reply bytes/tokens. No median exceeds +10% (maximum +5.1%). One p95 exceeds +20%: Codex grep_file 5.23 → 6.95 ms (+33.0%) on a host with load average ≈5.5; the recheck below retains it.
+
+`greeg 0.6.0+69b112321` → `greeg 0.6.0+69b112321.dirty`; 51 randomized pairs per case after 3 warmups. The candidate passed 28/28 hook eligibility/explicit-policy checks. Candidate file/count match-row and exit-status checks: 20/20 against ripgrep 15.2.0. Explicit source paths and expected hit/miss assertions exercise both scan and full-index searches, including files over 4 MiB and explicit size limits. The oracle ignores row ordering and does not require identical stderr.
+
+Hook process median latency changes ranged from -5.1% to +5.1%. Cases above the 10% median / 20% p95 investigation thresholds: **1**.
+
+| Host protocol | Case | Median ms, before → after | p95 ms, before → after | Reply tokens, before → after |
+|---|---|---:|---:|---:|
+| claude | ranked | 6.232 → 6.005 | 28.063 → 16.531 | 46 → 46 |
+| claude | files | 4.909 → 4.976 | 6.777 → 6.872 | 48 → 48 |
+| claude | count miss | 4.530 → 4.705 | 6.224 → 5.707 | 49 → 49 |
+| claude | quoted | 3.983 → 4.018 | 7.033 → 5.791 | 51 → 51 |
+| claude | trailing newline | 4.131 → 4.131 | 6.634 → 5.660 | 46 → 46 |
+| claude | size limit | 4.464 → 4.637 | 9.875 → 8.367 | 46 → 46 |
+| claude | recursive grep | 4.251 → 4.368 | 6.747 → 6.920 | 0 → 0 |
+| claude | grep file | 4.227 → 4.206 | 6.007 → 6.743 | 0 → 0 |
+| claude | json | 4.188 → 4.219 | 6.320 → 5.996 | 0 → 0 |
+| claude | executable path | 3.928 → 3.979 | 5.498 → 5.385 | 0 → 0 |
+| claude | comment | 4.149 → 4.298 | 5.475 → 5.781 | 0 → 0 |
+| claude | pipeline | 4.264 → 4.257 | 5.592 → 5.931 | 0 → 0 |
+| claude | compound | 4.205 → 4.098 | 5.347 → 5.093 | 0 → 0 |
+| claude | config | 3.688 → 3.662 | 4.243 → 4.420 | 0 → 0 |
+| codex | ranked | 3.228 → 3.202 | 3.874 → 4.069 | 51 → 51 |
+| codex | files | 3.630 → 3.604 | 4.201 → 4.277 | 53 → 53 |
+| codex | count miss | 3.699 → 3.509 | 4.809 → 4.670 | 54 → 54 |
+| codex | quoted | 3.228 → 3.216 | 4.361 → 4.039 | 56 → 56 |
+| codex | trailing newline | 3.611 → 3.571 | 5.458 → 4.959 | 51 → 51 |
+| codex | size limit | 2.954 → 3.008 | 3.651 → 3.619 | 51 → 51 |
+| codex | recursive grep | 3.712 → 3.598 | 4.693 → 4.796 | 0 → 0 |
+| codex | grep file | 3.699 → 3.653 | 5.228 → 6.952 | 0 → 0 |
+| codex | json | 3.284 → 3.450 | 4.373 → 4.173 | 0 → 0 |
+| codex | executable path | 3.176 → 3.116 | 4.189 → 4.360 | 0 → 0 |
+| codex | comment | 3.216 → 3.201 | 4.008 → 4.080 | 0 → 0 |
+| codex | pipeline | 3.580 → 3.635 | 4.426 → 4.146 | 0 → 0 |
+| codex | compound | 3.435 → 3.489 | 4.024 → 4.189 | 0 → 0 |
+| codex | config | 3.167 → 3.233 | 3.656 → 3.771 | 0 → 0 |
+
+[Raw samples, reply sizes, and binary/corpus digests](../bench/results/hook-decline-reasons-2026-09-23-darwin-arm64.json). Reproduce: `python3 bench/hooks.py BASELINE CANDIDATE --runs 51 --tokens --output hook-decline-reasons-2026-09-23-darwin-arm64.json`.
+
+## Hook decline reasons: recheck (2026-09-23)
+
+Measurement time: 2026-09-23T18:05:44.259551Z (recorded).
+
+Same binary digests, same 51-pair protocol. 28/28 hook contracts and 40/40 search comparisons pass with identical replies. The Codex grep_file tail flag does not repeat (+11.6% p95, +0.9% median). Two other cases flag instead and did not flag in the first run: Claude count_miss p95 +45.3% and Claude comment median +10.8% (0.5 ms). The median change across cases is +1.0%. Non-repeating flags on a loaded host (load ≈5.2) are treated as noise. The decline path now allocates a reason string, and accepted rewrites are byte-identical.
+
+`greeg 0.6.0+69b112321` → `greeg 0.6.0+69b112321.dirty`; 51 randomized pairs per case after 3 warmups. The candidate passed 28/28 hook eligibility/explicit-policy checks. Candidate file/count match-row and exit-status checks: 20/20 against ripgrep 15.2.0. Explicit source paths and expected hit/miss assertions exercise both scan and full-index searches, including files over 4 MiB and explicit size limits. The oracle ignores row ordering and does not require identical stderr.
+
+Hook process median latency changes ranged from -2.9% to +10.8%. Cases above the 10% median / 20% p95 investigation thresholds: **2**.
+
+| Host protocol | Case | Median ms, before → after | p95 ms, before → after | Reply tokens, before → after |
+|---|---|---:|---:|---:|
+| claude | ranked | 4.197 → 4.286 | 11.155 → 9.604 | 46 → 46 |
+| claude | files | 4.564 → 4.433 | 6.292 → 5.585 | 48 → 48 |
+| claude | count miss | 3.642 → 3.940 | 8.293 → 12.049 | 49 → 49 |
+| claude | quoted | 4.441 → 4.333 | 5.563 → 5.836 | 51 → 51 |
+| claude | trailing newline | 4.081 → 4.127 | 5.397 → 5.762 | 46 → 46 |
+| claude | size limit | 4.129 → 4.139 | 5.401 → 5.462 | 46 → 46 |
+| claude | recursive grep | 3.480 → 3.456 | 4.630 → 4.324 | 0 → 0 |
+| claude | grep file | 3.139 → 3.273 | 3.788 → 4.323 | 0 → 0 |
+| claude | json | 3.211 → 3.138 | 5.278 → 4.774 | 0 → 0 |
+| claude | executable path | 3.098 → 3.083 | 3.942 → 3.958 | 0 → 0 |
+| claude | comment | 3.077 → 3.410 | 4.579 → 4.360 | 0 → 0 |
+| claude | pipeline | 2.988 → 3.060 | 4.872 → 5.265 | 0 → 0 |
+| claude | compound | 2.808 → 2.842 | 3.265 → 3.529 | 0 → 0 |
+| claude | config | 2.973 → 3.061 | 3.944 → 3.617 | 0 → 0 |
+| codex | ranked | 2.892 → 2.925 | 4.495 → 4.119 | 51 → 51 |
+| codex | files | 2.957 → 2.999 | 3.717 → 3.657 | 53 → 53 |
+| codex | count miss | 2.907 → 2.858 | 3.446 → 3.638 | 54 → 54 |
+| codex | quoted | 3.013 → 3.007 | 4.150 → 3.837 | 56 → 56 |
+| codex | trailing newline | 3.065 → 3.152 | 3.817 → 3.933 | 51 → 51 |
+| codex | size limit | 2.929 → 2.925 | 3.819 → 3.670 | 51 → 51 |
+| codex | recursive grep | 3.051 → 2.978 | 3.687 → 3.978 | 0 → 0 |
+| codex | grep file | 3.136 → 3.164 | 3.901 → 4.352 | 0 → 0 |
+| codex | json | 2.773 → 2.781 | 3.381 → 3.430 | 0 → 0 |
+| codex | executable path | 3.068 → 3.119 | 4.555 → 4.733 | 0 → 0 |
+| codex | comment | 3.047 → 3.056 | 4.688 → 4.344 | 0 → 0 |
+| codex | pipeline | 3.178 → 3.163 | 4.787 → 4.680 | 0 → 0 |
+| codex | compound | 3.158 → 3.215 | 4.324 → 3.943 | 0 → 0 |
+| codex | config | 2.950 → 3.004 | 4.309 → 4.532 | 0 → 0 |
+
+[Raw samples, reply sizes, and binary/corpus digests](../bench/results/hook-decline-reasons-recheck-2026-09-23-darwin-arm64.json). Reproduce: `python3 bench/hooks.py BASELINE CANDIDATE --runs 51 --tokens --output hook-decline-reasons-recheck-2026-09-23-darwin-arm64.json`.
+
 The initial run triggered a longer paired recheck; both are retained. Reply tokens count only hook JSON with the recorded tokenizer, not search results or total agent usage. Explicit matching and file-size flags add reply cost; declined commands emit no reply and continue with the original tool. Tests use synthetic fixtures and the recorded response shapes, not live host approvals. No new cold-cache, RSS, native-search performance, or whole-task token claim is made.
 
 ## Disposable edit and soak corpora (2026-09-23)
