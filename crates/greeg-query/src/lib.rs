@@ -1424,6 +1424,17 @@ pub(crate) struct Ctx<'a> {
     pub(crate) classify: bool,
     /// Apply `--kind` inside `process_file` (false when the index classifies afterwards).
     pub(crate) filter_kinds: bool,
+    /// Paths come from the index: read only regular files, never through a symlink.
+    pub(crate) regular_only: bool,
+}
+
+/// `--no-tests`, `--no-vendored` and `--no-generated`, on one file's flags.
+pub(crate) fn excluded_by_flags(o: &Options, flags: FileFlags) -> bool {
+    !o.all
+        && (o.no_tests && flags.has(FileFlags::TEST)
+            || o.no_vendored && flags.has(FileFlags::VENDORED)
+            || o.no_generated
+                && flags.has(FileFlags::GENERATED | FileFlags::MINIFIED | FileFlags::LOCKFILE))
 }
 
 pub(crate) fn process_file(
@@ -1440,11 +1451,7 @@ pub(crate) fn process_file(
     let need_path_flags = !o.all && (o.no_tests || o.no_vendored || o.no_generated);
     if need_path_flags {
         flags = path_flags(&rel);
-        if o.no_tests && flags.has(FileFlags::TEST)
-            || o.no_vendored && flags.has(FileFlags::VENDORED)
-            || o.no_generated
-                && flags.has(FileFlags::GENERATED | FileFlags::MINIFIED | FileFlags::LOCKFILE)
-        {
+        if excluded_by_flags(o, flags) {
             return None;
         }
     }
@@ -1452,7 +1459,11 @@ pub(crate) fn process_file(
     let t_read = Instant::now();
     {
         use std::io::Read;
-        let f = fs::File::open(path).ok()?;
+        let f = if cx.regular_only {
+            greeg_index::open_regular(path).ok()?
+        } else {
+            fs::File::open(path).ok()?
+        };
         // read at most max_filesize + 1 so oversized files are detected without a stat
         f.take(o.max_filesize.saturating_add(1))
             .read_to_end(buf)
@@ -1515,6 +1526,10 @@ pub(crate) fn process_file(
     flags.0 |= content_flags(&body[..body.len().min(65536)], src.len() as u64).0;
     if flags.has(FileFlags::BINARY) {
         cx.stats.binary.fetch_add(1, Relaxed);
+        return None;
+    }
+    // the index excludes on the same content-derived flags
+    if need_path_flags && excluded_by_flags(o, flags) {
         return None;
     }
     let md = fs::metadata(path).ok();
@@ -1876,6 +1891,7 @@ fn scan_once(o: &Options, bounds: &ScanBounds) -> Result<ScanResult> {
         stats: &acc,
         classify,
         filter_kinds: true,
+        regular_only: false,
     };
     if o.use_index && !o.no_ignore && !o.hidden {
         // A panic anywhere in the index path degrades to scan mode:
@@ -2324,6 +2340,7 @@ mod tests {
             stats: &acc,
             classify: true,
             filter_kinds: true,
+            regular_only: false,
         };
         let mut sb = SearcherBuilder::new();
         sb.line_number(true)
@@ -2393,6 +2410,7 @@ mod tests {
             stats: &acc,
             classify: false,
             filter_kinds: true,
+            regular_only: false,
         };
         let mut sb = SearcherBuilder::new();
         sb.line_number(true)

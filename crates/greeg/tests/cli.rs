@@ -101,7 +101,6 @@ impl Fixture {
             .arg(&self.index)
             .current_dir(&self.root)
             .env("GREEG_STATS", "0")
-            // Detached builds inherit this variable, not --index-dir.
             .env("GREEG_INDEX_DIR", &self.index)
             .output()
             .expect("run greeg")

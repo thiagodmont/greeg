@@ -9,6 +9,7 @@ pub mod external;
 pub mod format;
 pub mod fresh;
 pub mod gram;
+pub mod ignores;
 pub mod index;
 pub mod lock;
 pub mod plan;
@@ -23,6 +24,21 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 pub const FORMAT_VERSION: u16 = 5;
+
+/// Open an indexed path only while it is still a regular file: a symlink is
+/// not followed and a FIFO or device cannot block the open. This checks the
+/// file itself, not its parent directories.
+pub fn open_regular(path: &Path) -> std::io::Result<std::fs::File> {
+    use std::os::unix::fs::OpenOptionsExt;
+    let f = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(path)?;
+    if !f.metadata()?.is_file() {
+        return Err(std::io::Error::other("not a regular file"));
+    }
+    Ok(f)
+}
 
 /// Manifest: JSON, small, rewritten atomically on every publish/check.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -62,6 +78,10 @@ pub struct Manifest {
     /// Number of delta segments currently applied.
     pub deltas: u32,
     pub tombstones: u32,
+    /// `ignores::digest` when the walk ran. Empty in manifests written before
+    /// it was recorded: those are not checked until their next full build.
+    #[serde(default)]
+    pub ignore_inputs: String,
 }
 
 /// The user cache directory greeg owns: `~/Library/Caches/greeg` on macOS,
@@ -164,4 +184,27 @@ pub fn write_manifest(dir: &Path, m: &Manifest) -> Result<()> {
     std::fs::write(&tmp, serde_json::to_vec_pretty(m)?)?;
     std::fs::rename(&tmp, dir.join("manifest"))?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn open_regular_refuses_symlinks_and_fifos_without_blocking() {
+        let d = std::env::temp_dir().join(format!("greeg-open-regular-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&d);
+        fs::create_dir_all(&d).unwrap();
+        fs::write(d.join("file"), "x").unwrap();
+        std::os::unix::fs::symlink(d.join("file"), d.join("link")).unwrap();
+        let fifo = std::ffi::CString::new(d.join("fifo").as_os_str().as_encoded_bytes()).unwrap();
+        // SAFETY: a valid NUL-terminated path.
+        assert_eq!(unsafe { libc::mkfifo(fifo.as_ptr(), 0o600) }, 0);
+        assert!(open_regular(&d.join("file")).is_ok());
+        assert!(open_regular(&d.join("link")).is_err());
+        assert!(open_regular(&d.join("fifo")).is_err());
+        assert!(open_regular(&d).is_err());
+        let _ = fs::remove_dir_all(&d);
+    }
 }

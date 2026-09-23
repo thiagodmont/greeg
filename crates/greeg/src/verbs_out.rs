@@ -24,6 +24,15 @@ fn ms(c: &Common, elapsed: f64) -> String {
     }
 }
 
+/// Flush a JSON answer; an empty one exits 1, like its text form.
+fn finish_json(mut w: impl Write, verb: &'static str, found: bool) -> Result<()> {
+    w.flush()?;
+    if !found {
+        crate::stats::exit_no_hits(verb);
+    }
+    Ok(())
+}
+
 fn parse_def_kind(s: &str) -> Result<DefKind> {
     Ok(match s {
         "fn" | "function" => DefKind::Function,
@@ -254,8 +263,7 @@ pub fn run_def(
             &json!({"type":"footer","data":{"verb":"def","name":r.name,"shown":r.entries.len(),"total":r.total,"source":r.source,"rung":r.rung.name(),"suggestions":r.suggestions,"elapsed_ms":r.elapsed_ms}}),
         )?;
         writeln!(w)?;
-        w.flush()?;
-        return Ok(());
+        return finish_json(w, "def", !r.entries.is_empty());
     }
     if r.entries.is_empty() {
         writeln!(w, "def {}  no definition found ({})", r.name, r.source)?;
@@ -463,8 +471,7 @@ pub fn run_refs(c: &Common, o: &Options, name: &str) -> Result<()> {
             &json!({"type":"footer","data":{"verb":"refs","name":name,"hits_total":s.stats.total_hits,"files_total":s.stats.files_matched,"by_kind":nonempty.iter().map(|(k,v)| json!([k.name(), v.len()])).collect::<Vec<_>>(),"resolved":r.resolved,"classified":r.classified,"rung":s.rung.name(),"source":s.stats.source,"elapsed_ms":s.stats.elapsed_ms}}),
         )?;
         writeln!(w)?;
-        w.flush()?;
-        return Ok(());
+        return finish_json(w, "refs", s.stats.total_hits > 0);
     }
     if s.stats.total_hits == 0 {
         writeln!(w, "refs {name}  no references ({})", s.stats.source)?;
@@ -578,8 +585,7 @@ pub fn run_callers(c: &Common, o: &Options, name: &str, depth: usize) -> Result<
             &json!({"type":"footer","data":{"verb":"callers","name":r.name,"callers":r.callers.len(),"call_sites":r.total_hits,"files":r.files,"source":r.source,"rung":r.rung.name(),"elapsed_ms":r.elapsed_ms}}),
         )?;
         writeln!(w)?;
-        w.flush()?;
-        return Ok(());
+        return finish_json(w, "callers", !r.callers.is_empty());
     }
     if r.callers.is_empty() {
         writeln!(w, "callers {}  no call sites ({})", r.name, r.source)?;
@@ -683,8 +689,7 @@ pub fn run_impls(c: &Common, o: &Options, name: &str) -> Result<()> {
             &json!({"type":"footer","data":{"verb":"impls","name":r.name,"direct":r.direct.len(),"extras":r.extras.len(),"source":r.source,"elapsed_ms":r.elapsed_ms}}),
         )?;
         writeln!(w)?;
-        w.flush()?;
-        return Ok(());
+        return finish_json(w, "impls", !(r.direct.is_empty() && r.extras.is_empty()));
     }
     if r.direct.is_empty() && r.extras.is_empty() {
         writeln!(w, "impls {}  none found ({})", r.name, r.source)?;
@@ -1027,8 +1032,7 @@ pub fn run_impact(c: &Common, o: &Options, name: &str) -> Result<()> {
             "total_hits":r.total_hits,"elapsed_ms":r.elapsed_ms}}),
         )?;
         writeln!(w)?;
-        w.flush()?;
-        return Ok(());
+        return finish_json(w, "impact", r.total_hits > 0);
     }
     if r.total_hits == 0 {
         writeln!(w, "impact {}  no references found", r.name)?;
