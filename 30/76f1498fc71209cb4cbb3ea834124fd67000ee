@@ -1,0 +1,25 @@
+references/BENCH.md
+  s_b1057b2933cdb0::t_a2e88d410bc113 1171-1244
+bench/results/private-storage-sessions-2026-09-23-darwin-arm64.json
+  s_b1057b2933cdb0::t_721d44a365602d 1-2107
+bench/results/private-storage-sessions-confirmation-2026-09-23-darwin-arm64.json
+  s_b1057b2933cdb0::t_721d44a365602d 1-4907
+bench/reports.toml
+  s_b1057b2933cdb0::t_a2e88d410bc113 323-342
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "3076f1498fc71209cb4cbb3ea834124fd67000ee",
+  "prompts": {},
+  "sessions": {
+    "s_b1057b2933cdb0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0aa73425-0ec9-4b76-ae94-35b6bdff17bb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
