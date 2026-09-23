@@ -407,6 +407,9 @@ machine can fail the build.
 
 Paired reports are registered in `bench/reports.toml`: filenames, titles, order
 within each section, optional analysis and configuration recheck relationships.
+Set `pr` to the positive number of the originating greeg PR once known; rendered
+headings link to it. Omit it for unpublished measurements. This identifies review
+context, not an execution timestamp or host; measurement metadata stays in the raw results.
 Add measurements to `hook`, `hook_config` or `matching_review` there without
 changing renderers; `matching` and `matching_recheck` each allow exactly one dataset.
 `bench/report_catalog.py` validates the catalog and report-facing fields for

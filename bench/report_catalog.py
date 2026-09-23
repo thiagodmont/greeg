@@ -39,6 +39,7 @@ class Dataset:
     section: str
     filename: str
     title: str
+    pr: int | None = None
     show_rows: bool = True
     analysis: str = ""
     recheck_of: str = ""
@@ -65,6 +66,7 @@ def load_catalog(path):
         require(set(item) <= Dataset.__dataclass_fields__.keys(), path, field, "known catalog fields")
         for key in ("id", "section", "filename", "title"):
             require(text(item.get(key)), path, f"{field}.{key}", "nonempty string")
+        require("pr" not in item or integer(item["pr"], 1), path, f"{field}.pr", "positive PR number")
         require(re.fullmatch(r"[a-z][a-z0-9_]*", item["id"]), path, f"{field}.id", "lowercase identifier")
         require(item["section"] in SECTIONS, path, f"{field}.section", "supported report section")
         require(re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_.-]*\.json", item["filename"]),

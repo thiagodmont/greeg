@@ -6,7 +6,7 @@ import unittest
 from unittest.mock import patch
 
 import bench
-from reporting import latency_summary, paired_table
+from reporting import latency_summary, paired_table, report_heading
 
 
 class ConfigReportTests(unittest.TestCase):
@@ -86,6 +86,11 @@ class ConfigReportTests(unittest.TestCase):
 
 
 class PairedRenderingTests(unittest.TestCase):
+    def test_headings_link_known_prs_and_do_not_guess_missing_ones(self):
+        self.assertEqual(report_heading("Measurement"), ["## Measurement", ""])
+        self.assertEqual(report_heading("Recheck", pr=18, level=3),
+                         ["### Recheck", "", "Originating PR: [#18](https://github.com/thiagodmont/greeg/pull/18).", ""])
+
     def row(self, median=100, p95=100):
         return {"agent": "codex", "case": "installed_noop",
                 "baseline": {"median_ms": 100, "p95_ms": 100, "tokens": 0},

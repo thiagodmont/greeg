@@ -4,6 +4,13 @@ import os
 from urllib.parse import quote
 
 
+def report_heading(title, *, pr=None, level=2):
+    out = [f"{'#' * level} {title}", ""]
+    if pr is not None:
+        out += [f"Originating PR: [#{pr}](https://github.com/thiagodmont/greeg/pull/{pr}).", ""]
+    return out
+
+
 def result_link(results_dir, output_dir, filename):
     return quote(os.path.relpath(os.path.realpath(os.path.join(results_dir, filename)),
                                  os.path.realpath(output_dir)))

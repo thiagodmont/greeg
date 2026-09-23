@@ -152,6 +152,11 @@ class CatalogTests(unittest.TestCase):
         self.invalid_catalog(self.source.replace('recheck_of = "atomic_review"', 'recheck_of = "atomic_confirmation"'), "recheck_of")
         self.invalid_catalog(self.source.replace('recheck_of = "atomic_review"', 'recheck_of = "exact_defaults"'), "recheck_of")
 
+    def test_pr_references_must_be_positive_integers(self):
+        for value in ('0', '-1', 'true', '"13"', '13.5'):
+            with self.subTest(value=value):
+                self.invalid_catalog(self.source.replace('pr = 13', f'pr = {value}', 1), r"\.pr:")
+
     def test_all_registered_artifacts_validate(self):
         store = ReportDatasets(Path(bench.HERE) / "results")
         self.assertTrue(store.entries)
@@ -178,13 +183,14 @@ class CatalogTests(unittest.TestCase):
             root = Path(temp)
             path = root / "reports.toml"
             path.write_text(self.source + '\n[[datasets]]\nid = "new_run"\nsection = "hook_config"\n'
-                            'filename = "new-run.json"\ntitle = "New measurement"\nanalysis = "thresholds"\n')
+                            'filename = "new-run.json"\ntitle = "New measurement"\npr = 19\nanalysis = "thresholds"\n')
             data = config_dataset()
             (root / "new-run.json").write_text(json.dumps(data))
             store = ReportDatasets(root, path)
             self.assertEqual(store.section("hook_config")[-1].id, "new_run")
             text = "\n".join(bench.hook_config_report(str(root), store))
             self.assertIn("## New measurement", text)
+            self.assertIn("Originating PR: [#19](https://github.com/thiagodmont/greeg/pull/19).", text)
             self.assertIn("Maximum median/p95 increases", text)
             self.assertNotIn("Atomic configuration:", text)
             for link in re.findall(r"\]\(([^)]+\.json)\)", text):

@@ -16,7 +16,7 @@ them. External tools: git, hyperfine, rg, grep; for the oracle rust-analyzer
 """
 import argparse, datetime, json, math, os, platform, random, re, shlex, shutil, statistics, subprocess, sys, tempfile, time, tomllib
 
-from reporting import latency_summary, paired_table, result_link
+from reporting import latency_summary, paired_table, report_heading, result_link
 from report_catalog import ReportDataError, ReportDatasets
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -1103,8 +1103,7 @@ def matching_report(output_dir, datasets=None):
     token_note = (f"Tokens count stdout plus stderr with `{matrix['tokenizer']}`."
                   if matrix.get("tokenizer") else "Token counts were not measured (n/a).")
     passed = lambda label: sum(r[label]["rg_stdout_and_status_equal"] for r in machine)
-    out = [
-        f"## {matrix_entry.title}", "",
+    out = report_heading(matrix_entry.title, pr=matrix_entry.pr) + [
         f"Focused comparison of `{binaries['baseline']['version']}` against `{binaries['candidate']['version']}`. "
         "The candidate contains the exact/discovery policy change. These measurements are separate from the older full-corpus tables below.", "",
         f"{matrix['platform']}, {matrix['cpu_count']} logical CPUs; "
@@ -1136,7 +1135,8 @@ def matching_report(output_dir, datasets=None):
         summary = latency_summary(recheck["results"])
         investigation = (f"Recheck cases exceeding the 10% median / 20% p95 investigation thresholds: **{summary['flagged']}**."
                          if summary else "Recheck latency comparison unavailable.")
-        out += [f"### {recheck_entry.title}", "", trigger + "Both runs are retained. " + investigation, ""]
+        out += report_heading(recheck_entry.title, pr=recheck_entry.pr, level=3)
+        out += [trigger + "Both runs are retained. " + investigation, ""]
         out += paired_table(recheck["results"], "backend", "Backend")
         out += ["", f"[Ranked recheck and raw samples]({result_link(datasets.root, output_dir, recheck_name)})."]
     out += ["", f"[Original matrix and raw samples]({result_link(datasets.root, output_dir, matrix_name)}) include binary/corpus digests. "
@@ -1165,7 +1165,7 @@ def matching_review_report(output_dir, datasets=None):
         timing = (f"Cases above the 10% median / 20% p95 investigation thresholds: **{summary['flagged']}**."
                   if summary else "Latency comparison unavailable.")
         link = result_link(datasets.root, output_dir, filename)
-        out += [f"## {title}", "",
+        out += report_heading(title, pr=entry.pr) + [
                 f"`{data['binaries']['baseline']['version']}` → `{data['binaries']['candidate']['version']}`; "
                 f"{data['runs']} randomized pairs per case, {data['warmups']} warmups on the same {data['corpus']['files']}-file warm synthetic corpus. "
                 f"Contract checks passed: **{passed('baseline')} → {passed('candidate')}**. "
@@ -1209,7 +1209,7 @@ def hook_report(output_dir, datasets=None):
                   "Protocol 1's search checks read empty stdin and do not establish corpus parity. "
                   "Only its hook-process measurements remain valid; use protocol 2 below for search validation.")
         link = result_link(datasets.root, output_dir, filename)
-        out += [f"## {title}", "",
+        out += report_heading(title, pr=entry.pr) + [
                 f"`{data['binaries']['baseline']['version']}` → `{data['binaries']['candidate']['version']}`; "
                 f"{data['runs']} randomized pairs per case after {data['warmups']} warmups. "
                 f"The candidate passed {sum(r['candidate']['contract'] for r in rows)}/{len(rows)} hook eligibility/explicit-policy checks. "
@@ -1264,7 +1264,7 @@ def hook_config_dataset_report(output_dir, filename, title, datasets=None):
     extended = data.get("protocol", 1) >= 2
     coverage = ("Protocol 2 also checks byte-identical installed no-ops, matcher-less cleanup, "
                 "custom matcher preservation, and retained TOML comments/trust data. " if extended else "")
-    out = [f"## {title}", "",
+    out = report_heading(title, pr=entry.pr) + [
            f"`{data['binaries']['baseline']['version']}` → `{data['binaries']['candidate']['version']}`; "
            f"{data['runs']} randomized paired runs per case after {data['warmups']} warmups. "
            "Each invocation uses a reset disposable home and an isolated configuration/cache. "
