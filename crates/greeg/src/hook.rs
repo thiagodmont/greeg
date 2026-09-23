@@ -374,12 +374,8 @@ pub fn other_bash_hooks() -> Vec<String> {
 pub fn install_claude(uninstall: bool, dry_run: bool) -> Result<()> {
     let sp = settings_path()?;
     let kp = skill_path()?;
-    let text = match std::fs::read_to_string(&sp) {
-        Ok(s) => Some(s),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
-        Err(e) => return Err(e).with_context(|| format!("read {}", sp.display())),
-    };
-    let (out, had) = edit_claude_config(text.as_deref(), uninstall)
+    let config = crate::hook_config::Config::read(&sp)?;
+    let (out, had) = edit_claude_config(config.text(), uninstall)
         .with_context(|| format!("edit {}", sp.display()))?;
     if dry_run {
         println!(
@@ -408,12 +404,7 @@ pub fn install_claude(uninstall: bool, dry_run: bool) -> Result<()> {
         );
         return Ok(());
     }
-    if out != text.as_deref().unwrap_or("") {
-        if let Some(p) = sp.parent() {
-            std::fs::create_dir_all(p)?;
-        }
-        std::fs::write(&sp, out)?;
-    }
+    config.write(&out)?;
     if uninstall {
         let _ = std::fs::remove_file(&kp);
         println!(
@@ -596,13 +587,9 @@ pub fn install_codex(uninstall: bool, dry_run: bool) -> Result<()> {
     let home = codex_home()?;
     let cp = home.join("config.toml");
     let kp = home.join("skills/greeg/SKILL.md");
-    let text = match std::fs::read_to_string(&cp) {
-        Ok(s) => s,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
-        Err(e) => return Err(e).with_context(|| format!("read {}", cp.display())),
-    };
-    let (out, had) =
-        edit_codex_config(&text, uninstall).with_context(|| format!("edit {}", cp.display()))?;
+    let config = crate::hook_config::Config::read(&cp)?;
+    let (out, had) = edit_codex_config(config.text().unwrap_or(""), uninstall)
+        .with_context(|| format!("edit {}", cp.display()))?;
     if dry_run {
         println!(
             "{}: {}",
@@ -630,10 +617,7 @@ pub fn install_codex(uninstall: bool, dry_run: bool) -> Result<()> {
         );
         return Ok(());
     }
-    if out != text {
-        std::fs::create_dir_all(&home)?;
-        std::fs::write(&cp, out)?;
-    }
+    config.write(&out)?;
     if uninstall {
         let _ = std::fs::remove_file(&kp);
         println!(

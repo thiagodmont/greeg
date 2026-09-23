@@ -234,6 +234,45 @@ Hook process median latency changes ranged from -2.1% to +3.1%. Cases above the 
 
 [Raw samples, reply sizes, and binary/corpus digests](../bench/results/hook-config-rewrites-2026-09-23-darwin-arm64.json). Reproduce: `python3 bench/hooks.py BASELINE CANDIDATE --runs 151 --tokens --output hook-config-rewrites-2026-09-23-darwin-arm64.json`.
 
+## Hook contract: rewrite regression after atomic configuration
+
+`greeg 0.6.0+5d2056d2f` → `greeg 0.6.0+5d2056d2f.dirty`; 151 randomized pairs per case after 3 warmups. The candidate passed 28/28 hook eligibility/explicit-policy checks. Candidate file/count match-row and exit-status checks: 20/20 against ripgrep 15.2.0. Explicit source paths and expected hit/miss assertions exercise both scan and full-index searches, including files over 4 MiB and explicit size limits. The oracle ignores row ordering and does not require identical stderr.
+
+Hook process median latency changes ranged from -1.1% to +3.6%. Cases above the 10% median / 20% p95 investigation thresholds: **0**.
+
+| Host protocol | Case | Median ms, before → after | p95 ms, before → after | Reply tokens, before → after |
+|---|---|---:|---:|---:|
+| claude | ranked | 4.440 → 4.599 | 5.483 → 5.940 | 46 → 46 |
+| claude | files | 4.266 → 4.290 | 5.932 → 6.066 | 48 → 48 |
+| claude | count miss | 4.152 → 4.294 | 5.512 → 5.753 | 49 → 49 |
+| claude | quoted | 4.107 → 4.191 | 4.999 → 5.273 | 51 → 51 |
+| claude | trailing newline | 4.184 → 4.247 | 5.231 → 6.088 | 46 → 46 |
+| claude | size limit | 4.087 → 4.138 | 5.390 → 5.242 | 46 → 46 |
+| claude | recursive grep | 3.961 → 4.022 | 4.549 → 4.577 | 0 → 0 |
+| claude | grep file | 3.993 → 4.062 | 4.420 → 4.523 | 0 → 0 |
+| claude | json | 4.077 → 4.108 | 5.362 → 5.418 | 0 → 0 |
+| claude | executable path | 3.925 → 3.962 | 5.034 → 5.120 | 0 → 0 |
+| claude | comment | 4.095 → 4.117 | 5.357 → 5.402 | 0 → 0 |
+| claude | pipeline | 3.939 → 4.040 | 5.260 → 5.468 | 0 → 0 |
+| claude | compound | 4.042 → 4.079 | 5.351 → 5.576 | 0 → 0 |
+| claude | config | 3.996 → 4.080 | 4.753 → 4.997 | 0 → 0 |
+| codex | ranked | 4.026 → 4.104 | 4.813 → 4.937 | 51 → 51 |
+| codex | files | 4.020 → 4.070 | 4.914 → 5.122 | 53 → 53 |
+| codex | count miss | 4.124 → 4.163 | 5.140 → 5.482 | 54 → 54 |
+| codex | quoted | 4.048 → 4.139 | 5.118 → 5.295 | 56 → 56 |
+| codex | trailing newline | 4.051 → 4.124 | 5.100 → 5.042 | 51 → 51 |
+| codex | size limit | 4.080 → 4.059 | 5.308 → 5.148 | 51 → 51 |
+| codex | recursive grep | 4.131 → 4.097 | 5.166 → 5.259 | 0 → 0 |
+| codex | grep file | 4.075 → 4.166 | 4.606 → 4.684 | 0 → 0 |
+| codex | json | 4.362 → 4.428 | 5.608 → 5.480 | 0 → 0 |
+| codex | executable path | 4.222 → 4.242 | 4.712 → 5.397 | 0 → 0 |
+| codex | comment | 4.230 → 4.295 | 5.405 → 5.356 | 0 → 0 |
+| codex | pipeline | 4.139 → 4.148 | 4.649 → 4.637 | 0 → 0 |
+| codex | compound | 3.950 → 4.025 | 4.773 → 4.779 | 0 → 0 |
+| codex | config | 4.350 → 4.303 | 5.605 → 5.475 | 0 → 0 |
+
+[Raw samples, reply sizes, and binary/corpus digests](../bench/results/atomic-config-rewrites-2026-09-23-darwin-arm64.json). Reproduce: `python3 bench/hooks.py BASELINE CANDIDATE --runs 151 --tokens --output atomic-config-rewrites-2026-09-23-darwin-arm64.json`.
+
 The initial run triggered a longer paired recheck; both are retained. Reply tokens count only hook JSON with the recorded tokenizer, not search results or total agent usage. Explicit matching and file-size flags add reply cost; declined commands emit no reply and continue with the original tool. Tests use synthetic fixtures and the recorded response shapes, not live host approvals. No new cold-cache, RSS, native-search performance, or whole-task token claim is made.
 
 ## Disposable edit and soak corpora (2026-09-23)
@@ -312,6 +351,43 @@ These checks validate configuration editing, not live host approval behavior. No
 These checks validate configuration editing, not live host approval behavior. No token, native-search latency, atomic-write or concurrent-edit safety claim is made. Positional hook IDs may shift on removal; stored trust records are retained unchanged.
 
 Invocation failures: 0. Timeouts/launch failures retain their elapsed time and partial output sizes, fail the contract, and suppress the affected timing ratios. Version probes remain preflight checks.
+
+## Atomic configuration: installer regression (2026-09-23)
+
+`greeg 0.6.0+5d2056d2f` → `greeg 0.6.0+5d2056d2f.dirty`; 51 randomized paired runs per case after 3 warmups. Each invocation uses a reset disposable home and an isolated configuration/cache. Timing includes process startup and installation/removal, excluding fixture reset and validation.
+
+**Configuration contracts:** 20/20 → 20/20. Checks cover mixed handlers, prefix lookalikes, non-command handlers, wrong matchers, invalid UTF-8, missing-file uninstall and initial installation. Protocol 2 also checks byte-identical installed no-ops, matcher-less cleanup, custom matcher preservation, and retained TOML comments/trust data. Baseline failures are not equivalent successful work; their timing differences are not speedup claims.
+
+| Host | Case | Median ms, before → after | p95 ms, before → after |
+|---|---|---:|---:|
+| claude | mixed uninstall | 4.595 → 12.778 | 6.236 → 14.304 |
+| claude | prefix uninstall | 4.033 → 4.039 | 4.698 → 4.464 |
+| claude | prompt uninstall | 3.968 → 3.997 | 4.529 → 4.468 |
+| claude | wrong matcher install | 4.536 → 12.991 | 4.878 → 14.193 |
+| claude | installed noop | 4.053 → 4.074 | 4.442 → 4.493 |
+| claude | matcherless uninstall | 4.340 → 12.882 | 4.803 → 14.372 |
+| claude | custom matcher uninstall | 4.495 → 12.605 | 5.164 → 13.635 |
+| claude | invalid utf8 | 3.914 → 3.920 | 4.330 → 4.328 |
+| claude | absent uninstall | 3.711 → 3.879 | 4.201 → 4.383 |
+| claude | empty install | 4.566 → 12.519 | 5.354 → 13.790 |
+| codex | mixed uninstall | 4.546 → 13.026 | 8.840 → 16.960 |
+| codex | prefix uninstall | 3.864 → 3.968 | 4.882 → 5.186 |
+| codex | prompt uninstall | 3.768 → 3.839 | 5.149 → 4.605 |
+| codex | wrong matcher install | 4.463 → 13.139 | 5.360 → 14.818 |
+| codex | installed noop | 4.410 → 4.353 | 7.199 → 6.109 |
+| codex | matcherless uninstall | 4.298 → 12.700 | 6.146 → 16.081 |
+| codex | custom matcher uninstall | 4.369 → 12.364 | 4.795 → 13.273 |
+| codex | invalid utf8 | 3.877 → 3.881 | 4.128 → 4.456 |
+| codex | absent uninstall | 3.808 → 3.724 | 4.133 → 4.152 |
+| codex | empty install | 4.491 → 12.769 | 6.018 → 14.308 |
+
+[Raw samples, output bytes/statuses, fixture/harness hashes and binary digests](../bench/results/atomic-config-2026-09-23-darwin-arm64.json). Reproduce: `python3 bench/hook_config.py BASELINE CANDIDATE --runs 51 --output atomic-config-2026-09-23-darwin-arm64.json`.
+
+These checks validate configuration editing, not live host approval behavior. No token, native-search latency, atomic-write or concurrent-edit safety claim is made. Positional hook IDs may shift on removal; stored trust records are retained unchanged.
+
+Invocation failures: 0. Timeouts/launch failures retain their elapsed time and partial output sizes, fail the contract, and suppress the affected timing ratios. Version probes remain preflight checks.
+
+**Latency investigation:** 10/20 cases exceed the +10% median or +20% p95 thresholds. Changed configurations add 7.95–8.68 ms at the median; no-op/error cases change by -0.08–+0.17 ms. The changed path now locks, rereads, preserves metadata, syncs a temporary file and syncs the directory; the baseline writes in place without these guarantees. This is an accepted installation/removal cost for reliability, not a speed improvement. These operations do not run during hook rewrites or searches; the separate rewrite regression measures the recurring hook path. Atomicity, conflicts and interruption are covered by deterministic Rust tests, not inferred from these timing fixtures.
 
 ## Speed
 

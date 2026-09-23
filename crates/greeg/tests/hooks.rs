@@ -1,6 +1,7 @@
 //! Hook protocol and shell argument tests on disposable local fixtures.
 use serde_json::{Value, json};
 use std::fs;
+use std::io::Read;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
@@ -340,6 +341,82 @@ fn invalid_utf8_settings_are_not_replaced() {
     assert_eq!(out.status.code(), Some(2), "{out:?}");
     assert_eq!(fs::read(&path).unwrap(), original);
     assert!(!f.0.join("home/.claude/skills").exists());
+}
+
+#[test]
+fn config_install_does_not_modify_the_original_inode() {
+    for agent in ["claude", "codex"] {
+        let f = Fixture::new();
+        let path =
+            f.0.join("home")
+                .join(format!(".{agent}"))
+                .join(if agent == "claude" {
+                    "settings.json"
+                } else {
+                    "config.toml"
+                });
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let original = if agent == "claude" {
+            "{}\n"
+        } else {
+            "# original\n"
+        };
+        fs::write(&path, original).unwrap();
+        let mut opened = fs::File::open(&path).unwrap();
+        let out = f.command(BIN).args(["hook", agent]).output().unwrap();
+        assert!(out.status.success(), "{out:?}");
+        let mut retained = String::new();
+        opened.read_to_string(&mut retained).unwrap();
+        assert_eq!(retained, original);
+        assert!(
+            fs::read_to_string(&path)
+                .unwrap()
+                .contains("greeg hook run")
+        );
+    }
+}
+
+#[test]
+fn failed_config_write_preserves_config_and_skill() {
+    use std::os::unix::process::CommandExt;
+    for agent in ["claude", "codex"] {
+        let f = Fixture::new();
+        let parent = f.0.join("home").join(format!(".{agent}"));
+        let path = parent.join(if agent == "claude" {
+            "settings.json"
+        } else {
+            "config.toml"
+        });
+        let skill = parent.join("skills/greeg/SKILL.md");
+        fs::create_dir_all(skill.parent().unwrap()).unwrap();
+        let original = if agent == "claude" {
+            "{\"user_setting\": true}\n"
+        } else {
+            "# retain original configuration\n"
+        };
+        fs::write(&path, original).unwrap();
+        fs::write(&skill, "user skill").unwrap();
+        let mut command = f.command(BIN);
+        command.args(["hook", agent]);
+        // SAFETY: only async-signal-safe system calls run in the forked child.
+        unsafe {
+            command.pre_exec(|| {
+                libc::signal(libc::SIGXFSZ, libc::SIG_IGN);
+                let limit = libc::rlimit {
+                    rlim_cur: 8,
+                    rlim_max: 8,
+                };
+                if libc::setrlimit(libc::RLIMIT_FSIZE, &limit) != 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
+        let out = command.output().unwrap();
+        assert_eq!(out.status.code(), Some(2), "{out:?}");
+        assert_eq!(fs::read_to_string(&path).unwrap(), original);
+        assert_eq!(fs::read_to_string(&skill).unwrap(), "user skill");
+    }
 }
 
 #[test]

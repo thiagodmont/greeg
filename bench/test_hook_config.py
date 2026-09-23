@@ -6,9 +6,24 @@ import unittest
 from unittest.mock import patch
 
 import hook_config
+import bench as report
 
 
 class HookConfigHarnessTests(unittest.TestCase):
+    def test_atomic_report_with_failed_invocations(self):
+        filename = "atomic-config-2026-09-23-darwin-arm64.json"
+        data = json.loads((Path(report.RESULTS) / filename).read_text())
+        row = data["results"][0]
+        row["candidate"].update(contract=False, failed_invocations=1, errors=["TimeoutExpired"])
+        row["median_change_percent"] = None
+        row["p95_change_percent"] = None
+        with tempfile.TemporaryDirectory() as temp:
+            (Path(temp) / filename).write_text(json.dumps(data))
+            with patch.object(report, "RESULTS", temp):
+                text = "\n".join(report.hook_config_dataset_report(temp, filename, "fixture"))
+        self.assertIn("Invocation failures: 1", text)
+        self.assertNotIn("Latency investigation", text)
+
     def test_mixed_toml_requires_comments_and_trust_data(self):
         case = next(c for c in hook_config.fixtures("codex") if c.name == "mixed_uninstall")
         removed = b'[[hooks.PreToolUse.hooks]]\ntype = "command"\ncommand = "greeg hook run --agent codex"\n'

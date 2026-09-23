@@ -1218,6 +1218,7 @@ def hook_report(output_dir):
         ("hook-contract-recheck-darwin-arm64.json", "Hook contract: latency recheck"),
         ("hook-review-darwin-arm64.json", "Hook contract: review fixes"),
         ("hook-config-rewrites-2026-09-23-darwin-arm64.json", "Hook contract: rewrite regression"),
+        ("atomic-config-rewrites-2026-09-23-darwin-arm64.json", "Hook contract: rewrite regression after atomic configuration"),
     ]:
         source = os.path.join(RESULTS, filename)
         data = load_json(source)
@@ -1267,6 +1268,7 @@ def hook_config_report(output_dir):
     for filename, title in [
         ("hook-config-2026-09-23-darwin-arm64.json", "Hook configuration ownership (2026-09-23)"),
         ("hook-config-review-2026-09-23-darwin-arm64.json", "Hook configuration ownership: review fixes (2026-09-23)"),
+        ("atomic-config-2026-09-23-darwin-arm64.json", "Atomic configuration: installer regression (2026-09-23)"),
     ]:
         out += hook_config_dataset_report(output_dir, filename, title)
     return out
@@ -1308,6 +1310,20 @@ def hook_config_dataset_report(output_dir, filename, title):
         failures = sum(row[label].get("failed_invocations", 0) for row in rows for label in ("baseline", "candidate"))
         out += [f"Invocation failures: {failures}. Timeouts/launch failures retain their elapsed time and partial output sizes, "
                 "fail the contract, and suppress the affected timing ratios. Version probes remain preflight checks.", ""]
+    if filename == "atomic-config-2026-09-23-darwin-arm64.json" and all(
+            not row[label].get("failed_invocations", 0) for row in rows for label in ("baseline", "candidate")):
+        changed = {"mixed_uninstall", "wrong_matcher_install", "matcherless_uninstall", "custom_matcher_uninstall", "empty_install"}
+        deltas = [r["candidate"]["median_ms"] - r["baseline"]["median_ms"] for r in rows if r["case"] in changed]
+        quiet = [r["candidate"]["median_ms"] - r["baseline"]["median_ms"] for r in rows if r["case"] not in changed]
+        flags = sum(r["median_change_percent"] > 10 or r["p95_change_percent"] > 20 for r in rows)
+        out += [f"**Latency investigation:** {flags}/{len(rows)} cases exceed the +10% median or +20% p95 thresholds. "
+                f"Changed configurations add {min(deltas):.2f}–{max(deltas):.2f} ms at the median; "
+                f"no-op/error cases change by {min(quiet):+.2f}–{max(quiet):+.2f} ms. "
+                "The changed path now locks, rereads, preserves metadata, syncs a temporary file and syncs the directory; "
+                "the baseline writes in place without these guarantees. This is an accepted installation/removal cost "
+                "for reliability, not a speed improvement. These operations do not run during hook rewrites or searches; "
+                "the separate rewrite regression measures the recurring hook path. Atomicity, conflicts and interruption "
+                "are covered by deterministic Rust tests, not inferred from these timing fixtures.", ""]
     return out
 
 
