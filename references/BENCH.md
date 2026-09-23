@@ -840,6 +840,8 @@ These incremental measurements compare the original skill implementation with th
 
 ## Private session memory (2026-09-23)
 
+Originating PR: [#21](https://github.com/thiagodmont/greeg/pull/21).
+
 Measurement time: 2026-09-23T16:30:04.831538Z (recorded).
 
 Initial 51-pair run: session/search contracts improve 6/14 → 14/14, while all search output comparisons pass and output tokens stay unchanged. Fresh/warm session median overhead is 0.1–0.4 ms. Compaction and expiry of 2,000 records add 0.8–0.9 ms (11.9–16.0%), exceeding the median threshold: writers re-read bounded current history under a lock and publish replacements atomically. One fresh scan p95 crosses +20%; the larger confirmation is retained below. Oversized-log timing is not an equivalent-work speedup because the candidate refuses that history.
@@ -874,6 +876,8 @@ Cases above +10% median / +20% p95 investigation thresholds: **5/14**. Maximum m
 Tokens count stdout plus stderr, not the stored log or whole agent tasks. Warm synthetic timings do not establish cold-cache latency, peak RSS, live agent quality, power-loss durability or concurrent-filesystem safety. Rust tests cover the storage safety contracts.
 
 ## Private session memory: confirmation (2026-09-23)
+
+Originating PR: [#21](https://github.com/thiagodmont/greeg/pull/21).
 
 Measurement time: 2026-09-23T16:31:06.495386Z (recorded).
 
