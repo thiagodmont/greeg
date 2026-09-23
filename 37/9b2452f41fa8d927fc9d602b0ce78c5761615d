@@ -1,0 +1,23 @@
+references/ARCHITECTURE.md
+  s_b1057b2933cdb0::t_a25efd97b90920 336-343
+references/STATS.md
+  s_b1057b2933cdb0::t_a25efd97b90920 85,91-110,125-135
+README.md
+  s_b1057b2933cdb0::t_a25efd97b90920 299-302
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "379b2452f41fa8d927fc9d602b0ce78c5761615d",
+  "prompts": {},
+  "sessions": {
+    "s_b1057b2933cdb0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0aa73425-0ec9-4b76-ae94-35b6bdff17bb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
