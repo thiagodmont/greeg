@@ -307,7 +307,6 @@ fn filtered_hits_do_not_suggest_ignore_flags() {
 }
 
 #[test]
-#[ignore = "known gap: symbol verbs cap definitions at 256 even when unlimited"]
 fn unlimited_definitions_are_complete() {
     let body: String = (0..300)
         .map(|i| format!("mod m{i} {{\n    pub fn crowded() {{}}\n}}\n"))
@@ -320,6 +319,43 @@ fn unlimited_definitions_are_complete() {
     ] {
         let defs = stdout(&o).matches(r#""type":"def""#).count();
         assert_eq!(defs, 300, "{}", stdout(&o).lines().last().unwrap_or(""));
+    }
+}
+
+#[test]
+fn unlimited_implementations_are_complete_and_totals_are_eligible() {
+    let body: String = (0..250)
+        .map(|i| format!("pub struct S{i};\nimpl Crowd for S{i} {{}}\n"))
+        .collect();
+    let f = Fixture::new(&[
+        ("src/lib.rs", "pub trait Crowd {}\n"),
+        ("src/many.rs", &body),
+    ]);
+    f.indexed();
+    let json = stdout(&f.run(&["impls", "Crowd", "--budget", "0", "--json"]));
+    assert_eq!(
+        json.matches(r#""confidence":"high""#).count(),
+        250,
+        "{json}"
+    );
+    assert!(json.contains(r#""direct":250"#), "{json}");
+    // a budget limits what is shown, never the total
+    let text = stdout(&f.run(&["impls", "Crowd"]));
+    assert!(text.contains("250 implementations"), "{text}");
+
+    // the total counts what the kind selects, not every definition of the name
+    let def = stdout(&f.run(&["def", "S7", "--def-kind", "struct", "--json"]));
+    assert!(def.contains(r#""total":1"#), "{def}");
+}
+
+#[test]
+#[ignore = "known gap: scan-mode definitions come from a line rule that sees one per line"]
+fn scan_definitions_nested_on_one_line_are_found() {
+    let f = Fixture::new(&[("one.rs", "mod m { pub fn nested() {} }\n")]);
+    f.indexed();
+    for o in [f.run(&["def", "nested"]), f.scan(&["def", "nested"])] {
+        assert_eq!(o.status.code(), Some(0), "{o:?}");
+        assert!(stdout(&o).contains("one.rs"), "{o:?}");
     }
 }
 

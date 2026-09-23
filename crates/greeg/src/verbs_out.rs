@@ -686,7 +686,7 @@ pub fn run_impls(c: &Common, o: &Options, name: &str) -> Result<()> {
         }
         serde_json::to_writer(
             &mut w,
-            &json!({"type":"footer","data":{"verb":"impls","name":r.name,"direct":r.direct.len(),"extras":r.extras.len(),"source":r.source,"elapsed_ms":r.elapsed_ms}}),
+            &json!({"type":"footer","data":{"verb":"impls","name":r.name,"direct":r.direct_total,"extras":r.extras_total,"source":r.source,"elapsed_ms":r.elapsed_ms}}),
         )?;
         writeln!(w)?;
         return finish_json(w, "impls", !(r.direct.is_empty() && r.extras.is_empty()));
@@ -700,19 +700,19 @@ pub fn run_impls(c: &Common, o: &Options, name: &str) -> Result<()> {
         w,
         "impls {}  {} implementations{} · {}{}",
         r.name,
-        r.direct.len(),
+        r.direct_total,
         if r.extras.is_empty() {
             String::new()
         } else {
-            format!(" + {} low-confidence", r.extras.len())
+            format!(" + {} low-confidence", r.extras_total)
         },
         r.source,
         ms(c, r.elapsed_ms)
     )?;
     let direct: Vec<&DefEntry> = r.direct.iter().take(limit).collect();
     write_def_groups(&mut w, &direct, true, false, c.chain, None)?;
-    if r.direct.len() > limit {
-        writeln!(w, "  +{} more", r.direct.len() - limit)?;
+    if r.direct_total > direct.len() {
+        writeln!(w, "  +{} more", r.direct_total - direct.len())?;
     }
     if !r.extras.is_empty() {
         writeln!(
