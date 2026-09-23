@@ -405,11 +405,23 @@ indexes (`rust-analyzer`, `scip-python`, `scip-typescript`), and regression
 gates keyed by host, so a laptop records its numbers but only the reference
 machine can fail the build.
 
-Paired reports share table formatting, result links and latency thresholds in
-`bench/reporting.py`; protocol-specific contracts and explanations stay in
-`bench/bench.py`. Empty datasets produce no section, and failed or undefined
-timing pairs produce no threshold comparison. Configuration recheck identity
-claims require both datasets and matching recorded binary digests.
+Paired reports are registered in `bench/reports.toml`: filenames, titles, order
+within each section, optional analysis and configuration recheck relationships.
+Add measurements in an existing report family there without changing renderers.
+`bench/report_catalog.py` validates the catalog and report-facing fields for
+matching, hook and installer protocols 1/2, and reads each dataset once per render.
+Unknown result metadata is allowed; unknown catalog options and protocols fail.
+Missing files and valid empty result arrays produce no section. Present invalid
+JSON, duplicate fields, invalid types or missing required fields stop the report
+with a filename/field diagnostic before writing the output. Explicit null timings
+remain unmeasured; failed or undefined timing pairs produce no comparison.
+Validation does not recompute raw-sample statistics or verify binary contents;
+legacy speed, oracle and disposable-corpus schemas remain outside this validator.
+
+`bench/reporting.py` shares table formatting, links and latency thresholds;
+`bench/bench.py` retains protocol-specific rendering and explanations.
+Configuration recheck identity claims require both datasets and matching recorded
+binary digests. No process-wide result cache is retained between renders.
 
 `bench/parity.py` checks that greeg's match set equals ripgrep's across every
 corpus and query family, in both indexed and scan mode. `bench/soak.py` fires

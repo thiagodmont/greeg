@@ -26,7 +26,7 @@ class ConfigReportTests(unittest.TestCase):
         (self.results / filename).write_text(json.dumps(data))
         return "\n".join(bench.hook_config_dataset_report(str(self.results), filename, "fixture"))
 
-    def test_empty_or_missing_rows_are_skipped(self):
+    def test_empty_rows_are_skipped_and_missing_rows_are_invalid(self):
         for filename in (self.original, self.review, self.confirmation):
             for rows in ([], None):
                 data = copy.deepcopy(self.data)
@@ -35,7 +35,11 @@ class ConfigReportTests(unittest.TestCase):
                 else:
                     data["results"] = rows
                 with self.subTest(filename=filename, rows=rows):
-                    self.assertEqual(self.render(filename, data), "")
+                    if rows is None:
+                        with self.assertRaisesRegex(ValueError, "results"):
+                            self.render(filename, data)
+                    else:
+                        self.assertEqual(self.render(filename, data), "")
 
     def test_partial_atomic_cases_do_not_claim_both_groups(self):
         for case in ("mixed_uninstall", "installed_noop"):
@@ -54,7 +58,7 @@ class ConfigReportTests(unittest.TestCase):
 
     def test_recheck_checks_recorded_binary_identity(self):
         self.render(self.review, self.data)
-        for digest in (self.data["binaries"]["candidate"]["sha256"], "other", None):
+        for digest in (self.data["binaries"]["candidate"]["sha256"], "0" * 64, None):
             data = copy.deepcopy(self.data)
             data["binaries"]["candidate"]["sha256"] = digest
             self.render(self.confirmation, data)
@@ -67,6 +71,7 @@ class ConfigReportTests(unittest.TestCase):
 
     def test_failed_review_invocations_do_not_produce_threshold_claims(self):
         self.data["results"][0]["candidate"]["failed_invocations"] = 1
+        self.data["results"][0]["candidate"]["contract"] = False
         self.data["results"][0]["median_change_percent"] = None
         self.data["results"][0]["p95_change_percent"] = None
         text = self.render(self.review, self.data)
