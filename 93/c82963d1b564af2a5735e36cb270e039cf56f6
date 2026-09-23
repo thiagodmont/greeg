@@ -1,0 +1,54 @@
+crates/greeg-index/src/skipped.rs
+  s_b1057b2933cdb0::t_3fbf87abc22610 1-23,27-28,31-42,44-51,53-125,127-129,175,180,182,185-215
+  s_b1057b2933cdb0::t_51f76a94bd12b7 126,130-131,133-174,176-179,181,183-184
+  s_b1057b2933cdb0::t_67e652a427eafd 24-26,29-30,43,52,132
+crates/greeg/tests/known_gaps.rs
+  s_b1057b2933cdb0::t_ea8c2beff71d4a 327-423,436-453
+  s_b1057b2933cdb0::t_2993e1e0b92412 424-435
+  s_b1057b2933cdb0::t_bf1ea90866bd03 454
+crates/greeg-index/src/index.rs
+  s_b1057b2933cdb0::t_d049e590c161e7 467-479
+crates/greeg-index/src/lib.rs
+  s_b1057b2933cdb0::t_d049e590c161e7 18,125-128
+crates/greeg-index/src/format.rs
+  s_b1057b2933cdb0::t_d049e590c161e7 49-50,75
+crates/greeg-query/src/indexed.rs
+  s_b1057b2933cdb0::t_d049e590c161e7 449-459,477
+  s_b1057b2933cdb0::t_403ce85ecced82 478-482
+crates/greeg-query/src/verbs.rs
+  s_b1057b2933cdb0::t_1ff8e7d0807079 1230-1257,1285,1287,1289,1309,1361-1375
+  s_b1057b2933cdb0::t_a70d4dec821913 334,488-503,560-587,599,650,855-856
+  s_b1057b2933cdb0::t_d049e590c161e7 326,851,1284,1286,1288
+crates/greeg-index/src/build.rs
+  s_b1057b2933cdb0::t_d049e590c161e7 17,84-92,94,99-104,109-116,120-123,133-134,136-140,142,145,157-159,180,438,592-593,616,621,830
+  s_b1057b2933cdb0::t_3fbf87abc22610 10
+  s_b1057b2933cdb0::t_ba4c45d4a5ca78 124-132,141,143-144,146-156,589-591
+  s_b1057b2933cdb0::t_51f76a94bd12b7 135
+crates/greeg-index/src/fresh.rs
+  s_b1057b2933cdb0::t_d049e590c161e7 5,7,44,165,172-173,175,184,196-202,204-209,215-222,224-225,227,247-249,322-324,565-574,593-597
+  s_b1057b2933cdb0::t_67e652a427eafd 45,166
+  s_b1057b2933cdb0::t_51f76a94bd12b7 193-195,203,244-246
+crates/greeg-query/src/select.rs
+  s_b1057b2933cdb0::t_3fbf87abc22610 67-70
+  s_b1057b2933cdb0::t_af74025b1a0810 135
+  s_b1057b2933cdb0::t_403ce85ecced82 102-111,113,116,118,120,122-133
+  s_b1057b2933cdb0::t_d049e590c161e7 8-9,14-23,60-66,71-101,112,114-115,117,119,121,134
+references/ARCHITECTURE.md
+  s_b1057b2933cdb0::t_a7247ce14ff832 43,103-113
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "93c82963d1b564af2a5735e36cb270e039cf56f6",
+  "prompts": {},
+  "sessions": {
+    "s_b1057b2933cdb0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0aa73425-0ec9-4b76-ae94-35b6bdff17bb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
