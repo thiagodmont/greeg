@@ -1,0 +1,10 @@
+version: 2
+updates:
+  # Actions are pinned by commit SHA; this proposes reviewed bumps.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      actions:
+        patterns: ["*"]

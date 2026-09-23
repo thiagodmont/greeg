@@ -73,7 +73,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
-      - run: cargo bench -p greeg-index --bench kernels -- --warm-up-time 1 --measurement-time 2 --noplot
+      - run: cargo bench --locked -p greeg-index --bench kernels -- --warm-up-time 1 --measurement-time 2 --noplot
       - run: python3 bench/bench.py gate kernels --record-only
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -112,7 +112,7 @@ jobs:
           fi
           hyperfine --version; rg --version | head -1
           test -x /usr/bin/time || echo "::warning::/usr/bin/time missing: RSS columns will be n/a"
-      - run: cargo build --release -p greeg
+      - run: cargo build --release --locked -p greeg
       - run: python3 bench/bench.py fetch tokio ktor django
       - name: parity vs rg (sets on fetched corpora + behaviour matrix)
         run: python3 bench/parity.py "$GREEG_BENCH_CACHE" "$PWD/target/release/greeg" --corpora tokio,ktor,django

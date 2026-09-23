@@ -34,12 +34,25 @@ fn w(p: &Path, body: impl AsRef<[u8]>) {
 }
 
 impl Fixture {
+    /// A directory this fixture creates itself, so `Drop` never removes one
+    /// left behind by another run.
+    fn allocate_base() -> PathBuf {
+        loop {
+            let base = std::env::temp_dir().join(format!(
+                "greeg-gaps-{}-{}",
+                std::process::id(),
+                N.fetch_add(1, Ordering::Relaxed)
+            ));
+            match fs::create_dir(&base) {
+                Ok(()) => return base,
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(e) => panic!("create fixture: {e}"),
+            }
+        }
+    }
+
     fn new(files: &[(&str, &str)]) -> Self {
-        let base = std::env::temp_dir().join(format!(
-            "greeg-gaps-{}-{}",
-            std::process::id(),
-            N.fetch_add(1, Ordering::Relaxed)
-        ));
+        let base = Self::allocate_base();
         let root = base.join("tree");
         let index = base.join("index");
         fs::create_dir_all(root.join(".git/info")).unwrap();

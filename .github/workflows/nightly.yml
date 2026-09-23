@@ -16,6 +16,8 @@ on:
       soak_minutes:
         description: soak duration in minutes
         default: "300"
+permissions:
+  contents: read
 env:
   GREEG_BENCH_CACHE: ${{ github.workspace }}/.bench-cache/corpora
   GATE_MODE: ${{ vars.REFERENCE_RUNNER == 'true' && '--require-baseline' || '--record-only' }}
@@ -27,8 +29,8 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
-      - run: cargo build --release -p greeg
-      - run: cargo test --workspace
+      - run: cargo build --release --locked -p greeg
+      - run: cargo test --workspace --locked
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: greeg-bin-${{ github.run_id }}
@@ -40,7 +42,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
-      - run: cargo bench -p greeg-index --bench kernels -- --noplot
+      - run: cargo bench --locked -p greeg-index --bench kernels -- --noplot
       - run: python3 bench/bench.py gate kernels --tolerance 5 $GATE_MODE
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()

@@ -454,7 +454,7 @@ Originating PR: [#22](https://github.com/thiagodmont/greeg/pull/22).
 
 Measurement time: 2026-09-23T18:04:58.145742Z (recorded).
 
-Initial 51-pair run of merged main against typed decline reasons and `greeg hook explain`. All 28 hook contracts and 40 scan/index search comparisons pass, with identical rewritten commands and reply bytes/tokens. No median exceeds +10% (maximum +5.1%). One p95 exceeds +20%: Codex grep_file 5.23 → 6.95 ms (+33.0%) on a host with load average ≈5.5; the recheck below retains it.
+Initial 51-pair run of merged main against typed decline reasons and `greeg hook explain`. All 28 hook contracts and 40 scan/index search comparisons pass, with identical rewritten commands and reply bytes/tokens. No median exceeds +10% (maximum +5.1%). One p95 exceeds +20%: Codex grep_file 5.23 → 6.95 ms (+33.0%) on a host with load average ≈5.5. The recheck below tests whether it repeats.
 
 `greeg 0.6.0+69b112321` → `greeg 0.6.0+69b112321.dirty`; 51 randomized pairs per case after 3 warmups. The candidate passed 28/28 hook eligibility/explicit-policy checks. Candidate file/count match-row and exit-status checks: 20/20 against ripgrep 15.2.0. Explicit source paths and expected hit/miss assertions exercise both scan and full-index searches, including files over 4 MiB and explicit size limits. The oracle ignores row ordering and does not require identical stderr.
 
@@ -499,7 +499,7 @@ Originating PR: [#22](https://github.com/thiagodmont/greeg/pull/22).
 
 Measurement time: 2026-09-23T18:05:44.259551Z (recorded).
 
-Same binary digests, same 51-pair protocol. 28/28 hook contracts and 40/40 search comparisons pass with identical replies. The Codex grep_file tail flag does not repeat (+11.6% p95, +0.9% median). Two other cases flag instead and did not flag in the first run: Claude count_miss p95 +45.3% and Claude comment median +10.8% (0.5 ms). The median change across cases is +1.0%. Non-repeating flags on a loaded host (load ≈5.2) are treated as noise. The decline path now allocates a reason string, and accepted rewrites are byte-identical.
+Same binary digests, same 51-pair protocol. 28/28 hook contracts and 40/40 search comparisons pass with identical replies. The Codex grep_file tail flag does not repeat (+11.6% p95, +0.9% median). Two other cases flag instead and did not flag in the first run: Claude count_miss p95 +45.3% and Claude comment median +10.8% (3.077 → 3.410 ms, 0.33 ms). The median change across cases is +1.0%. Non-repeating flags on a loaded host (load ≈5.2) are treated as noise. The decline path now allocates a reason string, and accepted rewrites are byte-identical.
 
 `greeg 0.6.0+69b112321` → `greeg 0.6.0+69b112321.dirty`; 51 randomized pairs per case after 3 warmups. The candidate passed 28/28 hook eligibility/explicit-policy checks. Candidate file/count match-row and exit-status checks: 20/20 against ripgrep 15.2.0. Explicit source paths and expected hit/miss assertions exercise both scan and full-index searches, including files over 4 MiB and explicit size limits. The oracle ignores row ordering and does not require identical stderr.
 
