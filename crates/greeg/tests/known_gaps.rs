@@ -302,7 +302,6 @@ fn json_symbol_verbs_exit_1_without_results() {
 }
 
 #[test]
-#[ignore = "known gap: the index omits hidden files a request asks for"]
 fn hidden_files_requested_explicitly_are_found_through_the_index() {
     let f = Fixture::new(&[
         (".hidden.rs", "pub fn hiddenneedle() {}\n"),
@@ -323,6 +322,134 @@ fn hidden_files_requested_explicitly_are_found_through_the_index() {
         );
         assert!(stdout(&indexed).contains(".hidden.rs"), "{indexed:?}");
     }
+}
+
+/// Sorted `-l` output.
+fn listed(o: &Output) -> Vec<String> {
+    let mut v: Vec<String> = stdout(o).lines().map(str::to_string).collect();
+    v.sort();
+    v
+}
+
+fn skipping_fixture() -> Fixture {
+    Fixture::new(&[
+        (".gitignore", "target/\n*.log\nsrc/gen.rs\n.env\n"),
+        ("src/lib.rs", "fn a() { skipneedle(); }\n"),
+        ("src/gen.rs", "fn skipneedle() {}\n"),
+        (".hidden.rs", "fn skipneedle() {}\n"),
+        (".env", "skipneedle\n"),
+        ("x.log", "skipneedle\n"),
+        ("target/t.rs", "skipneedle\n"),
+        (".github/w.yml", "skipneedle\n"),
+    ])
+}
+
+const SKIPPING_REQUESTS: &[&[&str]] = &[
+    &[],
+    &["-g", "*.rs"],
+    &["-t", "rust"],
+    &["-g", "*.log"],
+    &["-g", ".env"],
+    &["-g", "*"],
+    &["-g", "!src/**"],
+    &["-t", "rust", "-g", "!.hidden.rs"],
+    &["target"],
+    &[".github"],
+    &["--hidden"],
+];
+
+fn assert_matches_scan(f: &Fixture, extra: &[&str]) {
+    for req in SKIPPING_REQUESTS {
+        let mut args = vec!["-l", "skipneedle"];
+        args.extend(*req);
+        let scanned = listed(&f.scan(&args));
+        assert_eq!(listed(&f.run(&args)), scanned, "{args:?}");
+        if extra.is_empty() {
+            continue;
+        }
+        // what was added after the build is found the same way
+        let mut args = vec!["-l", "addedneedle"];
+        args.extend(*req);
+        assert_eq!(listed(&f.run(&args)), listed(&f.scan(&args)), "{args:?}");
+    }
+    for want in extra {
+        let args = ["-l", "addedneedle", "-g", want];
+        assert_eq!(listed(&f.run(&args)), vec![want.to_string()], "{args:?}");
+    }
+}
+
+#[test]
+fn requests_that_select_skipped_files_answer_like_a_scan() {
+    let f = skipping_fixture();
+    f.indexed();
+    let expect = |args: &[&str], want: &[&str]| {
+        let mut a = vec!["-l", "skipneedle"];
+        a.extend(args);
+        assert_eq!(listed(&f.scan(&a)), want, "scan {a:?}");
+    };
+    // ripgrep: a positive glob selects hidden and ignored files, a type hidden ones
+    expect(&["-g", "*.rs"], &[".hidden.rs", "src/gen.rs", "src/lib.rs"]);
+    expect(&["-t", "rust"], &[".hidden.rs", "src/lib.rs"]);
+    expect(&["target"], &["target/t.rs"]);
+    assert_matches_scan(&f, &[]);
+
+    // skipped entries created after the build: first answered while the
+    // refresh is pending, then from the published delta
+    w(&f.root.join(".added.rs"), "fn addedneedle() {}\n");
+    w(&f.root.join("added.log"), "addedneedle\n");
+    std::thread::sleep(PAST_FRESHNESS_WINDOW);
+    assert_matches_scan(&f, &[".added.rs", "added.log"]);
+    std::thread::sleep(Duration::from_secs(1));
+    assert_matches_scan(&f, &[".added.rs", "added.log"]);
+}
+
+#[test]
+fn symbol_verbs_find_definitions_in_selected_skipped_files() {
+    let f = skipping_fixture();
+    f.indexed();
+    for args in [
+        vec!["def", "skipneedle", "-g", ".hidden.rs"],
+        vec!["def", "skipneedle", "-g", "src/gen.rs"],
+        vec!["def", "skipneedle", "--no-ignore"],
+    ] {
+        let o = f.run(&args);
+        assert_eq!(o.status.code(), Some(0), "{args:?}: {o:?}");
+        let want = if args.contains(&"--no-ignore") {
+            "src/gen.rs"
+        } else {
+            args[3]
+        };
+        assert!(stdout(&o).contains(want), "{args:?}: {o:?}");
+    }
+    // a type reaches the hidden file, not the ignored one; the index still
+    // answers for everything else
+    let def = stdout(&f.run(&["def", "skipneedle", "-t", "rust", "--budget", "0"]));
+    assert!(
+        def.contains(".hidden.rs") && !def.contains("src/gen.rs"),
+        "{def}"
+    );
+    let map = stdout(&f.run(&["map", "-t", "rust", "--json"]));
+    assert!(
+        map.contains(".hidden.rs") && !map.contains("src/gen.rs"),
+        "{map}"
+    );
+    let map = f.run(&["map", "--hidden"]);
+    assert_eq!(map.status.code(), Some(2), "{map:?}");
+}
+
+#[test]
+fn an_index_without_a_skipped_record_is_not_trusted_to_cover_a_request() {
+    let f = skipping_fixture();
+    f.indexed();
+    let manifest = f.index.join("manifest");
+    let mut m: serde_json::Value = serde_json::from_slice(&fs::read(&manifest).unwrap()).unwrap();
+    m.as_object_mut().unwrap().remove("skipped");
+    fs::write(&manifest, m.to_string()).unwrap();
+    let args = ["-l", "skipneedle", "-g", "*.rs"];
+    assert_eq!(
+        listed(&f.run(&args)),
+        [".hidden.rs", "src/gen.rs", "src/lib.rs"]
+    );
 }
 
 #[cfg(unix)]

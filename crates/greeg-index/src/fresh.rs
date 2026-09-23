@@ -2,8 +2,9 @@
 //! published (stat pass, or FSEvents history on macOS), and apply changes as
 //! a delta segment plus tombstones.
 
-use crate::build::{WalkedDir, WalkedFile, build_delta, mtime_ns, walker};
+use crate::build::{Noted, WalkedDir, WalkedFile, build_delta, mtime_ns, rel_to, walker_noting};
 use crate::format::{self, FileRec, NONE, is_ignore_file};
+use crate::skipped;
 use crate::{Index, now_ms, read_manifest, write_manifest};
 use anyhow::Result;
 use hashbrown::{HashMap, HashSet};
@@ -40,6 +41,8 @@ pub struct Changes {
     pub added_dirs: Vec<WalkedDir>,
     /// existing dirs whose mtime moved (recorded so the next check is quiet)
     pub touched_dirs: Vec<WalkedDir>,
+    /// The skipped children of every directory listed again (`skipped.rs`).
+    pub skipped: Vec<(String, skipped::Children)>,
     /// An ignore file was added, modified or deleted: the ignore rules of its
     /// subtree must be re-evaluated (full rebuild; `needs_rebuild`).
     pub ignore_changed: bool,
@@ -159,15 +162,17 @@ fn stat_many<T: Sync>(
 }
 
 /// List a directory with ignore rules (one level), returning (name, is_dir,
-/// size, mtime) for subdirectories and regular files.
-fn list_dir(root: &Path, rel: &str) -> Vec<(String, bool, u64, i64)> {
+/// size, mtime) for subdirectories and regular files, and what it skipped.
+fn list_dir(root: &Path, rel: &str) -> (Vec<(String, bool, u64, i64)>, skipped::Children) {
     let abs = if rel.is_empty() {
         root.to_path_buf()
     } else {
         root.join(rel)
     };
+    let noted = Noted::default();
+    let mut kept = HashSet::new();
     let mut out = Vec::new();
-    for e in walker(&abs)
+    for e in walker_noting(&abs, Some(noted.clone()))
         .max_depth(Some(1))
         .parents(true)
         .build()
@@ -176,6 +181,7 @@ fn list_dir(root: &Path, rel: &str) -> Vec<(String, bool, u64, i64)> {
         if e.depth() == 0 {
             continue;
         }
+        kept.insert(rel_to(root, e.path()));
         let Some(ft) = e.file_type() else { continue };
         if !ft.is_dir() && !ft.is_file() {
             continue;
@@ -184,21 +190,41 @@ fn list_dir(root: &Path, rel: &str) -> Vec<(String, bool, u64, i64)> {
         let name = e.file_name().to_string_lossy().into_owned();
         out.push((name, ft.is_dir(), md.len(), mtime_ns(&md)));
     }
-    out
+    let noted = noted_rels(root, &noted);
+    let kept: HashSet<&str> = kept.iter().map(String::as_str).collect();
+    let hidden: HashSet<&str> = noted.iter().map(String::as_str).collect();
+    let skipped = skipped::list(root, &[rel], &kept, &hidden)
+        .pop()
+        .map(|(_, kids)| kids)
+        .unwrap_or_default();
+    (out, skipped)
+}
+
+fn noted_rels(root: &Path, noted: &Noted) -> Vec<String> {
+    noted
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|p| rel_to(root, p))
+        .collect()
 }
 
 /// Recursively walk a new directory (ignore rules honoured) into added files/dirs.
 fn walk_new_dir(root: &Path, rel: &str, dir_id: u32, ch: &mut Changes) {
     let abs = root.join(rel);
-    for e in walker(&abs).parents(true).build().flatten() {
+    let noted = Noted::default();
+    let mut kept = HashSet::new();
+    let mut walked = Vec::new();
+    for e in walker_noting(&abs, Some(noted.clone()))
+        .parents(true)
+        .build()
+        .flatten()
+    {
         let Ok(md) = e.metadata() else { continue };
-        let r = e
-            .path()
-            .strip_prefix(root)
-            .unwrap_or(e.path())
-            .to_string_lossy()
-            .replace('\\', "/");
+        let r = rel_to(root, e.path());
+        kept.insert(r.clone());
         if e.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+            walked.push(r.clone());
             ch.added_dirs.push(WalkedDir {
                 rel: r,
                 mtime_ns: mtime_ns(&md),
@@ -215,6 +241,12 @@ fn walk_new_dir(root: &Path, rel: &str, dir_id: u32, ch: &mut Changes) {
             });
         }
     }
+    let noted = noted_rels(root, &noted);
+    let kept: HashSet<&str> = kept.iter().map(String::as_str).collect();
+    let hidden: HashSet<&str> = noted.iter().map(String::as_str).collect();
+    let dirs: Vec<&str> = walked.iter().map(String::as_str).collect();
+    ch.skipped
+        .extend(skipped::list(root, &dirs, &kept, &hidden));
 }
 
 /// Record the stat outcome of one known file.
@@ -287,7 +319,9 @@ fn relist_dirs(root: &Path, k: &Known, changed_dirs: &[(String, i64)], ch: &mut 
         });
         let known_kids = kids.get(rel.as_str());
         let dir_id = *dir_ids.get(rel.as_str()).unwrap_or(&0);
-        for (name, is_dir, size, mt) in list_dir(root, rel) {
+        let (listed, skipped) = list_dir(root, rel);
+        ch.skipped.push((rel.clone(), skipped));
+        for (name, is_dir, size, mt) in listed {
             if known_kids.map(|s| s.contains(&name[..])).unwrap_or(false) {
                 continue;
             }
@@ -528,6 +562,16 @@ pub fn apply(idx: &Index, root: &Path, ch: &Changes) -> Result<usize> {
     }));
     // extraction runs outside the lock; only the publish is serialized
     let body = build_delta(idx, root, first_id, &files, &prev, &dirs, &tomb)?;
+    // an index without the record stays without it: coverage unknown
+    let skipped = if ch.skipped.is_empty() {
+        None
+    } else {
+        idx.skipped().and_then(|mut s| {
+            let before = s.clone();
+            s.update(&ch.skipped);
+            (s != before).then_some(s)
+        })
+    };
     let _lock = crate::lock::writer(&idx.dir)?;
     let Some(mut m) = read_manifest(&idx.dir) else {
         return Ok(0);
@@ -546,6 +590,11 @@ pub fn apply(idx: &Index, root: &Path, ch: &Changes) -> Result<usize> {
         &body,
         false,
     )?;
+    if let Some(s) = skipped {
+        let name = format!("delta/{n:04}.skipped");
+        s.write(&idx.dir.join(&name))?;
+        m.skipped = name;
+    }
     m.deltas = n;
     m.tombstones += tomb.len() as u32;
     m.verified_unix_ms = now_ms();

@@ -5,9 +5,21 @@
 
 use crate::Options;
 use anyhow::Result;
+use greeg_index::Index;
+use greeg_index::skipped::{DIR, IGNORED};
 use greeg_lang::FileFlags;
 use ignore::overrides::Override;
 use ignore::types::Types;
+
+/// What a request reaches among the entries the index skipped.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum Reach {
+    No,
+    /// A file to read from disk alongside the indexed candidates.
+    File,
+    /// A directory the walk would enter: only a scan covers it.
+    Dir,
+}
 
 pub(crate) struct Selection<'a> {
     o: &'a Options,
@@ -43,6 +55,82 @@ impl<'a> Selection<'a> {
 
     pub(crate) fn paths(&self) -> &[String] {
         &self.paths
+    }
+
+    /// Can this request select files the index leaves out? `--hidden` and
+    /// `--no-ignore` always can; a positive glob can select hidden and
+    /// ignored entries, and a type hidden files.
+    pub(crate) fn widens(&self) -> bool {
+        self.o.hidden
+            || self.o.no_ignore
+            || !self.o.types.is_empty()
+            || self
+                .overrides
+                .as_ref()
+                .is_some_and(|ov| ov.num_whitelists() > 0)
+    }
+
+    /// Does the request reach a skipped entry (`greeg_index::skipped`)?
+    /// ripgrep checks an override glob before ignore rules and hidden names,
+    /// and a type after ignore rules but before hidden names.
+    pub(crate) fn reaches(&self, rel: &str, bits: u8) -> Reach {
+        if bits & DIR != 0 {
+            let walked = crate::indexed::path_allowed(rel, &self.paths)
+                && self
+                    .overrides
+                    .as_ref()
+                    .is_some_and(|ov| ov.matched(rel, true).is_whitelist());
+            return if walked { Reach::Dir } else { Reach::No };
+        }
+        let by_glob = match self.overrides.as_ref().map(|ov| ov.matched(rel, false)) {
+            Some(m) if m.is_ignore() => return Reach::No,
+            Some(m) => m.is_whitelist(),
+            None => false,
+        };
+        let by_type = bits & IGNORED == 0
+            && self
+                .types
+                .as_ref()
+                .is_some_and(|t| t.matched(rel, false).is_whitelist());
+        if (by_glob || by_type) && self.selects(rel, greeg_lang::path_flags(rel)) {
+            Reach::File
+        } else {
+            Reach::No
+        }
+    }
+
+    /// The skipped files this request selects besides the indexed ones, or
+    /// `None` when only a scan covers it: `--hidden`, `--no-ignore`, a
+    /// skipped directory it would enter, or an index without the record (a
+    /// background build then records it). `pending` holds changes found but
+    /// not yet published.
+    pub(crate) fn coverage(
+        &self,
+        idx: &Index,
+        pending: Option<&greeg_index::fresh::Changes>,
+    ) -> Option<Vec<String>> {
+        if self.o.hidden || self.o.no_ignore {
+            return None;
+        }
+        if !self.widens() {
+            return Some(Vec::new());
+        }
+        let Some(mut sk) = idx.skipped() else {
+            crate::indexed::spawn_build(&self.o.root, &idx.dir);
+            return None;
+        };
+        if let Some(ch) = pending {
+            sk.update(&ch.skipped);
+        }
+        let mut also = Vec::new();
+        for (rel, bits) in sk.entries() {
+            match self.reaches(&rel, bits) {
+                Reach::No => {}
+                Reach::File => also.push(rel),
+                Reach::Dir => return None,
+            }
+        }
+        Some(also)
     }
 
     /// Whether the request selects `rel`: ripgrep precedence, where an

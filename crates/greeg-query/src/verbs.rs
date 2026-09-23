@@ -323,6 +323,7 @@ pub fn def(
         name: name.to_string(),
         ..Default::default()
     };
+    let sel = Selection::new(o, Vec::new())?;
     if o.use_index
         && let Some(op) = indexed::open_fresh(o, threads)?
         && op.idx.has_symbols()
@@ -330,11 +331,11 @@ pub fn def(
         && (name.is_ascii()
             || !op.idx.lookup(name).is_empty()
             || !op.idx.module_files(name, 1).is_empty())
+        && let Some(also) = sel.coverage(&op.idx, None)
     {
         let idx = &op.idx;
         res.source = "index";
         res.fresh = op.fresh_method;
-        let sel = Selection::new(o, Vec::new())?;
         let selected = |fid: u32| selected(idx, &sel, fid);
         let mut syms = idx.lookup(name);
         let fold_case =
@@ -484,6 +485,22 @@ pub fn def(
                 file_module: true,
             });
         }
+        // selected files the index skipped: found by the scan's definition rules
+        if !also.is_empty() {
+            let mut so = o.clone();
+            so.paths = also
+                .iter()
+                .map(|r| o.root.join(r))
+                .filter(|p| p.is_file())
+                .collect();
+            so.use_index = false;
+            so.matching = crate::MatchingPolicy::Exact;
+            if !so.paths.is_empty() {
+                let (found, _, _) = scan_defs(&so, name, want_kind)?;
+                res.total += found.len();
+                entries.extend(found);
+            }
+        }
         entries.sort_by(|a, b| {
             b.score
                 .partial_cmp(&a.score)
@@ -540,6 +557,34 @@ pub fn def(
         return Ok(res);
     }
     // scan fallback: definition hits by regex
+    let (mut entries, rung, source) = scan_defs(o, name, want_kind)?;
+    res.source = source;
+    res.rung = rung;
+    res.total = entries.len();
+    entries.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then(a.rel.cmp(&b.rel))
+    });
+    let show = if o.budget == 0 {
+        entries.len()
+    } else {
+        (o.budget / 40).clamp(3, 40)
+    };
+    entries.truncate(show.max(1));
+    res.entries = entries;
+    res.elapsed_ms = t0.elapsed().as_secs_f64() * 1e3;
+    Ok(res)
+}
+
+/// Definitions of `name` found by a scan's definition rules, unsorted, with
+/// the rung and source that answered.
+fn scan_defs(
+    o: &Options,
+    name: &str,
+    want_kind: Option<DefKind>,
+) -> Result<(Vec<DefEntry>, Rung, &'static str)> {
     let mut so = o.clone();
     so.use_index &= name.is_ascii();
     so.pattern = name.to_string();
@@ -551,12 +596,11 @@ pub fn def(
     let mut r = scan(&so)?;
     let idxs: Vec<usize> = (0..r.files.len().min(200)).collect();
     crate::refine(&mut r, &idxs);
-    res.source = if r.stats.source == "index" {
+    let source = if r.stats.source == "index" {
         "index (phase 1)"
     } else {
         "scan"
     };
-    res.rung = r.rung.clone();
     let mut entries = Vec::new();
     for f in &r.files {
         for h in &f.hits {
@@ -603,22 +647,7 @@ pub fn def(
             });
         }
     }
-    res.total = entries.len();
-    entries.sort_by(|a, b| {
-        b.score
-            .partial_cmp(&a.score)
-            .unwrap_or(std::cmp::Ordering::Equal)
-            .then(a.rel.cmp(&b.rel))
-    });
-    let show = if o.budget == 0 {
-        entries.len()
-    } else {
-        (o.budget / 40).clamp(3, 40)
-    };
-    entries.truncate(show.max(1));
-    res.entries = entries;
-    res.elapsed_ms = t0.elapsed().as_secs_f64() * 1e3;
-    Ok(res)
+    Ok((entries, r.rung.clone(), source))
 }
 
 /// `greeg refs NAME`: a word-bounded search, classified, plus the fraction of
@@ -819,14 +848,16 @@ pub fn impls(o: &Options, name: &str) -> Result<ImplsResult> {
     let mut direct = Vec::new();
     let mut source = "scan";
     let mut have: Vec<(String, u32)> = Vec::new();
+    let sel = Selection::new(o, Vec::new())?;
     if o.use_index
         && let Some(op) = indexed::open_fresh(o, threads)?
         && op.idx.has_symbols()
+        // skipped files hold no symbols; the type-position scan below reads them
+        && sel.coverage(&op.idx, None).is_some()
     {
         let idx = &op.idx;
         source = "index";
         let mut cache: BTreeMap<String, Vec<u8>> = BTreeMap::new();
-        let sel = Selection::new(o, Vec::new())?;
         for s in idx
             .implementors(name)
             .into_iter()
@@ -1196,6 +1227,34 @@ pub struct MapResult {
     pub source: &'static str,
 }
 
+/// Count a file in its immediate subdirectory under `prefix`, if any.
+fn count_in_dir(
+    dirs: &mut BTreeMap<String, MapDir>,
+    prefix: &str,
+    rel: &str,
+    symbols: usize,
+    rank: f32,
+) {
+    let Some((sub, _)) = rel[prefix.len()..].split_once('/') else {
+        return;
+    };
+    let d = dirs
+        .entry(format!("{prefix}{sub}"))
+        .or_insert_with(|| MapDir {
+            rel: format!("{prefix}{sub}"),
+            files: 0,
+            symbols: 0,
+            rank: 0.0,
+            top_files: Vec::new(),
+        });
+    d.files += 1;
+    d.symbols += symbols;
+    d.rank = d.rank.max(rank);
+    if d.top_files.len() < 3 {
+        d.top_files.push(rel.to_string());
+    }
+}
+
 /// `greeg map [DIR]`: the most important files and subdirectories by PageRank.
 pub fn map(o: &Options, dir: &str) -> Result<MapResult> {
     let t0 = Instant::now();
@@ -1222,6 +1281,12 @@ pub fn map(o: &Options, dir: &str) -> Result<MapResult> {
     if !idx.has_symbols() {
         bail!("`map` needs the symbol table; the index build is still in phase 1");
     }
+    let sel = Selection::new(o, Vec::new())?;
+    let Some(also) = sel.coverage(idx, None) else {
+        bail!(
+            "`map` summarizes the index, which cannot cover this request: --hidden, --no-ignore, a glob that selects a hidden or ignored directory, or an index still recording what it skips (retry in a moment)"
+        );
+    };
     let prefix = if dir.is_empty() {
         String::new()
     } else {
@@ -1230,7 +1295,6 @@ pub fn map(o: &Options, dir: &str) -> Result<MapResult> {
     let mut files: Vec<MapFile> = Vec::new();
     let mut dirs: BTreeMap<String, MapDir> = BTreeMap::new();
     let mut symbols_total = 0usize;
-    let sel = Selection::new(o, Vec::new())?;
     for (id, rel, rec) in idx.live_files() {
         let flags = FileFlags(rec.flags);
         if !rel.starts_with(&prefix) || !sel.selects(rel, flags) {
@@ -1242,25 +1306,7 @@ pub fn map(o: &Options, dir: &str) -> Result<MapResult> {
         let n = syms.len();
         symbols_total += n;
         let rank = idx.rank(id);
-        // immediate subdirectory under `dir`
-        let rest = &rel[prefix.len()..];
-        if let Some((sub, _)) = rest.split_once('/') {
-            let d = dirs
-                .entry(format!("{prefix}{sub}"))
-                .or_insert_with(|| MapDir {
-                    rel: format!("{prefix}{sub}"),
-                    files: 0,
-                    symbols: 0,
-                    rank: 0.0,
-                    top_files: Vec::new(),
-                });
-            d.files += 1;
-            d.symbols += n;
-            d.rank = d.rank.max(rank);
-            if d.top_files.len() < 3 {
-                d.top_files.push(rel.to_string());
-            }
-        }
+        count_in_dir(&mut dirs, &prefix, rel, n, rank);
         if n == 0
             && !flags.has(FileFlags::PARSE_ERRORS)
             && !Lang::from_path(Path::new(rel)).has_grammar()
@@ -1311,6 +1357,21 @@ pub fn map(o: &Options, dir: &str) -> Result<MapResult> {
             flags,
             imported_by,
         });
+    }
+    // selected files the index skipped: no symbols or rank are known
+    for rel in also.iter().filter(|r| r.starts_with(&prefix)) {
+        count_in_dir(&mut dirs, &prefix, rel, 0, 0.0);
+        if Lang::from_path(Path::new(rel)).has_grammar() {
+            files.push(MapFile {
+                rel: rel.clone(),
+                rank: 0.0,
+                symbols: 0,
+                by_kind: Vec::new(),
+                top: Vec::new(),
+                flags: greeg_lang::path_flags(rel),
+                imported_by: 0,
+            });
+        }
     }
     let files_total = files.len();
     files.sort_by(|a, b| {

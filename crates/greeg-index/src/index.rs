@@ -464,6 +464,19 @@ impl Index {
     pub fn is_live(&self, id: u32) -> bool {
         !self.tomb.contains(id) && self.segment_for(id).is_some()
     }
+    /// What the walk left out, when this index recorded it.
+    pub fn skipped(&self) -> Option<crate::skipped::Skipped> {
+        crate::skipped::Skipped::read(&self.dir, &self.manifest.skipped)
+    }
+
+    /// Is `rel` a directory the index walked?
+    pub fn has_dir(&self, rel: &str) -> bool {
+        self.segments().any(|(_, seg)| {
+            let fv = seg.files();
+            fv.dirs.iter().any(|d| fv.dir_path(d) == rel)
+        })
+    }
+
     pub fn has_symbols(&self) -> bool {
         self.base.symbols.is_some()
     }

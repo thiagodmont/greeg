@@ -446,6 +446,17 @@ pub(crate) fn try_index(cx: &Ctx, threads: usize, t0: Instant) -> Result<Option<
                 {
                     return Ok(None);
                 }
+                // likewise a hidden or ignored directory: the walk enters it
+                if p.is_dir()
+                    && !rel.is_empty()
+                    && !idx.has_dir(&rel)
+                    && !op
+                        .pending
+                        .as_ref()
+                        .is_some_and(|ch| ch.added_dirs.iter().any(|d| d.rel == rel))
+                {
+                    return Ok(None);
+                }
                 let given = p.to_string_lossy();
                 let given = given.trim_end_matches('/');
                 display.push(
@@ -463,6 +474,12 @@ pub(crate) fn try_index(cx: &Ctx, threads: usize, t0: Instant) -> Result<Option<
         }
     }
     let sel = crate::select::Selection::new(o, paths)?;
+    // files the index skipped that this request selects are read from disk
+    // like changed ones; anything else it selects needs the scan
+    let Some(also) = sel.coverage(idx, op.pending.as_ref()) else {
+        return Ok(None);
+    };
+    extras.extend(also.into_iter().map(|rel| (rel, NONE)));
     let display_rel = |rel: &str| -> Option<String> {
         let paths = sel.paths();
         let i = paths
