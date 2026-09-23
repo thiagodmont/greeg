@@ -231,6 +231,23 @@ mod tests {
     }
 
     #[test]
+    fn nested_unknown_markers_round_trip_and_a_refresh_replaces_them() {
+        let mut s = Skipped::default();
+        s.set("a/b", vec![(String::new(), UNKNOWN)]);
+        let mut back = Skipped::parse(&s.serialize()).unwrap();
+        assert_eq!(back, s);
+        assert_eq!(
+            back.entries().collect::<Vec<_>>(),
+            [("a/b".to_string(), UNKNOWN)]
+        );
+        back.update(&[("a/b".into(), vec![(".x".into(), 0)])]);
+        assert_eq!(
+            back.entries().collect::<Vec<_>>(),
+            [("a/b/.x".to_string(), 0)]
+        );
+    }
+
+    #[test]
     fn a_directory_that_cannot_be_listed_is_unknown() {
         let kept = HashSet::new();
         let got = list(
