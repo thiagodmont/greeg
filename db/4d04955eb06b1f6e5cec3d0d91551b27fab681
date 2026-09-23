@@ -1,0 +1,35 @@
+references/BENCH.md
+  s_09357c044b6e84::t_5c97a51e896ea0 952-1025
+bench/reports.toml
+  s_09357c044b6e84::t_829a6bcfd98746 265-284
+crates/greeg-query/src/session_store.rs
+  s_09357c044b6e84::t_16ee1fb1591afc 825-831,836-841,846-847
+  s_09357c044b6e84::t_4cfbb800d3b76f 389,416-417,419-421,430-431
+  s_09357c044b6e84::t_8df7e6182f996b 832-835,842-845
+  s_09357c044b6e84::t_f521e39f16a769 824
+references/ARCHITECTURE.md
+  s_09357c044b6e84::t_342f508dd544ec 322-323
+  s_09357c044b6e84::t_4cfbb800d3b76f 320-321
+bench/results/private-sessions-sweep-2026-09-23-darwin-arm64.json
+  s_09357c044b6e84::t_829a6bcfd98746 2106-2117
+  s_09357c044b6e84::t_de7c8fb50630cc 1-2105,2118
+bench/results/private-sessions-sweep-confirmation-2026-09-23-darwin-arm64.json
+  s_09357c044b6e84::t_33ef73ea253cbb 1-4905,4918
+  s_09357c044b6e84::t_829a6bcfd98746 4906-4917
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "db4d04955eb06b1f6e5cec3d0d91551b27fab681",
+  "prompts": {},
+  "sessions": {
+    "s_09357c044b6e84": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0c9a2-d91e-7fc2-8558-a87341dafdb2",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
