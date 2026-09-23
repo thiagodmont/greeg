@@ -296,7 +296,24 @@ python3 bench/bench.py oracle tokio django TypeScript-5.9 # SCIP accuracy oracle
 CI runs build, tests, clippy, a binary-size gate, the rg parity suite and the
 small-corpus speed protocol. The nightly workflow adds the large-corpus
 benchmarks, the accuracy oracle and a randomized soak
-(`bench/soak.py MINUTES GREEG CORPUS…`).
+(`bench/soak.py MINUTES GREEG CORPUS… --seed SEED`).
+
+`bench/edits.py CORPUS GREEG` and the soak harness copy each source into a
+private temporary snapshot and working directory. Dirty, untracked and ignored
+files are included; edits and restores affect only the copy. Each corpus gets
+its own index and isolated home/config/cache, with sessions and statistics
+disabled. Relative executable paths are resolved before changing directories.
+Symlinks are copied without following them and cannot be mutation targets.
+
+Allow space for two copies of each corpus plus its index. Copying and initial
+setup happen outside the soak duration; restores count toward it. Copies keep
+in-tree ignore files but omit Git metadata, parent/global ignore rules and user
+configuration, so these runs are not directly comparable with older in-place
+runs. A Git source gets an empty repository marker for in-tree ignore handling.
+Snapshots are not atomic against concurrent source edits; use a fixed source
+revision for reproducible measurements. Exceptions, Ctrl-C and SIGTERM clean up
+owned directories; an uncatchable kill or detached index writer can leave
+private temporary files, but source corpora remain untouched.
 
 Issues and pull requests are welcome. If you're reporting a wrong or missing
 result, `greeg <query> --stats` and `greeg doctor` output are the two most
