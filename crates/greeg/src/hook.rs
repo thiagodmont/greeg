@@ -125,18 +125,74 @@ fn hook_entry() -> Value {
     json!({"matcher": "Bash", "hooks": [{"type": "command", "command": "greeg hook run"}]})
 }
 
-fn is_ours(v: &Value) -> bool {
-    v.get("hooks")
-        .and_then(|h| h.as_array())
-        .map(|a| {
-            a.iter().any(|h| {
-                h.get("command")
-                    .and_then(|c| c.as_str())
-                    .map(|c| c.starts_with("greeg hook"))
-                    .unwrap_or(false)
-            })
-        })
-        .unwrap_or(false)
+fn owned_command(command: &str, agent: Agent) -> bool {
+    match agent {
+        Agent::Claude => matches!(command, "greeg hook run" | "greeg hook run --agent claude"),
+        Agent::Codex => command == CODEX_HOOK_COMMAND,
+    }
+}
+
+fn json_handler_owned(handler: &Value, agent: Agent) -> bool {
+    handler.get("type").and_then(Value::as_str) == Some("command")
+        && handler
+            .get("command")
+            .and_then(Value::as_str)
+            .is_some_and(|command| owned_command(command, agent))
+}
+
+fn is_ours(entry: &Value, agent: Agent) -> bool {
+    entry
+        .get("hooks")
+        .and_then(Value::as_array)
+        .is_some_and(|handlers| handlers.iter().any(|h| json_handler_owned(h, agent)))
+}
+
+fn edit_claude_config(text: Option<&str>, uninstall: bool) -> Result<(String, bool)> {
+    let mut settings: Value = match text {
+        Some(text) => serde_json::from_str(text).context("parse settings.json")?,
+        None => json!({}),
+    };
+    let original = text.unwrap_or("");
+    let obj = settings
+        .as_object_mut()
+        .context("settings.json is not an object")?;
+    if uninstall && obj.get("hooks").is_none() {
+        return Ok((original.to_owned(), false));
+    }
+    let hooks = obj.entry("hooks").or_insert_with(|| json!({}));
+    let hooks = hooks.as_object_mut().context("hooks is not an object")?;
+    if uninstall && hooks.get("PreToolUse").is_none() {
+        return Ok((original.to_owned(), false));
+    }
+    let pre = hooks.entry("PreToolUse").or_insert_with(|| json!([]));
+    let arr = pre.as_array_mut().context("PreToolUse is not an array")?;
+    let had = arr.iter().any(|entry| {
+        is_ours(entry, Agent::Claude)
+            && (uninstall || entry.get("matcher").and_then(Value::as_str) == Some("Bash"))
+    });
+    if uninstall {
+        if !had {
+            return Ok((original.to_owned(), false));
+        }
+        arr.retain_mut(|entry| {
+            if !is_ours(entry, Agent::Claude) {
+                return true;
+            }
+            let handlers = entry
+                .get_mut("hooks")
+                .and_then(Value::as_array_mut)
+                .unwrap();
+            handlers.retain(|h| !json_handler_owned(h, Agent::Claude));
+            !(handlers.is_empty()
+                && entry.as_object().is_some_and(|e| e.len() == 2)
+                && entry.get("matcher").and_then(Value::as_str) == Some("Bash"))
+        });
+    } else if had {
+        return Ok((original.to_owned(), true));
+    } else {
+        arr.push(hook_entry());
+    }
+    Ok((serde_json::to_string_pretty(&settings)?, had))
 }
 
 /// A matcher that lets a PreToolUse hook see Bash calls: empty, catch-all,
@@ -160,7 +216,9 @@ fn json_bash_hooks(v: &Value, out: &mut Vec<String>) {
         let hooks = entry.get("hooks").and_then(|h| h.as_array());
         for h in hooks.into_iter().flatten() {
             if let Some(c) = h.get("command").and_then(|c| c.as_str())
-                && !c.starts_with("greeg hook")
+                && ![Agent::Claude, Agent::Codex]
+                    .into_iter()
+                    .any(|agent| json_handler_owned(h, agent))
             {
                 out.push(c.to_string());
             }
@@ -168,24 +226,32 @@ fn json_bash_hooks(v: &Value, out: &mut Vec<String>) {
     }
 }
 
-/// The `command` of every handler in a `[[hooks.PreToolUse]]` entry, whether
-/// its `hooks` are an array of tables or an inline array.
-fn toml_entry_commands(entry: &dyn TableLike) -> Vec<String> {
+/// Unowned commands from either representation of a handler array.
+fn toml_other_commands(entry: &dyn TableLike) -> Vec<String> {
     let mut out = Vec::new();
     match entry.get("hooks") {
         Some(Item::ArrayOfTables(a)) => {
             for t in a.iter() {
-                if let Some(c) = t.get("command").and_then(|c| c.as_str()) {
+                if let Some(c) = t.get("command").and_then(|c| c.as_str())
+                    && ![Agent::Claude, Agent::Codex]
+                        .into_iter()
+                        .any(|agent| toml_handler_owned(t, agent))
+                {
                     out.push(c.to_string());
                 }
             }
         }
         Some(Item::Value(v)) => {
-            for t in v.as_array().into_iter().flat_map(|a| a.iter()) {
-                if let Some(c) = t
-                    .as_inline_table()
-                    .and_then(|t| t.get("command"))
-                    .and_then(|c| c.as_str())
+            for t in v
+                .as_array()
+                .into_iter()
+                .flat_map(|a| a.iter())
+                .filter_map(|v| v.as_inline_table())
+            {
+                if let Some(c) = t.get("command").and_then(toml_edit::Value::as_str)
+                    && ![Agent::Claude, Agent::Codex]
+                        .into_iter()
+                        .any(|agent| toml_handler_owned(t, agent))
                 {
                     out.push(c.to_string());
                 }
@@ -196,10 +262,48 @@ fn toml_entry_commands(entry: &dyn TableLike) -> Vec<String> {
     out
 }
 
-fn toml_is_ours(entry: &dyn TableLike) -> bool {
-    toml_entry_commands(entry)
-        .iter()
-        .any(|c| c.starts_with("greeg hook"))
+fn toml_handler_owned(handler: &dyn TableLike, agent: Agent) -> bool {
+    handler.get("type").and_then(Item::as_str) == Some("command")
+        && handler
+            .get("command")
+            .and_then(Item::as_str)
+            .is_some_and(|command| owned_command(command, agent))
+}
+
+fn toml_is_ours(entry: &dyn TableLike, agent: Agent) -> bool {
+    match entry.get("hooks") {
+        Some(Item::ArrayOfTables(handlers)) => {
+            handlers.iter().any(|h| toml_handler_owned(h, agent))
+        }
+        Some(Item::Value(v)) => v.as_array().is_some_and(|handlers| {
+            handlers.iter().any(|h| {
+                h.as_inline_table()
+                    .is_some_and(|h| toml_handler_owned(h, agent))
+            })
+        }),
+        _ => false,
+    }
+}
+
+fn remove_toml_handlers(entry: &mut dyn TableLike, agent: Agent) -> bool {
+    let empty = match entry.get_mut("hooks") {
+        Some(Item::ArrayOfTables(handlers)) => {
+            handlers.retain(|h| !toml_handler_owned(h, agent));
+            handlers.is_empty()
+        }
+        Some(Item::Value(v)) => {
+            let Some(handlers) = v.as_array_mut() else {
+                return false;
+            };
+            handlers.retain(|h| {
+                !h.as_inline_table()
+                    .is_some_and(|h| toml_handler_owned(h, agent))
+            });
+            handlers.is_empty()
+        }
+        _ => return false,
+    };
+    empty && entry.len() == 2 && entry.get("matcher").and_then(Item::as_str) == Some("Bash")
 }
 
 /// Same as [`json_bash_hooks`] for the inline `[[hooks.PreToolUse]]` tables of
@@ -227,11 +331,7 @@ fn toml_bash_hooks(doc: &DocumentMut, out: &mut Vec<String>) {
         if !sees_bash(matcher) {
             continue;
         }
-        out.extend(
-            toml_entry_commands(entry)
-                .into_iter()
-                .filter(|c| !c.starts_with("greeg hook")),
-        );
+        out.extend(toml_other_commands(entry));
     }
 }
 
@@ -269,28 +369,13 @@ pub fn other_bash_hooks() -> Vec<String> {
 pub fn install_claude(uninstall: bool, dry_run: bool) -> Result<()> {
     let sp = settings_path()?;
     let kp = skill_path()?;
-    let mut settings: Value = match std::fs::read_to_string(&sp) {
-        Ok(s) => serde_json::from_str(&s).with_context(|| format!("parse {}", sp.display()))?,
-        Err(_) => json!({}),
+    let text = match std::fs::read_to_string(&sp) {
+        Ok(s) => Some(s),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+        Err(e) => return Err(e).with_context(|| format!("read {}", sp.display())),
     };
-    let obj = settings
-        .as_object_mut()
-        .context("settings.json is not an object")?;
-    let hooks = obj.entry("hooks").or_insert_with(|| json!({}));
-    let pre = hooks
-        .as_object_mut()
-        .context("hooks is not an object")?
-        .entry("PreToolUse")
-        .or_insert_with(|| json!([]));
-    let arr = pre.as_array_mut().context("PreToolUse is not an array")?;
-    let had = arr.iter().any(is_ours);
-    if uninstall {
-        arr.retain(|v| !is_ours(v));
-    } else if !had {
-        // first for readability; hooks run in parallel, so this is not an ordering guarantee
-        arr.insert(0, hook_entry());
-    }
-    let out = serde_json::to_string_pretty(&settings)?;
+    let (out, had) = edit_claude_config(text.as_deref(), uninstall)
+        .with_context(|| format!("edit {}", sp.display()))?;
     if dry_run {
         println!(
             "{}: {}",
@@ -318,10 +403,12 @@ pub fn install_claude(uninstall: bool, dry_run: bool) -> Result<()> {
         );
         return Ok(());
     }
-    if let Some(p) = sp.parent() {
-        std::fs::create_dir_all(p)?;
+    if out != text.as_deref().unwrap_or("") {
+        if let Some(p) = sp.parent() {
+            std::fs::create_dir_all(p)?;
+        }
+        std::fs::write(&sp, out)?;
     }
-    std::fs::write(&sp, out)?;
     if uninstall {
         let _ = std::fs::remove_file(&kp);
         println!(
@@ -415,8 +502,8 @@ fn codex_hook_inline() -> toml_edit::Value {
 }
 
 /// Add (or, with `uninstall`, remove) the greeg entry in the text of a Codex
-/// `config.toml`, keeping everything else byte for byte (comments, order,
-/// Codex's own `hooks.state` trust records). Returns the new text and whether
+/// `config.toml`, preserving unrelated handlers, entry metadata, comments and
+/// existing `hooks.state` records. Returns the new text and whether
 /// the entry was already there. New entries are appended so the positional
 /// keys Codex uses for hook trust (`config.toml:pre_tool_use:N:M`) of the
 /// other hooks do not shift.
@@ -443,9 +530,19 @@ fn edit_codex_config(text: &str, uninstall: bool) -> Result<(String, bool)> {
         .or_insert(Item::ArrayOfTables(toml_edit::ArrayOfTables::new()));
     let had = match pre {
         Item::ArrayOfTables(arr) => {
-            let had = arr.iter().any(|t| toml_is_ours(t));
+            let had = arr.iter().any(|t| {
+                toml_is_ours(t, Agent::Codex)
+                    && (uninstall || t.get("matcher").and_then(Item::as_str) == Some("Bash"))
+            });
             if uninstall {
-                arr.retain(|t| !toml_is_ours(t));
+                for index in (0..arr.len()).rev() {
+                    let entry = arr.get_mut(index).unwrap();
+                    if toml_is_ours(entry, Agent::Codex)
+                        && remove_toml_handlers(entry, Agent::Codex)
+                    {
+                        arr.remove(index);
+                    }
+                }
             } else if !had {
                 arr.push(codex_hook_table(last, blank_line));
             }
@@ -455,10 +552,27 @@ fn edit_codex_config(text: &str, uninstall: bool) -> Result<(String, bool)> {
             let Some(arr) = v.as_array_mut() else {
                 bail!("`hooks.PreToolUse` in config.toml is not an array; add the hook by hand");
             };
-            let ours = |v: &toml_edit::Value| v.as_inline_table().is_some_and(|t| toml_is_ours(t));
-            let had = arr.iter().any(ours);
+            let had = arr.iter().any(|v| {
+                v.as_inline_table().is_some_and(|t| {
+                    toml_is_ours(t, Agent::Codex)
+                        && (uninstall
+                            || t.get("matcher").and_then(toml_edit::Value::as_str) == Some("Bash"))
+                })
+            });
             if uninstall {
-                arr.retain(|v| !ours(v));
+                for index in (0..arr.len()).rev() {
+                    let Some(entry) = arr
+                        .get_mut(index)
+                        .and_then(toml_edit::Value::as_inline_table_mut)
+                    else {
+                        continue;
+                    };
+                    if toml_is_ours(entry, Agent::Codex)
+                        && remove_toml_handlers(entry, Agent::Codex)
+                    {
+                        arr.remove(index);
+                    }
+                }
             } else if !had {
                 arr.push(codex_hook_inline());
             }
@@ -466,6 +580,10 @@ fn edit_codex_config(text: &str, uninstall: bool) -> Result<(String, bool)> {
         }
         _ => bail!("`hooks.PreToolUse` in config.toml is not an array; add the hook by hand"),
     };
+    let changed = if uninstall { had } else { !had };
+    if !changed {
+        return Ok((text.to_owned(), had));
+    }
     Ok((doc.to_string(), had))
 }
 
@@ -507,8 +625,8 @@ pub fn install_codex(uninstall: bool, dry_run: bool) -> Result<()> {
         );
         return Ok(());
     }
-    std::fs::create_dir_all(&home)?;
     if out != text {
+        std::fs::create_dir_all(&home)?;
         std::fs::write(&cp, out)?;
     }
     if uninstall {
@@ -1273,7 +1391,7 @@ args = ["-y", "@upstash/context7-mcp"]
         let doc: DocumentMut = out.parse().unwrap();
         let pre = doc["hooks"]["PreToolUse"].as_array_of_tables().unwrap();
         assert_eq!(pre.len(), 3);
-        assert!(toml_is_ours(pre.get(2).unwrap()));
+        assert!(toml_is_ours(pre.get(2).unwrap(), Agent::Codex));
         let mut others = Vec::new();
         toml_bash_hooks(&doc, &mut others);
         assert_eq!(
@@ -1308,13 +1426,168 @@ args = ["-y", "@upstash/context7-mcp"]
         let v = json!({"hooks": {"PreToolUse": [
             {"matcher": "Bash", "hooks": [{"type": "command", "command": "greeg hook run"}, {"type": "command", "command": "rtk hook claude"}]},
             {"matcher": "Edit", "hooks": [{"type": "command", "command": "fmt"}]},
-            {"hooks": [{"type": "command", "command": "audit"}]}
+            {"hooks": [{"type": "command", "command": "audit"}]},
+            {"matcher": "Bash", "hooks": [{"type": "command", "command": "greeg hook-helper"}, {"type": "prompt", "command": "greeg hook run"}]}
         ]}});
         let mut out = Vec::new();
         json_bash_hooks(&v, &mut out);
         assert_eq!(
             out,
-            vec!["rtk hook claude".to_string(), "audit".to_string()]
+            vec![
+                "rtk hook claude".to_string(),
+                "audit".to_string(),
+                "greeg hook-helper".to_string(),
+                "greeg hook run".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn hook_ownership_requires_exact_command_and_type() {
+        for agent in [Agent::Claude, Agent::Codex] {
+            let command = match agent {
+                Agent::Claude => "greeg hook run",
+                Agent::Codex => CODEX_HOOK_COMMAND,
+            };
+            assert!(json_handler_owned(
+                &json!({"type": "command", "command": command}),
+                agent
+            ));
+            assert!(!json_handler_owned(
+                &json!({"type": "prompt", "command": command}),
+                agent
+            ));
+            assert!(!json_handler_owned(&json!({"command": command}), agent));
+            for command in [
+                "greeg hook-helper",
+                "greeg hook run-extra",
+                "greeg hook run && audit",
+                "/opt/greeg hook run",
+                "greeg hook run --custom",
+            ] {
+                let handler = json!({"type": "command", "command": command});
+                assert!(!json_handler_owned(&handler, agent), "{command}");
+            }
+        }
+        assert!(!owned_command(CODEX_HOOK_COMMAND, Agent::Claude));
+        assert!(!owned_command("greeg hook run", Agent::Codex));
+    }
+
+    #[test]
+    fn claude_config_edits_preserve_custom_handlers_and_metadata() {
+        let input = json!({"hooks": {"PostToolUse": [{"hooks": [{"command": "audit"}]}],
+            "PreToolUse": [
+                {"matcher": "Bash", "hooks": [{"type": "command", "command": "greeg hook-helper"}]},
+                {"matcher": "Bash", "label": "keep", "hooks": [{"type": "command", "command": "greeg hook run"}]},
+                {"matcher": "Bash", "hooks": [
+                    {"type": "command", "command": "greeg hook run"},
+                    {"type": "command", "command": "greeg hook run --agent claude"},
+                    {"type": "prompt", "command": "greeg hook run"},
+                    {"type": "command", "command": "greeg hook run --agent codex"}
+                ]}
+            ]}}).to_string();
+        let (out, had) = edit_claude_config(Some(&input), true).unwrap();
+        assert!(had);
+        let value: Value = serde_json::from_str(&out).unwrap();
+        let original: Value = serde_json::from_str(&input).unwrap();
+        assert_eq!(
+            value["hooks"]["PostToolUse"],
+            original["hooks"]["PostToolUse"]
+        );
+        let entries = value["hooks"]["PreToolUse"].as_array().unwrap();
+        assert_eq!(entries.len(), 3);
+        assert_eq!(entries[0], original["hooks"]["PreToolUse"][0]);
+        assert_eq!(
+            entries[1],
+            json!({"matcher": "Bash", "label": "keep", "hooks": []})
+        );
+        assert_eq!(entries[2]["hooks"].as_array().unwrap().len(), 2);
+        let (again, had) = edit_claude_config(Some(&out), true).unwrap();
+        assert!(!had);
+        assert_eq!(again, out);
+        let (installed, had) = edit_claude_config(Some(&out), false).unwrap();
+        assert!(!had);
+        let installed: Value = serde_json::from_str(&installed).unwrap();
+        assert_eq!(installed["hooks"]["PreToolUse"][0], entries[0]);
+        assert_eq!(installed["hooks"]["PreToolUse"][3], hook_entry());
+    }
+
+    #[test]
+    fn codex_shared_handlers_support_all_array_forms() {
+        let bodies = [
+            "[[hooks.PreToolUse]]\nmatcher = 'Bash'\nlabel = 'keep'\n[[hooks.PreToolUse.hooks]]\ntype = 'command'\ncommand = 'greeg hook run --agent codex'\n[[hooks.PreToolUse.hooks]]\n# keep handler\ntype = 'command'\ncommand = 'audit'\ntimeout = 7\n",
+            "[[hooks.PreToolUse]]\nmatcher = 'Bash'\nlabel = 'keep'\nhooks = [{type='command', command='greeg hook run --agent codex'}, {type='command', command='audit', timeout=7}]\n",
+            "[hooks]\nPreToolUse = [{matcher='Bash', label='keep', hooks=[{type='command', command='greeg hook run --agent codex'}, {type='command', command='audit', timeout=7}]}]\n",
+        ];
+        for body in bodies {
+            let state = "\n[hooks.state.'config.toml:pre_tool_use:0:1']\ntrusted_hash = 'sha256:keep'\nenabled = true\n";
+            let input = format!("# user comment\n{body}{state}");
+            let (out, had) = edit_codex_config(&input, true).unwrap();
+            assert!(had);
+            assert!(!out.contains(CODEX_HOOK_COMMAND));
+            assert!(out.contains("label='keep'") || out.contains("label = 'keep'"));
+            assert!(out.contains("timeout=7") || out.contains("timeout = 7"));
+            assert!(out.contains(state));
+            assert!(out.contains("# user comment"));
+            let doc: DocumentMut = out.parse().unwrap();
+            let mut other = Vec::new();
+            toml_bash_hooks(&doc, &mut other);
+            assert_eq!(other, ["audit"]);
+            let (again, had) = edit_codex_config(&out, true).unwrap();
+            assert!(!had);
+            assert_eq!(again, out);
+        }
+    }
+
+    #[test]
+    fn config_noops_preserve_original_text() {
+        for text in [
+            "{   }\n",
+            "{\"hooks\": {\"PostToolUse\": []}}",
+            "{\"hooks\":{\"PreToolUse\":[{\"matcher\":\"Bash\",\"hooks\":[{\"type\":\"command\",\"command\":\"greeg hook-helper\"}]}]}}",
+        ] {
+            let (out, had) = edit_claude_config(Some(text), true).unwrap();
+            assert!(!had);
+            assert_eq!(out, text);
+        }
+        let (text, _) = edit_claude_config(None, false).unwrap();
+        assert_eq!(
+            edit_claude_config(Some(&text), false).unwrap(),
+            (text, true)
+        );
+        assert_eq!(
+            edit_claude_config(None, true).unwrap(),
+            (String::new(), false)
+        );
+        assert!(edit_claude_config(Some(""), true).is_err());
+        for text in [
+            "# untouched\n[hooks]\nPreToolUse = []\n",
+            "[hooks]\nPreToolUse=[{matcher='Bash',hooks=[{type='command',command='greeg hook-helper'}]}]\n",
+        ] {
+            assert_eq!(
+                edit_codex_config(text, true).unwrap(),
+                (text.to_owned(), false)
+            );
+        }
+    }
+
+    #[test]
+    fn installation_does_not_mistake_another_matcher_for_bash() {
+        let input = json!({"hooks":{"PreToolUse":[{"matcher":"Edit","hooks":[{"type":"command","command":"greeg hook run"}]}]}}).to_string();
+        let (out, had) = edit_claude_config(Some(&input), false).unwrap();
+        assert!(!had);
+        let value: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(value["hooks"]["PreToolUse"].as_array().unwrap().len(), 2);
+        let input = CODEX_HOOK_TOML.replace("matcher = \"Bash\"", "matcher = \"Edit\"");
+        let (out, had) = edit_codex_config(&input, false).unwrap();
+        assert!(!had);
+        let doc: DocumentMut = out.parse().unwrap();
+        assert_eq!(
+            doc["hooks"]["PreToolUse"]
+                .as_array_of_tables()
+                .unwrap()
+                .len(),
+            2
         );
     }
 }

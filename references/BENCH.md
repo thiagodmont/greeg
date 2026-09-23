@@ -195,6 +195,45 @@ Hook process median latency changes ranged from -2.1% to +3.6%. Cases above the 
 
 [Raw samples, reply sizes, and binary/corpus digests](../bench/results/hook-review-darwin-arm64.json). Reproduce: `python3 bench/hooks.py BASELINE CANDIDATE --runs 151 --tokens --output hook-review-darwin-arm64.json`.
 
+## Hook contract: configuration ownership regression
+
+`greeg 0.6.0+3dc7d33d3` → `greeg 0.6.0+3dc7d33d3.dirty`; 151 randomized pairs per case after 3 warmups. The candidate passed 28/28 hook eligibility/explicit-policy checks. Candidate file/count match-row and exit-status checks: 20/20 against ripgrep 15.2.0. Explicit source paths and expected hit/miss assertions exercise both scan and full-index searches, including files over 4 MiB and explicit size limits. The oracle ignores row ordering and does not require identical stderr.
+
+Hook process median latency changes ranged from -2.1% to +3.1%. Cases above the 10% median / 20% p95 investigation thresholds: **0**.
+
+| Host protocol | Case | Median ms, before → after | p95 ms, before → after | Reply tokens, before → after |
+|---|---|---:|---:|---:|
+| claude | ranked | 4.235 → 4.144 | 5.881 → 5.722 | 46 → 46 |
+| claude | files | 3.918 → 3.946 | 5.104 → 4.773 | 48 → 48 |
+| claude | count miss | 3.949 → 3.980 | 4.807 → 4.886 | 49 → 49 |
+| claude | quoted | 3.981 → 3.917 | 4.952 → 4.645 | 51 → 51 |
+| claude | trailing newline | 4.032 → 3.994 | 4.645 → 4.863 | 46 → 46 |
+| claude | size limit | 3.987 → 4.021 | 4.649 → 4.984 | 46 → 46 |
+| claude | recursive grep | 3.894 → 4.015 | 4.987 → 4.761 | 0 → 0 |
+| claude | grep file | 3.897 → 3.995 | 4.332 → 4.718 | 0 → 0 |
+| claude | json | 3.818 → 3.902 | 5.274 → 5.477 | 0 → 0 |
+| claude | executable path | 3.788 → 3.803 | 4.458 → 4.726 | 0 → 0 |
+| claude | comment | 3.716 → 3.720 | 4.729 → 4.670 | 0 → 0 |
+| claude | pipeline | 3.722 → 3.753 | 4.676 → 4.577 | 0 → 0 |
+| claude | compound | 3.720 → 3.708 | 5.190 → 4.928 | 0 → 0 |
+| claude | config | 3.845 → 3.809 | 5.059 → 4.969 | 0 → 0 |
+| codex | ranked | 3.887 → 3.926 | 4.836 → 4.676 | 51 → 51 |
+| codex | files | 3.884 → 3.891 | 5.103 → 5.375 | 53 → 53 |
+| codex | count miss | 3.943 → 3.963 | 5.639 → 5.731 | 54 → 54 |
+| codex | quoted | 3.841 → 3.879 | 4.481 → 4.611 | 56 → 56 |
+| codex | trailing newline | 4.222 → 4.221 | 6.343 → 5.969 | 51 → 51 |
+| codex | size limit | 4.014 → 4.067 | 4.445 → 4.492 | 51 → 51 |
+| codex | recursive grep | 3.785 → 3.777 | 5.429 → 5.631 | 0 → 0 |
+| codex | grep file | 3.901 → 3.927 | 5.108 → 4.976 | 0 → 0 |
+| codex | json | 3.856 → 3.890 | 5.203 → 5.636 | 0 → 0 |
+| codex | executable path | 3.684 → 3.775 | 5.264 → 5.153 | 0 → 0 |
+| codex | comment | 3.762 → 3.773 | 5.025 → 4.893 | 0 → 0 |
+| codex | pipeline | 3.957 → 4.005 | 5.439 → 5.333 | 0 → 0 |
+| codex | compound | 3.833 → 3.821 | 4.994 → 5.056 | 0 → 0 |
+| codex | config | 3.705 → 3.725 | 5.031 → 5.165 | 0 → 0 |
+
+[Raw samples, reply sizes, and binary/corpus digests](../bench/results/hook-config-rewrites-2026-09-23-darwin-arm64.json). Reproduce: `python3 bench/hooks.py BASELINE CANDIDATE --runs 151 --tokens --output hook-config-rewrites-2026-09-23-darwin-arm64.json`.
+
 The initial run triggered a longer paired recheck; both are retained. Reply tokens count only hook JSON with the recorded tokenizer, not search results or total agent usage. Explicit matching and file-size flags add reply cost; declined commands emit no reply and continue with the original tool. Tests use synthetic fixtures and the recorded response shapes, not live host approvals. No new cold-cache, RSS, native-search performance, or whole-task token claim is made.
 
 ## Disposable edit and soak corpora (2026-09-23)
@@ -211,6 +250,33 @@ These are harness-safety checks, not paired native-search performance or token m
 [Commands, raw output, setup samples and binary/corpus/harness digests](../bench/results/disposable-corpora-review-2026-09-23-darwin-arm64.json).
 
 [Initial measurements](../bench/results/disposable-corpora-2026-09-23-darwin-arm64.json) are preserved verbatim. Their edit harness abbreviated freshness diagnostics to 53 characters. The recheck preserves complete emitted diagnostic lines (including the CLI’s explicit ellipsis for long plans) and exercises collision-safe fixtures. Setup samples are retained from the initial run; the corpus-copy implementation is unchanged.
+
+## Hook configuration ownership (2026-09-23)
+
+`greeg 0.6.0+3dc7d33d3` → `greeg 0.6.0+3dc7d33d3.dirty`; 51 randomized paired runs per case after 3 warmups. Each invocation uses a reset disposable home and an isolated configuration/cache. Timing includes process startup and installation/removal, excluding fixture reset and validation.
+
+**Configuration contracts:** 4/14 → 14/14. Checks cover mixed handlers, prefix lookalikes, non-command handlers, wrong matchers, invalid UTF-8, missing-file uninstall and initial installation. Baseline failures are not equivalent successful work; their timing differences are not speedup claims.
+
+| Host | Case | Median ms, before → after | p95 ms, before → after |
+|---|---|---:|---:|
+| claude | mixed uninstall | 3.773 → 3.722 | 4.417 → 4.573 |
+| claude | prefix uninstall | 3.679 → 3.589 | 4.416 → 3.983 |
+| claude | prompt uninstall | 3.796 → 3.751 | 5.210 → 4.431 |
+| claude | wrong matcher install | 3.880 → 4.002 | 4.708 → 4.277 |
+| claude | invalid utf8 | 3.757 → 3.601 | 4.207 → 3.962 |
+| claude | absent uninstall | 3.637 → 3.522 | 4.189 → 3.872 |
+| claude | empty install | 3.853 → 3.829 | 4.287 → 4.121 |
+| codex | mixed uninstall | 3.459 → 3.531 | 4.284 → 4.287 |
+| codex | prefix uninstall | 3.615 → 3.512 | 4.964 → 5.058 |
+| codex | prompt uninstall | 3.462 → 3.510 | 4.431 → 5.046 |
+| codex | wrong matcher install | 3.790 → 3.873 | 4.565 → 4.899 |
+| codex | invalid utf8 | 3.819 → 3.872 | 13.709 → 14.051 |
+| codex | absent uninstall | 3.955 → 4.031 | 11.664 → 10.540 |
+| codex | empty install | 4.193 → 4.189 | 5.031 → 5.215 |
+
+[Raw samples, output bytes/statuses, fixture/harness hashes and binary digests](../bench/results/hook-config-2026-09-23-darwin-arm64.json). Reproduce: `python3 bench/hook_config.py BASELINE CANDIDATE --runs 51 --output hook-config-2026-09-23-darwin-arm64.json`.
+
+These checks validate configuration editing, not live host approval behavior. No token, native-search latency, atomic-write or concurrent-edit safety claim is made. Positional hook IDs may shift on removal; stored trust records are retained unchanged.
 
 ## Speed
 
