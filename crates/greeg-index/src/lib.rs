@@ -193,9 +193,12 @@ mod tests {
 
     #[test]
     fn open_regular_refuses_symlinks_and_fifos_without_blocking() {
-        let d = std::env::temp_dir().join(format!("greeg-open-regular-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&d);
-        fs::create_dir_all(&d).unwrap();
+        let d = (0..1000)
+            .map(|n| {
+                std::env::temp_dir().join(format!("greeg-open-regular-{}-{n}", std::process::id()))
+            })
+            .find(|d| fs::create_dir(d).is_ok())
+            .unwrap();
         fs::write(d.join("file"), "x").unwrap();
         std::os::unix::fs::symlink(d.join("file"), d.join("link")).unwrap();
         let fifo = std::ffi::CString::new(d.join("fifo").as_os_str().as_encoded_bytes()).unwrap();
