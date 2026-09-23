@@ -1,0 +1,20 @@
+crates/greeg/tests/cli.rs
+  s_09357c044b6e84::t_4ba3570e536729 248,250,264
+  s_09357c044b6e84::t_af035a19d49afc 249
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "f43ae3c02d03829c05f501c61fb6e20b8e33d5af",
+  "prompts": {},
+  "sessions": {
+    "s_09357c044b6e84": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0c9a2-d91e-7fc2-8558-a87341dafdb2",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
