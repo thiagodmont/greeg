@@ -462,7 +462,9 @@ pub(crate) fn try_index(cx: &Ctx, threads: usize, t0: Instant) -> Result<Option<
             None => return Ok(None), // outside the index root: scan mode answers this query
         }
     }
+    let sel = crate::select::Selection::new(o, paths)?;
     let display_rel = |rel: &str| -> Option<String> {
+        let paths = sel.paths();
         let i = paths
             .iter()
             .position(|p| path_allowed(rel, std::slice::from_ref(p)))?;
@@ -475,75 +477,18 @@ pub(crate) fn try_index(cx: &Ctx, threads: usize, t0: Instant) -> Result<Option<
             format!("{d}/{}", &rel[paths[i].len() + 1..])
         })
     };
-    let overrides = if o.globs.is_empty() {
-        None
-    } else {
-        let mut ob = ignore::overrides::OverrideBuilder::new(&o.root);
-        for g in &o.globs {
-            ob.add(g)?;
-        }
-        Some(ob.build()?)
-    };
-    let types = if o.types.is_empty() && o.types_not.is_empty() {
-        None
-    } else {
-        Some(crate::build_types(o)?)
-    };
-    // ripgrep precedence: an override glob decides first (whitelist wins over
-    // types); ignore globs also apply to every ancestor directory, as the
-    // walker would prune them. Returns the prior order: source before demoted.
-    let admit = |rel: &str, flags: FileFlags| -> Option<u8> {
-        if !path_allowed(rel, &paths) {
-            return None;
-        }
-        let mut decided = false;
-        if let Some(ov) = &overrides {
-            let m = ov.matched(rel, false);
-            if m.is_ignore() {
-                return None;
-            }
-            decided = m.is_whitelist();
-            let mut end = 0;
-            while let Some(k) = rel[end..].find('/') {
-                end += k;
-                if ov.matched(&rel[..end], true).is_ignore() {
-                    return None;
-                }
-                end += 1;
-            }
-        }
-        if !decided
-            && let Some(t) = &types
-            && t.matched(rel, false).is_ignore()
-        {
-            return None;
-        }
-        if flags.has(FileFlags::BINARY) {
-            return None;
-        }
-        if crate::excluded_by_flags(o, flags) {
-            return None;
-        }
-        Some(if flags.has(FileFlags::MINIFIED) {
-            3
-        } else if flags.demoted() {
-            2
-        } else {
-            0
-        })
-    };
     // (prio, id or NONE for a changed file read from disk, superseded id, rel)
     let mut entries: Vec<(u8, u32, u32, &str)> =
         Vec::with_capacity(cands.len() as usize + extras.len());
     for id in cands.iter() {
         let Some(rec) = idx.rec(id) else { continue };
         let rel = idx.path(id).unwrap_or("");
-        if let Some(prio) = admit(rel, FileFlags(rec.flags)) {
+        if let Some(prio) = sel.admit(rel, FileFlags(rec.flags)) {
             entries.push((prio, id, NONE, rel));
         }
     }
     for (rel, prev) in &extras {
-        if let Some(prio) = admit(rel, greeg_lang::path_flags(rel)) {
+        if let Some(prio) = sel.admit(rel, greeg_lang::path_flags(rel)) {
             entries.push((prio, NONE, *prev, rel.as_str()));
         }
     }

@@ -133,7 +133,6 @@ fn def_paths(o: &Output) -> Vec<String> {
 }
 
 #[test]
-#[ignore = "known gap: indexed symbol verbs ignore request filters"]
 fn indexed_definitions_honor_request_filters() {
     let f = Fixture::new(&[
         ("src/lib.rs", "pub fn needle() {}\n"),
@@ -154,6 +153,41 @@ fn indexed_definitions_honor_request_filters() {
         scanned.sort();
         assert_eq!(scanned, want, "scan {flags:?}");
         assert_eq!(indexed, want, "index {flags:?}");
+    }
+}
+
+#[test]
+fn indexed_implementors_and_map_honor_request_filters() {
+    let f = Fixture::new(&[
+        (
+            "src/lib.rs",
+            "pub trait Shape {}\npub struct A;\nimpl Shape for A {}\n",
+        ),
+        ("src/b.rs", "pub struct B;\nimpl crate::Shape for B {}\n"),
+        ("tests/t.rs", "pub struct T;\nimpl Shape for T {}\n"),
+    ]);
+    f.indexed();
+    for (flags, want) in [
+        (vec!["--no-tests"], vec!["src/b.rs", "src/lib.rs"]),
+        (vec!["-g", "!src/b.rs"], vec!["src/lib.rs", "tests/t.rs"]),
+    ] {
+        let mut args = vec!["impls", "Shape", "--json"];
+        args.extend(&flags);
+        let out = stdout(&f.run(&args));
+        let mut got: Vec<&str> = want.iter().copied().filter(|w| out.contains(w)).collect();
+        got.sort();
+        assert_eq!(got, want, "impls {flags:?}: {out}");
+        let excluded = ["src/b.rs", "src/lib.rs", "tests/t.rs"]
+            .into_iter()
+            .find(|p| !want.contains(p))
+            .unwrap();
+        assert!(!out.contains(excluded), "impls {flags:?}: {out}");
+
+        let mut args = vec!["map", "--json"];
+        args.extend(&flags);
+        let out = stdout(&f.run(&args));
+        assert!(!out.contains(excluded), "map {flags:?}: {out}");
+        assert!(want.iter().all(|w| out.contains(w)), "map {flags:?}: {out}");
     }
 }
 

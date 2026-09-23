@@ -3,6 +3,7 @@
 
 pub mod indexed;
 pub mod precise;
+mod select;
 pub mod session;
 mod session_store;
 pub mod shape;

@@ -4,6 +4,7 @@
 //! `map`, which needs the symbol table.
 
 use crate::indexed::{self, defs_of};
+use crate::select::Selection;
 use crate::{DefSummary, HitKind, Mode, Options, Rung, ScanResult, scan};
 use anyhow::{Context, Result, bail};
 use greeg_index::Index;
@@ -274,6 +275,12 @@ fn doc_first_line(t: &[u8]) -> String {
     String::new()
 }
 
+/// Does the request select the indexed file `fid`?
+fn selected(idx: &Index, sel: &Selection, fid: u32) -> bool {
+    idx.rec(fid)
+        .is_some_and(|r| sel.selects(idx.path(fid).unwrap_or(""), FileFlags(r.flags)))
+}
+
 fn kind_filter_ok(kinds: &[HitKind], _k: DefKind) -> bool {
     kinds.is_empty() || kinds.contains(&HitKind::Def)
 }
@@ -327,6 +334,8 @@ pub fn def(
         let idx = &op.idx;
         res.source = "index";
         res.fresh = op.fresh_method;
+        let sel = Selection::new(o, Vec::new())?;
+        let selected = |fid: u32| selected(idx, &sel, fid);
         let mut syms = idx.lookup(name);
         let fold_case =
             o.case_insensitive || (o.smart_case && !name.chars().any(|c| c.is_uppercase()));
@@ -337,9 +346,11 @@ pub fn def(
                 }
             }
         }
+        syms.retain(|s| selected(idx.sym_file(*s)));
         // the file that is the module: listed after every symbol; an agent
         // wants to open it when nothing else declares the name
-        let file_mods = idx.module_files(name, 64);
+        let mut file_mods = idx.module_files(name, 64);
+        file_mods.retain(|&f| selected(f));
         let mut rung = Rung::Exact;
         if syms.is_empty() && file_mods.is_empty() && o.matching == crate::MatchingPolicy::Discover
         {
@@ -368,7 +379,11 @@ pub fn def(
                 }
             }
             for a in &alts {
-                syms.extend(idx.lookup(a));
+                syms.extend(
+                    idx.lookup(a)
+                        .into_iter()
+                        .filter(|s| selected(idx.sym_file(*s))),
+                );
             }
             res.suggestions = alts;
         }
@@ -811,7 +826,13 @@ pub fn impls(o: &Options, name: &str) -> Result<ImplsResult> {
         let idx = &op.idx;
         source = "index";
         let mut cache: BTreeMap<String, Vec<u8>> = BTreeMap::new();
-        for s in idx.implementors(name).into_iter().take(200) {
+        let sel = Selection::new(o, Vec::new())?;
+        for s in idx
+            .implementors(name)
+            .into_iter()
+            .filter(|s| selected(idx, &sel, idx.sym_file(*s)))
+            .take(200)
+        {
             let Some(r) = idx.sym(s) else { continue };
             let fid = idx.sym_file(s);
             let rel = idx.path(fid).unwrap_or("").to_string();
@@ -1209,11 +1230,12 @@ pub fn map(o: &Options, dir: &str) -> Result<MapResult> {
     let mut files: Vec<MapFile> = Vec::new();
     let mut dirs: BTreeMap<String, MapDir> = BTreeMap::new();
     let mut symbols_total = 0usize;
+    let sel = Selection::new(o, Vec::new())?;
     for (id, rel, rec) in idx.live_files() {
-        if !rel.starts_with(&prefix) {
+        let flags = FileFlags(rec.flags);
+        if !rel.starts_with(&prefix) || !sel.selects(rel, flags) {
             continue;
         }
-        let flags = FileFlags(rec.flags);
         let (first, syms) = idx
             .symbols_of(id)
             .unwrap_or((SymId { seg: 0, idx: 0 }, &[]));
