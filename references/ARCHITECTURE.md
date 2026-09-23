@@ -264,9 +264,11 @@ Dry runs report the same ownership decision without writes.
 
 The shared configuration snapshot helper also publishes skill updates atomically
 and checks identity/content before removal under the same persistent per-file
-lock. New skill files use mode `0600`; replacements retain metadata under the
+lock. Locks are explicitly released when an operation ends so inherited descriptor
+copies cannot prolong ownership. New skill files use mode `0600`; replacements retain metadata under the
 platform rules above. Removals sync the containing directory and retain the lock
-file. File symlinks, nonregular files, invalid UTF-8 and unreadable skill files are
+file. An unmodified read-only skill can be removed when its directory permits
+deletion; replacement still requires a writable target. File symlinks, nonregular files, invalid UTF-8 and unreadable skill files are
 rejected at inspection before configuration publication. Mutation of a hard-linked
 or foreign-owned managed file is refused. Existing parent directories and their
 permissions are retained. Configuration and skill publication are separate;

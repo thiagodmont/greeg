@@ -710,6 +710,7 @@ fn managed_skill_lifecycle_is_atomic_and_preserves_user_edits() {
         assert!(String::from_utf8_lossy(&out.stdout).contains("skill preserved"));
         for body in [generated.as_str(), legacy] {
             fs::write(&skill, body).unwrap();
+            fs::set_permissions(&skill, fs::Permissions::from_mode(0o444)).unwrap();
             let out = f
                 .command(BIN)
                 .args(["hook", agent, "--uninstall"])

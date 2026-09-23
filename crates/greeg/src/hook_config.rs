@@ -15,6 +15,15 @@ pub struct Config {
     file: Option<File>,
 }
 
+struct Lock(File);
+
+impl Drop for Lock {
+    fn drop(&mut self) {
+        // Closing alone can leave a lock held by a descriptor inherited during a fork.
+        let _ = self.0.unlock();
+    }
+}
+
 fn unchanged(a: &Metadata, b: &Metadata) -> bool {
     a.dev() == b.dev()
         && a.ino() == b.ino()
@@ -95,7 +104,7 @@ impl Config {
             .context("managed file removed but directory sync failed")
     }
 
-    fn lock(&self) -> Result<File> {
+    fn lock(&self) -> Result<Lock> {
         let parent = self.path.parent().context("configuration has no parent")?;
         fs::create_dir_all(parent)?;
         let name = self
@@ -134,6 +143,7 @@ impl Config {
         let metadata = lock.metadata()?;
         lock.try_lock()
             .context("configuration is busy or cannot be locked; retry")?;
+        let lock = Lock(lock);
         ensure!(
             unchanged(&metadata, &fs::symlink_metadata(&lock_path)?),
             "configuration lock changed; retry"
@@ -144,6 +154,14 @@ impl Config {
                 metadata.uid() == uid && metadata.nlink() == 1,
                 "configuration must be owned by the current user and have one link; left unchanged"
             );
+        }
+        Ok(lock)
+    }
+
+    fn prepare(&self, text: &str) -> Result<Pending<'_>> {
+        let lock = self.lock()?;
+        let parent = self.path.parent().context("configuration has no parent")?;
+        if let Some(metadata) = &self.metadata {
             let writable = OpenOptions::new()
                 .write(true)
                 .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
@@ -154,12 +172,6 @@ impl Config {
                 "configuration changed; retry"
             );
         }
-        Ok(lock)
-    }
-
-    fn prepare(&self, text: &str) -> Result<Pending<'_>> {
-        let lock = self.lock()?;
-        let parent = self.path.parent().context("configuration has no parent")?;
         for _ in 0..32 {
             let path = parent.join(format!(
                 ".greeg-config-{}-{}.tmp",
@@ -223,7 +235,7 @@ struct Pending<'a> {
     config: &'a Config,
     path: PathBuf,
     file: File,
-    _lock: File,
+    _lock: Lock,
 }
 
 impl Pending<'_> {
@@ -413,6 +425,7 @@ mod tests {
         let path = f.config();
         let absent = Config::read(&path).unwrap();
         let pending = absent.prepare("ours").unwrap();
+        let _inherited_lock = pending._lock.0.try_clone().unwrap();
         fs::write(&path, "external").unwrap();
         assert!(pending.commit().is_err());
         assert_eq!(fs::read_to_string(&path).unwrap(), "external");

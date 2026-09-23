@@ -252,8 +252,9 @@ def main():
     report["completed_at"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, indent=2) + "\n")
+    contracts = "skill and configuration contracts" if args.suite == "skills" else "configuration contracts"
     for label in binaries:
-        print(f"{label}: {sum(r[label]['contract'] for r in report['results'])}/{len(report['results'])} configuration contracts")
+        print(f"{label}: {sum(r[label]['contract'] for r in report['results'])}/{len(report['results'])} {contracts}")
     print(f"wrote {args.output}")
     return 0 if all(r["candidate"]["contract"] for r in report["results"]) else 1
 
