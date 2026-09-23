@@ -6,7 +6,8 @@
 //! `greeg stats enable` (writes `stats = true` to `~/.config/greeg/config.toml`)
 //! or `GREEG_STATS=1` for one shell; `GREEG_STATS=0` overrides the file.
 //!
-//! Storage: `<cache dir>/stats/events.jsonl` (mode 0600), one JSON object per
+//! Storage: `<cache dir>/stats/events.jsonl` in a private directory (0700,
+//! files 0600, opened without following symlinks), one JSON object per
 //! line with `kind` = `hook` (the hook rewrote an rg/grep call) or `run` (a
 //! greeg process finished). `replay.jsonl` holds `greeg stats replay` results.
 //! A hook record and the run it produced share an `id`: blake3 of the working
@@ -14,6 +15,8 @@
 //! argv, so the two join without passing state through the environment (an env
 //! assignment in front of the command would break `Bash(greeg:*)` allow rules).
 //! Recording is best effort: a failure never changes output or exit code.
+//! Each file rotates to one older generation past [`ROTATE_BYTES`], so the
+//! records stay under about twice that per file; reads are bounded the same way.
 //!
 //! Every record names the build that made it ([`VERSION`]); a query keeps one
 //! replay per version, so `greeg stats compare A B` can put two builds side by
@@ -21,6 +24,7 @@
 //! with another build.
 
 use anyhow::{Context, Result};
+use greeg_index::private::PrivateDir;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap};
@@ -35,6 +39,11 @@ use std::time::{Duration, Instant};
 pub const DEFAULT_CAP: usize = 30_000;
 /// `events.jsonl` rotates to `events.1.jsonl` past this size (one generation kept).
 const ROTATE_BYTES: u64 = 16 << 20;
+/// A file is read up to this many trailing bytes (it can only exceed
+/// [`ROTATE_BYTES`] by concurrent appends before the next rotation).
+const READ_BYTES: u64 = ROTATE_BYTES + (1 << 20);
+/// Larger records are dropped rather than written.
+const MAX_RECORD_BYTES: usize = 256 << 10;
 /// A run pairs with the newest hook record of the same id at most this much older.
 const PAIR_WINDOW_MS: u64 = 120_000;
 /// Output kept in memory for the token estimate; beyond this only bytes are
@@ -145,13 +154,12 @@ fn set_key(old: &str, key: &str, value: &str) -> String {
     lines.join("\n") + "\n"
 }
 
+/// Published atomically, and refused if the file changed since it was read.
 fn write_config_key(key: &str, value: &str) -> Result<PathBuf> {
     let path = config_path().context("HOME is not set")?;
-    let old = std::fs::read_to_string(&path).unwrap_or_default();
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir)?;
-    }
-    std::fs::write(&path, set_key(&old, key, value))
+    let config = crate::hook_config::Config::read(&path)?;
+    config
+        .write(&set_key(config.text().unwrap_or(""), key, value))
         .with_context(|| format!("write {}", path.display()))?;
     Ok(path)
 }
@@ -295,24 +303,50 @@ pub fn pair_id(cwd: &Path, argv: &[String]) -> String {
     h.finalize().to_hex()[..16].to_string()
 }
 
+/// The stats directory, opened privately. The default location is greeg's
+/// own and is tightened to 0700; a directory named by `GREEG_STATS_DIR` is
+/// refused rather than chmodded when other users can access it. `None` when
+/// it does not exist and `create` is false (reading never creates it).
+fn records(dir: &Path, create: bool) -> Result<Option<PrivateDir>> {
+    if !create && !dir.exists() {
+        return Ok(None);
+    }
+    let parent = dir.parent().context("stats directory has no parent")?;
+    let name = dir
+        .file_name()
+        .and_then(|n| n.to_str())
+        .context("stats directory needs a UTF-8 name")?;
+    let owned = greeg_index::cache_base().is_ok_and(|b| dir == b.join("stats"));
+    let d = if owned {
+        PrivateDir::open(parent, name)
+    } else {
+        PrivateDir::open_chosen(parent, name)
+    };
+    d.map(Some)
+        .with_context(|| format!("stats directory {}", dir.display()))
+}
+
+fn open_append(d: &PrivateDir, name: &str) -> std::io::Result<std::fs::File> {
+    d.file(name, libc::O_WRONLY | libc::O_CREAT | libc::O_APPEND)
+}
+
 /// One line, one `write` call: parallel greeg processes (Claude runs tool
 /// calls concurrently) append to the same file and must not interleave.
+/// Rotation happens under a lock, rechecked, so two writers rotate once.
 fn append_in(dir: &Path, name: &str, line: &str) -> Result<()> {
-    std::fs::create_dir_all(dir)?;
-    let path = dir.join(name);
-    if let Ok(m) = std::fs::metadata(&path)
-        && m.len() > ROTATE_BYTES
-    {
-        let _ = std::fs::rename(&path, dir.join(name.replace(".jsonl", ".1.jsonl")));
+    anyhow::ensure!(
+        line.len() < MAX_RECORD_BYTES,
+        "stats record exceeds {MAX_RECORD_BYTES} bytes"
+    );
+    let d = records(dir, true)?.context("stats directory")?;
+    let mut f = open_append(&d, name)?;
+    if f.metadata()?.len() > ROTATE_BYTES {
+        let _lock = d.lock(".lock", Duration::from_millis(50))?;
+        if open_append(&d, name)?.metadata()?.len() > ROTATE_BYTES {
+            d.rename(name, &name.replace(".jsonl", ".1.jsonl"))?;
+        }
+        f = open_append(&d, name)?;
     }
-    let mut o = std::fs::OpenOptions::new();
-    o.create(true).append(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        o.mode(0o600);
-    }
-    let mut f = o.open(&path)?;
     let mut buf = Vec::with_capacity(line.len() + 1);
     buf.extend_from_slice(line.as_bytes());
     buf.push(b'\n');
@@ -508,26 +542,46 @@ pub fn exit_no_hits(verb: &'static str) -> ! {
 
 // ---------------------------------------------------------------- reading
 
-/// Lines that fail to parse (a torn write, an older schema) are skipped.
-fn read_lines<T: for<'a> Deserialize<'a>>(path: &Path) -> Vec<T> {
-    let Ok(s) = std::fs::read_to_string(path) else {
+/// The last [`READ_BYTES`] of one file. Lines that fail to parse (a torn
+/// write, an older schema, the partial first line of a tail) are skipped.
+fn read_lines<T: for<'a> Deserialize<'a>>(d: &PrivateDir, name: &str) -> Vec<T> {
+    use std::io::{Seek, SeekFrom};
+    let Ok(mut f) = d.file(name, libc::O_RDONLY) else {
         return Vec::new();
     };
+    let len = f.metadata().map(|m| m.len()).unwrap_or(0);
+    let tail = len > READ_BYTES;
+    if tail && f.seek(SeekFrom::Start(len - READ_BYTES)).is_err() {
+        return Vec::new();
+    }
+    let mut bytes = Vec::new();
+    if f.take(READ_BYTES).read_to_end(&mut bytes).is_err() {
+        return Vec::new();
+    }
+    let s = String::from_utf8_lossy(&bytes);
     s.lines()
+        .skip(usize::from(tail))
         .filter_map(|l| serde_json::from_str(l).ok())
         .collect()
 }
 
-fn load_events(dir: &Path) -> Vec<Event> {
-    let mut v: Vec<Event> = read_lines(&dir.join("events.1.jsonl"));
-    v.extend(read_lines::<Event>(&dir.join("events.jsonl")));
+/// Both generations of `name`, oldest first; empty when the directory is
+/// missing or cannot be opened privately.
+fn load_generations<T: for<'a> Deserialize<'a>>(dir: &Path, name: &str) -> Vec<T> {
+    let Ok(Some(d)) = records(dir, false) else {
+        return Vec::new();
+    };
+    let mut v: Vec<T> = read_lines(&d, &name.replace(".jsonl", ".1.jsonl"));
+    v.extend(read_lines::<T>(&d, name));
     v
 }
 
+fn load_events(dir: &Path) -> Vec<Event> {
+    load_generations(dir, "events.jsonl")
+}
+
 fn load_replays(dir: &Path) -> Vec<ReplayEvent> {
-    let mut v: Vec<ReplayEvent> = read_lines(&dir.join("replay.1.jsonl"));
-    v.extend(read_lines::<ReplayEvent>(&dir.join("replay.jsonl")));
-    v
+    load_generations(dir, "replay.jsonl")
 }
 
 /// `7d`, `12h`, `30m`, `2w`, `90s` → milliseconds.
@@ -2192,16 +2246,19 @@ pub fn status() -> Result<()> {
 pub fn clear() -> Result<()> {
     let d = dir().context("no cache directory")?;
     let mut n = 0;
-    for f in [
-        "events.jsonl",
-        "events.1.jsonl",
-        "replay.jsonl",
-        "replay.1.jsonl",
-    ] {
-        match std::fs::remove_file(d.join(f)) {
-            Ok(()) => n += 1,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-            Err(e) => anyhow::bail!("remove {}: {e}", d.join(f).display()),
+    if let Some(records) = records(&d, false)? {
+        for f in [
+            "events.jsonl",
+            "events.1.jsonl",
+            "replay.jsonl",
+            "replay.1.jsonl",
+        ] {
+            if records
+                .unlink(f)
+                .with_context(|| format!("remove {}", d.join(f).display()))?
+            {
+                n += 1;
+            }
         }
     }
     println!("greeg stats: removed {n} files under {}", d.display());
@@ -2556,15 +2613,22 @@ pub fn replay(o: &ReplayOpts) -> Result<()> {
 mod tests {
     use super::*;
 
+    /// A private directory this test creates, never one left behind by another.
     fn tmp() -> PathBuf {
-        let d = std::env::temp_dir().join(format!(
-            "greeg-stats-{}-{:?}",
-            std::process::id(),
-            std::thread::current().id()
-        ));
-        let _ = std::fs::remove_dir_all(&d);
-        std::fs::create_dir_all(&d).unwrap();
-        d
+        use std::os::unix::fs::DirBuilderExt;
+        static N: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+        loop {
+            let d = std::env::temp_dir().join(format!(
+                "greeg-stats-{}-{}",
+                std::process::id(),
+                N.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            ));
+            match std::fs::DirBuilder::new().mode(0o700).create(&d) {
+                Ok(()) => return d,
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(e) => panic!("create {}: {e}", d.display()),
+            }
+        }
     }
 
     #[test]
@@ -2803,6 +2867,60 @@ mod tests {
         assert!(d.join("events.1.jsonl").exists());
         assert!(std::fs::metadata(d.join("events.jsonl")).unwrap().len() < 1000);
         assert_eq!(load_events(&d).len(), 3);
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn records_are_private_and_never_follow_links() {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        let base = tmp();
+        let d = base.join("stats");
+        put(&d, "events.jsonl", &Event::Hook(hook(1, "a")));
+        assert_eq!(std::fs::metadata(&d).unwrap().mode() & 0o777, 0o700);
+        let events = d.join("events.jsonl");
+        assert_eq!(std::fs::metadata(&events).unwrap().mode() & 0o777, 0o600);
+
+        // a symlink or hard link in place of a record file is refused
+        let outside = base.join("outside");
+        std::fs::write(&outside, "keep").unwrap();
+        std::fs::remove_file(&events).unwrap();
+        std::os::unix::fs::symlink(&outside, &events).unwrap();
+        assert!(append_in(&d, "events.jsonl", "{}").is_err());
+        std::fs::remove_file(&events).unwrap();
+        std::fs::hard_link(&outside, &events).unwrap();
+        assert!(append_in(&d, "events.jsonl", "{}").is_err());
+        assert!(load_events(&d).is_empty());
+        assert_eq!(std::fs::read_to_string(&outside).unwrap(), "keep");
+
+        // a caller-chosen directory others can read is refused, not chmodded
+        let shared = base.join("shared");
+        std::fs::create_dir(&shared).unwrap();
+        std::fs::set_permissions(&shared, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(append_in(&shared, "events.jsonl", "{}").is_err());
+        assert_eq!(std::fs::metadata(&shared).unwrap().mode() & 0o777, 0o755);
+        assert!(!shared.join("events.jsonl").exists());
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn reads_are_bounded_and_oversized_records_are_dropped() {
+        let d = tmp();
+        let f = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(d.join("events.jsonl"))
+            .unwrap();
+        // grown past the read bound without rotating: only the tail is read
+        f.set_len(READ_BYTES + 4096).unwrap();
+        put(&d, "events.jsonl", &Event::Hook(hook(1, "tail")));
+        let ev = load_events(&d);
+        assert!(matches!(&ev[..], [Event::Hook(h)] if h.id == "tail"));
+        let huge = "x".repeat(MAX_RECORD_BYTES);
+        assert!(append_in(&d, "events.jsonl", &huge).is_err());
+        // reading a missing directory does not create it
+        let missing = d.join("missing");
+        assert!(load_events(&missing).is_empty());
+        assert!(!missing.exists());
         let _ = std::fs::remove_dir_all(&d);
     }
 

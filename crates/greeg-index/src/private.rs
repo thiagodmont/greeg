@@ -42,8 +42,9 @@ fn open_at(dir: &File, name: &str, flags: i32) -> io::Result<File> {
     Ok(unsafe { File::from_raw_fd(fd) })
 }
 
-/// Check an opened object and tighten its mode.
-fn private(file: &File, directory: bool) -> io::Result<()> {
+/// Check an opened object and tighten its mode, or with `repair` false,
+/// refuse one that other users can access.
+fn private(file: &File, directory: bool, repair: bool) -> io::Result<()> {
     let m = file.metadata()?;
     // SAFETY: geteuid has no preconditions.
     if m.uid() != unsafe { libc::geteuid() }
@@ -60,6 +61,12 @@ fn private(file: &File, directory: bool) -> io::Result<()> {
     no_extended_acl(file)?;
     let mode = if directory { 0o700 } else { 0o600 };
     if m.mode() & 0o7777 != mode {
+        if !repair && m.mode() & 0o077 != 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "directory is accessible by other users; restrict it to its owner (chmod 700)",
+            ));
+        }
         file.set_permissions(fs::Permissions::from_mode(mode))?;
     }
     Ok(())
@@ -142,9 +149,20 @@ pub struct PrivateDir {
 }
 
 impl PrivateDir {
-    /// Open `parent/name`, creating it 0700 when missing. Missing parents are
-    /// created 0700; existing, caller-selected parents are never chmodded.
+    /// Open `parent/name`, a directory greeg owns, creating it 0700 when
+    /// missing and tightening it otherwise. Missing parents are created 0700;
+    /// existing parents are never chmodded.
     pub fn open(parent: &Path, name: &str) -> io::Result<Self> {
+        Self::open_with(parent, name, true)
+    }
+
+    /// `open`, but an existing directory the caller chose is only checked:
+    /// one that other users can access is refused, never chmodded.
+    pub fn open_chosen(parent: &Path, name: &str) -> io::Result<Self> {
+        Self::open_with(parent, name, false)
+    }
+
+    fn open_with(parent: &Path, name: &str, repair: bool) -> io::Result<Self> {
         fs::DirBuilder::new()
             .recursive(true)
             .mode(0o700)
@@ -162,7 +180,7 @@ impl PrivateDir {
             }
         }
         let dir = open_at(&parent, name, libc::O_RDONLY | libc::O_DIRECTORY)?;
-        private(&dir, true)?;
+        private(&dir, true, repair)?;
         Ok(Self { dir })
     }
 
@@ -180,7 +198,7 @@ impl PrivateDir {
         } else {
             open_at(&self.dir, name, flags)?
         };
-        private(&file, false)?;
+        private(&file, false, true)?;
         Ok(file)
     }
 
