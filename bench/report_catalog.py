@@ -44,6 +44,7 @@ class Dataset:
     measured_at: datetime | None = None
     timestamp_source: str = ""
     timestamp_commit: str = ""
+    notes: str = ""
     show_rows: bool = True
     analysis: str = ""
     recheck_of: str = ""
@@ -97,7 +98,7 @@ def load_catalog(path):
         require(item.get("show_rows", True) or item["section"] == "matching_review",
                 path, f"{field}.show_rows", "false only for matching_review")
         require(item.get("analysis", "") in ("", "publication", "thresholds"), path, f"{field}.analysis", "supported analysis")
-        for key in ("recheck_of", "comparison_intro", "comparison_limits"):
+        for key in ("notes", "recheck_of", "comparison_intro", "comparison_limits"):
             require(isinstance(item.get(key, ""), str), path, f"{field}.{key}", "string")
         require(not item.get("analysis") or item["section"] == "hook_config", path, field, "analysis on hook_config only")
         require(not item.get("recheck_of") or item["section"] == "hook_config", path, field, "recheck on hook_config only")
@@ -132,6 +133,8 @@ def validate_dataset(data, entry):
         check(type(value) is bool or (nullable and value is None), field, "boolean" + (" or null" if nullable else ""))
 
     obj(data, "dataset")
+    if entry.section == "hook_config":
+        check(data.get("suite", "configuration") in ("configuration", "skills"), "suite", "configuration or skills")
     protocol = data.get("protocol", 1)
     check(type(protocol) is int and protocol in (1, 2), "protocol", "supported version 1 or 2")
     count(data.get("runs"), "runs", 1)

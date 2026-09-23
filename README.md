@@ -149,8 +149,13 @@ or ACLs are left unchanged with an error. See the
 [configuration update contract](references/ARCHITECTURE.md#hook-configuration-updates)
 for concurrency and interruption limits.
 
-Preservation of user-edited generated skills remains a follow-up. Configuration
-and skill updates are separate operations; `--dry-run` writes neither.
+Generated skills carry a versioned ownership marker and content checksum.
+Reinstall updates unmodified managed skills; uninstall removes only those skills
+or an exact copy of the bundled legacy text. Edited or unrecognized skills are
+preserved with a message; move one aside before reinstalling to regenerate it.
+Skill-file symlinks, nonregular files and unreadable content stop the operation
+before configuration changes. Configuration and skill updates are separate
+operations; `--dry-run` previews both and writes neither.
 
 The hook preserves supported search arguments and requests exact matching; text
 results still use greeg's ranking and token budget. An explicit file-size flag

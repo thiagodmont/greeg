@@ -242,8 +242,38 @@ rename. The lock coordinates current greeg writers only. Parent-directory swaps
 and arbitrary same-user tampering are outside this contract. File and directory
 syncs improve durability but are not a tested power-loss guarantee. Configuration
 publication and generated-skill changes are not a joint transaction; a later
-skill error can occur after configuration publication. Skill ownership and
-atomic skill writes remain separate work.
+skill error can occur after configuration publication and is reported as such.
+
+### Generated skill ownership
+
+Both installers inspect `SKILL.md` before editing configuration. Generated text
+ends with a `greeg-managed-skill:v1` HTML comment identifying the agent and a
+BLAKE3 checksum of the generated body. This detects edits; it is not an
+authentication signature against other code running as the same user. Unknown
+marker versions, another agent's marker, checksum mismatches, and unrecognized
+unmarked text are preserved, including on uninstall. Exact copies of the current
+bundled legacy text are adopted on install or removed on uninstall; older or
+edited unmarked variants are conservatively preserved. Older greeg binaries do
+not honor this protection.
+
+Unmodified managed skills can be upgraded and removed. Reinstalling identical
+content does not rewrite the file or change its mode, inode or modification time.
+Modified skills produce a preservation message while hook configuration edits
+continue. Move a preserved file aside before reinstalling to regenerate it.
+Dry runs report the same ownership decision without writes.
+
+The shared configuration snapshot helper also publishes skill updates atomically
+and checks identity/content before removal under the same persistent per-file
+lock. Locks are explicitly released when an operation ends so inherited descriptor
+copies cannot prolong ownership. New skill files use mode `0600`; replacements retain metadata under the
+platform rules above. Removals sync the containing directory and retain the lock
+file. An unmodified read-only skill can be removed when its directory permits
+deletion; replacement still requires a writable target. File symlinks, nonregular files, invalid UTF-8 and unreadable skill files are
+rejected at inspection before configuration publication. Mutation of a hard-linked
+or foreign-owned managed file is refused. Existing parent directories and their
+permissions are retained. Configuration and skill publication are separate;
+uncoordinated changes after the final snapshot check, directory swaps, and
+power-loss behavior have the same limitations as configuration publication.
 
 ### Session memory
 
@@ -407,6 +437,11 @@ machine can fail the build.
 
 Paired reports are registered in `bench/reports.toml`: filenames, titles, order
 within each section, optional analysis and configuration recheck relationships.
+Use optional `notes` for measurement-specific interpretation and limits; headings
+render them without adding branches for individual runs.
+`bench/hook_config.py --suite skills` measures skill lifecycle and configuration together; the default
+suite retains its configuration fixtures. Both it and `bench/hooks.py` record
+execution start/completion timestamps in new result files.
 Set `pr` to the positive number of the originating greeg PR once known; rendered
 headings link to it. Omit it for unpublished measurements.
 Record `measured_at` as an unquoted TOML offset datetime (for example,

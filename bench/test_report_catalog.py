@@ -226,6 +226,17 @@ class CatalogTests(unittest.TestCase):
             for link in re.findall(r"\]\(([^)]+\.json)\)", text):
                 self.assertTrue((root / unquote(link)).is_file(), link)
 
+    def test_recheck_notes_stay_with_their_dataset_when_new_reports_follow(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            store = ReportDatasets(root, self.path)
+            entries = {entry.id: entry for entry in store.entries}
+            for key in ("atomic_review", "atomic_confirmation", "skill_ownership"):
+                (root / entries[key].filename).write_text(json.dumps(config_dataset()))
+            rendered = "\n".join(bench.hook_config_report(str(root), store))
+            self.assertLess(rendered.index(entries["atomic_confirmation"].comparison_intro),
+                            rendered.index("## " + entries["skill_ownership"].title))
+
 
 if __name__ == "__main__":
     unittest.main()

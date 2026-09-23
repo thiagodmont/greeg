@@ -10,6 +10,47 @@ import bench as report
 
 
 class HookConfigHarnessTests(unittest.TestCase):
+    def test_skill_contract_rejects_changes_to_preserved_content_or_identity(self):
+        generated = b"instructions\n\n<!-- greeg-managed-skill:v1 fixture -->\n"
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            for agent in ("claude", "codex"):
+                for name in ("managed_noop", "custom_install", "edited_install"):
+                    case = next(c for c in hook_config.skill_fixtures(agent, generated) if c.name == name)
+                    for change in ("none", "contents", "replace"):
+                        def run(*args, **kwargs):
+                            path = base / f"home/.{agent}/skills/greeg/SKILL.md"
+                            if change == "contents":
+                                path.write_bytes(b"changed")
+                            elif change == "replace":
+                                other = path.with_suffix(".new")
+                                other.write_bytes(path.read_bytes())
+                                other.replace(path)
+                            return subprocess.CompletedProcess(args, 0, b"", b"")
+                        with self.subTest(agent=agent, name=name, change=change), patch.object(hook_config.subprocess, "run", side_effect=run):
+                            result = hook_config.invoke(Path("/fixture"), agent, case, base, {})
+                            self.assertEqual(result["contract"], change == "none")
+
+    def test_skill_report_describes_its_actual_suite(self):
+        filename = "atomic-config-2026-09-23-darwin-arm64.json"
+        data = {"protocol": 2, "suite": "skills", "runs": 1, "warmups": 0,
+                "binaries": {label: {"version": label} for label in ("baseline", "candidate")},
+                "results": [{"agent": "codex", "case": "custom_install",
+                             **{label: {"median_ms": 1, "p95_ms": 1, "failed_invocations": 0, "contract": True}
+                                for label in ("baseline", "candidate")}}]}
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / filename
+            path.write_text(json.dumps(data))
+            with patch.object(report, "RESULTS", temp):
+                text = "\n".join(report.hook_config_dataset_report(temp, filename, "fixture"))
+                self.assertIn("Skill and configuration contracts", text)
+                self.assertIn("--suite skills", text)
+                self.assertNotIn("Checks cover mixed handlers", text)
+                data["suite"] = "unknown"
+                path.write_text(json.dumps(data))
+                with self.assertRaisesRegex(ValueError, "suite"):
+                    report.hook_config_dataset_report(temp, filename, "fixture")
+
     def test_atomic_report_with_failed_invocations(self):
         filename = "atomic-config-2026-09-23-darwin-arm64.json"
         data = json.loads((Path(report.RESULTS) / filename).read_text())

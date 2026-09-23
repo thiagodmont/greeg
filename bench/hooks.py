@@ -6,6 +6,7 @@ Requires rg; rustc is optional host metadata. Token counts describe hook protoco
 replies, not agent-task savings.
 """
 import argparse
+from datetime import datetime, timezone
 import hashlib
 import json
 import math
@@ -86,6 +87,7 @@ def main():
         encoding = tiktoken.get_encoding("o200k_base")
     binaries = {k: str(v.resolve()) for k, v in (("baseline", args.baseline), ("candidate", args.candidate))}
     report = {"protocol": 2, "platform": platform.platform(), "machine": platform.machine(),
+              "measured_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
               "cpu_count": os.cpu_count(), "python": platform.python_version(), "runs": args.runs,
               "warmups": 3, "order_seed": 20260922, "tokenizer": "o200k_base" if encoding else None,
               "scope": "Hook process wall time and reply bytes/tokens; no live host, RSS, cold-cache or agent-task claim",
@@ -172,6 +174,7 @@ def main():
                             sorted(actual.stdout.splitlines()) == sorted(oracle.stdout.splitlines()),
                         "stdout_bytes": len(actual.stdout), "stderr_bytes": len(actual.stderr),
                         "exit": actual.returncode, "stdout_sha256": digest(actual.stdout)})
+    report["completed_at"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, indent=2) + "\n")
     failures = [r for r in report["results"] if not r["candidate"]["contract"]]

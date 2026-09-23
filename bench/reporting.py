@@ -18,6 +18,8 @@ def report_heading(entry, *, title=None, level=2):
                     "execution time was not recorded).", ""]
         else:
             out += [f"Measurement time: {timestamp} (recorded).", ""]
+    if entry.notes:
+        out += [entry.notes, ""]
     return out
 
 

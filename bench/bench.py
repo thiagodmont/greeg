@@ -1233,7 +1233,6 @@ def hook_config_report(output_dir, datasets=None):
     out = []
     for entry in datasets.section("hook_config"):
         out += hook_config_dataset_report(output_dir, entry.filename, entry.title, datasets)
-    for entry in datasets.section("hook_config"):
         if not entry.recheck_of:
             continue
         original = next(e for e in datasets.entries if e.id == entry.recheck_of)
@@ -1264,20 +1263,27 @@ def hook_config_dataset_report(output_dir, filename, title, datasets=None):
     extended = data.get("protocol", 1) >= 2
     coverage = ("Protocol 2 also checks byte-identical installed no-ops, matcher-less cleanup, "
                 "custom matcher preservation, and retained TOML comments/trust data. " if extended else "")
+    skills = data.get("suite") == "skills"
+    if skills:
+        coverage = ("Checks cover skill creation, managed no-ops, legacy adoption, edited/custom preservation, "
+                    "managed/legacy removal, absent skills and dry runs, alongside configuration outcomes. "
+                    "Preservation and no-op cases require identical content, inode, mode, mtime and ctime. ")
+    else:
+        coverage = ("Checks cover mixed handlers, prefix lookalikes, non-command handlers, wrong matchers, invalid UTF-8, "
+                    "missing-file uninstall and initial installation. " + coverage)
     out = report_heading(entry, title=title) + [
            f"`{data['binaries']['baseline']['version']}` → `{data['binaries']['candidate']['version']}`; "
            f"{data['runs']} randomized paired runs per case after {data['warmups']} warmups. "
            "Each invocation uses a reset disposable home and an isolated configuration/cache. "
            "Timing includes process startup and installation/removal, excluding fixture reset and validation.", "",
-           f"**Configuration contracts:** {passed['baseline']}/{len(rows)} → {passed['candidate']}/{len(rows)}. "
-           "Checks cover mixed handlers, prefix lookalikes, non-command handlers, wrong matchers, invalid UTF-8, "
-           "missing-file uninstall and initial installation. " + coverage + "Baseline failures are not equivalent successful work; "
+           f"**{'Skill and configuration' if skills else 'Configuration'} contracts:** {passed['baseline']}/{len(rows)} → {passed['candidate']}/{len(rows)}. "
+           + coverage + "Baseline failures are not equivalent successful work; "
            "their timing differences are not speedup claims.", ""]
     out += paired_table(rows, "agent", "Host")
     out += ["", f"[Raw samples, output bytes/statuses, fixture/harness hashes and binary digests]({link}). "
-            f"Reproduce: `python3 bench/hook_config.py BASELINE CANDIDATE --runs {data['runs']} --output {filename}`.", "",
-            "These checks validate configuration editing, not live host approval behavior. "
-            "No token, native-search latency, atomic-write or concurrent-edit safety claim is made. "
+            f"Reproduce: `python3 bench/hook_config.py BASELINE CANDIDATE{' --suite skills' if skills else ''} --runs {data['runs']} --output {filename}`.", "",
+            f"These checks validate {'skill lifecycle and configuration editing' if skills else 'configuration editing'}, not live host approval behavior. "
+            f"No {'agent-task token' if skills else 'token'}, native-search latency, atomic-write or concurrent-edit safety claim is made. "
             "Positional hook IDs may shift on removal; stored trust records are retained unchanged.", ""]
     if extended:
         failures = sum(row[label].get("failed_invocations", 0) for row in rows for label in ("baseline", "candidate"))
