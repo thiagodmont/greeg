@@ -157,6 +157,34 @@ class CatalogTests(unittest.TestCase):
             with self.subTest(value=value):
                 self.invalid_catalog(self.source.replace('pr = 13', f'pr = {value}', 1), r"\.pr:")
 
+    def test_timestamp_requires_timezone_and_consistent_provenance(self):
+        base = self.source + '\n[[datasets]]\nid = "timestamp_test"\nsection = "hook"\n' \
+               'filename = "timestamp-test.json"\ntitle = "Timestamp test"\n'
+        measured = 'measured_at = 2026-09-23T11:35:57Z\n'
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "reports.toml"
+            for metadata in ("", measured + 'timestamp_source = "measurement"\n',
+                             measured + 'timestamp_source = "first_commit"\ntimestamp_commit = "' + "a" * 40 + '"\n'):
+                path.write_text(base + metadata)
+                self.assertEqual(load_catalog(path)[-1].id, "timestamp_test")
+        for value in ('2026-09-23', '2026-09-23T11:35:57', '"2026-09-23T11:35:57Z"', 'true', '42'):
+            with self.subTest(value=value):
+                self.invalid_catalog(base + f'measured_at = {value}\ntimestamp_source = "measurement"\n', r"\.measured_at:")
+        for value in ('0001-01-01T00:00:00+01:00', '9999-12-31T23:59:59-01:00'):
+            with self.subTest(value=value):
+                self.invalid_catalog(base + f'measured_at = {value}\ntimestamp_source = "measurement"\n', r"\.measured_at:")
+        for metadata, field in (
+            (measured, "timestamp_source"),
+            ('timestamp_source = "measurement"\n', "measured_at"),
+            ('timestamp_commit = "' + "a" * 40 + '"\n', "measured_at"),
+            (measured + 'timestamp_source = "unknown"\n', "timestamp_source"),
+            (measured + 'timestamp_source = "first_commit"\n', "timestamp_commit"),
+            (measured + 'timestamp_source = "first_commit"\ntimestamp_commit = "abcd123"\n', "timestamp_commit"),
+            (measured + 'timestamp_source = "measurement"\ntimestamp_commit = "' + "a" * 40 + '"\n', "timestamp_commit"),
+        ):
+            with self.subTest(metadata=metadata):
+                self.invalid_catalog(base + metadata, rf"\.{field}:")
+
     def test_all_registered_artifacts_validate(self):
         store = ReportDatasets(Path(bench.HERE) / "results")
         self.assertTrue(store.entries)
@@ -183,7 +211,8 @@ class CatalogTests(unittest.TestCase):
             root = Path(temp)
             path = root / "reports.toml"
             path.write_text(self.source + '\n[[datasets]]\nid = "new_run"\nsection = "hook_config"\n'
-                            'filename = "new-run.json"\ntitle = "New measurement"\npr = 19\nanalysis = "thresholds"\n')
+                            'filename = "new-run.json"\ntitle = "New measurement"\npr = 19\nanalysis = "thresholds"\n'
+                            'measured_at = 2026-09-23T11:35:57Z\ntimestamp_source = "measurement"\n')
             data = config_dataset()
             (root / "new-run.json").write_text(json.dumps(data))
             store = ReportDatasets(root, path)
@@ -191,6 +220,7 @@ class CatalogTests(unittest.TestCase):
             text = "\n".join(bench.hook_config_report(str(root), store))
             self.assertIn("## New measurement", text)
             self.assertIn("Originating PR: [#19](https://github.com/thiagodmont/greeg/pull/19).", text)
+            self.assertIn("Measurement time: 2026-09-23T11:35:57Z (recorded).", text)
             self.assertIn("Maximum median/p95 increases", text)
             self.assertNotIn("Atomic configuration:", text)
             for link in re.findall(r"\]\(([^)]+\.json)\)", text):

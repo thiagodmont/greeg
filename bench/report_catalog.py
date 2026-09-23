@@ -1,5 +1,6 @@
 """Catalog and report-facing validation for paired benchmark datasets."""
 from dataclasses import dataclass
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 import re
@@ -40,6 +41,9 @@ class Dataset:
     filename: str
     title: str
     pr: int | None = None
+    measured_at: datetime | None = None
+    timestamp_source: str = ""
+    timestamp_commit: str = ""
     show_rows: bool = True
     analysis: str = ""
     recheck_of: str = ""
@@ -67,6 +71,24 @@ def load_catalog(path):
         for key in ("id", "section", "filename", "title"):
             require(text(item.get(key)), path, f"{field}.{key}", "nonempty string")
         require("pr" not in item or integer(item["pr"], 1), path, f"{field}.pr", "positive PR number")
+        timestamp_fields = {"measured_at", "timestamp_source", "timestamp_commit"}
+        if timestamp_fields & item.keys():
+            measured_at = item.get("measured_at")
+            require(isinstance(measured_at, datetime) and measured_at.utcoffset() is not None,
+                    path, f"{field}.measured_at", "TOML datetime with an explicit UTC offset")
+            try:
+                measured_at.astimezone(timezone.utc)
+            except OverflowError as error:
+                raise ReportDataError(f"{path}: {field}.measured_at: outside supported UTC range") from error
+            require(item.get("timestamp_source") in ("measurement", "first_commit"),
+                    path, f"{field}.timestamp_source", "measurement or first_commit")
+            if item["timestamp_source"] == "first_commit":
+                commit = item.get("timestamp_commit")
+                require(isinstance(commit, str) and re.fullmatch(r"[0-9a-f]{40}", commit),
+                        path, f"{field}.timestamp_commit", "full lowercase source commit SHA")
+            else:
+                require("timestamp_commit" not in item, path, f"{field}.timestamp_commit",
+                        "omitted for a recorded measurement time")
         require(re.fullmatch(r"[a-z][a-z0-9_]*", item["id"]), path, f"{field}.id", "lowercase identifier")
         require(item["section"] in SECTIONS, path, f"{field}.section", "supported report section")
         require(re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_.-]*\.json", item["filename"]),

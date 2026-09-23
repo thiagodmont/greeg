@@ -1,13 +1,23 @@
 """Shared formatting for paired benchmark reports; no benchmark execution."""
+from datetime import timezone
 import math
 import os
 from urllib.parse import quote
 
 
-def report_heading(title, *, pr=None, level=2):
-    out = [f"{'#' * level} {title}", ""]
-    if pr is not None:
-        out += [f"Originating PR: [#{pr}](https://github.com/thiagodmont/greeg/pull/{pr}).", ""]
+def report_heading(entry, *, title=None, level=2):
+    out = [f"{'#' * level} {entry.title if title is None else title}", ""]
+    if entry.pr is not None:
+        out += [f"Originating PR: [#{entry.pr}](https://github.com/thiagodmont/greeg/pull/{entry.pr}).", ""]
+    if entry.measured_at is not None:
+        timestamp = entry.measured_at.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+        if entry.timestamp_source == "first_commit":
+            commit = entry.timestamp_commit
+            out += [f"Measurement time: {timestamp} (estimate from first dataset commit "
+                    f"[{commit[:7]}](https://github.com/thiagodmont/greeg/commit/{commit}); "
+                    "execution time was not recorded).", ""]
+        else:
+            out += [f"Measurement time: {timestamp} (recorded).", ""]
     return out
 
 

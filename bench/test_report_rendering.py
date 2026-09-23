@@ -1,4 +1,6 @@
 import copy
+from dataclasses import replace
+from datetime import datetime
 import json
 from pathlib import Path
 import tempfile
@@ -6,6 +8,7 @@ import unittest
 from unittest.mock import patch
 
 import bench
+from report_catalog import Dataset
 from reporting import latency_summary, paired_table, report_heading
 
 
@@ -87,9 +90,21 @@ class ConfigReportTests(unittest.TestCase):
 
 class PairedRenderingTests(unittest.TestCase):
     def test_headings_link_known_prs_and_do_not_guess_missing_ones(self):
-        self.assertEqual(report_heading("Measurement"), ["## Measurement", ""])
-        self.assertEqual(report_heading("Recheck", pr=18, level=3),
+        entry = Dataset("test", "hook", "test.json", "Measurement")
+        self.assertEqual(report_heading(entry), ["## Measurement", ""])
+        self.assertEqual(report_heading(replace(entry, title="Recheck", pr=18), level=3),
                          ["### Recheck", "", "Originating PR: [#18](https://github.com/thiagodmont/greeg/pull/18).", ""])
+
+    def test_timestamp_distinguishes_recorded_time_from_commit_estimate(self):
+        entry = Dataset("test", "hook", "test.json", "Measurement",
+                        measured_at=datetime.fromisoformat("2026-09-22T22:59:39-04:00"),
+                        timestamp_source="measurement")
+        self.assertIn("Measurement time: 2026-09-23T02:59:39Z (recorded).", report_heading(entry))
+        entry = replace(entry, timestamp_source="first_commit", timestamp_commit="a" * 40)
+        rendered = "\n".join(report_heading(entry))
+        self.assertIn("2026-09-23T02:59:39Z (estimate from first dataset commit", rendered)
+        self.assertIn("[aaaaaaa](https://github.com/thiagodmont/greeg/commit/" + "a" * 40 + ")", rendered)
+        self.assertIn("execution time was not recorded", rendered)
 
     def row(self, median=100, p95=100):
         return {"agent": "codex", "case": "installed_noop",

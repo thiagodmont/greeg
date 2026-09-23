@@ -408,8 +408,16 @@ machine can fail the build.
 Paired reports are registered in `bench/reports.toml`: filenames, titles, order
 within each section, optional analysis and configuration recheck relationships.
 Set `pr` to the positive number of the originating greeg PR once known; rendered
-headings link to it. Omit it for unpublished measurements. This identifies review
-context, not an execution timestamp or host; measurement metadata stays in the raw results.
+headings link to it. Omit it for unpublished measurements.
+Record `measured_at` as an unquoted TOML offset datetime (for example,
+`2026-09-23T11:35:57Z`) with `timestamp_source = "measurement"` for a known
+execution time. For historical results without one, use the committer timestamp
+of the first commit adding the dataset (follow renames), set
+`timestamp_source = "first_commit"`, and include its full SHA in `timestamp_commit`.
+Reports normalize times to UTC and explicitly label these commit dates as estimates,
+not recorded execution times. Omit all three fields if neither time is known;
+partial metadata and datetimes without a timezone are rejected. Other measurement
+metadata stays in the raw results.
 Add measurements to `hook`, `hook_config` or `matching_review` there without
 changing renderers; `matching` and `matching_recheck` each allow exactly one dataset.
 `bench/report_catalog.py` validates the catalog and report-facing fields for

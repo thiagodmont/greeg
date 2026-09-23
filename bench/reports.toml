@@ -6,6 +6,9 @@ section = "matching"
 filename = "exact-search-matching-2026-09-22-darwin-arm64.json"
 title = "Exact-search defaults (2026-09-22)"
 pr = 13
+measured_at = 2026-09-22T16:33:52Z
+timestamp_source = "first_commit"
+timestamp_commit = "468e287304d20e056e8f1cf8a55f97983efb30a3"
 
 [[datasets]]
 id = "ranked_recheck"
@@ -13,6 +16,9 @@ section = "matching_recheck"
 filename = "exact-search-ranked-recheck-2026-09-22-darwin-arm64.json"
 title = "Ranked-query recheck"
 pr = 13
+measured_at = 2026-09-22T16:33:52Z
+timestamp_source = "first_commit"
+timestamp_commit = "468e287304d20e056e8f1cf8a55f97983efb30a3"
 
 [[datasets]]
 id = "json_coverage"
@@ -20,6 +26,9 @@ section = "matching_review"
 filename = "exact-search-json-darwin-arm64.json"
 title = "JSON exact-default coverage"
 pr = 13
+measured_at = 2026-09-22T18:38:06Z
+timestamp_source = "first_commit"
+timestamp_commit = "8d428ddd8903c773a643510a2d929eed848093f9"
 
 [[datasets]]
 id = "matching_review"
@@ -27,6 +36,9 @@ section = "matching_review"
 filename = "exact-search-review-darwin-arm64.json"
 title = "Review fixes: initial measurements"
 pr = 13
+measured_at = 2026-09-22T18:38:06Z
+timestamp_source = "first_commit"
+timestamp_commit = "8d428ddd8903c773a643510a2d929eed848093f9"
 show_rows = false
 
 [[datasets]]
@@ -35,6 +47,9 @@ section = "matching_review"
 filename = "exact-search-review-recheck-darwin-arm64.json"
 title = "Review fixes: optimized lookup recheck"
 pr = 13
+measured_at = 2026-09-22T18:38:06Z
+timestamp_source = "first_commit"
+timestamp_commit = "8d428ddd8903c773a643510a2d929eed848093f9"
 
 [[datasets]]
 id = "hook_initial"
@@ -42,6 +57,9 @@ section = "hook"
 filename = "hook-contract-darwin-arm64.json"
 title = "Hook contract: initial measurements"
 pr = 14
+measured_at = 2026-09-22T21:49:16Z
+timestamp_source = "first_commit"
+timestamp_commit = "1e15948fe4229b921f0f07d2f59ac63448134ef7"
 
 [[datasets]]
 id = "hook_recheck"
@@ -49,6 +67,9 @@ section = "hook"
 filename = "hook-contract-recheck-darwin-arm64.json"
 title = "Hook contract: latency recheck"
 pr = 14
+measured_at = 2026-09-22T21:49:16Z
+timestamp_source = "first_commit"
+timestamp_commit = "1e15948fe4229b921f0f07d2f59ac63448134ef7"
 
 [[datasets]]
 id = "hook_review"
@@ -56,6 +77,9 @@ section = "hook"
 filename = "hook-review-darwin-arm64.json"
 title = "Hook contract: review fixes"
 pr = 14
+measured_at = 2026-09-22T22:13:30Z
+timestamp_source = "first_commit"
+timestamp_commit = "3b30322348e8695720b7d04b4491bfb428d6e062"
 
 [[datasets]]
 id = "hook_config_rewrites"
@@ -63,6 +87,9 @@ section = "hook"
 filename = "hook-config-rewrites-2026-09-23-darwin-arm64.json"
 title = "Hook contract: rewrite regression"
 pr = 17
+measured_at = 2026-09-23T02:04:37Z
+timestamp_source = "first_commit"
+timestamp_commit = "3d09de45e1f4d6bfdbba35968f2235c1aaf0ccd5"
 
 [[datasets]]
 id = "atomic_rewrites"
@@ -70,6 +97,9 @@ section = "hook"
 filename = "atomic-config-rewrites-2026-09-23-darwin-arm64.json"
 title = "Hook contract: rewrite regression after atomic configuration"
 pr = 18
+measured_at = 2026-09-23T02:59:39Z
+timestamp_source = "first_commit"
+timestamp_commit = "0086e80e31315fdfd503ae09428c8c9b0d1113a2"
 
 [[datasets]]
 id = "config_ownership"
@@ -77,6 +107,9 @@ section = "hook_config"
 filename = "hook-config-2026-09-23-darwin-arm64.json"
 title = "Hook configuration ownership (2026-09-23)"
 pr = 17
+measured_at = 2026-09-23T02:04:37Z
+timestamp_source = "first_commit"
+timestamp_commit = "3d09de45e1f4d6bfdbba35968f2235c1aaf0ccd5"
 
 [[datasets]]
 id = "config_review"
@@ -84,6 +117,9 @@ section = "hook_config"
 filename = "hook-config-review-2026-09-23-darwin-arm64.json"
 title = "Hook configuration ownership: review fixes (2026-09-23)"
 pr = 17
+measured_at = 2026-09-23T02:31:47Z
+timestamp_source = "first_commit"
+timestamp_commit = "9c1fea2e0b57e1d90ba83c04d4739f26662b0904"
 
 [[datasets]]
 id = "atomic_publication"
@@ -91,6 +127,9 @@ section = "hook_config"
 filename = "atomic-config-2026-09-23-darwin-arm64.json"
 title = "Atomic configuration: installer regression (2026-09-23)"
 pr = 18
+measured_at = 2026-09-23T02:59:39Z
+timestamp_source = "first_commit"
+timestamp_commit = "0086e80e31315fdfd503ae09428c8c9b0d1113a2"
 analysis = "publication"
 
 [[datasets]]
@@ -99,6 +138,9 @@ section = "hook_config"
 filename = "atomic-config-review-2026-09-23-darwin-arm64.json"
 title = "Atomic configuration: review fixes (2026-09-23)"
 pr = 18
+measured_at = 2026-09-23T11:35:57Z
+timestamp_source = "first_commit"
+timestamp_commit = "7789b8665e25c47ec5e7d3da861961d72bd66772"
 analysis = "thresholds"
 
 [[datasets]]
@@ -107,6 +149,9 @@ section = "hook_config"
 filename = "atomic-config-review-confirmation-2026-09-23-darwin-arm64.json"
 title = "Atomic configuration: review latency recheck (2026-09-23)"
 pr = 18
+measured_at = 2026-09-23T11:35:57Z
+timestamp_source = "first_commit"
+timestamp_commit = "7789b8665e25c47ec5e7d3da861961d72bd66772"
 analysis = "thresholds"
 recheck_of = "atomic_review"
 comparison_intro = "The review measurements compare the original atomic-write implementation with the no-op snapshot and umask fixes."
