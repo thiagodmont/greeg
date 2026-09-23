@@ -320,3 +320,23 @@ filename = "quick-correctness-fixes-confirmation-2026-09-23-darwin-arm64.json"
 title = "Quick correctness fixes: confirmation (2026-09-23)"
 pr = 24
 notes = "Same binaries, 151 pairs. Exit status and elapsed-normalized stdout are unchanged in 30/30 cases, and ripgrep comparisons pass. Token counts are unchanged except the two case_miss_json rows (scan 227 → 224, index 224 → 228), whose first raw samples differ only in elapsed timing values. The earlier scan tail flag does not repeat. The only flag is scan fuzzy_miss_unlimited p95 +20.4% (9.96 → 11.99 ms, +0.5% median), again on the scan path. Index medians rise by +0.9% (+0.066 ms) across cases, with a range of −0.5% to +3.4%: the cost of the per-check ignore digest and the descriptor type check on candidate reads, accepted as a safety cost. The harness uses a private HOME (no global git config) and a synthetic 256-file warm corpus, so these numbers exclude reading global git configs: each check reads every existing config in full to find excludesFile, and deeper trees add stat calls for ancestor ignore files. No cold-cache, RSS or large-repository claim is made. The result file was written at 2026-09-23T19:04:58Z; load average was 9.5–13.3."
+
+[[datasets]]
+id = "private_storage_sessions"
+section = "session"
+filename = "private-storage-sessions-2026-09-23-darwin-arm64.json"
+title = "Shared private storage: session regression (2026-09-23)"
+pr = 25
+measured_at = 2026-09-23T20:30:37.615448Z
+timestamp_source = "measurement"
+notes = "Merged main against the branch that moves session storage onto the shared private-directory helper and adds private stats and index files. 14/14 session/search contracts pass on both binaries, with unchanged stdout/stderr/status, bytes and tokens and scan/index matching-file parity. No median exceeds +10% (maximum +7.4%). One p95 exceeds +20%: index oversized 7.80 → 9.85 ms (+26.3%) with a +1.7% median, so the larger confirmation is retained below. The host load average was 13.7–15.2 from an unrelated workload."
+
+[[datasets]]
+id = "private_storage_sessions_confirmation"
+section = "session"
+filename = "private-storage-sessions-confirmation-2026-09-23-darwin-arm64.json"
+title = "Shared private storage: session confirmation (2026-09-23)"
+pr = 25
+measured_at = 2026-09-23T20:31:06.621760Z
+timestamp_source = "measurement"
+notes = "Same binaries, 151 pairs. 14/14 contracts pass with unchanged output, bytes, tokens and matching-file parity. No case crosses a threshold: maximum increases are +1.9% median and +11.1% p95, and the index oversized tail flag does not repeat (+1.7% p95). The refactor keeps the same system calls on the session path. Statistics recording, measured separately and reported in the pull request, is opt-in and not part of these fixtures. Load average was 12.3–17.2."
