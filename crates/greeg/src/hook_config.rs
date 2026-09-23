@@ -2,7 +2,7 @@ use anyhow::{Context, Result, bail, ensure};
 use std::fs::{self, File, Metadata, OpenOptions};
 use std::io::{Read, Write};
 use std::os::fd::AsRawFd;
-use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -78,7 +78,7 @@ impl Config {
 
     pub fn write(&self, text: &str) -> Result<()> {
         if text == self.text().unwrap_or("") {
-            return Ok(());
+            return self.check_current();
         }
         self.prepare(text)?.commit()
     }
@@ -94,15 +94,20 @@ impl Config {
         lock_name.push(name);
         lock_name.push(".lock");
         let lock_path = parent.join(lock_name);
-        let lock = OpenOptions::new()
+        let mut lock_options = OpenOptions::new();
+        lock_options
             .read(true)
             .write(true)
-            .create(true)
-            .truncate(false)
             .mode(0o600)
-            .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
-            .open(&lock_path)
-            .with_context(|| format!("open configuration lock {}", lock_path.display()))?;
+            .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+        let (lock, created) = match lock_options.clone().create_new(true).open(&lock_path) {
+            Ok(lock) => Ok((lock, true)),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                lock_options.open(&lock_path).map(|lock| (lock, false))
+            }
+            Err(e) => Err(e),
+        }
+        .with_context(|| format!("open configuration lock {}", lock_path.display()))?;
         let metadata = lock.metadata()?;
         // SAFETY: geteuid has no arguments or memory access requirements.
         let uid = unsafe { libc::geteuid() };
@@ -110,6 +115,11 @@ impl Config {
             metadata.is_file() && metadata.uid() == uid && metadata.nlink() == 1,
             "configuration lock must be an owned regular file with one link"
         );
+        if created {
+            lock.set_permissions(fs::Permissions::from_mode(0o600))
+                .context("set new configuration lock permissions")?;
+        }
+        let metadata = lock.metadata()?;
         lock.try_lock()
             .context("configuration is busy or cannot be locked; retry")?;
         ensure!(
@@ -154,6 +164,10 @@ impl Config {
                 file,
                 _lock: lock,
             };
+            pending
+                .file
+                .set_permissions(fs::Permissions::from_mode(0o600))
+                .context("set temporary configuration permissions; original unchanged")?;
             pending
                 .file
                 .write_all(text.as_bytes())
@@ -337,6 +351,40 @@ mod tests {
             if let Some(metadata) = metadata {
                 assert!(unchanged(&metadata, &fs::symlink_metadata(&path).unwrap()));
             }
+            f.assert_no_temps();
+        }
+    }
+
+    #[test]
+    fn stale_noops_are_rejected_without_creating_files() {
+        for change in ["write", "replace", "remove", "create"] {
+            let f = Fixture::new();
+            let path = f.config();
+            if change != "create" {
+                fs::write(&path, "original").unwrap();
+            }
+            let config = Config::read(&path).unwrap();
+            match change {
+                "write" | "create" => fs::write(&path, "external").unwrap(),
+                "replace" => {
+                    let other = f.0.join("other");
+                    fs::write(&other, "original").unwrap();
+                    fs::rename(other, &path).unwrap();
+                }
+                "remove" => fs::remove_file(&path).unwrap(),
+                _ => unreachable!(),
+            }
+            let bytes = fs::read(&path).ok();
+            let metadata = fs::symlink_metadata(&path).ok();
+            assert!(
+                config.write(config.text().unwrap_or("")).is_err(),
+                "{change}"
+            );
+            assert_eq!(fs::read(&path).ok(), bytes);
+            if let Some(metadata) = metadata {
+                assert!(unchanged(&metadata, &fs::symlink_metadata(&path).unwrap()));
+            }
+            assert!(!f.0.join(".greeg-settings.json.lock").exists());
             f.assert_no_temps();
         }
     }

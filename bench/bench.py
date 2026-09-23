@@ -1269,8 +1269,16 @@ def hook_config_report(output_dir):
         ("hook-config-2026-09-23-darwin-arm64.json", "Hook configuration ownership (2026-09-23)"),
         ("hook-config-review-2026-09-23-darwin-arm64.json", "Hook configuration ownership: review fixes (2026-09-23)"),
         ("atomic-config-2026-09-23-darwin-arm64.json", "Atomic configuration: installer regression (2026-09-23)"),
+        ("atomic-config-review-2026-09-23-darwin-arm64.json", "Atomic configuration: review fixes (2026-09-23)"),
+        ("atomic-config-review-confirmation-2026-09-23-darwin-arm64.json", "Atomic configuration: review latency recheck (2026-09-23)"),
     ]:
         out += hook_config_dataset_report(output_dir, filename, title)
+    if load_json(os.path.join(RESULTS, "atomic-config-review-confirmation-2026-09-23-darwin-arm64.json")):
+        out += ["The review measurements compare the original atomic-write implementation with the no-op snapshot and umask fixes. "
+                "The initial 51-pair run flagged Codex installed no-op p95 (+40.2%, 5.31 → 7.44 ms), while its median fell 1.5%. "
+                "This triggered the retained 151-pair recheck above; both runs use the same binary digests. "
+                "Restrictive-umask and stale-no-op guarantees are covered by Rust regression tests; these timing fixtures use an ordinary umask. "
+                "Recurring hook and token measurements above predate these review fixes.", ""]
     return out
 
 
@@ -1310,6 +1318,12 @@ def hook_config_dataset_report(output_dir, filename, title):
         failures = sum(row[label].get("failed_invocations", 0) for row in rows for label in ("baseline", "candidate"))
         out += [f"Invocation failures: {failures}. Timeouts/launch failures retain their elapsed time and partial output sizes, "
                 "fail the contract, and suppress the affected timing ratios. Version probes remain preflight checks.", ""]
+    if filename.startswith("atomic-config-review-") and all(
+            not row[label].get("failed_invocations", 0) for row in rows for label in ("baseline", "candidate")):
+        flags = sum(r["median_change_percent"] > 10 or r["p95_change_percent"] > 20 for r in rows)
+        out += [f"Cases above the +10% median / +20% p95 investigation thresholds: **{flags}/{len(rows)}**. "
+                f"Maximum median/p95 increases: {max(r['median_change_percent'] for r in rows):.1f}%/"
+                f"{max(r['p95_change_percent'] for r in rows):.1f}%.", ""]
     if filename == "atomic-config-2026-09-23-darwin-arm64.json" and all(
             not row[label].get("failed_invocations", 0) for row in rows for label in ("baseline", "candidate")):
         changed = {"mixed_uninstall", "wrong_matcher_install", "matcherless_uninstall", "custom_matcher_uninstall", "empty_install"}

@@ -377,6 +377,52 @@ fn config_install_does_not_modify_the_original_inode() {
 }
 
 #[test]
+fn config_permissions_survive_restrictive_umasks() {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    use std::os::unix::process::CommandExt;
+    for agent in ["claude", "codex"] {
+        for mask in [0, 0o777] {
+            let f = Fixture::new();
+            let parent = f.0.join("home").join(format!(".{agent}"));
+            let name = if agent == "claude" {
+                "settings.json"
+            } else {
+                "config.toml"
+            };
+            let path = parent.join(name);
+            let lock = parent.join(format!(".greeg-{name}.lock"));
+            let skill = parent.join("skills/greeg/SKILL.md");
+            fs::create_dir_all(skill.parent().unwrap()).unwrap();
+            fs::write(&skill, "existing skill").unwrap();
+            let parent_mode = fs::metadata(&parent).unwrap().mode();
+            for uninstall in [false, true] {
+                let mut command = f.command(BIN);
+                command.args(["hook", agent]);
+                if uninstall {
+                    command.arg("--uninstall");
+                }
+                // SAFETY: umask runs only in the forked child, before exec.
+                unsafe {
+                    command.pre_exec(move || {
+                        libc::umask(mask);
+                        Ok(())
+                    });
+                }
+                let out = command.output().unwrap();
+                assert!(out.status.success(), "{agent}, {mask:o}: {out:?}");
+                let expected = if uninstall { 0o640 } else { 0o600 };
+                assert_eq!(fs::metadata(&path).unwrap().mode() & 0o777, expected);
+                assert_eq!(fs::metadata(&lock).unwrap().mode() & 0o777, expected);
+                assert_eq!(fs::metadata(&parent).unwrap().mode(), parent_mode);
+                assert!(fs::read_to_string(&path).is_ok());
+                fs::set_permissions(&path, fs::Permissions::from_mode(0o640)).unwrap();
+                fs::set_permissions(&lock, fs::Permissions::from_mode(0o640)).unwrap();
+            }
+        }
+    }
+}
+
+#[test]
 fn failed_config_write_preserves_config_and_skill() {
     use std::os::unix::process::CommandExt;
     for agent in ["claude", "codex"] {

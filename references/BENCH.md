@@ -389,6 +389,82 @@ Invocation failures: 0. Timeouts/launch failures retain their elapsed time and p
 
 **Latency investigation:** 10/20 cases exceed the +10% median or +20% p95 thresholds. Changed configurations add 7.95–8.68 ms at the median; no-op/error cases change by -0.08–+0.17 ms. The changed path now locks, rereads, preserves metadata, syncs a temporary file and syncs the directory; the baseline writes in place without these guarantees. This is an accepted installation/removal cost for reliability, not a speed improvement. These operations do not run during hook rewrites or searches; the separate rewrite regression measures the recurring hook path. Atomicity, conflicts and interruption are covered by deterministic Rust tests, not inferred from these timing fixtures.
 
+## Atomic configuration: review fixes (2026-09-23)
+
+`greeg 0.6.0+5d2056d2f.dirty` → `greeg 0.6.0+0086e80e3.dirty`; 51 randomized paired runs per case after 3 warmups. Each invocation uses a reset disposable home and an isolated configuration/cache. Timing includes process startup and installation/removal, excluding fixture reset and validation.
+
+**Configuration contracts:** 20/20 → 20/20. Checks cover mixed handlers, prefix lookalikes, non-command handlers, wrong matchers, invalid UTF-8, missing-file uninstall and initial installation. Protocol 2 also checks byte-identical installed no-ops, matcher-less cleanup, custom matcher preservation, and retained TOML comments/trust data. Baseline failures are not equivalent successful work; their timing differences are not speedup claims.
+
+| Host | Case | Median ms, before → after | p95 ms, before → after |
+|---|---|---:|---:|
+| claude | mixed uninstall | 12.783 → 12.319 | 14.272 → 15.184 |
+| claude | prefix uninstall | 4.890 → 4.876 | 7.637 → 8.295 |
+| claude | prompt uninstall | 3.700 → 3.761 | 6.483 → 5.408 |
+| claude | wrong matcher install | 12.388 → 12.266 | 14.074 → 14.099 |
+| claude | installed noop | 3.859 → 3.886 | 4.194 → 4.430 |
+| claude | matcherless uninstall | 12.460 → 12.570 | 14.019 → 14.358 |
+| claude | custom matcher uninstall | 12.526 → 12.679 | 14.671 → 14.462 |
+| claude | invalid utf8 | 3.785 → 3.837 | 5.274 → 5.484 |
+| claude | absent uninstall | 3.613 → 3.654 | 5.153 → 5.276 |
+| claude | empty install | 12.133 → 12.126 | 14.376 → 14.095 |
+| codex | mixed uninstall | 13.118 → 13.001 | 17.207 → 19.752 |
+| codex | prefix uninstall | 3.990 → 3.960 | 4.600 → 4.802 |
+| codex | prompt uninstall | 3.894 → 3.936 | 4.540 → 4.723 |
+| codex | wrong matcher install | 12.649 → 12.748 | 14.815 → 14.531 |
+| codex | installed noop | 4.121 → 4.059 | 5.306 → 7.442 |
+| codex | matcherless uninstall | 12.420 → 12.980 | 14.242 → 14.320 |
+| codex | custom matcher uninstall | 12.966 → 13.069 | 14.651 → 14.236 |
+| codex | invalid utf8 | 3.830 → 3.885 | 4.634 → 4.412 |
+| codex | absent uninstall | 3.676 → 3.724 | 4.803 → 4.883 |
+| codex | empty install | 12.265 → 12.062 | 13.420 → 13.784 |
+
+[Raw samples, output bytes/statuses, fixture/harness hashes and binary digests](../bench/results/atomic-config-review-2026-09-23-darwin-arm64.json). Reproduce: `python3 bench/hook_config.py BASELINE CANDIDATE --runs 51 --output atomic-config-review-2026-09-23-darwin-arm64.json`.
+
+These checks validate configuration editing, not live host approval behavior. No token, native-search latency, atomic-write or concurrent-edit safety claim is made. Positional hook IDs may shift on removal; stored trust records are retained unchanged.
+
+Invocation failures: 0. Timeouts/launch failures retain their elapsed time and partial output sizes, fail the contract, and suppress the affected timing ratios. Version probes remain preflight checks.
+
+Cases above the +10% median / +20% p95 investigation thresholds: **1/20**. Maximum median/p95 increases: 4.5%/40.2%.
+
+## Atomic configuration: review latency recheck (2026-09-23)
+
+`greeg 0.6.0+5d2056d2f.dirty` → `greeg 0.6.0+0086e80e3.dirty`; 151 randomized paired runs per case after 3 warmups. Each invocation uses a reset disposable home and an isolated configuration/cache. Timing includes process startup and installation/removal, excluding fixture reset and validation.
+
+**Configuration contracts:** 20/20 → 20/20. Checks cover mixed handlers, prefix lookalikes, non-command handlers, wrong matchers, invalid UTF-8, missing-file uninstall and initial installation. Protocol 2 also checks byte-identical installed no-ops, matcher-less cleanup, custom matcher preservation, and retained TOML comments/trust data. Baseline failures are not equivalent successful work; their timing differences are not speedup claims.
+
+| Host | Case | Median ms, before → after | p95 ms, before → after |
+|---|---|---:|---:|
+| claude | mixed uninstall | 12.740 → 13.046 | 15.056 → 14.352 |
+| claude | prefix uninstall | 4.177 → 4.152 | 5.513 → 5.480 |
+| claude | prompt uninstall | 4.346 → 4.368 | 6.106 → 7.030 |
+| claude | wrong matcher install | 13.072 → 12.987 | 14.388 → 14.390 |
+| claude | installed noop | 3.881 → 3.929 | 4.496 → 4.870 |
+| claude | matcherless uninstall | 12.672 → 12.605 | 14.924 → 14.742 |
+| claude | custom matcher uninstall | 13.129 → 13.106 | 15.183 → 16.347 |
+| claude | invalid utf8 | 4.004 → 4.028 | 5.538 → 5.491 |
+| claude | absent uninstall | 3.571 → 3.609 | 4.073 → 4.152 |
+| claude | empty install | 12.504 → 12.903 | 13.954 → 14.622 |
+| codex | mixed uninstall | 12.815 → 12.898 | 15.164 → 15.112 |
+| codex | prefix uninstall | 3.938 → 4.052 | 4.476 → 4.631 |
+| codex | prompt uninstall | 3.868 → 3.883 | 4.519 → 4.587 |
+| codex | wrong matcher install | 12.858 → 12.702 | 14.200 → 14.297 |
+| codex | installed noop | 4.111 → 4.183 | 5.771 → 4.742 |
+| codex | matcherless uninstall | 13.050 → 13.075 | 14.948 → 14.471 |
+| codex | custom matcher uninstall | 13.088 → 13.107 | 14.583 → 14.994 |
+| codex | invalid utf8 | 3.889 → 3.878 | 4.511 → 4.690 |
+| codex | absent uninstall | 3.705 → 3.769 | 4.652 → 4.246 |
+| codex | empty install | 13.251 → 13.301 | 15.389 → 14.690 |
+
+[Raw samples, output bytes/statuses, fixture/harness hashes and binary digests](../bench/results/atomic-config-review-confirmation-2026-09-23-darwin-arm64.json). Reproduce: `python3 bench/hook_config.py BASELINE CANDIDATE --runs 151 --output atomic-config-review-confirmation-2026-09-23-darwin-arm64.json`.
+
+These checks validate configuration editing, not live host approval behavior. No token, native-search latency, atomic-write or concurrent-edit safety claim is made. Positional hook IDs may shift on removal; stored trust records are retained unchanged.
+
+Invocation failures: 0. Timeouts/launch failures retain their elapsed time and partial output sizes, fail the contract, and suppress the affected timing ratios. Version probes remain preflight checks.
+
+Cases above the +10% median / +20% p95 investigation thresholds: **0/20**. Maximum median/p95 increases: 3.2%/15.1%.
+
+The review measurements compare the original atomic-write implementation with the no-op snapshot and umask fixes. The initial 51-pair run flagged Codex installed no-op p95 (+40.2%, 5.31 → 7.44 ms), while its median fell 1.5%. This triggered the retained 151-pair recheck above; both runs use the same binary digests. Restrictive-umask and stale-no-op guarantees are covered by Rust regression tests; these timing fixtures use an ordinary umask. Recurring hook and token measurements above predate these review fixes.
+
 ## Speed
 
 Host `darwin-arm64-apple-m4-pro` (12 CPUs), 2026-09-06T14:35:26. `greeg 0.3.0`, `ripgrep 15.2.0`, `grep (BSD grep, GNU compatible) 2.6.0-Fr`, hyperfine 1.20.0. hyperfine `-N --warmup 3 --runs 10` with `--prepare 'sleep 0.15'` before every timing run, warm page cache. Cells are **medians** with min–max in parentheses.

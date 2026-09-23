@@ -213,6 +213,7 @@ Edits are parsed before publication. Changed configurations acquire a persistent
 same-directory `.greeg-<filename>.lock` using a nonblocking advisory lock, then
 validate the original content, identity and timestamps. Busy writers return an
 error to retry. No-op edits and dry runs do not create locks or temporary files.
+No-op updates recheck the snapshot before allowing subsequent skill changes.
 
 The replacement is written exclusively to a same-directory temporary file,
 metadata is preserved, and the file is synced before a final snapshot check.
@@ -225,7 +226,9 @@ original remains complete and the OS releases the lock. Lock files are retained
 to keep one stable inode for cooperating writers; do not delete them during use.
 
 Replacement requires current-user ownership and a single link, preserves existing
-permissions, and creates new configurations with mode `0600`. macOS copies
+permissions, and creates new configurations with mode `0600`. Newly created lock
+and temporary files explicitly receive mode `0600` regardless of umask; existing
+lock permissions and caller-owned parent directories are not changed. macOS copies
 metadata, including ACLs and extended attributes, and updates the modification
 time to reflect the new content. Linux preserves the mode and
 group for ordinary files; source or replacement files with extended attributes or ACLs are refused
