@@ -1,0 +1,21 @@
+references/ARCHITECTURE.md
+  s_09357c044b6e84::t_6c7d45ec9f14f7 410-411
+bench/test_report_catalog.py
+  s_09357c044b6e84::t_6c7d45ec9f14f7 17-24,31,37,93,97-112,163-171,182
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "82f441ea7e43f67477fbd07745a9837d04887f02",
+  "prompts": {},
+  "sessions": {
+    "s_09357c044b6e84": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0c9a2-d91e-7fc2-8558-a87341dafdb2",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
