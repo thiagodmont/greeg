@@ -340,3 +340,11 @@ pr = 25
 measured_at = 2026-09-23T20:31:06.621760Z
 timestamp_source = "measurement"
 notes = "Same binaries, 151 pairs. 14/14 contracts pass with unchanged output, bytes, tokens and matching-file parity. No case crosses a threshold: maximum increases are +1.9% median and +11.1% p95, and the index oversized tail flag does not repeat (+1.7% p95). The refactor keeps the same system calls on the session path. Statistics recording, measured separately and reported in the pull request, is opt-in and not part of these fixtures. Load average was 12.3–17.2."
+
+[[datasets]]
+id = "query_selection"
+section = "matching_review"
+filename = "query-selection-2026-09-23-darwin-arm64.json"
+title = "Query selection, coverage and classification: exact-search regression (2026-09-23)"
+pr = 26
+notes = "Merged main against the branch that applies request filters to indexed symbol verbs, checks index coverage through the skipped-entries record, classifies every occurrence before caps and counts, and ranks complete symbol sets. The new type_files and glob_files cases select files with a positive -t or -g, so every indexed run reads the skipped record. All 34 cases keep their exit status and stdout (JSON compared without elapsed fields), and every ripgrep, JSON and definition contract passes. No case crosses the 10% median / 20% p95 thresholds: medians range from −11.2% to +6.1%, and the largest p95 is +15.5% (index word_miss_count, +2.3% median). Token counts are unchanged except JSON rows whose first raw samples differ only in elapsed values. The synthetic corpus has no hidden or ignored files, so the skipped record is empty here; larger-corpus costs are reported in the pull request. Load average was 8.0–12.1 from an unrelated workload. The harness records no execution time; the result file was written at 2026-09-23T21:44:02Z."
