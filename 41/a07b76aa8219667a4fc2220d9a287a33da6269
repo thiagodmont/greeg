@@ -1,0 +1,36 @@
+bench/bench.py
+  s_09357c044b6e84::t_87c1cd2bdd5539 1093,1122-1124,1126,1130-1132,1163-1165,1171,1203-1206,1220,1277
+  s_09357c044b6e84::t_2954b2188aa485 19-20,1117-1118,1127,1133-1139,1156,1166,1173-1174,1215,1221-1222,1245-1250,1252-1254,1261,1263,1278,1288-1292,1296-1298,1318,1339
+references/ARCHITECTURE.md
+  s_09357c044b6e84::t_bc082a121688d4 411-412
+  s_09357c044b6e84::t_7e8a7f09c6a5f7 408-410,413
+bench/test_report_rendering.py
+  s_09357c044b6e84::t_37b2ec741c4223 9,52,54-75,82-113
+  s_09357c044b6e84::t_eb9d6097190742 76-81
+  s_09357c044b6e84::t_451349c991009c 1-8,10-51,53,114-117
+bench/reporting.py
+  s_09357c044b6e84::t_bc082a121688d4 12-15,24-25,45
+  s_09357c044b6e84::t_5200f9916f656a 1-11,16-23,26-36,38-44,46-48,50-51,53-54
+  s_09357c044b6e84::t_87c1cd2bdd5539 37,49,52
+crates/greeg/tests/hooks.rs
+  s_09357c044b6e84::t_ca7d4ccd4be66e 412
+  s_09357c044b6e84::t_81e11c8dae0f69 413-416,418-436
+references/BENCH.md
+  s_09357c044b6e84::t_d7f1ea2b3e98c1 466
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "41a07b76aa8219667a4fc2220d9a287a33da6269",
+  "prompts": {},
+  "sessions": {
+    "s_09357c044b6e84": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0c9a2-d91e-7fc2-8558-a87341dafdb2",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
