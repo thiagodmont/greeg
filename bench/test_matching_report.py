@@ -21,10 +21,10 @@ class MatchingReportTests(unittest.TestCase):
         self.root = Path(self.temporary.name)
         self.results = self.root / "bench results"
         self.results.mkdir()
-        self.matrix_name = "w01a-matching-darwin-arm64.json"
+        self.matrix_name = "exact-search-matching-2026-09-22-darwin-arm64.json"
         self.matrix = json.loads((Path(bench.RESULTS) / self.matrix_name).read_text())
         self.followup = json.loads((Path(bench.RESULTS) / "exact-search-json-darwin-arm64.json").read_text())
-        self.recheck_name = "w01a-ranked-recheck-darwin-arm64.json"
+        self.recheck_name = "exact-search-ranked-recheck-2026-09-22-darwin-arm64.json"
         recheck = Path(bench.RESULTS) / self.recheck_name
         (self.results / self.recheck_name).write_bytes(recheck.read_bytes())
         self.addCleanup(patch.stopall)
@@ -70,7 +70,7 @@ class MatchingReportTests(unittest.TestCase):
         _, first = self.render(default=True)
         _, second = self.render(default=True)
         self.assertEqual(first, second)
-        self.assertEqual(first.count("## W01a:"), 1)
+        self.assertEqual(first.count("## Exact-search defaults (2026-09-22)"), 1)
         commands = re.findall(r"`(python3 bench/matching.py [^`]+)`", first)
         self.assertEqual(len(commands), 2)
         for command in commands:
