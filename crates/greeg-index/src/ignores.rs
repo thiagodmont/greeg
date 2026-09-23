@@ -5,7 +5,6 @@
 //! files inside the tree are tracked as files instead (`format::is_ignore_file`).
 
 use std::fs;
-use std::io::Read;
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 
@@ -52,7 +51,7 @@ fn inputs(root: &Path) -> Vec<PathBuf> {
     if let Some(git) = git_dir(&root) {
         v.push(git.clone());
         v.push(git.join("info/exclude"));
-        if let Some(common) = read_small(&git.join("commondir")) {
+        if let Some(common) = read_regular(&git.join("commondir")) {
             v.push(git.join(common.trim()).join("info/exclude"));
         }
     }
@@ -70,7 +69,7 @@ fn inputs(root: &Path) -> Vec<PathBuf> {
         v.push(x.join("git/ignore"));
     }
     for c in &configs {
-        if let Some(text) = read_small(c) {
+        if let Some(text) = read_regular(c) {
             v.extend(excludes_files(&text, home.as_deref()));
         }
     }
@@ -78,9 +77,9 @@ fn inputs(root: &Path) -> Vec<PathBuf> {
     v
 }
 
-/// A small regular file's text. Symlinks are followed (dotfiles are often
+/// A regular file's whole text. Symlinks are followed (dotfiles are often
 /// linked), but a FIFO or device is never read and cannot block the open.
-fn read_small(path: &Path) -> Option<String> {
+fn read_regular(path: &Path) -> Option<String> {
     use std::os::unix::fs::OpenOptionsExt;
     let f = fs::OpenOptions::new()
         .read(true)
@@ -90,9 +89,7 @@ fn read_small(path: &Path) -> Option<String> {
     if !f.metadata().ok()?.is_file() {
         return None;
     }
-    let mut text = String::new();
-    f.take(1 << 20).read_to_string(&mut text).ok()?;
-    Some(text)
+    std::io::read_to_string(f).ok()
 }
 
 /// The git directory of the repository containing `root`: `.git` itself, or
@@ -106,7 +103,7 @@ fn git_dir(root: &Path) -> Option<PathBuf> {
         if md.is_dir() {
             return Some(dot);
         }
-        let text = read_small(&dot)?;
+        let text = read_regular(&dot)?;
         let target = text.trim().strip_prefix("gitdir:")?.trim();
         return Some(dir.join(target));
     }
@@ -179,6 +176,21 @@ mod tests {
                 PathBuf::from("/opt/a\"b"),
             ]
         );
+    }
+
+    #[test]
+    fn excludes_file_after_a_large_config_is_found() {
+        let base = own_dir("ignores-config");
+        let config = base.join("gitconfig");
+        let padding = format!("# {}\n", "x".repeat(1 << 20));
+        fs::write(
+            &config,
+            format!("{padding}[core]\n\texcludesFile = /late/ignore\n"),
+        )
+        .unwrap();
+        let text = read_regular(&config).unwrap();
+        assert_eq!(excludes_files(&text, None), [PathBuf::from("/late/ignore")]);
+        let _ = fs::remove_dir_all(&base);
     }
 
     #[test]
