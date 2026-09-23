@@ -333,7 +333,14 @@ without failing the search. Arbitrary same-user code and older binaries that do
 not honor these checks are outside the concurrency guarantee. Older releases may
 ignore new records that omit `pat`; rolling back can reset remembered context. `--no-session`
 bypasses all session storage, but does not disable index or statistics writes.
-Index and statistics storage privacy/retention remain separate follow-ups.
+
+Statistics use the same private-directory rules (see `references/STATS.md`),
+except that a directory named by `GREEG_STATS_DIR` is refused rather than
+chmodded when other users can access it. New index directories are created
+`0700`, and every file greeg writes there `0600` whatever the umask: components,
+manifest, lock, deltas, spill files and markers. Existing directories, including
+a caller-chosen `--index-dir`, are never chmodded, so an index built by an older
+release becomes private only as it is rebuilt.
 
 ## Staying fresh
 

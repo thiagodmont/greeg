@@ -1,22 +1,20 @@
 //! Private, bounded session logs. All leaf operations use an anchored directory.
 use crate::session::{MAX_AGE_SECS, MAX_RECORDS, Record};
+use greeg_index::private::{Lock, PrivateDir};
 use std::collections::VecDeque;
-use std::ffi::{CStr, CString};
-use std::fs::{self, File};
+use std::fs::File;
 use std::io::{self, Read, Write};
-use std::os::fd::{AsRawFd, FromRawFd, IntoRawFd};
-use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
+use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 #[cfg(test)]
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, SystemTime};
 
 pub(crate) const MAX_BYTES: usize = 4 * 1024 * 1024;
 const MAX_RECORD_BYTES: usize = 256 * 1024;
 
 pub(crate) struct Store {
-    dir: File,
+    dir: PrivateDir,
     #[cfg(test)]
     path: PathBuf,
     name: String,
@@ -32,136 +30,13 @@ fn invalid(message: &str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, message)
 }
 
-fn cname(name: &str) -> io::Result<CString> {
-    CString::new(name).map_err(|_| invalid("invalid session filename"))
-}
-
-fn open_at(dir: &File, name: &str, flags: i32) -> io::Result<File> {
-    let name = cname(name)?;
-    // SAFETY: the directory descriptor and NUL-terminated name remain valid.
-    let fd = unsafe {
-        libc::openat(
-            dir.as_raw_fd(),
-            name.as_ptr(),
-            flags | libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK,
-            0o600,
-        )
-    };
-    if fd < 0 {
-        return Err(io::Error::last_os_error());
-    }
-    // SAFETY: openat returned a new owned descriptor.
-    Ok(unsafe { File::from_raw_fd(fd) })
-}
-
-fn private(file: &File, directory: bool) -> io::Result<()> {
-    let m = file.metadata()?;
-    // SAFETY: geteuid has no preconditions.
-    if m.uid() != unsafe { libc::geteuid() }
-        || if directory {
-            !m.is_dir()
-        } else {
-            !m.is_file() || m.nlink() != 1
-        }
-    {
-        return Err(invalid(
-            "session object must be owned by this user and have the expected type/link count",
-        ));
-    }
-    no_extended_acl(file)?;
-    let mode = if directory { 0o700 } else { 0o600 };
-    if m.mode() & 0o7777 != mode {
-        file.set_permissions(fs::Permissions::from_mode(mode))?;
-    }
-    Ok(())
-}
-
-#[cfg(target_os = "macos")]
-fn no_extended_acl(file: &File) -> io::Result<()> {
-    unsafe extern "C" {
-        fn acl_get_fd_np(fd: libc::c_int, kind: libc::c_int) -> *mut libc::c_void;
-        fn acl_free(acl: *mut libc::c_void) -> libc::c_int;
-    }
-    const ACL_TYPE_EXTENDED: libc::c_int = 0x100;
-    // SAFETY: the descriptor is valid; the returned ACL is freed exactly once.
-    let acl = unsafe { acl_get_fd_np(file.as_raw_fd(), ACL_TYPE_EXTENDED) };
-    if !acl.is_null() {
-        unsafe {
-            acl_free(acl);
-        }
-        return Err(invalid("extended session ACLs are unsupported"));
-    }
-    let error = io::Error::last_os_error();
-    if error.raw_os_error() == Some(libc::ENOENT) {
-        Ok(())
-    } else {
-        Err(error)
-    }
-}
-
-#[cfg(target_os = "linux")]
-fn no_extended_acl(file: &File) -> io::Result<()> {
-    for name in [c"system.posix_acl_access", c"system.posix_acl_default"] {
-        // SAFETY: a zero-length query with a null buffer only returns the xattr size.
-        let size =
-            unsafe { libc::fgetxattr(file.as_raw_fd(), name.as_ptr(), std::ptr::null_mut(), 0) };
-        if size >= 0 {
-            return Err(invalid("extended session ACLs are unsupported"));
-        }
-        let error = io::Error::last_os_error();
-        if !matches!(error.raw_os_error(), Some(libc::ENODATA | libc::ENOTSUP)) {
-            return Err(error);
-        }
-    }
-    Ok(())
-}
-
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
-fn no_extended_acl(_: &File) -> io::Result<()> {
-    Err(invalid("unsupported session filesystem platform"))
-}
-
-struct Lock(File);
-impl Drop for Lock {
-    fn drop(&mut self) {
-        let _ = self.0.unlock();
-    }
-}
-
-struct DirectoryStream(*mut libc::DIR);
-impl Drop for DirectoryStream {
-    fn drop(&mut self) {
-        // SAFETY: fdopendir transferred exclusive ownership to this stream.
-        unsafe { libc::closedir(self.0) };
-    }
-}
-
 impl Store {
     pub fn open(path: &Path, key: &str) -> io::Result<Self> {
         let parent = path
             .parent()
             .ok_or_else(|| invalid("session directory has no parent"))?;
-        // Existing caller-selected parents are never chmodded.
-        fs::DirBuilder::new()
-            .recursive(true)
-            .mode(0o700)
-            .create(parent)?;
-        let parent = fs::OpenOptions::new()
-            .read(true)
-            .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
-            .open(parent)?;
-        let name = c"session";
-        // SAFETY: valid directory descriptor and static NUL-terminated name.
-        if unsafe { libc::mkdirat(parent.as_raw_fd(), name.as_ptr(), 0o700) } != 0 {
-            let error = io::Error::last_os_error();
-            if error.kind() != io::ErrorKind::AlreadyExists {
-                return Err(error);
-            }
-        }
-        let dir = open_at(&parent, "session", libc::O_RDONLY | libc::O_DIRECTORY)?;
-        private(&dir, true)?;
         Ok(Self {
-            dir,
+            dir: PrivateDir::open(parent, "session")?,
             #[cfg(test)]
             path: path.to_owned(),
             name: format!("{key}.jsonl"),
@@ -169,19 +44,7 @@ impl Store {
     }
 
     fn file(&self, name: &str, flags: i32) -> io::Result<File> {
-        let file = if flags & libc::O_CREAT != 0 && flags & libc::O_EXCL == 0 {
-            match open_at(&self.dir, name, flags | libc::O_EXCL) {
-                Ok(file) => file,
-                Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {
-                    open_at(&self.dir, name, flags & !libc::O_CREAT)?
-                }
-                Err(e) => return Err(e),
-            }
-        } else {
-            open_at(&self.dir, name, flags)?
-        };
-        private(&file, false)?;
-        Ok(file)
+        self.dir.file(name, flags)
     }
 
     pub fn load(&self, now: u64) -> io::Result<Loaded> {
@@ -238,19 +101,7 @@ impl Store {
     }
 
     fn lock(&self) -> io::Result<Lock> {
-        let lock = self
-            .file(".lock", libc::O_RDWR | libc::O_CREAT)
-            .map_err(|e| io::Error::new(e.kind(), format!("open lock: {e}")))?;
-        let deadline = Instant::now() + Duration::from_millis(50);
-        loop {
-            match lock.try_lock() {
-                Ok(()) => return Ok(Lock(lock)),
-                Err(std::fs::TryLockError::WouldBlock) if Instant::now() < deadline => {
-                    std::thread::sleep(Duration::from_millis(1))
-                }
-                Err(e) => return Err(e.into()),
-            }
-        }
+        self.dir.lock(".lock", Duration::from_millis(50))
     }
 
     pub fn append(&self, record: &Record, now: u64) -> io::Result<()> {
@@ -310,57 +161,11 @@ impl Store {
     }
 
     fn replace(&self, body: &[u8]) -> io::Result<()> {
-        static NEXT: AtomicU64 = AtomicU64::new(0);
-        let mut attempts = 0;
-        let (name, mut file) = loop {
-            attempts += 1;
-            if attempts > 128 {
-                return Err(invalid("session temporary file collision limit"));
-            }
-            let name = format!(
-                ".tmp-{}-{}",
-                std::process::id(),
-                NEXT.fetch_add(1, Ordering::Relaxed)
-            );
-            match self.file(&name, libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL) {
-                Ok(file) => break (name, file),
-                Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
-                Err(e) => return Err(e),
-            }
-        };
-        let result = (|| {
-            file.write_all(body)?;
-            let from = cname(&name)?;
-            let to = cname(&self.name)?;
-            // SAFETY: both names and the anchored directory descriptor are valid.
-            if unsafe {
-                libc::renameat(
-                    self.dir.as_raw_fd(),
-                    from.as_ptr(),
-                    self.dir.as_raw_fd(),
-                    to.as_ptr(),
-                )
-            } != 0
-            {
-                return Err(io::Error::last_os_error());
-            }
-            Ok(())
-        })();
-        self.unlink(&name);
-        result
-    }
-
-    fn unlink(&self, name: &str) {
-        if let Ok(name) = cname(name) {
-            // SAFETY: valid directory descriptor and NUL-terminated leaf name.
-            unsafe {
-                libc::unlinkat(self.dir.as_raw_fd(), name.as_ptr(), 0);
-            }
-        }
+        self.dir.replace(&self.name, body)
     }
 
     fn expired_log(&self, name: &str) -> bool {
-        let Ok(file) = open_at(&self.dir, name, libc::O_RDONLY) else {
+        let Ok(file) = self.dir.open_unchecked(name, libc::O_RDONLY) else {
             return false;
         };
         let Ok(m) = file.metadata() else { return false };
@@ -375,28 +180,8 @@ impl Store {
     }
 
     fn prune(&self) {
-        // A new open description keeps each sweep's offset independent.
-        let Ok(directory) = open_at(&self.dir, ".", libc::O_RDONLY | libc::O_DIRECTORY) else {
-            return;
-        };
-        // SAFETY: directory owns a readable directory descriptor.
-        let stream = unsafe { libc::fdopendir(directory.as_raw_fd()) };
-        if stream.is_null() {
-            return;
-        }
-        let _ = directory.into_raw_fd();
-        let stream = DirectoryStream(stream);
         let mut expired = Vec::new();
-        for _ in 0..4096 {
-            // SAFETY: the stream is live and exclusively accessed here.
-            let entry = unsafe { libc::readdir(stream.0) };
-            if entry.is_null() {
-                break;
-            }
-            // SAFETY: readdir supplies a NUL-terminated name, valid until the next call.
-            let Ok(name) = unsafe { CStr::from_ptr((*entry).d_name.as_ptr()) }.to_str() else {
-                continue;
-            };
+        for name in self.dir.names(4096) {
             let Some(key) = name.strip_suffix(".jsonl") else {
                 continue;
             };
@@ -413,22 +198,17 @@ impl Store {
             if name == self.name || !(safe || hashed) {
                 continue;
             }
-            if self.expired_log(name) {
-                expired.push(name.to_owned());
+            if self.expired_log(&name) {
+                expired.push(name);
             }
         }
-        drop(stream);
         for name in expired {
-            let Ok(lock) = self.file(".lock", libc::O_RDWR | libc::O_CREAT) else {
+            let Some(_lock) = self.dir.try_lock(".lock") else {
                 return;
             };
-            if lock.try_lock().is_err() {
-                return;
-            }
-            let _lock = Lock(lock);
             // A writer may have refreshed or replaced the log during enumeration.
             if self.expired_log(&name) {
-                self.unlink(&name);
+                let _ = self.dir.unlink(&name);
             }
         }
     }
@@ -437,7 +217,12 @@ impl Store {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::ffi::CString;
+    use std::fs;
+    use std::os::unix::fs::PermissionsExt;
     use std::os::unix::fs::symlink;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::Instant;
 
     struct Fixture(PathBuf);
     impl Fixture {
@@ -514,6 +299,7 @@ mod tests {
     #[cfg(target_os = "linux")]
     #[test]
     fn posix_acl_is_refused_without_changing_permissions() {
+        use std::os::fd::AsRawFd;
         let f = Fixture::new();
         let store = f.store("acl");
         seed(&store, 1);
@@ -813,7 +599,7 @@ mod tests {
         let f = Fixture::new();
         let store = f.store("locked");
         let lock = store.lock().unwrap();
-        let _inherited = lock.0.try_clone().unwrap();
+        let _inherited = lock.file().try_clone().unwrap();
         let start = Instant::now();
         assert!(store.append(&record(0), 100_000).is_err());
         assert!(start.elapsed() < Duration::from_secs(2));

@@ -404,6 +404,9 @@ enum StatsCmd {
         /// Replay with this greeg binary instead of the running one (it gets an index directory of its own under the stats cache)
         #[arg(long = "binary", value_name = "PATH")]
         binary: Option<PathBuf>,
+        /// Replay rg commands with this ripgrep (absolute path; default: the first rg on an absolute PATH entry)
+        #[arg(long = "rg", value_name = "PATH")]
+        rg: Option<PathBuf>,
     },
 }
 
@@ -512,15 +515,16 @@ fn run_index(
         }
         return Ok(());
     }
-    std::fs::create_dir_all(&dir)?;
+    greeg_index::create_private_dir(&dir)?;
     let marker = dir.join("BUILDING");
-    match std::fs::OpenOptions::new()
+    match greeg_index::private_file()
         .write(true)
         .create_new(true)
         .open(&marker)
     {
         Ok(mut f) => {
             use std::io::Write as _;
+            let _ = greeg_index::owner_only(&f);
             let _ = writeln!(f, "{}", std::process::id());
         }
         Err(_) => {
@@ -1089,6 +1093,7 @@ fn run_stats(
             force,
             timeout,
             binary,
+            rg,
         }) => stats::replay(&stats::ReplayOpts {
             filter,
             runs,
@@ -1096,6 +1101,7 @@ fn run_stats(
             force,
             timeout: std::time::Duration::from_secs(timeout),
             binary,
+            rg,
         }),
     }
 }

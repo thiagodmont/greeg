@@ -404,7 +404,8 @@ pub fn write_atomic(path: &Path, comp: u8, body: &[u8]) -> Result<()> {
 pub fn write_atomic_with(path: &Path, comp: u8, body: &[u8], durable: bool) -> Result<()> {
     let tmp = tmp_path(path);
     {
-        let mut f = std::io::BufWriter::with_capacity(1 << 20, std::fs::File::create(&tmp)?);
+        let file = crate::create_private(&tmp)?;
+        let mut f = std::io::BufWriter::with_capacity(1 << 20, file);
         write_header(&mut f, comp, body.len() as u64)?;
         f.write_all(body)?;
         f.flush()?;

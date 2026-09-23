@@ -515,27 +515,66 @@ fn detached_builds_use_the_explicit_index_dir() {
 
 #[cfg(unix)]
 #[test]
-#[ignore = "known gap: index files are created with default permissions"]
 fn index_files_are_private_under_a_permissive_umask() {
     use std::os::unix::fs::PermissionsExt;
     use std::os::unix::process::CommandExt;
-    let f = Fixture::new(&[("a.rs", "fn needle() {}\n")]);
+    let permissive = |mut c: Command| {
+        // SAFETY: umask is async-signal-safe and touches only the child.
+        unsafe {
+            c.pre_exec(|| {
+                libc::umask(0o022);
+                Ok(())
+            });
+        }
+        c.output().unwrap()
+    };
+    let private_below = |dir: &Path, root_mode: u32| {
+        let mode = |p: &Path| {
+            fs::symlink_metadata(p)
+                .ok()
+                .map(|m| m.permissions().mode() & 0o777)
+        };
+        assert_eq!(mode(dir), Some(root_mode), "{}", dir.display());
+        let mut stack: Vec<PathBuf> = fs::read_dir(dir)
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .collect();
+        while let Some(p) = stack.pop() {
+            // a temporary file can be renamed away between listing and stat
+            let Some(m) = mode(&p) else { continue };
+            assert_eq!(m & 0o077, 0, "{} is {m:o}", p.display());
+            if let Ok(entries) = fs::read_dir(&p) {
+                stack.extend(entries.flatten().map(|e| e.path()));
+            }
+        }
+    };
+    let f = Fixture::with_filler(&[("a.rs", "fn needle() {}\n")]);
     let mut c = f.command();
     c.args(["index", "--quiet", "--index-dir"]).arg(&f.index);
-    // SAFETY: umask is async-signal-safe and touches only the child.
-    unsafe {
-        c.pre_exec(|| {
-            libc::umask(0o022);
-            Ok(())
-        });
+    assert!(permissive(c).status.success());
+    // an edit publishes a delta segment in its own directory
+    std::thread::sleep(PAST_FRESHNESS_WINDOW);
+    w(&f.root.join("a.rs"), "fn needle() { edited(); }\n");
+    let mut c = f.command();
+    c.args(["--fresh", "stat", "--no-session", "--index-dir"])
+        .arg(&f.index)
+        .arg("edited");
+    assert_eq!(permissive(c).status.code(), Some(0));
+    // wait for the detached refresh to publish the delta and finish
+    let published = || f.index.join("delta").exists() && !f.index.join("REFRESHING").exists();
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while !published() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(50));
     }
-    assert!(c.output().unwrap().status.success());
-    let mut stack = vec![f.index.clone()];
-    while let Some(p) = stack.pop() {
-        let mode = fs::symlink_metadata(&p).unwrap().permissions().mode() & 0o777;
-        assert_eq!(mode & 0o077, 0, "{} is {mode:o}", p.display());
-        if p.is_dir() {
-            stack.extend(fs::read_dir(&p).unwrap().map(|e| e.unwrap().path()));
-        }
-    }
+    assert!(published(), "no delta published");
+    private_below(&f.index, 0o700);
+
+    // an existing directory someone else chose is used, not chmodded
+    let chosen = f.base.join("chosen");
+    fs::create_dir(&chosen).unwrap();
+    fs::set_permissions(&chosen, fs::Permissions::from_mode(0o755)).unwrap();
+    let mut c = f.command();
+    c.args(["index", "--quiet", "--index-dir"]).arg(&chosen);
+    assert!(permissive(c).status.success());
+    private_below(&chosen, 0o755);
 }

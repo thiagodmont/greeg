@@ -218,7 +218,8 @@ impl<K: Key> Sink<K> {
         ));
         let mut keys: Vec<K> = self.map.keys().cloned().collect();
         keys.sort_unstable();
-        let f = File::create(&path).with_context(|| format!("create {}", path.display()))?;
+        let f =
+            crate::create_private(&path).with_context(|| format!("create {}", path.display()))?;
         let mut w = BufWriter::with_capacity(256 << 10, f);
         let mut rec = Vec::with_capacity(4096);
         for k in &keys {
@@ -529,7 +530,7 @@ impl Scratch {
     pub fn new(index_dir: &Path) -> Result<Self> {
         let dir = index_dir.join(format!("build-tmp.{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).with_context(|| format!("create {}", dir.display()))?;
+        crate::create_private_dir(&dir).with_context(|| format!("create {}", dir.display()))?;
         Ok(Scratch { dir })
     }
 }
