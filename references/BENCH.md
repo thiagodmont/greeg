@@ -315,6 +315,8 @@ Hook process median latency changes ranged from -1.1% to +3.6%. Cases above the 
 
 ## Generated skills: recurring hook regression (2026-09-23)
 
+Originating PR: [#20](https://github.com/thiagodmont/greeg/pull/20).
+
 Measurement time: 2026-09-23T15:14:56.373966Z (recorded).
 
 Initial 151-pair run: all 28 hook contracts and 40 exact search comparisons pass, with identical reply bytes/tokens. One p95 exceeds the +20% investigation threshold: Codex count_miss changes 6.438 → 7.799 ms (+21.2%) while its median decreases. This run is retained alongside the larger confirmation below.
@@ -357,6 +359,8 @@ Hook process median latency changes ranged from -2.1% to +2.4%. Cases above the 
 [Raw samples, reply sizes, and binary/corpus digests](../bench/results/skill-hook-regression-2026-09-23-darwin-arm64.json). Reproduce: `python3 bench/hooks.py BASELINE CANDIDATE --runs 151 --tokens --output skill-hook-regression-2026-09-23-darwin-arm64.json`.
 
 ## Generated skills: recurring hook confirmation (2026-09-23)
+
+Originating PR: [#20](https://github.com/thiagodmont/greeg/pull/20).
 
 Measurement time: 2026-09-23T15:16:49.229448Z (recorded).
 
@@ -613,6 +617,8 @@ The review measurements compare the original atomic-write implementation with th
 
 ## Generated skill ownership (2026-09-23)
 
+Originating PR: [#20](https://github.com/thiagodmont/greeg/pull/20).
+
 Measurement time: 2026-09-23T15:13:27.993943Z (recorded).
 
 Atomic skill creation and legacy adoption add 6.9–8.2 ms at the median; managed/legacy removal adds 2.1–3.8 ms for snapshot checks, locking and directory sync. These exceed investigation thresholds and are an installation/removal reliability cost. Already-current skills remain near 4 ms without rewriting. The complete generated skill text increases from 789 to 840 o200k_base tokens for Claude and 764 to 818 for Codex (ownership marker only; not an agent-task savings measurement). Rust tests cover unsafe paths, conflicts and failed publication.
@@ -653,6 +659,8 @@ These checks validate skill lifecycle and configuration editing, not live host a
 Invocation failures: 0. Timeouts/launch failures retain their elapsed time and partial output sizes, fail the contract, and suppress the affected timing ratios. Version probes remain preflight checks.
 
 ## Generated skills: configuration regression (2026-09-23)
+
+Originating PR: [#20](https://github.com/thiagodmont/greeg/pull/20).
 
 Measurement time: 2026-09-23T15:14:09.153688Z (recorded).
 
