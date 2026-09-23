@@ -1,0 +1,46 @@
+crates/greeg-query/src/session.rs
+  s_09357c044b6e84::t_43ebb83ff2edca 332-343
+bench/reports.toml
+  s_09357c044b6e84::t_84aa03daa309e5 255-264
+bench/test_report_catalog.py
+  s_09357c044b6e84::t_238139baa7057a 245,249-250
+  s_09357c044b6e84::t_d80075289ff2e1 251
+crates/greeg-query/src/session_store.rs
+  s_09357c044b6e84::t_238139baa7057a 573-612,614
+  s_09357c044b6e84::t_43ebb83ff2edca 4,7,9-11,20,131-138,165,262,305,362-376,378-379,382-396,415,417-419,421-427,442-453
+  s_09357c044b6e84::t_fbb5d5db0e70f6 613,615-620
+bench/results/private-sessions-review-2026-09-23-darwin-arm64.json
+  s_09357c044b6e84::t_84aa03daa309e5 15,18-19,22,170,316,462,608,754,900,1046,1192,1338,1484,1630,1776,1922,2068,2106-2117
+  s_09357c044b6e84::t_35d8dd4141b407 1-14,16-17,20-21,23-169,171-315,317-461,463-607,609-753,755-899,901-1045,1047-1191,1193-1337,1339-1483,1485-1629,1631-1775,1777-1921,1923-2067,2069-2105,2118
+bench/sessions.py
+  s_09357c044b6e84::t_43ebb83ff2edca 18,76,108
+crates/greeg/tests/sessions.rs
+  s_09357c044b6e84::t_43ebb83ff2edca 13-24
+  s_09357c044b6e84::t_739908f0ea0f9e 111-142
+  s_09357c044b6e84::t_c3835f5b380d33 143-144
+references/ARCHITECTURE.md
+  s_09357c044b6e84::t_43ebb83ff2edca 495,501-502
+  s_09357c044b6e84::t_84aa03daa309e5 499-500
+  s_09357c044b6e84::t_7e4262c932d35d 296-298,320-322
+  s_09357c044b6e84::t_2d8d2fe9331667 498
+bench/test_sessions.py
+  s_09357c044b6e84::t_238139baa7057a 31-56
+references/BENCH.md
+  s_09357c044b6e84::t_0e6c46814042b3 915-951
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "59b6e0ed595ffdee7f66a87d1acde0ad79d1387e",
+  "prompts": {},
+  "sessions": {
+    "s_09357c044b6e84": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0c9a2-d91e-7fc2-8558-a87341dafdb2",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
