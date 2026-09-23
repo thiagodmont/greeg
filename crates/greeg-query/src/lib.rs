@@ -4,6 +4,7 @@
 pub mod indexed;
 pub mod precise;
 pub mod session;
+mod session_store;
 pub mod shape;
 pub mod stdin;
 pub mod tokens;

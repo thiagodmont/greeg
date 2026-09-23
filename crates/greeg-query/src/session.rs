@@ -1,18 +1,20 @@
-//! Session memory (ARCHITECTURE.md): a small per-agent log of what was asked
+//! Session memory: a small per-agent log of what was asked
 //! and shown, used for dedup of already-shown context, loop detection, and
 //! the focus set that biases ranking. Storage: `session/<id>.jsonl` under the
-//! index directory. Reading the log costs well under a millisecond.
+//! index directory. Storage and retention are bounded independently of search output.
 
+use crate::session_store::Store;
 use crate::shape::Report;
 use crate::{Mode, Options, ScanResult};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
+#[cfg(any(test, target_os = "linux"))]
 use std::fs;
-use std::io::Write;
+#[cfg(test)]
 use std::path::PathBuf;
 
-const MAX_RECORDS: usize = 2000;
-const MAX_AGE_SECS: u64 = 24 * 3600;
+pub(crate) const MAX_RECORDS: usize = 2000;
+pub(crate) const MAX_AGE_SECS: u64 = 24 * 3600;
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct Record {
@@ -20,6 +22,7 @@ pub struct Record {
     pub t: u64,
     /// Normalized query: sorted unique lowercase tokens.
     pub q: String,
+    #[serde(default, skip_serializing)]
     pub pat: String,
     pub hits: usize,
     /// Files shown (relative paths).
@@ -52,6 +55,8 @@ pub fn covered(
 }
 
 pub struct Session {
+    store: Store,
+    #[cfg(test)]
     path: PathBuf,
     id: String,
     records: Vec<Record>,
@@ -152,35 +157,40 @@ pub fn agent_pid() -> u32 {
 
 impl Session {
     /// Open (or create) the session for this query. `None` when no index
-    /// directory can be determined (session memory needs somewhere to live).
+    /// directory can be determined or the private store cannot be accessed.
     pub fn open(o: &Options, id: Option<&str>) -> Option<Session> {
         let dir = match &o.index_dir {
             Some(d) => d.clone(),
             None => greeg_index::index_dir_for(&o.root).ok()?,
         }
         .join("session");
-        let id = match id
-            .map(|s| s.to_string())
-            .or_else(|| std::env::var("GREEG_SESSION").ok())
-            .filter(|s| !s.is_empty())
+        let id = id
+            .map(str::to_owned)
+            .or_else(|| {
+                std::env::var("GREEG_SESSION")
+                    .ok()
+                    .filter(|s| !s.is_empty())
+            })
+            .unwrap_or_else(|| format!("p{}", agent_pid()));
+        let key = if !id.is_empty()
+            && id.len() <= 64
+            && id
+                .bytes()
+                .all(|c| c.is_ascii_alphanumeric() || c == b'-' || c == b'_')
         {
-            Some(s) => s
-                .chars()
-                .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
-                .take(64)
-                .collect(),
-            None => format!("p{}", agent_pid()),
+            id.clone()
+        } else {
+            format!("h-{}", blake3::hash(id.as_bytes()).to_hex())
         };
-        let path = dir.join(format!("{id}.jsonl"));
-        let mut records: Vec<Record> = Vec::new();
-        if let Ok(s) = fs::read_to_string(&path) {
-            for line in s.lines() {
-                if let Ok(r) = serde_json::from_str::<Record>(line) {
-                    records.push(r);
-                }
-            }
-        }
-        Some(Session { path, id, records })
+        let store = Store::open(&dir, &key).ok()?;
+        let records = store.load(now_secs()).ok()?.records;
+        Some(Session {
+            #[cfg(test)]
+            path: dir.join(format!("{key}.jsonl")),
+            store,
+            id,
+            records,
+        })
     }
 
     pub fn id(&self) -> &str {
@@ -300,69 +310,119 @@ impl Session {
         let rec = Record {
             t: now_secs(),
             q: normalize(&o.pattern),
-            pat: o.pattern.clone(),
+            pat: String::new(),
             hits: r.stats.total_hits,
             files,
             ctx: Vec::new(),
             shown,
         };
-        let Ok(line) = serde_json::to_string(&rec) else {
-            return;
-        };
-        let _ = fs::create_dir_all(self.path.parent().unwrap_or(&self.path));
-        let fresh_file = !self.path.exists();
-        if self.records.len() >= MAX_RECORDS {
-            // rewrite keeping the newest half
-            let keep = &self.records[self.records.len() / 2..];
-            let mut body = String::new();
-            for r in keep {
-                if let Ok(l) = serde_json::to_string(r) {
-                    body.push_str(&l);
-                    body.push('\n');
-                }
-            }
-            body.push_str(&line);
-            body.push('\n');
-            let _ = fs::write(&self.path, body);
-        } else if let Ok(mut f) = fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&self.path)
-        {
-            let _ = writeln!(f, "{line}");
-        }
-        if fresh_file {
-            self.prune();
-        }
-    }
-
-    /// Delete session files older than 24 h (runs when a new session starts).
-    fn prune(&self) {
-        let Some(dir) = self.path.parent() else {
-            return;
-        };
-        let Ok(rd) = fs::read_dir(dir) else { return };
-        let now = std::time::SystemTime::now();
-        for e in rd.flatten() {
-            if e.path() == self.path {
-                continue;
-            }
-            if let Ok(md) = e.metadata()
-                && let Ok(m) = md.modified()
-                && now
-                    .duration_since(m)
-                    .map(|d| d.as_secs() > MAX_AGE_SECS)
-                    .unwrap_or(false)
-            {
-                let _ = fs::remove_file(e.path());
-            }
-        }
+        let _ = self.store.append(&rec, now_secs());
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    struct Fixture(PathBuf);
+
+    impl Fixture {
+        fn new() -> Self {
+            static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+            let path = loop {
+                let candidate = std::env::temp_dir().join(format!(
+                    "greeg-session-{}-{}",
+                    std::process::id(),
+                    NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+                ));
+                match fs::create_dir(&candidate) {
+                    Ok(()) => break candidate,
+                    Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                    Err(e) => panic!("fixture directory: {e}"),
+                }
+            };
+            Self(path)
+        }
+
+        fn options(&self) -> Options {
+            Options {
+                root: self.0.clone(),
+                index_dir: Some(self.0.join("index")),
+                ..Options::default()
+            }
+        }
+    }
+
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn expired_records_do_not_affect_focus() {
+        let f = Fixture::new();
+        let o = f.options();
+        let s = Session::open(&o, Some("expiry")).unwrap();
+        fs::create_dir_all(s.path.parent().unwrap()).unwrap();
+        let expired = Record {
+            t: now_secs() - MAX_AGE_SECS - 1,
+            files: vec!["old.rs".into()],
+            ..Record::default()
+        };
+        let live = Record {
+            t: now_secs(),
+            files: vec!["new.rs".into()],
+            ..Record::default()
+        };
+        fs::write(
+            &s.path,
+            format!(
+                "{}\n{}\n",
+                serde_json::to_string(&expired).unwrap(),
+                serde_json::to_string(&live).unwrap()
+            ),
+        )
+        .unwrap();
+        assert_eq!(
+            Session::open(&o, Some("expiry")).unwrap().focus(),
+            ["new.rs"]
+        );
+    }
+
+    #[test]
+    fn session_ids_do_not_collide_after_sanitization() {
+        let f = Fixture::new();
+        let o = f.options();
+        let ids = ["a/b", "ab", "!!!", "???", "", "long"];
+        let paths: HashSet<_> = ids
+            .iter()
+            .map(|id| Session::open(&o, Some(id)).unwrap().path)
+            .collect();
+        assert_eq!(paths.len(), ids.len());
+        let long = "a".repeat(64);
+        assert_ne!(
+            Session::open(&o, Some(&format!("{long}x"))).unwrap().path,
+            Session::open(&o, Some(&format!("{long}y"))).unwrap().path
+        );
+    }
+
+    #[test]
+    fn symlink_records_are_not_loaded() {
+        let f = Fixture::new();
+        let o = f.options();
+        let s = Session::open(&o, Some("symlink")).unwrap();
+        fs::create_dir_all(s.path.parent().unwrap()).unwrap();
+        let target = f.0.join("target");
+        let record = Record {
+            t: now_secs(),
+            files: vec!["outside.rs".into()],
+            ..Record::default()
+        };
+        fs::write(&target, serde_json::to_vec(&record).unwrap()).unwrap();
+        std::os::unix::fs::symlink(&target, &s.path).unwrap();
+        assert!(Session::open(&o, Some("symlink")).is_none_or(|s| s.focus().is_empty()));
+    }
 
     #[test]
     fn normalize_tokens() {

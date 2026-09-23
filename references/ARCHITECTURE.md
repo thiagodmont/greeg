@@ -277,21 +277,61 @@ power-loss behavior have the same limitations as configuration publication.
 
 ### Session memory
 
-A query that names an agent session (`--session ID`, or the parent agent
-process discovered automatically) appends a record to `session/<id>.jsonl`
-under the index directory: the normalized query, the files it showed, and the
-line ranges it printed. Records older than a day get pruned, and the log keeps
-the last 2,000. Reading it costs well under a millisecond, and buys 3 things:
+A query that names an agent session (`--session ID`, `GREEG_SESSION`, or the
+parent agent process discovered automatically) remembers normalized query tokens,
+shown files, and printed line ranges under `session/` in the index directory.
+This memory is independent of opt-in statistics. New records omit the unused raw
+pattern field; normalized tokens and paths remain sensitive.
 
-- **Context dedup.** Context lines already printed this session, for a file
-  whose mtime hasn't changed, get dropped and the hit marked as seen. Explicit
-  `-A`/`-B`/`-C` is never deduped.
-- **Focus set.** The 12 most recently shown files, newest first, get a ranking
-  boost, so a follow-up query lands in the code you were already reading.
-- **Loop detection.** The same token set 3 times in the last 5 queries adds a
-  footer hint, and says so plainly when the repeat turned up nothing new.
+- **Context dedup.** Previously printed implicit context for the same file and
+  mtime is marked as seen. Explicit `-A`/`-B`/`-C`, blocks and `--all` remain visible.
+- **Focus set.** The 12 most recently shown files receive a ranking boost.
+- **Loop detection.** Repeated normalized queries can add a footer hint.
 
-`--no-session` turns all of it off.
+The reserved session directory is owned by the current user and mode `0700`;
+regular log, lock and temporary files are single-link, current-user-owned and
+mode `0600`. Existing verified session objects have their permissions tightened.
+Caller-selected parent directories are never chmodded. The final index directory
+and session directory cannot be symlinks; ancestor paths are caller-controlled.
+Leaf opens use `O_NOFOLLOW` and directory-relative descriptors, including directory
+enumeration, rename and unlink, so cleanup and publication remain anchored after
+a directory rename.
+Extended ACLs are conservatively refused instead of relying only on mode bits.
+Symlinks, hard links, foreign owners and nonregular files are refused before
+reading or writing log content. Extremely restrictive permissions/umasks or an
+incompatible filesystem can disable memory rather than weaken privacy.
+
+Each read admits at most **4 MiB**, **2,000 records**, and **256 KiB per record**.
+Records at least 24 hours old, future-dated records, malformed lines and incomplete
+last lines are excluded before ranking or deduplication. Oversized logs contribute
+no history and are replaced with the next accepted record. Existing safe IDs of
+1–64 ASCII letters, digits, `_` or `-` retain their filenames. Other IDs, including
+an explicit empty CLI ID, use `h-` plus the full BLAKE3 digest; lossy legacy names are
+not imported because they may belong to a different session. An empty `GREEG_SESSION` still falls back to parent-process discovery. Implicit PID-based
+IDs retain their existing reuse limitations within the retention window.
+
+Writers share a stable `.lock`, wait at most approximately 50 ms for contention,
+and reload the current log under that lock. Appends cannot interleave between
+cooperating writers. Compaction uses an exclusive temporary file and atomic rename;
+record-count compaction retains the newest half, and byte-limit compaction aims
+for half the byte budget. Expired/invalid records are removed on the next accepted
+write. New/empty logs trigger a bounded sweep of up to 4,096 directory entries,
+removing only recognized, single-link, user-owned regular log files whose mtime
+is at least 24 hours old. Enumeration runs after releasing the append lock and
+collects a bounded batch of expired names, then closes the directory stream before
+deleting anything. Each candidate is rechecked under a nonblocking lock before
+deletion. A busy writer stops cleanup without waiting. Other entries and the stable lock remain intact.
+This is opportunistic cleanup, not a global disk quota or a background eraser;
+inactive logs beyond the sweep limit and crash-left temporary files may remain.
+
+Session storage is a disposable cache: it does not fsync on each query. A crash
+can lose the latest append, and readers ignore incomplete tails; compaction does
+not truncate the published file in place. Lock timeout or I/O failure skips memory
+without failing the search. Arbitrary same-user code and older binaries that do
+not honor these checks are outside the concurrency guarantee. Older releases may
+ignore new records that omit `pat`; rolling back can reset remembered context. `--no-session`
+bypasses all session storage, but does not disable index or statistics writes.
+Index and statistics storage privacy/retention remain separate follow-ups.
 
 ## Staying fresh
 
@@ -453,10 +493,14 @@ Reports normalize times to UTC and explicitly label these commit dates as estima
 not recorded execution times. Omit all three fields if neither time is known;
 partial metadata and datetimes without a timezone are rejected. Other measurement
 metadata stays in the raw results.
-Add measurements to `hook`, `hook_config` or `matching_review` there without
+Add measurements to `hook`, `hook_config`, `session` or `matching_review` there without
 changing renderers; `matching` and `matching_recheck` each allow exactly one dataset.
 `bench/report_catalog.py` validates the catalog and report-facing fields for
-matching, hook and installer protocols 1/2, and reads each dataset once per render.
+matching, hook, installer and session protocols 1/2, and reads each dataset once
+per render. The session harness emits protocol 2. Session rows require search
+equality for a passing storage/search contract and reuse the shared latency/token tables. New measurement
+families need a documented schema, validator and renderer; new runs within an
+existing family need only catalog entries.
 Unknown result metadata is allowed; unknown catalog options and protocols fail.
 Missing files and valid empty result arrays produce no section. Present invalid
 JSON, duplicate fields, invalid types or missing required fields stop the report

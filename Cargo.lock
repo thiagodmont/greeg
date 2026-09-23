@@ -455,6 +455,7 @@ name = "greeg-query"
 version = "0.6.0"
 dependencies = [
  "anyhow",
+ "blake3",
  "bstr",
  "globset",
  "greeg-index",

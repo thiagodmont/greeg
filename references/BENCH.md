@@ -838,6 +838,191 @@ Cases above the +10% median / +20% p95 investigation thresholds: **0/22**. Maxim
 
 These incremental measurements compare the original skill implementation with the explicit lock-release and read-only removal fixes. Both the initial run and latency recheck are retained above. Both runs use the same binary digests. Read-only removal and inherited-lock behavior are covered by Rust regressions; timing fixtures use ordinary permissions. Initial skill creation/removal costs versus merged main remain documented above.
 
+## Private session memory (2026-09-23)
+
+Originating PR: [#21](https://github.com/thiagodmont/greeg/pull/21).
+
+Measurement time: 2026-09-23T16:30:04.831538Z (recorded).
+
+Initial 51-pair run: session/search contracts improve 6/14 → 14/14, while all search output comparisons pass and output tokens stay unchanged. Fresh/warm session median overhead is 0.1–0.4 ms. Compaction and expiry of 2,000 records add 0.8–0.9 ms (11.9–16.0%), exceeding the median threshold: writers re-read bounded current history under a lock and publish replacements atomically. One fresh scan p95 crosses +20%; the larger confirmation is retained below. Oversized-log timing is not an equivalent-work speedup because the candidate refuses that history.
+
+Scan/index matching-file parity: **pass** across both binaries.
+
+`greeg 0.6.0+8bd8ad24c` → `greeg 0.6.0+8bd8ad24c.dirty`; 51 randomized pairs per case after 3 warmups. Session/search contracts: **6/14 → 14/14**. Exact stdout/stderr/status comparisons against the same backend’s baseline: **14/14 → 14/14**.
+
+The disposable corpus and reset logs exercise scan and full-index queries with sessions disabled, fresh/100-record logs, 2,000-record compaction/expiry, an oversized log, and a symlink. Checks require private modes, bounded retained records, and untouched symlink targets. Fixture reset, validation and index builds are outside the timed process. Storage contract failures are not equivalent successful work; timing differences are not speedup claims.
+
+| Backend | Case | Median ms, before → after | p95 ms, before → after | Output tokens, before → after |
+|---|---|---:|---:|---:|
+| scan | no session | 7.258 → 7.462 | 54.462 → 46.688 | 199 → 199 |
+| scan | fresh | 6.112 → 6.490 | 8.029 → 9.665 | 199 → 199 |
+| scan | warm | 5.961 → 6.086 | 7.395 → 7.468 | 199 → 199 |
+| scan | compaction | 6.634 → 7.420 | 8.166 → 9.129 | 199 → 199 |
+| scan | expired | 6.629 → 7.454 | 8.320 → 9.233 | 199 → 199 |
+| scan | oversized | 8.152 → 7.019 | 10.131 → 8.702 | 199 → 199 |
+| scan | symlink | 5.943 → 5.912 | 7.108 → 6.980 | 199 → 199 |
+| index | no session | 4.457 → 4.565 | 4.896 → 5.043 | 202 → 202 |
+| index | fresh | 4.758 → 4.858 | 5.130 → 5.726 | 202 → 202 |
+| index | warm | 4.663 → 4.842 | 5.454 → 5.889 | 202 → 202 |
+| index | compaction | 5.531 → 6.349 | 6.932 → 7.811 | 202 → 202 |
+| index | expired | 5.379 → 6.242 | 7.598 → 8.592 | 202 → 202 |
+| index | oversized | 6.398 → 5.527 | 8.102 → 7.348 | 202 → 202 |
+| index | symlink | 4.726 → 4.665 | 5.170 → 5.249 | 202 → 202 |
+
+Cases above +10% median / +20% p95 investigation thresholds: **5/14**. Maximum median/p95 increases: 16.0%/20.4%.
+
+[Raw samples, binary/harness/corpus digests and fixtures](../bench/results/private-sessions-2026-09-23-darwin-arm64.json). Reproduce: `python3 bench/sessions.py BASELINE CANDIDATE --runs 51 --tokens --output private-sessions-2026-09-23-darwin-arm64.json`.
+
+Tokens count stdout plus stderr, not the stored log or whole agent tasks. Warm synthetic timings do not establish cold-cache latency, peak RSS, live agent quality, power-loss durability or concurrent-filesystem safety. Rust tests cover the storage safety contracts.
+
+## Private session memory: confirmation (2026-09-23)
+
+Originating PR: [#21](https://github.com/thiagodmont/greeg/pull/21).
+
+Measurement time: 2026-09-23T16:31:06.495386Z (recorded).
+
+The 151-pair confirmation uses the same binary digests and passes all 14 candidate contracts with unchanged output bytes/tokens. Fresh/warm median overhead is 0.1–0.3 ms. Compaction/expiry retain four median flags (+10.9–14.2%, or 0.6–0.8 ms) from reloading bounded history under a lock and atomic replacement. This is an explicit session-persistence reliability cost, not a search speedup. No p95 exceeds +20%; the initial fresh scan tail flag did not repeat. Sessions-disabled median changes are +5.5% scan / +1.6% index. Both runs are retained; they do not measure whole-task quality or cold-cache behavior.
+
+Scan/index matching-file parity: **pass** across both binaries.
+
+`greeg 0.6.0+8bd8ad24c` → `greeg 0.6.0+8bd8ad24c.dirty`; 151 randomized pairs per case after 3 warmups. Session/search contracts: **6/14 → 14/14**. Exact stdout/stderr/status comparisons against the same backend’s baseline: **14/14 → 14/14**.
+
+The disposable corpus and reset logs exercise scan and full-index queries with sessions disabled, fresh/100-record logs, 2,000-record compaction/expiry, an oversized log, and a symlink. Checks require private modes, bounded retained records, and untouched symlink targets. Fixture reset, validation and index builds are outside the timed process. Storage contract failures are not equivalent successful work; timing differences are not speedup claims.
+
+| Backend | Case | Median ms, before → after | p95 ms, before → after | Output tokens, before → after |
+|---|---|---:|---:|---:|
+| scan | no session | 6.245 → 6.587 | 8.534 → 8.743 | 199 → 199 |
+| scan | fresh | 6.624 → 6.806 | 8.145 → 8.482 | 199 → 199 |
+| scan | warm | 5.875 → 6.139 | 7.298 → 7.646 | 199 → 199 |
+| scan | compaction | 6.626 → 7.372 | 7.942 → 8.930 | 199 → 199 |
+| scan | expired | 6.514 → 7.221 | 8.394 → 9.138 | 199 → 199 |
+| scan | oversized | 8.020 → 6.771 | 11.055 → 9.131 | 199 → 199 |
+| scan | symlink | 6.048 → 5.883 | 8.815 → 8.393 | 199 → 199 |
+| index | no session | 4.345 → 4.414 | 5.573 → 5.617 | 202 → 202 |
+| index | fresh | 4.722 → 4.858 | 6.088 → 6.286 | 202 → 202 |
+| index | warm | 4.771 → 4.933 | 5.966 → 6.350 | 202 → 202 |
+| index | compaction | 5.521 → 6.302 | 7.504 → 8.915 | 202 → 202 |
+| index | expired | 5.502 → 6.120 | 10.137 → 10.097 | 202 → 202 |
+| index | oversized | 7.170 → 5.744 | 8.444 → 7.360 | 202 → 202 |
+| index | symlink | 4.785 → 4.726 | 6.414 → 6.064 | 202 → 202 |
+
+Cases above +10% median / +20% p95 investigation thresholds: **4/14**. Maximum median/p95 increases: 14.2%/18.8%.
+
+[Raw samples, binary/harness/corpus digests and fixtures](../bench/results/private-sessions-confirmation-2026-09-23-darwin-arm64.json). Reproduce: `python3 bench/sessions.py BASELINE CANDIDATE --runs 151 --tokens --output private-sessions-confirmation-2026-09-23-darwin-arm64.json`.
+
+Tokens count stdout plus stderr, not the stored log or whole agent tasks. Warm synthetic timings do not establish cold-cache latency, peak RSS, live agent quality, power-loss durability or concurrent-filesystem safety. Rust tests cover the storage safety contracts.
+
+## Private session memory: cleanup review (2026-09-23)
+
+Originating PR: [#21](https://github.com/thiagodmont/greeg/pull/21).
+
+Measurement time: 2026-09-23T16:57:25.076374Z (recorded).
+
+These 51-pair incremental measurements compare the retained original session binary with anchored cleanup and shorter lock scope. Both binaries pass 14/14 session/search contracts; stdout, stderr, statuses, bytes and tokens remain unchanged, with scan/index matching-file parity. No case exceeds +10% median or +20% p95: maximum increases are +2.4% median and +19.0% p95. Directory-rename and busy-writer cleanup safety are covered by deterministic Rust regressions; these small-directory timings do not establish a large-directory contention speedup. Original costs versus merged main remain documented above.
+
+Scan/index matching-file parity: **pass** across both binaries.
+
+`greeg 0.6.0+8bd8ad24c.dirty` → `greeg 0.6.0+f21b9d83c.dirty`; 51 randomized pairs per case after 3 warmups. Session/search contracts: **14/14 → 14/14**. Exact stdout/stderr/status comparisons against the same backend’s baseline: **14/14 → 14/14**.
+
+The disposable corpus and reset logs exercise scan and full-index queries with sessions disabled, fresh/100-record logs, 2,000-record compaction/expiry, an oversized log, and a symlink. Checks require private modes, bounded retained records, and untouched symlink targets. Fixture reset, validation and index builds are outside the timed process. Storage contract failures are not equivalent successful work; timing differences are not speedup claims.
+
+| Backend | Case | Median ms, before → after | p95 ms, before → after | Output tokens, before → after |
+|---|---|---:|---:|---:|
+| scan | no session | 5.953 → 5.949 | 10.072 → 11.172 | 199 → 199 |
+| scan | fresh | 6.902 → 6.825 | 8.747 → 10.233 | 199 → 199 |
+| scan | warm | 7.899 → 7.605 | 19.572 → 16.517 | 199 → 199 |
+| scan | compaction | 7.373 → 7.402 | 9.043 → 8.991 | 199 → 199 |
+| scan | expired | 7.448 → 7.461 | 10.166 → 11.426 | 199 → 199 |
+| scan | oversized | 7.498 → 7.680 | 9.698 → 9.686 | 199 → 199 |
+| scan | symlink | 7.331 → 7.128 | 19.624 → 20.829 | 199 → 199 |
+| index | no session | 4.594 → 4.631 | 5.984 → 6.032 | 202 → 202 |
+| index | fresh | 5.182 → 5.227 | 5.842 → 6.680 | 202 → 202 |
+| index | warm | 5.131 → 5.091 | 5.865 → 6.047 | 202 → 202 |
+| index | compaction | 6.313 → 6.384 | 8.539 → 8.374 | 202 → 202 |
+| index | expired | 6.119 → 6.151 | 7.140 → 6.724 | 202 → 202 |
+| index | oversized | 6.066 → 5.898 | 7.291 → 8.675 | 202 → 202 |
+| index | symlink | 4.897 → 4.961 | 7.069 → 6.459 | 202 → 202 |
+
+Cases above +10% median / +20% p95 investigation thresholds: **0/14**. Maximum median/p95 increases: 2.4%/19.0%.
+
+[Raw samples, binary/harness/corpus digests and fixtures](../bench/results/private-sessions-review-2026-09-23-darwin-arm64.json). Reproduce: `python3 bench/sessions.py BASELINE CANDIDATE --runs 51 --tokens --output private-sessions-review-2026-09-23-darwin-arm64.json`.
+
+Tokens count stdout plus stderr, not the stored log or whole agent tasks. Warm synthetic timings do not establish cold-cache latency, peak RSS, live agent quality, power-loss durability or concurrent-filesystem safety. Rust tests cover the storage safety contracts.
+
+## Session cleanup: collect before deletion (2026-09-23)
+
+Originating PR: [#21](https://github.com/thiagodmont/greeg/pull/21).
+
+Measurement time: 2026-09-23T17:16:33.700442Z (recorded).
+
+Initial 51-pair comparison against the retained cleanup-review binary: 14/14 contracts pass on both binaries with unchanged stdout/stderr/status, bytes and tokens. All medians stay below +10%; scan expiry p95 increases 17.48 → 45.05 ms (+157.7%), so the larger confirmation is retained below. That case compacts an existing nonempty log and does not enter the directory sweep. The 512-log cleanup test passed before and after the change on this Mac; no filesystem-specific skipped-entry defect was reproduced. This is defensive separation of enumeration and deletion, not a proven speedup.
+
+Scan/index matching-file parity: **pass** across both binaries.
+
+`greeg 0.6.0+f21b9d83c.dirty` → `greeg 0.6.0+59b6e0ed5.dirty`; 51 randomized pairs per case after 3 warmups. Session/search contracts: **14/14 → 14/14**. Exact stdout/stderr/status comparisons against the same backend’s baseline: **14/14 → 14/14**.
+
+The disposable corpus and reset logs exercise scan and full-index queries with sessions disabled, fresh/100-record logs, 2,000-record compaction/expiry, an oversized log, and a symlink. Checks require private modes, bounded retained records, and untouched symlink targets. Fixture reset, validation and index builds are outside the timed process. Storage contract failures are not equivalent successful work; timing differences are not speedup claims.
+
+| Backend | Case | Median ms, before → after | p95 ms, before → after | Output tokens, before → after |
+|---|---|---:|---:|---:|
+| scan | no session | 6.444 → 6.358 | 8.620 → 7.728 | 199 → 199 |
+| scan | fresh | 6.828 → 6.871 | 8.368 → 8.029 | 199 → 199 |
+| scan | warm | 6.896 → 6.998 | 8.602 → 8.488 | 199 → 199 |
+| scan | compaction | 8.531 → 8.348 | 10.230 → 10.342 | 199 → 199 |
+| scan | expired | 8.169 → 8.317 | 17.481 → 45.049 | 199 → 199 |
+| scan | oversized | 6.940 → 7.215 | 9.603 → 8.721 | 199 → 199 |
+| scan | symlink | 6.461 → 6.278 | 7.990 → 8.051 | 199 → 199 |
+| index | no session | 4.668 → 4.501 | 6.093 → 6.218 | 202 → 202 |
+| index | fresh | 5.008 → 5.267 | 6.636 → 6.716 | 202 → 202 |
+| index | warm | 5.863 → 5.790 | 8.278 → 7.198 | 202 → 202 |
+| index | compaction | 6.319 → 6.290 | 8.245 → 8.386 | 202 → 202 |
+| index | expired | 6.142 → 6.199 | 7.237 → 7.661 | 202 → 202 |
+| index | oversized | 5.726 → 5.798 | 7.247 → 7.214 | 202 → 202 |
+| index | symlink | 4.843 → 4.945 | 10.161 → 9.404 | 202 → 202 |
+
+Cases above +10% median / +20% p95 investigation thresholds: **1/14**. Maximum median/p95 increases: 5.2%/157.7%.
+
+[Raw samples, binary/harness/corpus digests and fixtures](../bench/results/private-sessions-sweep-2026-09-23-darwin-arm64.json). Reproduce: `python3 bench/sessions.py BASELINE CANDIDATE --runs 51 --tokens --output private-sessions-sweep-2026-09-23-darwin-arm64.json`.
+
+Tokens count stdout plus stderr, not the stored log or whole agent tasks. Warm synthetic timings do not establish cold-cache latency, peak RSS, live agent quality, power-loss durability or concurrent-filesystem safety. Rust tests cover the storage safety contracts.
+
+## Session cleanup: collect-before-delete confirmation (2026-09-23)
+
+Originating PR: [#21](https://github.com/thiagodmont/greeg/pull/21).
+
+Measurement time: 2026-09-23T17:17:29.216244Z (recorded).
+
+The 151-pair confirmation uses the same binary digests, passes 14/14 contracts on both binaries, and preserves exact output/status, bytes/tokens and scan/index matching-file parity. Maximum increases are +1.2% median and +7.1% p95; no investigation thresholds are crossed. The initial scan-expiry tail flag does not repeat (+1.6%, or 0.13 ms). Both runs remain available. These small-directory timing fixtures do not measure bulk-sweep latency or peak RSS; Rust coverage checks removal of 512 expired logs, fresh-file preservation, renamed directories and busy writers.
+
+Scan/index matching-file parity: **pass** across both binaries.
+
+`greeg 0.6.0+f21b9d83c.dirty` → `greeg 0.6.0+59b6e0ed5.dirty`; 151 randomized pairs per case after 3 warmups. Session/search contracts: **14/14 → 14/14**. Exact stdout/stderr/status comparisons against the same backend’s baseline: **14/14 → 14/14**.
+
+The disposable corpus and reset logs exercise scan and full-index queries with sessions disabled, fresh/100-record logs, 2,000-record compaction/expiry, an oversized log, and a symlink. Checks require private modes, bounded retained records, and untouched symlink targets. Fixture reset, validation and index builds are outside the timed process. Storage contract failures are not equivalent successful work; timing differences are not speedup claims.
+
+| Backend | Case | Median ms, before → after | p95 ms, before → after | Output tokens, before → after |
+|---|---|---:|---:|---:|
+| scan | no session | 6.138 → 6.149 | 7.505 → 7.491 | 199 → 199 |
+| scan | fresh | 6.499 → 6.495 | 7.981 → 7.989 | 199 → 199 |
+| scan | warm | 6.575 → 6.593 | 8.576 → 8.943 | 199 → 199 |
+| scan | compaction | 7.310 → 7.344 | 9.028 → 9.303 | 199 → 199 |
+| scan | expired | 7.085 → 7.090 | 8.501 → 8.635 | 199 → 199 |
+| scan | oversized | 6.716 → 6.671 | 9.113 → 8.847 | 199 → 199 |
+| scan | symlink | 6.058 → 5.976 | 7.563 → 7.278 | 199 → 199 |
+| index | no session | 4.343 → 4.304 | 5.726 → 5.340 | 202 → 202 |
+| index | fresh | 4.756 → 4.801 | 5.754 → 5.807 | 202 → 202 |
+| index | warm | 4.737 → 4.721 | 5.414 → 5.797 | 202 → 202 |
+| index | compaction | 6.087 → 6.020 | 7.355 → 7.111 | 202 → 202 |
+| index | expired | 6.007 → 5.969 | 7.839 → 7.385 | 202 → 202 |
+| index | oversized | 5.642 → 5.710 | 7.998 → 8.245 | 202 → 202 |
+| index | symlink | 4.607 → 4.617 | 7.479 → 6.538 | 202 → 202 |
+
+Cases above +10% median / +20% p95 investigation thresholds: **0/14**. Maximum median/p95 increases: 1.2%/7.1%.
+
+[Raw samples, binary/harness/corpus digests and fixtures](../bench/results/private-sessions-sweep-confirmation-2026-09-23-darwin-arm64.json). Reproduce: `python3 bench/sessions.py BASELINE CANDIDATE --runs 151 --tokens --output private-sessions-sweep-confirmation-2026-09-23-darwin-arm64.json`.
+
+Tokens count stdout plus stderr, not the stored log or whole agent tasks. Warm synthetic timings do not establish cold-cache latency, peak RSS, live agent quality, power-loss durability or concurrent-filesystem safety. Rust tests cover the storage safety contracts.
+
 ## Speed
 
 Host `darwin-arm64-apple-m4-pro` (12 CPUs), 2026-09-06T14:35:26. `greeg 0.3.0`, `ripgrep 15.2.0`, `grep (BSD grep, GNU compatible) 2.6.0-Fr`, hyperfine 1.20.0. hyperfine `-N --warmup 3 --runs 10` with `--prepare 'sleep 0.15'` before every timing run, warm page cache. Cells are **medians** with min–max in parentheses.
