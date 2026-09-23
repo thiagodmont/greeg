@@ -16,7 +16,8 @@ them. External tools: git, hyperfine, rg, grep; for the oracle rust-analyzer
 """
 import argparse, datetime, json, math, os, platform, random, re, shlex, shutil, statistics, subprocess, sys, tempfile, time, tomllib
 
-from reporting import latency_summary, paired_table, result_link
+from reporting import latency_summary, paired_table, report_heading, result_link
+from report_catalog import ReportDataError, ReportDatasets
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -1086,13 +1087,15 @@ def mb(x):
     return "n/a" if x is None else f"{round(x)} MB"
 
 
-def matching_report(output_dir):
-    matrix_name = "exact-search-matching-2026-09-22-darwin-arm64.json"
-    recheck_name = "exact-search-ranked-recheck-2026-09-22-darwin-arm64.json"
-    matrix = load_json(os.path.join(RESULTS, matrix_name))
+def matching_report(output_dir, datasets=None):
+    datasets = datasets or ReportDatasets(RESULTS)
+    matrix_entry = datasets.section("matching")[0]
+    recheck_entry = datasets.section("matching_recheck")[0]
+    matrix_name, recheck_name = matrix_entry.filename, recheck_entry.filename
+    matrix = datasets.get(matrix_entry)
     if not matrix or not matrix.get("results"):
         return []
-    recheck = load_json(os.path.join(RESULTS, recheck_name))
+    recheck = datasets.get(recheck_entry)
     binaries = matrix["binaries"]
     machine = [r for r in matrix["results"] if r["candidate"]["rg_stdout_and_status_equal"] is not None]
     if not machine:
@@ -1100,8 +1103,7 @@ def matching_report(output_dir):
     token_note = (f"Tokens count stdout plus stderr with `{matrix['tokenizer']}`."
                   if matrix.get("tokenizer") else "Token counts were not measured (n/a).")
     passed = lambda label: sum(r[label]["rg_stdout_and_status_equal"] for r in machine)
-    out = [
-        "## Exact-search defaults (2026-09-22)", "",
+    out = report_heading(matrix_entry) + [
         f"Focused comparison of `{binaries['baseline']['version']}` against `{binaries['candidate']['version']}`. "
         "The candidate contains the exact/discovery policy change. These measurements are separate from the older full-corpus tables below.", "",
         f"{matrix['platform']}, {matrix['cpu_count']} logical CPUs; "
@@ -1133,10 +1135,11 @@ def matching_report(output_dir):
         summary = latency_summary(recheck["results"])
         investigation = (f"Recheck cases exceeding the 10% median / 20% p95 investigation thresholds: **{summary['flagged']}**."
                          if summary else "Recheck latency comparison unavailable.")
-        out += ["### Ranked-query recheck", "", trigger + "Both runs are retained. " + investigation, ""]
+        out += report_heading(recheck_entry, level=3)
+        out += [trigger + "Both runs are retained. " + investigation, ""]
         out += paired_table(recheck["results"], "backend", "Backend")
-        out += ["", f"[Ranked recheck and raw samples]({result_link(RESULTS, output_dir, recheck_name)})."]
-    out += ["", f"[Original matrix and raw samples]({result_link(RESULTS, output_dir, matrix_name)}) include binary/corpus digests. "
+        out += ["", f"[Ranked recheck and raw samples]({result_link(datasets.root, output_dir, recheck_name)})."]
+    out += ["", f"[Original matrix and raw samples]({result_link(datasets.root, output_dir, matrix_name)}) include binary/corpus digests. "
             "Reproduce with `python3 bench/matching.py BASELINE CANDIDATE --runs 31 --tokens --output matrix.json`; "
             "for the recheck use `python3 bench/matching.py BASELINE CANDIDATE --runs 151 --cases ranked_hit ranked_discovery --tokens --output recheck.json`.", "",
             "**Limits:** this is a warm synthetic-corpus comparison, not a new full-corpus result or whole-agent-task token estimate. "
@@ -1145,14 +1148,12 @@ def matching_report(output_dir):
     return out
 
 
-def matching_review_report(output_dir):
+def matching_review_report(output_dir, datasets=None):
+    datasets = datasets or ReportDatasets(RESULTS)
     out = []
-    for filename, title, show_rows in [
-        ("exact-search-json-darwin-arm64.json", "JSON exact-default coverage", True),
-        ("exact-search-review-darwin-arm64.json", "Review fixes: initial measurements", False),
-        ("exact-search-review-recheck-darwin-arm64.json", "Review fixes: optimized lookup recheck", True),
-    ]:
-        data = load_json(os.path.join(RESULTS, filename))
+    for entry in datasets.section("matching_review"):
+        filename, title = entry.filename, entry.title
+        data = datasets.get(entry)
         if not data or not data.get("results"):
             continue
         rows = data["results"]
@@ -1163,13 +1164,13 @@ def matching_review_report(output_dir):
         summary = latency_summary(rows)
         timing = (f"Cases above the 10% median / 20% p95 investigation thresholds: **{summary['flagged']}**."
                   if summary else "Latency comparison unavailable.")
-        link = result_link(RESULTS, output_dir, filename)
-        out += [f"## {title}", "",
+        link = result_link(datasets.root, output_dir, filename)
+        out += report_heading(entry, title=title) + [
                 f"`{data['binaries']['baseline']['version']}` → `{data['binaries']['candidate']['version']}`; "
                 f"{data['runs']} randomized pairs per case, {data['warmups']} warmups on the same {data['corpus']['files']}-file warm synthetic corpus. "
                 f"Contract checks passed: **{passed('baseline')} → {passed('candidate')}**. "
                 + timing, ""]
-        if show_rows:
+        if entry.show_rows:
             out += paired_table(rows, "backend", "Backend", tokenizer=data.get("tokenizer"),
                                 token_key="tokens_both_streams")
             out.append("")
@@ -1186,17 +1187,12 @@ def matching_review_report(output_dir):
     return out
 
 
-def hook_report(output_dir):
+def hook_report(output_dir, datasets=None):
+    datasets = datasets or ReportDatasets(RESULTS)
     out = []
-    for filename, title in [
-        ("hook-contract-darwin-arm64.json", "Hook contract: initial measurements"),
-        ("hook-contract-recheck-darwin-arm64.json", "Hook contract: latency recheck"),
-        ("hook-review-darwin-arm64.json", "Hook contract: review fixes"),
-        ("hook-config-rewrites-2026-09-23-darwin-arm64.json", "Hook contract: rewrite regression"),
-        ("atomic-config-rewrites-2026-09-23-darwin-arm64.json", "Hook contract: rewrite regression after atomic configuration"),
-    ]:
-        source = os.path.join(RESULTS, filename)
-        data = load_json(source)
+    for entry in datasets.section("hook"):
+        filename, title = entry.filename, entry.title
+        data = datasets.get(entry)
         if not data or not data.get("results"):
             continue
         rows = data["results"]
@@ -1212,8 +1208,8 @@ def hook_report(output_dir):
                   if data.get("protocol", 1) >= 2 else
                   "Protocol 1's search checks read empty stdin and do not establish corpus parity. "
                   "Only its hook-process measurements remain valid; use protocol 2 below for search validation.")
-        link = result_link(RESULTS, output_dir, filename)
-        out += [f"## {title}", "",
+        link = result_link(datasets.root, output_dir, filename)
+        out += report_heading(entry, title=title) + [
                 f"`{data['binaries']['baseline']['version']}` → `{data['binaries']['candidate']['version']}`; "
                 f"{data['runs']} randomized pairs per case after {data['warmups']} warmups. "
                 f"The candidate passed {sum(r['candidate']['contract'] for r in rows)}/{len(rows)} hook eligibility/explicit-policy checks. "
@@ -1232,41 +1228,43 @@ def hook_report(output_dir):
     return out
 
 
-def hook_config_report(output_dir):
+def hook_config_report(output_dir, datasets=None):
+    datasets = datasets or ReportDatasets(RESULTS)
     out = []
-    for filename, title in [
-        ("hook-config-2026-09-23-darwin-arm64.json", "Hook configuration ownership (2026-09-23)"),
-        ("hook-config-review-2026-09-23-darwin-arm64.json", "Hook configuration ownership: review fixes (2026-09-23)"),
-        ("atomic-config-2026-09-23-darwin-arm64.json", "Atomic configuration: installer regression (2026-09-23)"),
-        ("atomic-config-review-2026-09-23-darwin-arm64.json", "Atomic configuration: review fixes (2026-09-23)"),
-        ("atomic-config-review-confirmation-2026-09-23-darwin-arm64.json", "Atomic configuration: review latency recheck (2026-09-23)"),
-    ]:
-        out += hook_config_dataset_report(output_dir, filename, title)
-    initial = load_json(os.path.join(RESULTS, "atomic-config-review-2026-09-23-darwin-arm64.json"))
-    recheck = load_json(os.path.join(RESULTS, "atomic-config-review-confirmation-2026-09-23-darwin-arm64.json"))
-    if initial and initial.get("results") and recheck and recheck.get("results"):
-        same_binaries = all(initial.get("binaries", {}).get(label, {}).get("sha256") and
-                            initial["binaries"][label]["sha256"] == recheck.get("binaries", {}).get(label, {}).get("sha256")
+    for entry in datasets.section("hook_config"):
+        out += hook_config_dataset_report(output_dir, entry.filename, entry.title, datasets)
+    for entry in datasets.section("hook_config"):
+        if not entry.recheck_of:
+            continue
+        original = next(e for e in datasets.entries if e.id == entry.recheck_of)
+        initial, recheck = datasets.get(original), datasets.get(entry)
+        if not initial or not initial["results"] or not recheck or not recheck["results"]:
+            continue
+        same_binaries = all(initial["binaries"][label].get("sha256") and
+                            initial["binaries"][label]["sha256"] == recheck["binaries"][label].get("sha256")
                             for label in ("baseline", "candidate"))
-        out += ["The review measurements compare the original atomic-write implementation with the no-op snapshot and umask fixes. "
-                "Both the initial run and latency recheck are retained above. "
+        out += [(entry.comparison_intro + " " if entry.comparison_intro else "")
+                + "Both the initial run and latency recheck are retained above. "
                 + ("Both runs use the same binary digests. " if same_binaries else "The binary digests differ or are unavailable; these runs are not a controlled recheck. ")
-                + "Restrictive-umask and stale-no-op guarantees are covered by Rust regression tests; these timing fixtures use an ordinary umask. "
-                "Recurring hook and token measurements above predate these review fixes.", ""]
+                + entry.comparison_limits, ""]
     return out
 
 
-def hook_config_dataset_report(output_dir, filename, title):
-    data = load_json(os.path.join(RESULTS, filename))
+def hook_config_dataset_report(output_dir, filename, title, datasets=None):
+    datasets = datasets or ReportDatasets(RESULTS)
+    entry = next((e for e in datasets.section("hook_config") if e.filename == filename), None)
+    if entry is None:
+        raise ReportDataError(f"{filename}: not in the hook configuration catalog")
+    data = datasets.get(entry)
     if not data or not data.get("results"):
         return []
-    link = result_link(RESULTS, output_dir, filename)
+    link = result_link(datasets.root, output_dir, filename)
     rows = data["results"]
     passed = {label: sum(row[label]["contract"] for row in rows) for label in ("baseline", "candidate")}
     extended = data.get("protocol", 1) >= 2
     coverage = ("Protocol 2 also checks byte-identical installed no-ops, matcher-less cleanup, "
                 "custom matcher preservation, and retained TOML comments/trust data. " if extended else "")
-    out = [f"## {title}", "",
+    out = report_heading(entry, title=title) + [
            f"`{data['binaries']['baseline']['version']}` → `{data['binaries']['candidate']['version']}`; "
            f"{data['runs']} randomized paired runs per case after {data['warmups']} warmups. "
            "Each invocation uses a reset disposable home and an isolated configuration/cache. "
@@ -1286,10 +1284,10 @@ def hook_config_dataset_report(output_dir, filename, title):
         out += [f"Invocation failures: {failures}. Timeouts/launch failures retain their elapsed time and partial output sizes, "
                 "fail the contract, and suppress the affected timing ratios. Version probes remain preflight checks.", ""]
     summary = latency_summary(rows)
-    if filename.startswith("atomic-config-review-") and summary:
+    if entry.analysis == "thresholds" and summary:
         out += [f"Cases above the +10% median / +20% p95 investigation thresholds: **{summary['flagged']}/{len(rows)}**. "
                 f"Maximum median/p95 increases: {summary['median_max']:.1f}%/{summary['p95_max']:.1f}%.", ""]
-    if filename == "atomic-config-2026-09-23-darwin-arm64.json" and summary:
+    if entry.analysis == "publication" and summary:
         changed = {"mixed_uninstall", "wrong_matcher_install", "matcherless_uninstall", "custom_matcher_uninstall", "empty_install"}
         deltas = [r["candidate"]["median_ms"] - r["baseline"]["median_ms"] for r in rows if r["case"] in changed]
         quiet = [r["candidate"]["median_ms"] - r["baseline"]["median_ms"] for r in rows if r["case"] not in changed]
@@ -1351,11 +1349,14 @@ def report(args):
     oracle_res = load_json(os.path.join(RESULTS, "oracle.json"), {}) or {}
     out = ["# Benchmarks", "", "Generated by `bench/bench.py report` from `bench/results/`. Rows measured under an older protocol are marked ⚠ and left out of the means. Protocol 2 (2026-09-02) fixed the comparison so both sides do the same work. Protocol 3 (2026-09-04) added the SCIP-covered useful-line ratio next to the strict one, and changed no earlier number.", ""]
     output_dir = os.path.dirname(os.path.realpath(path))
-    out += matching_report(output_dir)
-    out += matching_review_report(output_dir)
-    out += hook_report(output_dir)
+    datasets = ReportDatasets(RESULTS)
+    for entry in datasets.entries:
+        datasets.get(entry)
+    out += matching_report(output_dir, datasets)
+    out += matching_review_report(output_dir, datasets)
+    out += hook_report(output_dir, datasets)
     out += corpus_report(output_dir)
-    out += hook_config_report(output_dir)
+    out += hook_config_report(output_dir, datasets)
     if speed_res:
         h = speed_res["host"]
         corpora = speed_res["corpora"]
@@ -1501,7 +1502,10 @@ def main():
     elif a.cmd == "gate":
         gate(a)
     else:
-        report(a)
+        try:
+            report(a)
+        except ReportDataError as error:
+            sys.exit(f"report error: {error}")
 
 
 if __name__ == "__main__":

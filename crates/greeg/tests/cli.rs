@@ -245,7 +245,9 @@ fn a_complete_answer_has_a_terse_footer() {
 #[test]
 fn an_empty_answer_is_bare() {
     let f = fixture();
-    let o = f.run(&["--no-ladder", "zzz_no_such_identifier", "src"]);
+    // A ready index must not change these scan-specific footer assertions.
+    f.indexed();
+    let o = f.run(&["--no-index", "--no-ladder", "zzz_no_such_identifier", "src"]);
     let out = String::from_utf8_lossy(&o.stdout);
     assert_eq!(o.status.code(), Some(1), "no match must exit 1");
     assert_eq!(
@@ -259,7 +261,7 @@ fn an_empty_answer_is_bare() {
     );
     // with a binary file in scope the footer says so, and says it once: the
     // zero terms are dropped
-    let whole = f.out(&["--no-ladder", "zzz_no_such_identifier"]);
+    let whole = f.out(&["--no-index", "--no-ladder", "zzz_no_such_identifier"]);
     let first = whole.lines().find(|l| !l.is_empty()).unwrap();
     assert_eq!(first, "no hits · skipped 1 binary", "{whole}");
 }

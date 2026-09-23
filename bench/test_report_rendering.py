@@ -1,4 +1,6 @@
 import copy
+from dataclasses import replace
+from datetime import datetime
 import json
 from pathlib import Path
 import tempfile
@@ -6,7 +8,8 @@ import unittest
 from unittest.mock import patch
 
 import bench
-from reporting import latency_summary, paired_table
+from report_catalog import Dataset
+from reporting import latency_summary, paired_table, report_heading
 
 
 class ConfigReportTests(unittest.TestCase):
@@ -26,7 +29,7 @@ class ConfigReportTests(unittest.TestCase):
         (self.results / filename).write_text(json.dumps(data))
         return "\n".join(bench.hook_config_dataset_report(str(self.results), filename, "fixture"))
 
-    def test_empty_or_missing_rows_are_skipped(self):
+    def test_empty_rows_are_skipped_and_missing_rows_are_invalid(self):
         for filename in (self.original, self.review, self.confirmation):
             for rows in ([], None):
                 data = copy.deepcopy(self.data)
@@ -35,7 +38,11 @@ class ConfigReportTests(unittest.TestCase):
                 else:
                     data["results"] = rows
                 with self.subTest(filename=filename, rows=rows):
-                    self.assertEqual(self.render(filename, data), "")
+                    if rows is None:
+                        with self.assertRaisesRegex(ValueError, "results"):
+                            self.render(filename, data)
+                    else:
+                        self.assertEqual(self.render(filename, data), "")
 
     def test_partial_atomic_cases_do_not_claim_both_groups(self):
         for case in ("mixed_uninstall", "installed_noop"):
@@ -54,7 +61,7 @@ class ConfigReportTests(unittest.TestCase):
 
     def test_recheck_checks_recorded_binary_identity(self):
         self.render(self.review, self.data)
-        for digest in (self.data["binaries"]["candidate"]["sha256"], "other", None):
+        for digest in (self.data["binaries"]["candidate"]["sha256"], "0" * 64, None):
             data = copy.deepcopy(self.data)
             data["binaries"]["candidate"]["sha256"] = digest
             self.render(self.confirmation, data)
@@ -67,6 +74,7 @@ class ConfigReportTests(unittest.TestCase):
 
     def test_failed_review_invocations_do_not_produce_threshold_claims(self):
         self.data["results"][0]["candidate"]["failed_invocations"] = 1
+        self.data["results"][0]["candidate"]["contract"] = False
         self.data["results"][0]["median_change_percent"] = None
         self.data["results"][0]["p95_change_percent"] = None
         text = self.render(self.review, self.data)
@@ -81,6 +89,23 @@ class ConfigReportTests(unittest.TestCase):
 
 
 class PairedRenderingTests(unittest.TestCase):
+    def test_headings_link_known_prs_and_do_not_guess_missing_ones(self):
+        entry = Dataset("test", "hook", "test.json", "Measurement")
+        self.assertEqual(report_heading(entry), ["## Measurement", ""])
+        self.assertEqual(report_heading(replace(entry, title="Recheck", pr=18), level=3),
+                         ["### Recheck", "", "Originating PR: [#18](https://github.com/thiagodmont/greeg/pull/18).", ""])
+
+    def test_timestamp_distinguishes_recorded_time_from_commit_estimate(self):
+        entry = Dataset("test", "hook", "test.json", "Measurement",
+                        measured_at=datetime.fromisoformat("2026-09-22T22:59:39-04:00"),
+                        timestamp_source="measurement")
+        self.assertIn("Measurement time: 2026-09-23T02:59:39Z (recorded).", report_heading(entry))
+        entry = replace(entry, timestamp_source="first_commit", timestamp_commit="a" * 40)
+        rendered = "\n".join(report_heading(entry))
+        self.assertIn("2026-09-23T02:59:39Z (estimate from first dataset commit", rendered)
+        self.assertIn("[aaaaaaa](https://github.com/thiagodmont/greeg/commit/" + "a" * 40 + ")", rendered)
+        self.assertIn("execution time was not recorded", rendered)
+
     def row(self, median=100, p95=100):
         return {"agent": "codex", "case": "installed_noop",
                 "baseline": {"median_ms": 100, "p95_ms": 100, "tokens": 0},
