@@ -1,0 +1,31 @@
+bench/results/skill-hook-final-2026-09-23-darwin-arm64.json
+  s_09357c044b6e84::t_701402b77d9faf 1-18046,18065
+  s_09357c044b6e84::t_a18a05c880e099 18047-18064
+references/BENCH.md
+  s_09357c044b6e84::t_426a8227aa7a96 406-450,749-839
+  s_09357c044b6e84::t_45c5f676087a72 840
+bench/results/skill-lifecycle-confirmation-2026-09-23-darwin-arm64.json
+  s_09357c044b6e84::t_d4a35844b1f4b1 23,7597,7600-7617
+  s_09357c044b6e84::t_f26b34380d9856 1-22,24-7596,7598-7599,7618
+bench/results/skill-lifecycle-review-2026-09-23-darwin-arm64.json
+  s_09357c044b6e84::t_a18a05c880e099 3200-3217
+  s_09357c044b6e84::t_cf22981b96ed79 1-3199,3218
+bench/reports.toml
+  s_09357c044b6e84::t_d4a35844b1f4b1 200-234
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "ddbf358af3ff60287211bbd1c363e42dcdb78348",
+  "prompts": {},
+  "sessions": {
+    "s_09357c044b6e84": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0c9a2-d91e-7fc2-8558-a87341dafdb2",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
