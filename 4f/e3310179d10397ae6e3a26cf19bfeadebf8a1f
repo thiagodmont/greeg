@@ -1,0 +1,36 @@
+bench/reporting.py
+  s_09357c044b6e84::t_f996550c64195d 7-13
+bench/test_report_catalog.py
+  s_09357c044b6e84::t_fd25b3d2b89a15 155-159,186,193
+bench/reports.toml
+  s_09357c044b6e84::t_f4ba256a528d04 8,15,22,29,37,44,51,58,65,72,79,86,93,101,109
+references/ARCHITECTURE.md
+  s_09357c044b6e84::t_fd25b3d2b89a15 410-412
+bench/test_report_rendering.py
+  s_09357c044b6e84::t_fd25b3d2b89a15 9,89-93
+references/BENCH.md
+  s_09357c044b6e84::t_ef10909a1b3b64 7-8,34-35,53-54,68-69,76-77,101-102,138-139,175-176,216-217,257-258,315-316,344-345,381-382,420-421,459
+  s_09357c044b6e84::t_ef3a272ed8e16e 460
+bench/bench.py
+  s_09357c044b6e84::t_f4ba256a528d04 19,1106,1138-1139,1168,1212,1267
+bench/results/report-provenance-2026-09-23-darwin-arm64.json
+  s_09357c044b6e84::t_440302e3e9fb17 1-372
+bench/report_catalog.py
+  s_09357c044b6e84::t_f996550c64195d 42,69
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "4fe3310179d10397ae6e3a26cf19bfeadebf8a1f",
+  "prompts": {},
+  "sessions": {
+    "s_09357c044b6e84": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0c9a2-d91e-7fc2-8558-a87341dafdb2",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
