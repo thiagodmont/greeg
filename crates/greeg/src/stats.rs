@@ -2275,6 +2275,8 @@ pub struct ReplayOpts {
     pub timeout: Duration,
     /// Replay with this greeg binary instead of the running one.
     pub binary: Option<PathBuf>,
+    /// The ripgrep to replay with (default: the first `rg` on an absolute PATH entry).
+    pub rg: Option<PathBuf>,
 }
 
 /// The greeg that answers a replay: the running binary, or another build
@@ -2292,25 +2294,6 @@ fn parse_version_output(s: &str) -> Option<String> {
     (name == "greeg" && !ver.trim().is_empty()).then(|| ver.trim().to_string())
 }
 
-/// First line of `<prog> --version`.
-fn tool_version(prog: &str) -> Option<String> {
-    let out = std::process::Command::new(prog)
-        .arg("--version")
-        .output()
-        .ok()?;
-    out.status
-        .success()
-        .then(|| {
-            String::from_utf8_lossy(&out.stdout)
-                .lines()
-                .next()
-                .unwrap_or("")
-                .trim()
-                .to_string()
-        })
-        .filter(|s| !s.is_empty())
-}
-
 impl Greeg {
     fn current() -> Result<Greeg> {
         Ok(Greeg {
@@ -2321,11 +2304,14 @@ impl Greeg {
     }
 
     fn at(bin: &Path, stats_dir: &Path) -> Result<Greeg> {
-        let out = std::process::Command::new(bin)
-            .arg("--version")
-            .output()
-            .with_context(|| format!("run {} --version", bin.display()))?;
-        let version = parse_version_output(&String::from_utf8_lossy(&out.stdout))
+        let mut probe = std::process::Command::new(bin);
+        probe.arg("--version");
+        let out = run_bounded(
+            probe,
+            &format!("{} --version", bin.display()),
+            PROBE_TIMEOUT,
+        )?;
+        let version = parse_version_output(&out.first_line)
             .with_context(|| format!("{} is not a greeg binary", bin.display()))?;
         let safe: String = version
             .chars()
@@ -2379,68 +2365,251 @@ struct Timed {
     exit: i32,
 }
 
-fn drain<R: Read + Send + 'static>(r: Option<R>) -> std::thread::JoinHandle<Vec<u8>> {
+/// `--version` probes get this long.
+const PROBE_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// A file's identity, to notice an executable replaced during a replay.
+type FileId = (u64, u64, u64, i64, i64, i64, i64);
+
+fn file_id(p: &Path) -> std::io::Result<FileId> {
+    use std::os::unix::fs::MetadataExt;
+    let m = std::fs::metadata(p)?;
+    Ok((
+        m.dev(),
+        m.ino(),
+        m.size(),
+        m.mtime(),
+        m.mtime_nsec(),
+        m.ctime(),
+        m.ctime_nsec(),
+    ))
+}
+
+fn is_executable(p: &Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::metadata(p).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+}
+
+/// The ripgrep that replays recorded searches: chosen with `--rg`, or the
+/// first `rg` on an absolute PATH entry (never `.` or another relative
+/// entry). It must report itself as ripgrep, and its identity is checked
+/// again before every run.
+struct TrustedRg {
+    path: PathBuf,
+    id: FileId,
+    version: String,
+}
+
+impl TrustedRg {
+    fn find(explicit: Option<&Path>) -> Result<TrustedRg> {
+        Self::find_in(explicit, std::env::var_os("PATH"))
+    }
+
+    fn find_in(explicit: Option<&Path>, path_var: Option<std::ffi::OsString>) -> Result<TrustedRg> {
+        let path = match explicit {
+            Some(p) => {
+                anyhow::ensure!(p.is_absolute(), "--rg needs an absolute path");
+                p.to_path_buf()
+            }
+            None => path_var
+                .iter()
+                .flat_map(std::env::split_paths)
+                .filter(|d| d.is_absolute())
+                .map(|d| d.join("rg"))
+                .find(|p| is_executable(p))
+                .context("no rg on an absolute PATH entry; pass --rg /absolute/path/to/rg")?,
+        };
+        let path =
+            std::fs::canonicalize(&path).with_context(|| format!("resolve {}", path.display()))?;
+        anyhow::ensure!(
+            is_executable(&path),
+            "{} is not an executable file",
+            path.display()
+        );
+        let id = file_id(&path)?;
+        let mut probe = std::process::Command::new(&path);
+        probe.arg("--version").env_remove("RIPGREP_CONFIG_PATH");
+        let out = run_bounded(
+            probe,
+            &format!("{} --version", path.display()),
+            PROBE_TIMEOUT,
+        )?;
+        anyhow::ensure!(
+            out.exit == 0 && out.first_line.starts_with("ripgrep "),
+            "{} does not report itself as ripgrep",
+            path.display()
+        );
+        Ok(TrustedRg {
+            path,
+            id,
+            version: out.first_line,
+        })
+    }
+
+    fn check(&self) -> Result<()> {
+        anyhow::ensure!(
+            file_id(&self.path)? == self.id,
+            "{} changed during the replay",
+            self.path.display()
+        );
+        Ok(())
+    }
+}
+
+/// The two commands to replay for a hook record, or why it is skipped. Only
+/// `rg` records whose arguments the hook would still rewrite are admitted,
+/// and the greeg side is that rewrite, not the stored argv.
+fn admitted(h: &HookEvent) -> std::result::Result<(Vec<String>, Vec<String>), String> {
+    if h.original.first().map(String::as_str) != Some("rg") {
+        return Err("the recorded program is not rg".into());
+    }
+    let rw = crate::hook::rewrite_full(&shell_join(&h.original))?;
+    if rw.original != h.original {
+        return Err("the recorded arguments do not round-trip".into());
+    }
+    Ok((rw.original, rw.rewritten))
+}
+
+/// What a bounded child produced.
+#[derive(Debug)]
+struct Ran {
+    ms: f64,
+    exit: i32,
+    bytes: usize,
+    tokens: usize,
+    first_line: String,
+}
+
+/// Count one stream's bytes and keep at most [`CAPTURE_MAX`] of its head.
+fn drain<R: Read + Send + 'static>(r: Option<R>) -> std::sync::mpsc::Receiver<(usize, Vec<u8>)> {
+    let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
-        let mut v = Vec::new();
+        let (mut n, mut head) = (0usize, Vec::new());
         if let Some(mut r) = r {
-            let _ = r.read_to_end(&mut v);
+            let mut buf = vec![0u8; 64 << 10];
+            loop {
+                match r.read(&mut buf) {
+                    Ok(0) | Err(_) => break,
+                    Ok(k) => {
+                        n += k;
+                        let room = CAPTURE_MAX.saturating_sub(head.len());
+                        head.extend_from_slice(&buf[..k.min(room)]);
+                    }
+                }
+            }
         }
-        v
+        let _ = tx.send((n, head));
+    });
+    rx
+}
+
+/// Has `pid` exited? It is left unreaped, so its process group id stays
+/// reserved until the group has been killed.
+fn exited(pid: libc::pid_t) -> bool {
+    // SAFETY: siginfo_t is plain data and waitid only writes into it.
+    let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
+    let flags = libc::WEXITED | libc::WNOHANG | libc::WNOWAIT;
+    // SAFETY: a valid child pid and a live siginfo_t.
+    let r = unsafe { libc::waitid(libc::P_PID, pid as libc::id_t, &mut info, flags) };
+    #[cfg(target_os = "linux")]
+    // SAFETY: waitid filled the SIGCHLD fields when it returned 0.
+    let who = unsafe { info.si_pid() };
+    #[cfg(not(target_os = "linux"))]
+    let who = info.si_pid;
+    r == 0 && who != 0
+}
+
+/// Run `cmd` in a process group of its own. One deadline covers the run and
+/// the draining of its output. When the command exits or the deadline passes
+/// the whole group is killed, so a descendant holding a pipe cannot outlive
+/// it. Tokens are estimated from the first [`CAPTURE_MAX`] bytes of each
+/// stream and scaled to its full size, as for live runs.
+fn run_bounded(mut cmd: std::process::Command, what: &str, timeout: Duration) -> Result<Ran> {
+    use std::os::unix::process::CommandExt;
+    use std::process::Stdio;
+    cmd.stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .process_group(0);
+    let t = Instant::now();
+    let deadline = t + timeout;
+    let mut child = cmd.spawn().with_context(|| format!("start {what}"))?;
+    let pid = child.id() as libc::pid_t;
+    let out = drain(child.stdout.take());
+    let err = drain(child.stderr.take());
+    let mut finished = exited(pid);
+    while !finished && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(2));
+        finished = exited(pid);
+    }
+    let ms = t.elapsed().as_secs_f64() * 1e3;
+    // SAFETY: the unreaped leader keeps the group id from being reused.
+    unsafe {
+        libc::killpg(pid, libc::SIGKILL);
+    }
+    let status = child.wait()?;
+    anyhow::ensure!(finished, "{what} did not finish within {timeout:?}");
+    let collect = |rx: std::sync::mpsc::Receiver<(usize, Vec<u8>)>| {
+        rx.recv_timeout(
+            deadline
+                .saturating_duration_since(Instant::now())
+                .max(Duration::from_millis(100)),
+        )
+    };
+    let (Ok((out_bytes, out_head)), Ok((err_bytes, err_head))) = (collect(out), collect(err))
+    else {
+        anyhow::bail!("{what}: output stayed open past the deadline");
+    };
+    Ok(Ran {
+        ms,
+        exit: status.code().unwrap_or(-1),
+        bytes: out_bytes + err_bytes,
+        tokens: estimate_tokens(&out_head, out_bytes) + estimate_tokens(&err_head, err_bytes),
+        first_line: String::from_utf8_lossy(&out_head)
+            .lines()
+            .next()
+            .unwrap_or("")
+            .trim()
+            .to_string(),
     })
 }
 
-/// Run `argv` in `cwd` once, capturing both streams (what the model reads);
-/// `greeg` names the build to run for a greeg command. Killed past `timeout`:
-/// a recorded search on a huge tree must not hang the replay.
-fn run_once(
-    argv: &[String],
-    cwd: &Path,
-    greeg: Option<&Greeg>,
-    timeout: Duration,
-) -> Result<Timed> {
-    use std::process::{Command, Stdio};
-    let mut cmd = if let Some(g) = greeg {
-        let mut c = Command::new(&g.bin);
-        c.args(&argv[1..]).arg("--no-session");
-        if g.index_base.is_some() {
-            c.env("GREEG_INDEX_DIR", g.index_dir(cwd)?);
+/// Which program answers a replayed command.
+#[derive(Clone, Copy)]
+enum Program<'a> {
+    Rg(&'a TrustedRg),
+    Greeg(&'a Greeg),
+}
+
+/// Run `argv` (its first word names the program, which `with` resolves) in
+/// `cwd` once. Neither side inherits a ripgrep configuration: the hook only
+/// rewrites commands that ran without one.
+fn run_once(argv: &[String], cwd: &Path, with: Program, timeout: Duration) -> Result<Timed> {
+    let mut cmd = match with {
+        Program::Greeg(g) => {
+            let mut c = std::process::Command::new(&g.bin);
+            c.args(&argv[1..]).arg("--no-session");
+            if g.index_base.is_some() {
+                c.env("GREEG_INDEX_DIR", g.index_dir(cwd)?);
+            }
+            c
         }
-        c
-    } else {
-        let mut c = Command::new(&argv[0]);
-        c.args(&argv[1..]);
-        c
+        Program::Rg(rg) => {
+            rg.check()?;
+            let mut c = std::process::Command::new(&rg.path);
+            c.args(&argv[1..]);
+            c
+        }
     };
     cmd.current_dir(cwd)
         .env("GREEG_STATS", "0")
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    let t = Instant::now();
-    let mut child = cmd
-        .spawn()
-        .with_context(|| format!("start {}", shell_join(argv)))?;
-    let out = drain(child.stdout.take());
-    let err = drain(child.stderr.take());
-    let status = loop {
-        if let Some(s) = child.try_wait()? {
-            break s;
-        }
-        if t.elapsed() > timeout {
-            let _ = child.kill();
-            let _ = child.wait();
-            anyhow::bail!("{} did not finish within {:?}", shell_join(argv), timeout);
-        }
-        std::thread::sleep(Duration::from_millis(2));
-    };
-    let ms = t.elapsed().as_secs_f64() * 1e3;
-    let stdout = out.join().unwrap_or_default();
-    let stderr = err.join().unwrap_or_default();
+        .env_remove("RIPGREP_CONFIG_PATH");
+    let r = run_bounded(cmd, &shell_join(argv), timeout)?;
     Ok(Timed {
-        ms,
-        bytes: stdout.len() + stderr.len(),
-        tokens: greeg_query::tokens::rendered(&stdout) + greeg_query::tokens::rendered(&stderr),
-        exit: status.code().unwrap_or(-1),
+        ms: r.ms,
+        bytes: r.bytes,
+        tokens: r.tokens,
+        exit: r.exit,
     })
 }
 
@@ -2448,15 +2617,15 @@ fn run_once(
 fn run_n(
     argv: &[String],
     cwd: &Path,
-    greeg: Option<&Greeg>,
+    with: Program,
     runs: usize,
     timeout: Duration,
 ) -> Result<Timed> {
-    let _ = run_once(argv, cwd, greeg, timeout)?;
+    let _ = run_once(argv, cwd, with, timeout)?;
     let mut times = Vec::with_capacity(runs);
     let mut last = None;
     for _ in 0..runs.max(1) {
-        let t = run_once(argv, cwd, greeg, timeout)?;
+        let t = run_once(argv, cwd, with, timeout)?;
         times.push(t.ms);
         last = Some(t);
     }
@@ -2482,7 +2651,12 @@ fn ensure_index(cwd: &Path, timeout: Duration, g: &Greeg) -> Result<()> {
         .iter()
         .map(|s| s.to_string())
         .collect();
-    let t = run_once(&argv, cwd, Some(g), timeout.max(Duration::from_secs(600)))?;
+    let t = run_once(
+        &argv,
+        cwd,
+        Program::Greeg(g),
+        timeout.max(Duration::from_secs(600)),
+    )?;
     if t.exit != 0 {
         anyhow::bail!("greeg index exited {}", t.exit);
     }
@@ -2496,6 +2670,7 @@ pub fn replay(o: &ReplayOpts) -> Result<()> {
         Some(b) => Greeg::at(b, &dir)?,
         None => Greeg::current()?,
     };
+    let rg = TrustedRg::find(o.rg.as_deref())?;
     // unique ids, newest hook record first, only those a run actually followed
     let mut seen = std::collections::HashSet::new();
     let mut todo: Vec<&HookEvent> = Vec::new();
@@ -2526,22 +2701,43 @@ pub fn replay(o: &ReplayOpts) -> Result<()> {
         return Ok(());
     }
     eprintln!(
-        "greeg stats replay: {} unique queries, {} timed runs each after a warm-up, greeg {}{}; run this on a quiet machine",
+        "greeg stats replay: {} unique queries, {} timed runs each after a warm-up, greeg {}{}, {} at {}; run this on a quiet machine",
         todo.len(),
         o.runs.max(1),
         g.version,
         match &o.binary {
             Some(b) => format!(" at {}", b.display()),
             None => String::new(),
-        }
+        },
+        rg.version,
+        rg.path.display()
     );
-    let mut rg_versions: HashMap<String, Option<String>> = HashMap::new();
     let (mut done, mut skipped) = (0usize, 0usize);
     let mut indexed: std::collections::HashSet<PathBuf> = Default::default();
     for (i, h) in todo.iter().enumerate() {
+        let (original, rewritten) = match admitted(h) {
+            Ok(commands) => commands,
+            Err(why) => {
+                eprintln!(
+                    "greeg stats replay: skip {}: {why}",
+                    shell_join(&h.original)
+                );
+                skipped += 1;
+                continue;
+            }
+        };
         let cwd = Path::new(&h.cwd);
-        if !cwd.is_dir() {
+        let Some(tree) = std::fs::canonicalize(cwd).ok().filter(|d| d.is_dir()) else {
             eprintln!("greeg stats replay: skip {}: directory is gone", h.cwd);
+            skipped += 1;
+            continue;
+        };
+        if rg.path.starts_with(&tree) {
+            eprintln!(
+                "greeg stats replay: skip {}: {} lives inside it",
+                h.cwd,
+                rg.path.display()
+            );
             skipped += 1;
             continue;
         }
@@ -2553,7 +2749,7 @@ pub fn replay(o: &ReplayOpts) -> Result<()> {
                 h.cwd
             );
         }
-        let rg = match run_n(&h.original, cwd, None, o.runs, o.timeout) {
+        let rg_run = match run_n(&original, cwd, Program::Rg(&rg), o.runs, o.timeout) {
             Ok(t) => t,
             Err(e) => {
                 eprintln!("greeg stats replay: skip: {e:#}");
@@ -2561,7 +2757,7 @@ pub fn replay(o: &ReplayOpts) -> Result<()> {
                 continue;
             }
         };
-        let gg = match run_n(&h.rewritten, cwd, Some(&g), o.runs, o.timeout) {
+        let gg = match run_n(&rewritten, cwd, Program::Greeg(&g), o.runs, o.timeout) {
             Ok(t) => t,
             Err(e) => {
                 eprintln!("greeg stats replay: skip: {e:#}");
@@ -2569,20 +2765,16 @@ pub fn replay(o: &ReplayOpts) -> Result<()> {
                 continue;
             }
         };
-        let rg_version = rg_versions
-            .entry(h.original[0].clone())
-            .or_insert_with(|| tool_version(&h.original[0]))
-            .clone();
         let ev = ReplayEvent {
             ts: greeg_index::now_ms(),
             id: h.id.clone(),
             runs: o.runs.max(1),
             version: Some(g.version.clone()),
-            rg_version,
-            rg_ms: rg.ms,
-            rg_bytes: rg.bytes,
-            rg_tokens: rg.tokens,
-            rg_exit: rg.exit,
+            rg_version: Some(rg.version.clone()),
+            rg_ms: rg_run.ms,
+            rg_bytes: rg_run.bytes,
+            rg_tokens: rg_run.tokens,
+            rg_exit: rg_run.exit,
             greeg_ms: gg.ms,
             greeg_bytes: gg.bytes,
             greeg_tokens: gg.tokens,
@@ -2594,8 +2786,8 @@ pub fn replay(o: &ReplayOpts) -> Result<()> {
             "{}/{} · rg {} ms {} tok · greeg {} ms {} tok",
             i + 1,
             todo.len(),
-            ms(rg.ms),
-            rg.tokens,
+            ms(rg_run.ms),
+            rg_run.tokens,
             ms(gg.ms),
             gg.tokens
         );
@@ -2868,6 +3060,92 @@ mod tests {
         assert!(std::fs::metadata(d.join("events.jsonl")).unwrap().len() < 1000);
         assert_eq!(load_events(&d).len(), 3);
         let _ = std::fs::remove_dir_all(&d);
+    }
+
+    fn script(path: &Path, body: &str) {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::write(path, format!("#!/bin/sh\n{body}\n")).unwrap();
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
+    #[test]
+    fn replay_admits_only_rg_commands_the_hook_still_rewrites() {
+        let mut h = hook(1, "a");
+        h.original = vec!["rg".into(), "-l".into(), "a b".into(), "src".into()];
+        h.rewritten = vec!["greeg".into(), "--index-dir".into(), "/elsewhere".into()];
+        let (rg, greeg) = admitted(&h).unwrap();
+        assert_eq!(rg, h.original);
+        assert_eq!(greeg.first().map(String::as_str), Some("greeg"));
+        assert!(!greeg.iter().any(|w| w == "--index-dir"), "{greeg:?}");
+        for (argv, why) in [
+            (vec!["./rg", "x"], "not rg"),
+            (vec!["/usr/bin/rg", "x"], "not rg"),
+            (vec!["grep", "-r", "x"], "not rg"),
+            (vec!["rg", "--pre", "cat", "x"], "unsupported flag"),
+            (vec!["rg", "x", "|", "sh"], "no pattern"),
+        ] {
+            h.original = argv.iter().map(|w| w.to_string()).collect();
+            let got = admitted(&h).err().unwrap_or_default();
+            // `|` is quoted back into a literal path, so that record is admitted as a search
+            if argv.contains(&"|") {
+                assert!(got.is_empty(), "{argv:?}: {got}");
+                continue;
+            }
+            assert!(got.contains(why), "{argv:?}: {got}");
+        }
+    }
+
+    #[test]
+    fn replay_rg_is_absolute_ripgrep_and_revalidated() {
+        let d = tmp();
+        let bin = d.join("bin");
+        std::fs::create_dir(&bin).unwrap();
+        let rg = bin.join("rg");
+        script(&rg, "echo 'ripgrep 0.0.0-test'");
+        let fake = d.join("fake");
+        std::fs::create_dir(&fake).unwrap();
+        script(&fake.join("rg"), "echo 'rg 1.0 (a type kit)'");
+        // relative PATH entries are never searched
+        let path = std::env::join_paths([Path::new("."), Path::new("rel/bin")]).unwrap();
+        assert!(TrustedRg::find_in(None, Some(path)).is_err());
+        let path = std::env::join_paths([Path::new("relative"), &bin]).unwrap();
+        let t = TrustedRg::find_in(None, Some(path)).unwrap();
+        assert_eq!(t.path, std::fs::canonicalize(&rg).unwrap());
+        assert_eq!(t.version, "ripgrep 0.0.0-test");
+        assert!(TrustedRg::find_in(Some(Path::new("bin/rg")), None).is_err());
+        assert!(TrustedRg::find_in(Some(&fake.join("rg")), None).is_err());
+        t.check().unwrap();
+        std::thread::sleep(Duration::from_millis(20));
+        script(&rg, "echo 'ripgrep 0.0.0-test'; touch replaced");
+        assert!(t.check().is_err());
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn bounded_runs_stop_hangs_descendants_and_large_output() {
+        let sh = |body: &str| {
+            let mut c = std::process::Command::new("/bin/sh");
+            c.args(["-c", body]);
+            c
+        };
+        let t = Instant::now();
+        assert!(run_bounded(sh("sleep 30"), "hang", Duration::from_millis(300)).is_err());
+        // a background descendant keeps stdout open after the shell exits
+        let r = run_bounded(
+            sh("sleep 30 & echo done"),
+            "descendant",
+            Duration::from_secs(20),
+        )
+        .unwrap();
+        assert_eq!((r.exit, r.bytes, r.first_line.as_str()), (0, 5, "done"));
+        assert!(t.elapsed() < Duration::from_secs(10), "{:?}", t.elapsed());
+        let r = run_bounded(
+            sh("head -c 20000000 /dev/zero"),
+            "large",
+            Duration::from_secs(20),
+        )
+        .unwrap();
+        assert_eq!(r.bytes, 20_000_000);
     }
 
     #[test]
@@ -3574,31 +3852,31 @@ mod tests {
     }
 
     #[test]
-    fn replay_run_once_times_kills_and_reports_missing() {
-        let d = tmp();
-        let argv = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
-        let t = run_once(
-            &argv(&["echo", "hello world"]),
-            &d,
-            None,
+    fn bounded_runs_time_kill_and_report_missing_programs() {
+        let cmd = |argv: &[&str]| {
+            let mut c = std::process::Command::new(argv[0]);
+            c.args(&argv[1..]);
+            c
+        };
+        let t = run_bounded(
+            cmd(&["echo", "hello world"]),
+            "echo",
             Duration::from_secs(5),
         )
         .unwrap();
         assert_eq!((t.bytes, t.exit), (12, 0));
         assert!(t.tokens >= 2 && t.ms < 5000.0);
         let t0 = Instant::now();
-        let e = run_once(&argv(&["sleep", "5"]), &d, None, Duration::from_millis(100)).unwrap_err();
+        let e = run_bounded(cmd(&["sleep", "5"]), "sleep", Duration::from_millis(100)).unwrap_err();
         assert!(e.to_string().contains("did not finish"), "{e}");
         assert!(t0.elapsed() < Duration::from_secs(4));
         assert!(
-            run_once(
-                &argv(&["greeg-no-such-binary-x"]),
-                &d,
-                None,
+            run_bounded(
+                cmd(&["greeg-no-such-binary-x"]),
+                "missing",
                 Duration::from_secs(1)
             )
             .is_err()
         );
-        let _ = std::fs::remove_dir_all(&d);
     }
 }

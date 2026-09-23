@@ -404,6 +404,9 @@ enum StatsCmd {
         /// Replay with this greeg binary instead of the running one (it gets an index directory of its own under the stats cache)
         #[arg(long = "binary", value_name = "PATH")]
         binary: Option<PathBuf>,
+        /// Replay rg commands with this ripgrep (absolute path; default: the first rg on an absolute PATH entry)
+        #[arg(long = "rg", value_name = "PATH")]
+        rg: Option<PathBuf>,
     },
 }
 
@@ -1089,6 +1092,7 @@ fn run_stats(
             force,
             timeout,
             binary,
+            rg,
         }) => stats::replay(&stats::ReplayOpts {
             filter,
             runs,
@@ -1096,6 +1100,7 @@ fn run_stats(
             force,
             timeout: std::time::Duration::from_secs(timeout),
             binary,
+            rg,
         }),
     }
 }
