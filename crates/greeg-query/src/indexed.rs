@@ -556,12 +556,31 @@ pub(crate) fn try_index(cx: &Ctx, threads: usize, t0: Instant) -> Result<Option<
                     let (_, id, prev, rel) = &entries[i];
                     let changed = *id == NONE;
                     let path: PathBuf = root.join(rel);
+                    // an indexed file classifies from its span tables; one
+                    // without them, like a changed file, by the scan rules
+                    let spans = if use_spans && !changed {
+                        idx.symbols_of(*id)
+                    } else {
+                        None
+                    };
+                    let lang = Lang::from_path(&path);
+                    let fid = *id;
+                    let by_index = spans.map(|(_, syms)| {
+                        move |src: &[u8], ms: u32, me: u32, ls: u32| {
+                            classify_at(idx, fid, syms, lang, src, ms, me, ls).0
+                        }
+                    });
                     if let Some(mut fr) = process_file(
-                        if changed { cx_scan } else { cx },
+                        if changed || use_spans && spans.is_none() {
+                            cx_scan
+                        } else {
+                            cx
+                        },
                         &path,
                         rel.to_string(),
                         &mut searcher,
                         &mut buf,
+                        by_index.as_ref().map(|f| f as crate::SpanKindOf),
                     ) {
                         if !changed {
                             fr.file_id = Some(*id);
@@ -570,7 +589,7 @@ pub(crate) fn try_index(cx: &Ctx, threads: usize, t0: Instant) -> Result<Option<
                             fr.rel = d;
                         }
                         let t = Instant::now();
-                        if use_spans && !changed {
+                        if spans.is_some() {
                             classify_from_index(idx, *id, &mut fr, o, &buf);
                         }
                         // PageRank term of the prior: 0.8 was the
@@ -668,7 +687,16 @@ pub(crate) fn classify_from_index(
     let mut kinds = [0u32; 9];
     let mut hits: Vec<Hit> = Vec::with_capacity(f.hits.len());
     for mut h in f.hits.drain(..) {
-        let (kind, di) = classify_hit(idx, id, first, syms, f.lang, src, &h);
+        let (kind, di) = classify_at(
+            idx,
+            id,
+            syms,
+            f.lang,
+            src,
+            h.match_start,
+            h.match_end,
+            h.line_start,
+        );
         if !o.kinds.is_empty() && !o.kinds.contains(&kind) {
             continue;
         }
@@ -688,10 +716,6 @@ pub(crate) fn classify_from_index(
         h.score = kind.weight() * f.prior * crate::exact_boost(kind, h.exact);
         kinds[kind.idx()] += 1;
         hits.push(h);
-    }
-    if !o.kinds.is_empty() {
-        // C11: totals describe the filtered set; the unfiltered count stays in total_unfiltered
-        f.total = hits.len();
     }
     f.hits = hits;
     f.kinds = kinds;
@@ -726,17 +750,18 @@ pub(crate) fn classify_from_index(
     f.refined = true;
 }
 
-/// Kind and local definition index for one hit.
-fn classify_hit(
+/// Kind and local definition index for one occurrence, from the span tables.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn classify_at(
     idx: &Index,
     id: u32,
-    first: SymId,
     syms: &[SymRec],
     lang: Lang,
     src: &[u8],
-    h: &Hit,
+    ms: u32,
+    me: u32,
+    line_start: u32,
 ) -> (HitKind, Option<u32>) {
-    let (ms, me) = (h.match_start, h.match_end);
     if !lang.has_grammar() {
         return (HitKind::Ident, None);
     }
@@ -774,11 +799,10 @@ fn classify_hit(
     if idx.import_at(id, ms).is_some() {
         return (HitKind::Import, enclosing());
     }
-    let ls = h.line_start as usize;
+    let ls = line_start as usize;
     let le = memchr::memchr(b'\n', &src[ls..])
         .map(|k| ls + k)
         .unwrap_or(src.len());
-    let _ = first;
     (
         kind_by_context(
             lang,

@@ -192,7 +192,6 @@ fn indexed_implementors_and_map_honor_request_filters() {
 }
 
 #[test]
-#[ignore = "known gap: kind filtering runs after the retained-hit cap"]
 fn kind_filters_apply_before_the_retained_hit_cap() {
     let late = format!("{}fn late() {{ marker(); }}\n", "// marker\n".repeat(70));
     let f = Fixture::new(&[("src/late.rs", &late)]);
@@ -211,7 +210,6 @@ fn kind_filters_apply_before_the_retained_hit_cap() {
 }
 
 #[test]
-#[ignore = "known gap: same-line mixed kinds are classified by the first occurrence"]
 fn a_call_after_a_same_line_comment_is_found() {
     let f = Fixture::new(&[("b.rs", "fn f() { /* target */ target(); }\n")]);
     f.indexed();
@@ -223,7 +221,6 @@ fn a_call_after_a_same_line_comment_is_found() {
 }
 
 #[test]
-#[ignore = "known gap: scan classification has no multiline comment state"]
 fn multiline_comment_text_is_not_a_call_in_scan_mode() {
     let f = Fixture::new(&[("a.rs", "/*\nneedle();\n*/\nfn f() {}\n")]);
     let call = f.scan(&["needle", "--kind", "call", "--budget", "0"]);
@@ -233,6 +230,38 @@ fn multiline_comment_text_is_not_a_call_in_scan_mode() {
     );
     let comment = f.scan(&["needle", "--kind", "comment", "--budget", "0"]);
     assert!(stdout(&comment).contains("a.rs:2:"), "{comment:?}");
+}
+
+#[test]
+fn kind_counts_and_multiline_noncode_agree_across_backends() {
+    let late = format!("{}fn late() {{ marker(); }}\n", "// marker\n".repeat(70));
+    let f = Fixture::new(&[
+        ("src/late.rs", &late),
+        (
+            "doc.py",
+            "def f():\n    \"\"\"\n    marker()\n    \"\"\"\n    marker()\n",
+        ),
+    ]);
+    f.indexed();
+    for (args, want) in [
+        (vec!["-c", "marker"], vec!["doc.py:2", "src/late.rs:71"]),
+        (
+            vec!["-c", "marker", "--kind", "call"],
+            vec!["doc.py:1", "src/late.rs:1"],
+        ),
+        (
+            vec!["-c", "marker", "--kind", "comment"],
+            vec!["src/late.rs:70"],
+        ),
+        (
+            vec!["-c", "marker", "--kind", "docstring"],
+            vec!["doc.py:1"],
+        ),
+    ] {
+        for o in [f.run(&args), f.scan(&args)] {
+            assert_eq!(listed(&o), want, "{args:?}: {o:?}");
+        }
+    }
 }
 
 #[test]
@@ -268,6 +297,11 @@ fn filtered_hits_do_not_suggest_ignore_flags() {
         for o in [f.run(&args), f.scan(&args)] {
             assert_eq!(o.status.code(), Some(1), "{args:?}: {o:?}");
             assert!(!stdout(&o).contains("--no-ignore"), "{args:?}: {o:?}");
+            // the kind filter, not the ignore rules, removed the match
+            if args.contains(&"--kind") {
+                let all = format!("{}{}", stdout(&o), String::from_utf8_lossy(&o.stderr));
+                assert!(all.contains("none of the requested kinds"), "{o:?}");
+            }
         }
     }
 }
@@ -276,7 +310,7 @@ fn filtered_hits_do_not_suggest_ignore_flags() {
 #[ignore = "known gap: symbol verbs cap definitions at 256 even when unlimited"]
 fn unlimited_definitions_are_complete() {
     let body: String = (0..300)
-        .map(|i| format!("mod m{i} {{ pub fn crowded() {{}} }}\n"))
+        .map(|i| format!("mod m{i} {{\n    pub fn crowded() {{}}\n}}\n"))
         .collect();
     let f = Fixture::new(&[("many.rs", &body)]);
     f.indexed();

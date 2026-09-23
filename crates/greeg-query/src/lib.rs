@@ -578,18 +578,36 @@ pub(crate) struct LineHit {
     pub(crate) line: u32,
     pub(crate) line_start: u32,
     pub(crate) subs: Vec<(u32, u32)>,
+    /// The occurrence that stands for the line: the first, or under a kind
+    /// filter the first one of a requested kind.
+    pub(crate) primary: usize,
+    /// Its kind, when the filter classified it.
+    pub(crate) kind: Option<HitKind>,
 }
+
+/// Kind of one occurrence (match start, match end, line start) in the file
+/// being searched.
+pub(crate) type KindOf<'a> = &'a dyn Fn(u32, u32, u32) -> HitKind;
+
+/// `KindOf` for a file's contents: the index's span-table classifier.
+pub(crate) type SpanKindOf<'a> = &'a dyn Fn(&[u8], u32, u32, u32) -> HitKind;
 
 /// Sink that groups matches by line: the first `cap` matched lines are
 /// recorded with all their submatches, later lines are only counted, except
 /// definition lines (the match overlaps the defined name), which are kept up
 /// to `def_cap` so a definition after 64 uses is never hidden (C10).
+///
+/// Under a kind filter a line matches only when one of its occurrences has a
+/// requested kind; that happens before the cap, the counts and `-l`'s stop.
 pub(crate) struct CollectSink<'a> {
     pub(crate) matcher: &'a RegexMatcher,
     pub(crate) lang: Lang,
     pub(crate) hits: Vec<LineHit>,
-    /// Matched lines (ripgrep's `-c` count).
+    /// Matched lines (ripgrep's `-c` count), after the kind filter.
     pub(crate) total: usize,
+    /// Matched lines before the kind filter.
+    pub(crate) total_all: usize,
+    pub(crate) filter: Option<(KindOf<'a>, &'a [HitKind])>,
     pub(crate) max_per_line: usize,
     pub(crate) cap: usize,
     pub(crate) keep_defs: bool,
@@ -616,6 +634,8 @@ impl<'a> CollectSink<'a> {
             lang,
             hits: Vec::new(),
             total: 0,
+            total_all: 0,
+            filter: None,
             max_per_line: 8,
             cap,
             keep_defs,
@@ -642,6 +662,9 @@ impl Sink for CollectSink<'_> {
         let mut nl_count = 0u32;
         let mut line_off = 0usize; // start of the current line within `bytes`
         let mut last_line: Option<u32> = None;
+        // the current line: its submatches so far, and whether it qualified / was kept
+        let mut subs: Vec<(u32, u32)> = Vec::new();
+        let mut qualified = false;
         let mut last_kept = false;
         let mut stop = false;
         let _ = self.matcher.find_iter(bytes, |mat| {
@@ -655,7 +678,14 @@ impl Sink for CollectSink<'_> {
             let line = block_line + nl_count;
             let ms = block_start + mat.start() as u32;
             let me = block_start + mat.end() as u32;
-            if last_line == Some(line) {
+            if last_line != Some(line) {
+                last_line = Some(line);
+                self.total_all += 1;
+                subs.clear();
+                qualified = false;
+                last_kept = false;
+            }
+            if qualified {
                 if last_kept
                     && let Some(h) = self.hits.last_mut()
                     && h.subs.len() < self.max_per_line
@@ -664,7 +694,21 @@ impl Sink for CollectSink<'_> {
                 }
                 return true;
             }
-            last_line = Some(line);
+            let line_start = block_start + line_off as u32;
+            let kind = match self.filter {
+                None => None,
+                Some((kind_of, kinds)) => {
+                    let k = kind_of(ms, me, line_start);
+                    if !kinds.contains(&k) {
+                        if subs.len() < self.max_per_line {
+                            subs.push((ms, me));
+                        }
+                        return true;
+                    }
+                    Some(k)
+                }
+            };
+            qualified = true;
             self.total += 1;
             let keep = if self.hits.len() < self.cap {
                 true
@@ -686,10 +730,14 @@ impl Sink for CollectSink<'_> {
             };
             last_kept = keep;
             if keep {
+                let primary = subs.len();
+                subs.push((ms, me));
                 self.hits.push(LineHit {
                     line,
-                    line_start: block_start + line_off as u32,
-                    subs: vec![(ms, me)],
+                    line_start,
+                    subs: std::mem::take(&mut subs),
+                    primary,
+                    kind,
                 });
             }
             if self.first_only {
@@ -1327,24 +1375,16 @@ fn block_keyword_line(line: &[u8]) -> bool {
     )
 }
 
-/// Cheap, line-local classification used during the scan (no file outline).
-fn classify_line(lang: Lang, line: &[u8], ms: usize, me: usize) -> HitKind {
-    if !lang.has_grammar() {
-        return HitKind::Ident;
+fn noncode_kind(k: SpanKind) -> HitKind {
+    match k {
+        SpanKind::Comment => HitKind::Comment,
+        SpanKind::Docstring => HitKind::Docstring,
+        SpanKind::String => HitKind::Str,
     }
-    // a line without quote or comment starters has no noncode spans: skip the lexer
-    if memchr::memchr3(b'"', b'\'', b'/', line).is_some()
-        || memchr::memchr2(b'#', b'`', line).is_some()
-    {
-        let lexed = lex(lang, line);
-        if let Some(sp) = lexed.span_at(ms as u32) {
-            return match sp.kind {
-                SpanKind::Comment => HitKind::Comment,
-                SpanKind::Docstring => HitKind::Docstring,
-                SpanKind::String => HitKind::Str,
-            };
-        }
-    }
+}
+
+/// Kind of an occurrence outside comments and strings, from its line.
+fn classify_code(lang: Lang, line: &[u8], ms: usize, me: usize) -> HitKind {
     if let Some((ns, ne)) = greeg_lang::defs::def_name_on_line(lang, line)
         && ns < me
         && ms < ne
@@ -1352,6 +1392,47 @@ fn classify_line(lang: Lang, line: &[u8], ms: usize, me: usize) -> HitKind {
         return HitKind::Def;
     }
     kind_by_context(lang, line, ms, me, 0, line)
+}
+
+/// Scan-mode classification of the occurrences in one file. Comment and
+/// string spans come from lexing the file from its start up to `end`
+/// (once, on first use), the same source the index's span tables are built
+/// from, so a line inside a block comment or a multiline string is
+/// classified by what encloses it. The rest of the rules read the line.
+pub(crate) struct ScanKinds<'s> {
+    lang: Lang,
+    src: &'s [u8],
+    end: usize,
+    lexed: std::cell::OnceCell<Lexed>,
+}
+
+impl<'s> ScanKinds<'s> {
+    pub(crate) fn new(lang: Lang, src: &'s [u8], end: usize) -> Self {
+        ScanKinds {
+            lang,
+            src,
+            end: end.min(src.len()),
+            lexed: std::cell::OnceCell::new(),
+        }
+    }
+
+    pub(crate) fn kind(&self, ms: u32, me: u32, ls: u32) -> HitKind {
+        if !self.lang.has_grammar() {
+            return HitKind::Ident;
+        }
+        let src = self.src;
+        let ls = ls as usize;
+        let le = memchr::memchr(b'\n', &src[ls..])
+            .map(|k| ls + k)
+            .unwrap_or(src.len());
+        let window = self.end.max(le);
+        let lexed = self.lexed.get_or_init(|| lex(self.lang, &src[..window]));
+        if let Some(sp) = lexed.span_at(ms) {
+            return noncode_kind(sp.kind);
+        }
+        let me = (me as usize).min(le);
+        classify_code(self.lang, &src[ls..le], ms as usize - ls, me - ls)
+    }
 }
 
 /// Precise classification with a file outline (used for shown files).
@@ -1438,12 +1519,15 @@ pub(crate) fn excluded_by_flags(o: &Options, flags: FileFlags) -> bool {
                 && flags.has(FileFlags::GENERATED | FileFlags::MINIFIED | FileFlags::LOCKFILE))
 }
 
+/// Search one file. `kind_of` classifies an occurrence from the index's
+/// span tables; without it the scan rules do (`ScanKinds`).
 pub(crate) fn process_file(
     cx: &Ctx,
     path: &Path,
     rel: String,
     searcher: &mut Searcher,
     buf: &mut Vec<u8>,
+    kind_of: Option<SpanKindOf>,
 ) -> Option<FileResult> {
     let o = cx.o;
     cx.stats.searched.fetch_add(1, Relaxed);
@@ -1505,7 +1589,21 @@ pub(crate) fn process_file(
         o.multiline,
     );
     sink.base = bom as u32;
-    sink.first_only = o.mode == Mode::Files && o.kinds.is_empty();
+    sink.first_only = o.mode == Mode::Files;
+    // a kind filter classifies every occurrence before the cap and the counts;
+    // a minified file is never classified, so its lines are all identifiers
+    let filtering = !o.kinds.is_empty() && (cx.filter_kinds || kind_of.is_some());
+    let minified = filtering
+        && content_flags(&body[..body.len().min(65536)], src.len() as u64).has(FileFlags::MINIFIED);
+    let file_kinds = ScanKinds::new(lang, src, src.len());
+    let filter_kind = |ms: u32, me: u32, ls: u32| match kind_of {
+        _ if minified => HitKind::Ident,
+        Some(k) => k(src, ms, me, ls),
+        None => file_kinds.kind(ms, me, ls),
+    };
+    if filtering {
+        sink.filter = Some((&filter_kind, &o.kinds));
+    }
     let t_search = Instant::now();
     let r = searcher.search_slice(cx.matcher, body, &mut sink);
     cx.stats
@@ -1517,6 +1615,7 @@ pub(crate) fn process_file(
         return None;
     }
     if r.is_err() || sink.total == 0 {
+        cx.stats.unqualified.fetch_add(sink.total_all, Relaxed);
         return None;
     }
     let t_cls = Instant::now();
@@ -1547,10 +1646,16 @@ pub(crate) fn process_file(
     let prior = file_prior(flags, &rel, o);
     let mut hits = Vec::with_capacity(sink.hits.len());
     let mut kinds = [0u32; 9];
-    let filtering = cx.filter_kinds && !o.kinds.is_empty();
+    // classification for display: lexed up to the last retained line
+    let shown_end = sink
+        .hits
+        .last()
+        .map(|h| h.subs[h.primary].1 as usize)
+        .unwrap_or(0);
+    let shown_kinds = ScanKinds::new(lang, src, shown_end);
     for lh in sink.hits {
         let ls = lh.line_start;
-        let (ms, me) = lh.subs[0];
+        let (ms, me) = lh.subs[lh.primary];
         let le = memchr::memchr(b'\n', &src[ls as usize..])
             .map(|k| ls as usize + k)
             .unwrap_or(src.len());
@@ -1566,19 +1671,13 @@ pub(crate) fn process_file(
         let line_bytes = &src[ls as usize..le];
         // a multi-line match (-U) is classified and displayed by its first line
         let me_line = (me as usize).min(le) as u32;
-        let kind = if cx.classify && !flags.has(FileFlags::MINIFIED) {
-            classify_line(
-                lang,
-                line_bytes,
-                (ms - ls) as usize,
-                (me_line - ls) as usize,
-            )
+        let kind = if let Some(k) = lh.kind {
+            k
+        } else if cx.classify && !flags.has(FileFlags::MINIFIED) {
+            shown_kinds.kind(ms, me_line, ls)
         } else {
             HitKind::Ident
         };
-        if filtering && !o.kinds.contains(&kind) {
-            continue;
-        }
         kinds[kind.idx()] += 1;
         let exact = is_exact(o, src, ms, me);
         let score = kind.weight() * prior * exact_boost(kind, exact);
@@ -1619,7 +1718,7 @@ pub(crate) fn process_file(
     if hits.is_empty() {
         return None;
     }
-    let total = if filtering { hits.len() } else { sink.total };
+    let total = sink.total;
     Some(FileResult {
         rel,
         path: path.to_path_buf(),
@@ -1631,7 +1730,7 @@ pub(crate) fn process_file(
         prior,
         hits,
         total,
-        total_unfiltered: sink.total,
+        total_unfiltered: sink.total_all,
         kinds,
         defs: Vec::new(),
         refined: false,
@@ -1866,6 +1965,8 @@ pub(crate) struct StatsAcc {
     pub(crate) huge: AtomicUsize,
     pub(crate) walked: AtomicUsize,
     pub(crate) matched: AtomicUsize,
+    /// Matched lines of files where none had a requested kind.
+    pub(crate) unqualified: AtomicUsize,
     pub(crate) classify_ns: std::sync::atomic::AtomicU64,
     pub(crate) read_ns: std::sync::atomic::AtomicU64,
     pub(crate) search_ns: std::sync::atomic::AtomicU64,
@@ -1965,7 +2066,7 @@ fn scan_once(o: &Options, bounds: &ScanBounds) -> Result<ScanResult> {
                 .unwrap_or(p)
                 .to_string_lossy()
                 .replace('\\', "/");
-            if let Some(fr) = process_file(cx, p, rel, &mut searcher, &mut buf) {
+            if let Some(fr) = process_file(cx, p, rel, &mut searcher, &mut buf, None) {
                 let n = cx.stats.matched.fetch_add(1, Relaxed) + 1;
                 local.v.push(fr);
                 if local.v.len() >= 64 {
@@ -2021,6 +2122,7 @@ pub(crate) fn finish_stats(
             stats.minified_hits += f.total;
         }
     }
+    stats.total_unfiltered += acc.unqualified.load(Relaxed);
     stats.files_searched = acc.searched.load(Relaxed);
     stats.skipped_binary = acc.binary.load(Relaxed);
     stats.skipped_huge = acc.huge.load(Relaxed);
@@ -2252,7 +2354,9 @@ mod tests {
             LineHit {
                 line: 1,
                 line_start: 0,
-                subs: vec![(0, 3), (4, 7)]
+                subs: vec![(0, 3), (4, 7)],
+                primary: 0,
+                kind: None,
             }
         );
         assert_eq!(
@@ -2260,7 +2364,9 @@ mod tests {
             LineHit {
                 line: 3,
                 line_start: 12,
-                subs: vec![(12, 15)]
+                subs: vec![(12, 15)],
+                primary: 0,
+                kind: None,
             }
         );
     }
@@ -2356,6 +2462,7 @@ mod tests {
             path.file_name().unwrap().to_string_lossy().to_string(),
             &mut searcher,
             &mut buf,
+            None,
         )
     }
 
@@ -2419,7 +2526,7 @@ mod tests {
             .bom_sniffing(false);
         let mut searcher = sb.build();
         let mut buf = Vec::new();
-        assert!(process_file(&cx, &p, "bin.txt".into(), &mut searcher, &mut buf).is_none());
+        assert!(process_file(&cx, &p, "bin.txt".into(), &mut searcher, &mut buf, None).is_none());
         assert_eq!(acc.binary.load(Relaxed), 1);
     }
 
@@ -2485,7 +2592,8 @@ mod tests {
         for (line, m, want) in table {
             let ms = line.find(m).expect("match in snippet");
             let me = ms + m.len();
-            let got = classify_line(lang, line.as_bytes(), ms, me);
+            let got =
+                ScanKinds::new(lang, line.as_bytes(), line.len()).kind(ms as u32, me as u32, 0);
             if got != *want {
                 bad.push(format!(
                     "{lang:?} {line:?} match {m:?}: got {got:?}, want {want:?}"

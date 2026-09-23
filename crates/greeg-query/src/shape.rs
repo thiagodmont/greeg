@@ -856,7 +856,12 @@ fn hints(
 ) {
     let o = &r.opts;
     if r.stats.total_hits == 0 {
-        if let Some((files, hits)) = r.ignored_only {
+        if !o.kinds.is_empty() && r.stats.total_unfiltered > 0 {
+            footer.hints.push(format!(
+                "{} matching lines, none of the requested kinds: drop --kind",
+                r.stats.total_unfiltered
+            ));
+        } else if let Some((files, hits)) = r.ignored_only {
             let more = if r.ignored_partial { "+" } else { "" };
             footer.hints.push(format!(
                 "{hits}{more} hits in {files}{more} ignored/hidden files: add --no-ignore --hidden"

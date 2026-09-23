@@ -121,7 +121,16 @@ already mapped an old generation keeps a valid view until it exits.
    before → `member`, `: ` or `-> ` or `impl ` before → `type`, else `ident`.
    That's O(1) per hit, and right for the overwhelming majority of identifier
    hits. `--precise` re-parses the shown files and replaces the rule with real
-   node kinds.
+   node kinds. A file without span tables (a scan, or a file changed since
+   the build) takes its comment and string spans from lexing the file from
+   its start, so a line inside a block comment or docstring is classified
+   by what encloses it.
+
+   Under `--kind` every occurrence is classified while the file is searched,
+   and a line qualifies when any occurrence on it has a requested kind. That
+   happens before the per-file hit cap, the counts and `-l`'s early stop, so
+   a call after 70 commented mentions is still found and `-c` counts
+   qualifying lines.
 5. **Rank.** `kind × location × importance`. Definitions outrank calls outrank
    types outrank comments. Source files outrank tests, mocks, vendored and
    generated code, which are **demoted, never hidden**: the footer always says
