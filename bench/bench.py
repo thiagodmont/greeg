@@ -1180,10 +1180,7 @@ def matching_review_report(output_dir, datasets=None):
     if out:
         out += ["JSON contracts compare match paths, lines, offsets, submatches, status, exact rung, and total hit counts with ripgrep. "
                 "Repeat-output checks remove only elapsed fields; byte/token measurements retain them and use the first raw sample, so small JSON size differences reflect timing values. "
-                "Definition checks compare paths and status on this controlled fixture, not general symbol-resolution accuracy. "
-                "The initial review run used a full name-table case-fold scan; the final recheck uses prefix ranges. "
-                "Both runs remain available. The corrected indexed case-insensitive hit now returns definitions instead of an empty answer, so its increased output is expected. "
-                "Non-ASCII definition names absent from the symbol/module index use a scan fallback; its latency on large repositories is not measured here.", ""]
+                "Definition checks compare paths and status on this controlled fixture, not general symbol-resolution accuracy.", ""]
     return out
 
 

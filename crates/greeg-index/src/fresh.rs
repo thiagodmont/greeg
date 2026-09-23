@@ -124,11 +124,14 @@ fn known(idx: &Index) -> Known<'_> {
     Known { files, dirs }
 }
 
-/// Parallel lstat of `items`, returning per item Some(size, mtime) or None if missing.
+/// Parallel lstat of `items`, returning per item Some(size, mtime), or None
+/// when missing or no longer of the `kind` the index holds (a regular file
+/// replaced by a symlink reads as deleted, as a scan would skip it).
 fn stat_many<T: Sync>(
     root: &Path,
     items: &[T],
     rel: impl Fn(&T) -> &str + Sync,
+    kind: fn(&fs::FileType) -> bool,
     threads: usize,
 ) -> Vec<Option<(u64, i64)>> {
     let n = items.len();
@@ -146,6 +149,7 @@ fn stat_many<T: Sync>(
                 for (o, it) in part.iter_mut().zip(items) {
                     *o = fs::symlink_metadata(root.join(rel(it)))
                         .ok()
+                        .filter(|md| kind(&md.file_type()))
                         .map(|md| (md.len(), mtime_ns(&md)));
                 }
             });
@@ -154,7 +158,8 @@ fn stat_many<T: Sync>(
     out
 }
 
-/// List a directory with ignore rules (one level), returning (name, is_dir, size, mtime).
+/// List a directory with ignore rules (one level), returning (name, is_dir,
+/// size, mtime) for subdirectories and regular files.
 fn list_dir(root: &Path, rel: &str) -> Vec<(String, bool, u64, i64)> {
     let abs = if rel.is_empty() {
         root.to_path_buf()
@@ -171,10 +176,13 @@ fn list_dir(root: &Path, rel: &str) -> Vec<(String, bool, u64, i64)> {
         if e.depth() == 0 {
             continue;
         }
+        let Some(ft) = e.file_type() else { continue };
+        if !ft.is_dir() && !ft.is_file() {
+            continue;
+        }
         let Ok(md) = e.metadata() else { continue };
         let name = e.file_name().to_string_lossy().into_owned();
-        let is_dir = e.file_type().map(|t| t.is_dir()).unwrap_or(false);
-        out.push((name, is_dir, md.len(), mtime_ns(&md)));
+        out.push((name, ft.is_dir(), md.len(), mtime_ns(&md)));
     }
     out
 }
@@ -246,12 +254,12 @@ pub fn check_stat(idx: &Index, root: &Path, threads: usize) -> Changes {
         fsevents_id,
         ..Default::default()
     };
-    let st = stat_many(root, &k.files, |f| f.1, threads);
+    let st = stat_many(root, &k.files, |f| f.1, fs::FileType::is_file, threads);
     for ((id, rel, rec), s) in k.files.iter().zip(st) {
         classify(&mut ch, *id, rel, rec, s);
     }
     let dirs: Vec<(&str, i64)> = k.dirs.iter().map(|(p, m)| (*p, *m)).collect();
-    let ds = stat_many(root, &dirs, |d| d.0, threads);
+    let ds = stat_many(root, &dirs, |d| d.0, fs::FileType::is_dir, threads);
     let mut changed_dirs: Vec<(String, i64)> = Vec::new();
     for ((rel, mt), s) in dirs.iter().zip(ds) {
         match s {
@@ -387,7 +395,7 @@ pub fn check_fsevents(idx: &Index, root: &Path, threads: usize) -> Option<Change
         .iter()
         .filter(|f| rels.contains(parent_of(f.1)) || under_moved(f.1))
         .collect();
-    let st = stat_many(root, &files, |f| f.1, threads);
+    let st = stat_many(root, &files, |f| f.1, fs::FileType::is_file, threads);
     for (f, s) in files.iter().zip(st) {
         classify(&mut ch, f.0, f.1, f.2, s);
     }
@@ -409,6 +417,15 @@ pub fn explicit_mode(idx: &Index) -> Mode {
 
 /// Decide and run the check for `mode`. `threads` is the stat pool size.
 pub fn check(idx: &Index, root: &Path, mode: Mode, threads: usize) -> Option<Changes> {
+    let mut ch = check_tree(idx, root, mode, threads)?;
+    let recorded = &idx.manifest.ignore_inputs;
+    if !recorded.is_empty() && *recorded != crate::ignores::digest(root) {
+        ch.ignore_changed = true;
+    }
+    Some(ch)
+}
+
+fn check_tree(idx: &Index, root: &Path, mode: Mode, threads: usize) -> Option<Changes> {
     match mode {
         Mode::None => None,
         Mode::Stat => Some(check_stat(idx, root, threads)),

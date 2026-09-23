@@ -188,7 +188,7 @@ fn read_file(path: &Path, size: u64, buf: &mut Vec<u8>) -> bool {
     use std::io::Read;
     buf.clear();
     buf.reserve((size as usize).min(MAX_FILE as usize + 1) + 1);
-    let Ok(f) = fs::File::open(path) else {
+    let Ok(f) = crate::open_regular(path) else {
         return false;
     };
     f.take(MAX_FILE + 1).read_to_end(buf).is_ok()
@@ -371,6 +371,8 @@ pub fn build(root: &Path, dir: &Path, opts: &BuildOpts) -> Result<Manifest> {
     let t0 = Instant::now();
     fs::create_dir_all(dir)?;
     let fsevents_id = greeg_fsevents_id();
+    // before the walk, so a change made during it shows up at the next check
+    let ignore_inputs = crate::ignores::digest(root);
     let (walked, dirs) = walk(root)?;
     let walk_ms = t0.elapsed().as_secs_f64() * 1e3;
 
@@ -543,6 +545,7 @@ pub fn build(root: &Path, dir: &Path, opts: &BuildOpts) -> Result<Manifest> {
         verified_unix_ms: now_ms(),
         deltas: 0,
         tombstones: 0,
+        ignore_inputs,
     };
     write_manifest(dir, &m)?;
     // a fresh build supersedes deltas and older generations

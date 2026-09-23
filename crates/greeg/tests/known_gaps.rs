@@ -1,6 +1,7 @@
-//! Reproduced defects that are not fixed yet. Each test asserts the intended
-//! behavior and stays ignored until the fix lands; CI fails when an ignored
-//! test here starts passing, so a fix must remove its `#[ignore]`.
+//! Reproduced defects. Each test asserts the intended behavior; an open
+//! defect's test is ignored, and CI fails when an ignored test here starts
+//! passing, so a fix must remove its `#[ignore]`. Fixed ones stay as
+//! regressions.
 //!
 //! List them with `cargo test --test known_gaps -- --ignored`.
 
@@ -80,6 +81,7 @@ impl Fixture {
         c.current_dir(&self.root)
             .env("HOME", self.base.join("home"))
             .env("XDG_CACHE_HOME", self.base.join("cache"))
+            .env("XDG_CONFIG_HOME", self.base.join("config"))
             .env("GREEG_STATS", "0")
             .env("GREEG_INDEX_DIR", &self.index)
             .env_remove("GREEG_SESSION")
@@ -168,6 +170,10 @@ fn kind_filters_apply_before_the_retained_hit_cap() {
             (Some(0), "src/late.rs\n".into())
         );
     }
+    // ranked output finds it too, rather than blaming ignore rules
+    let ranked = f.run(&["marker", "--kind", "call"]);
+    assert_eq!(ranked.status.code(), Some(0), "{ranked:?}");
+    assert!(!stdout(&ranked).contains("--no-ignore"), "{ranked:?}");
 }
 
 #[test]
@@ -196,7 +202,6 @@ fn multiline_comment_text_is_not_a_call_in_scan_mode() {
 }
 
 #[test]
-#[ignore = "known gap: scan mode keeps header-marked generated files"]
 fn scan_excludes_header_marked_generated_files() {
     let f = Fixture::new(&[(
         "src/auto.rs",
@@ -210,23 +215,26 @@ fn scan_excludes_header_marked_generated_files() {
 }
 
 #[test]
-#[ignore = "known gap: an empty answer blames ignore rules for hits removed by filters"]
 fn filtered_hits_do_not_suggest_ignore_flags() {
-    let late = format!("{}fn late() {{ marker(); }}\n", "// marker\n".repeat(3));
     let f = Fixture::new(&[
         (
             "src/auto.rs",
             "// @generated DO NOT EDIT\npub fn generatedneedle() {}\n",
         ),
-        ("src/late.rs", &late),
+        ("tests/t.rs", "fn t() { testneedle(); }\n"),
+        ("src/c.rs", "// commentneedle\n"),
     ]);
     f.indexed();
     for args in [
         vec!["generatedneedle", "--no-generated"],
-        vec!["marker", "--kind", "string"],
+        vec!["testneedle", "--no-tests"],
+        vec!["testneedle", "-t", "py"],
+        vec!["commentneedle", "--kind", "call"],
     ] {
-        let o = f.run(&args);
-        assert!(!stdout(&o).contains("--no-ignore"), "{args:?}: {o:?}");
+        for o in [f.run(&args), f.scan(&args)] {
+            assert_eq!(o.status.code(), Some(1), "{args:?}: {o:?}");
+            assert!(!stdout(&o).contains("--no-ignore"), "{args:?}: {o:?}");
+        }
     }
 }
 
@@ -248,7 +256,6 @@ fn unlimited_definitions_are_complete() {
 }
 
 #[test]
-#[ignore = "known gap: JSON symbol verbs exit 0 without results"]
 fn json_symbol_verbs_exit_1_without_results() {
     let f = Fixture::new(&[("a.rs", "fn x() {}\n")]);
     f.indexed();
@@ -286,7 +293,6 @@ fn hidden_files_requested_explicitly_are_found_through_the_index() {
 
 #[cfg(unix)]
 #[test]
-#[ignore = "known gap: freshness follows a symlink that replaced an indexed file"]
 fn a_symlink_replacing_an_indexed_file_is_not_followed() {
     let f = Fixture::with_filler(&[("a.txt", "plain\n")]);
     f.indexed();
@@ -298,6 +304,49 @@ fn a_symlink_replacing_an_indexed_file_is_not_followed() {
     let args = ["--fresh", "stat", "--budget", "0", "symlinkneedle"];
     assert_eq!(f.scan(&args).status.code(), Some(1));
     let o = f.run(&args);
+    assert_eq!((o.status.code(), stdout(&o)), (Some(1), String::new()));
+    // a symlink added after the build is not indexed either
+    std::os::unix::fs::symlink(&outside, f.root.join("added.txt")).unwrap();
+    std::thread::sleep(PAST_FRESHNESS_WINDOW);
+    let o = f.run(&args);
+    assert_eq!((o.status.code(), stdout(&o)), (Some(1), String::new()));
+}
+
+#[cfg(unix)]
+#[test]
+fn a_fifo_replacing_an_indexed_file_does_not_block_the_search() {
+    let f = Fixture::with_filler(&[("a.txt", "fifoneedle\n")]);
+    f.indexed();
+    let path = f.root.join("a.txt");
+    fs::remove_file(&path).unwrap();
+    let c = std::ffi::CString::new(path.as_os_str().as_encoded_bytes()).unwrap();
+    // SAFETY: a valid NUL-terminated path.
+    assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o600) }, 0);
+    std::thread::sleep(PAST_FRESHNESS_WINDOW);
+    let mut child = f
+        .command()
+        .args([
+            "--fresh",
+            "stat",
+            "--budget",
+            "0",
+            "--no-session",
+            "--index-dir",
+        ])
+        .arg(&f.index)
+        .arg("fifoneedle")
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while child.try_wait().unwrap().is_none() {
+        if Instant::now() > deadline {
+            let _ = child.kill();
+            panic!("search blocked on a FIFO");
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let o = child.wait_with_output().unwrap();
     assert_eq!((o.status.code(), stdout(&o)), (Some(1), String::new()));
 }
 
@@ -324,16 +373,23 @@ fn a_same_size_edit_with_restored_mtime_is_visible() {
 }
 
 #[test]
-#[ignore = "known gap: .git/info/exclude is not an index dependency"]
 fn git_info_exclude_changes_the_indexed_file_set() {
-    let f = Fixture::with_filler(&[("a.txt", "excludedneedle\n")]);
+    let f = Fixture::with_filler(&[("a.txt", "excludedneedle\n"), ("b.txt", "globalneedle\n")]);
     f.indexed();
-    w(&f.root.join(".git/info/exclude"), "a.txt\n");
-    std::thread::sleep(PAST_FRESHNESS_WINDOW);
-    let args = ["--fresh", "stat", "--budget", "0", "excludedneedle"];
-    assert_eq!(f.scan(&args).status.code(), Some(1));
-    let o = f.run(&args);
-    assert_eq!((o.status.code(), stdout(&o)), (Some(1), String::new()));
+    let search = |pattern: &str| {
+        std::thread::sleep(PAST_FRESHNESS_WINDOW);
+        let args = ["--fresh", "stat", "--budget", "0", pattern];
+        let (o, scanned) = (f.run(&args), f.scan(&args));
+        assert_eq!(o.status.code(), scanned.status.code(), "{pattern}: {o:?}");
+        stdout(&o)
+    };
+    let exclude = f.root.join(".git/info/exclude");
+    w(&exclude, "a.txt\n");
+    assert_eq!(search("excludedneedle"), "");
+    fs::remove_file(&exclude).unwrap();
+    assert_eq!(search("excludedneedle"), "a.txt:1:excludedneedle\n");
+    w(&f.base.join("config/git/ignore"), "b.txt\n");
+    assert_eq!(search("globalneedle"), "");
 }
 
 #[test]
@@ -430,7 +486,6 @@ fn json_output_preserves_invalid_utf8_content() {
 }
 
 #[test]
-#[ignore = "known gap: detached builds ignore --index-dir"]
 fn detached_builds_use_the_explicit_index_dir() {
     let f = Fixture::new(&[("a.rs", "fn needle() {}\n")]);
     let o = f

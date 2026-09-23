@@ -140,5 +140,15 @@ class PairedRenderingTests(unittest.TestCase):
         self.assertNotIn("Tokens", "\n".join(paired_table(rows, "agent", "Host")))
 
 
+class MatchingReviewReportTests(unittest.TestCase):
+    def test_run_specific_notes_stay_under_their_own_heading(self):
+        report = "\n".join(bench.matching_review_report(bench.RESULTS))
+        specific = report.index("uses prefix ranges")
+        self.assertLess(report.index("## Review fixes: optimized lookup recheck"), specific)
+        self.assertLess(specific, report.index("## Quick correctness fixes: exact-search regression"))
+        self.assertTrue(report.rstrip().endswith("not general symbol-resolution accuracy."))
+
+
 if __name__ == "__main__":
     unittest.main()
+

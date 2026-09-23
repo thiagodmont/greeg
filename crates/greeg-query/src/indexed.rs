@@ -92,13 +92,19 @@ pub fn spawn_build_now(root: &Path, dir: &Path, refresh: bool) {
     let Ok(root_abs) = fs::canonicalize(root) else {
         return;
     };
+    // The markers above live in `dir`; the work must publish there too.
+    let Ok(dir_abs) = std::path::absolute(dir) else {
+        return;
+    };
     let mut cmd = std::process::Command::new(exe);
-    cmd.arg("index").arg("--root").arg(&root_abs).arg("--quiet");
+    cmd.arg("index")
+        .arg("--root")
+        .arg(&root_abs)
+        .arg("--index-dir")
+        .arg(&dir_abs)
+        .arg("--quiet");
     if refresh {
         cmd.arg("--refresh");
-    }
-    if let Some(d) = std::env::var_os("GREEG_INDEX_DIR") {
-        cmd.env("GREEG_INDEX_DIR", d);
     }
     cmd.stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
@@ -514,12 +520,7 @@ pub(crate) fn try_index(cx: &Ctx, threads: usize, t0: Instant) -> Result<Option<
         if flags.has(FileFlags::BINARY) {
             return None;
         }
-        if !o.all
-            && (o.no_tests && flags.has(FileFlags::TEST)
-                || o.no_vendored && flags.has(FileFlags::VENDORED)
-                || o.no_generated
-                    && flags.has(FileFlags::GENERATED | FileFlags::MINIFIED | FileFlags::LOCKFILE))
-        {
+        if crate::excluded_by_flags(o, flags) {
             return None;
         }
         Some(if flags.has(FileFlags::MINIFIED) {
@@ -556,6 +557,7 @@ pub(crate) fn try_index(cx: &Ctx, threads: usize, t0: Instant) -> Result<Option<
         stats: cx.stats,
         classify: cx.classify && !use_spans,
         filter_kinds: !use_spans,
+        regular_only: true,
     };
     // a changed file has no spans yet: line-local classification, as in a scan
     let cx_scan = Ctx {
@@ -564,6 +566,7 @@ pub(crate) fn try_index(cx: &Ctx, threads: usize, t0: Instant) -> Result<Option<
         stats: cx.stats,
         classify: cx.classify,
         filter_kinds: true,
+        regular_only: true,
     };
     let cx = &cx_idx;
     let cx_scan = &cx_scan;
