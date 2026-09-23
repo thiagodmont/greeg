@@ -369,7 +369,7 @@ where
 /// Build phase 1 into `dir`. Returns the manifest written.
 pub fn build(root: &Path, dir: &Path, opts: &BuildOpts) -> Result<Manifest> {
     let t0 = Instant::now();
-    fs::create_dir_all(dir)?;
+    crate::create_private_dir(dir)?;
     let fsevents_id = greeg_fsevents_id();
     // before the walk, so a change made during it shows up at the next check
     let ignore_inputs = crate::ignores::digest(root);

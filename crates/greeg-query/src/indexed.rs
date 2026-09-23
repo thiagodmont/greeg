@@ -74,7 +74,7 @@ fn marker_younger_than(marker: &Path, secs: u64) -> bool {
 /// refresh a `REFRESHING` marker younger than thirty seconds (a running full
 /// build also makes a refresh pointless).
 pub fn spawn_build_now(root: &Path, dir: &Path, refresh: bool) {
-    let _ = fs::create_dir_all(dir);
+    let _ = greeg_index::create_private_dir(dir);
     let building = dir.join("BUILDING");
     if marker_younger_than(&building, 600) {
         return;
@@ -123,7 +123,7 @@ pub fn spawn_build_now(root: &Path, dir: &Path, refresh: bool) {
 /// a time per index; a marker older than thirty seconds is taken over.
 pub fn refresh_now(root: &Path, dir: &Path, threads: usize) -> Result<()> {
     let marker = dir.join("REFRESHING");
-    match fs::OpenOptions::new()
+    match greeg_index::private_file()
         .write(true)
         .create_new(true)
         .open(&marker)

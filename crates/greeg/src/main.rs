@@ -515,9 +515,9 @@ fn run_index(
         }
         return Ok(());
     }
-    std::fs::create_dir_all(&dir)?;
+    greeg_index::create_private_dir(&dir)?;
     let marker = dir.join("BUILDING");
-    match std::fs::OpenOptions::new()
+    match greeg_index::private_file()
         .write(true)
         .create_new(true)
         .open(&marker)

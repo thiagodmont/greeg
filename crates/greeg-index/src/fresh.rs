@@ -536,7 +536,7 @@ pub fn apply(idx: &Index, root: &Path, ch: &Changes) -> Result<usize> {
         return Ok(0);
     }
     let ddir = idx.dir.join("delta");
-    fs::create_dir_all(&ddir)?;
+    crate::create_private_dir(&ddir)?;
     let n = idx.deltas.len() as u32 + 1;
     // not fsynced: a torn delta fails `Index::open` and rebuilds, and the
     // F_FULLFSYNC was 4–5 ms of every post-edit query (M10)

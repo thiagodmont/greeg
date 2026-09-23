@@ -22,9 +22,29 @@ pub use index::Index;
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 pub const FORMAT_VERSION: u16 = 5;
+
+/// Create an index directory and any missing parents owner-only (0700).
+/// Existing directories are left as they are, never chmodded.
+pub fn create_private_dir(dir: &Path) -> std::io::Result<()> {
+    use std::os::unix::fs::DirBuilderExt;
+    std::fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(dir)
+}
+
+/// Options that create files owner-only (0600); the caller adds the mode of
+/// access. Index components, manifests, locks and markers all use them.
+pub fn private_file() -> std::fs::OpenOptions {
+    use std::os::unix::fs::OpenOptionsExt;
+    let mut o = std::fs::OpenOptions::new();
+    o.mode(0o600);
+    o
+}
 
 /// Open an indexed path only while it is still a regular file: a symlink is
 /// not followed and a FIFO or device cannot block the open. This checks the
@@ -182,7 +202,12 @@ pub fn read_manifest(dir: &Path) -> Option<Manifest> {
 /// Rewrite the manifest atomically. Callers hold the writer lock (`lock::writer`).
 pub fn write_manifest(dir: &Path, m: &Manifest) -> Result<()> {
     let tmp = format::tmp_path(&dir.join("manifest"));
-    std::fs::write(&tmp, serde_json::to_vec_pretty(m)?)?;
+    private_file()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(&tmp)?
+        .write_all(&serde_json::to_vec_pretty(m)?)?;
     std::fs::rename(&tmp, dir.join("manifest"))?;
     Ok(())
 }
