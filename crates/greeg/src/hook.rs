@@ -643,10 +643,13 @@ pub fn install_codex(uninstall: bool, dry_run: bool) -> Result<()> {
 // ---------------------------------------------------------------------------
 
 /// Split a simple command into words (quotes and backslashes honoured).
-/// `None` when the shell would expand or interpret something we do not model.
-fn shell_words(s: &str) -> Option<Vec<String>> {
+/// `Err` names what the shell would expand or interpret that we do not model.
+fn shell_words(s: &str) -> Result<Vec<String>, &'static str> {
+    const UNTERMINATED: &str = "unterminated quote or escape";
+    const CONTINUATION: &str = "line continuation";
+    const EXPANSION: &str = "shell expansion";
     if s.contains('\0') {
-        return None;
+        return Err("NUL byte");
     }
     let mut out = Vec::new();
     let mut cur = String::new();
@@ -657,7 +660,7 @@ fn shell_words(s: &str) -> Option<Vec<String>> {
             '\'' => {
                 in_word = true;
                 loop {
-                    let d = chars.next()?;
+                    let d = chars.next().ok_or(UNTERMINATED)?;
                     if d == '\'' {
                         break;
                     }
@@ -667,29 +670,29 @@ fn shell_words(s: &str) -> Option<Vec<String>> {
             '"' => {
                 in_word = true;
                 loop {
-                    let d = chars.next()?;
+                    let d = chars.next().ok_or(UNTERMINATED)?;
                     match d {
                         '"' => break,
                         '\\' => {
-                            let e = chars.next()?;
+                            let e = chars.next().ok_or(UNTERMINATED)?;
                             if e == '\n' {
-                                return None;
+                                return Err(CONTINUATION);
                             }
                             if !matches!(e, '"' | '\\' | '$' | '`') {
                                 cur.push('\\');
                             }
                             cur.push(e);
                         }
-                        '$' | '`' => return None, // expansions: leave the command alone
+                        '$' | '`' => return Err(EXPANSION),
                         _ => cur.push(d),
                     }
                 }
             }
             '\\' => {
                 in_word = true;
-                let escaped = chars.next()?;
+                let escaped = chars.next().ok_or(UNTERMINATED)?;
                 if escaped == '\n' {
-                    return None;
+                    return Err(CONTINUATION);
                 }
                 cur.push(escaped);
             }
@@ -701,12 +704,14 @@ fn shell_words(s: &str) -> Option<Vec<String>> {
             }
             '\n' if out.is_empty() && !in_word => {}
             '\n' if chars.clone().all(|c| matches!(c, ' ' | '\t' | '\n')) => break,
-            // redirections, expansions and control operators: not a plain invocation
-            '$' | '`' | '<' | '>' | ';' | '&' | '|' | '(' | ')' | '{' | '}' | '\n' => return None,
-            // an unquoted glob or `~` would be expanded by the shell: leave it alone
-            '*' | '?' | '[' => return None,
-            '#' if !in_word => return None,
-            '~' if !in_word => return None,
+            '$' | '`' => return Err(EXPANSION),
+            '<' | '>' => return Err("redirection"),
+            ';' | '&' | '|' => return Err("pipeline, list or background job"),
+            '\n' => return Err("several commands"),
+            '(' | ')' | '{' | '}' => return Err("subshell, group or brace expansion"),
+            '*' | '?' | '[' => return Err("unquoted glob"),
+            '#' if !in_word => return Err("shell comment"),
+            '~' if !in_word => return Err("tilde expansion"),
             _ => {
                 in_word = true;
                 cur.push(c);
@@ -716,7 +721,7 @@ fn shell_words(s: &str) -> Option<Vec<String>> {
     if in_word {
         out.push(cur);
     }
-    Some(out)
+    Ok(out)
 }
 
 pub(crate) fn quote(w: &str) -> String {
@@ -811,36 +816,41 @@ struct Parsed {
 impl Parsed {
     /// Apply one flag; `name` is the canonical flag as it should be emitted
     /// (`-t`, `--type`, ...), `value` its value when `kind == Value`.
-    fn apply(&mut self, kind: Flag, name: &str, value: Option<String>) -> Option<()> {
+    fn apply(&mut self, kind: Flag, name: &str, value: Option<String>) -> Result<(), String> {
+        let number = |v: &str| {
+            v.parse::<u64>()
+                .map(drop)
+                .map_err(|_| format!("`{name}` needs a whole number"))
+        };
         match kind {
             Flag::Keep => self.flags.push(name.to_string()),
             Flag::Drop => {}
             Flag::Color => {
                 if !matches!(value.as_deref(), Some("never" | "always" | "auto" | "ansi")) {
-                    return None;
+                    return Err(format!("unknown `{name}` value"));
                 }
             }
             Flag::Fixed => self.fixed = true,
             Flag::Unrestricted => self.unrestricted = self.unrestricted.saturating_add(1),
-            Flag::Unsupported => return None,
+            Flag::Unsupported => return Err(format!("unsupported flag `{name}`")),
             Flag::Value => {
-                let v = value?;
+                let v = value.ok_or_else(|| format!("`{name}` needs a value"))?;
                 match name {
                     "-e" | "--regexp" => self.patterns.push(v),
                     "--max-filesize" => {
-                        v.parse::<u64>().ok()?;
+                        number(&v)?;
                         if self.max_filesize.replace(v).is_some() {
-                            return None;
+                            return Err(format!("`{name}` given twice"));
                         }
                     }
                     "-A" | "-B" | "-C" | "-j" | "--after-context" | "--before-context"
                     | "--context" | "--threads" | "--max-columns" => {
-                        v.parse::<u64>().ok()?;
+                        number(&v)?;
                         self.flags.push(name.to_string());
                         self.flags.push(v);
                     }
                     "-M" => {
-                        v.parse::<u64>().ok()?;
+                        number(&v)?;
                         self.flags.push("--max-columns".into());
                         self.flags.push(v);
                     }
@@ -851,7 +861,7 @@ impl Parsed {
                 }
             }
         }
-        Some(())
+        Ok(())
     }
 }
 
@@ -860,7 +870,15 @@ const VERBS: &[&str] = &[
     "man", "hook", "lang", "stats",
 ];
 
-fn parse(words: &[String]) -> Option<Parsed> {
+/// The value word after a flag at `words[i - 1]`.
+fn missing_value(words: &[String], i: usize, name: &str) -> Result<String, String> {
+    words
+        .get(i - 1)
+        .cloned()
+        .ok_or_else(|| format!("`{name}` needs a value"))
+}
+
+fn parse(words: &[String]) -> Result<Parsed, String> {
     let mut p = Parsed::default();
     let mut i = 1;
     let mut after_dd = false;
@@ -881,15 +899,18 @@ fn parse(words: &[String]) -> Option<Parsed> {
                 None => (w.clone(), None),
             };
             let kind = long_flag(&name);
+            if kind == Flag::Unsupported {
+                return Err(format!("unsupported flag `{name}`"));
+            }
             if inline.is_some() && !matches!(kind, Flag::Value | Flag::Color) {
-                return None;
+                return Err(format!("`{name}` does not take a value"));
             }
             let value = match kind {
                 Flag::Value | Flag::Color => Some(match inline {
                     Some(v) => v,
                     None => {
                         i += 1;
-                        words.get(i - 1)?.clone()
+                        missing_value(words, i, &name)?
                     }
                 }),
                 _ => inline,
@@ -906,7 +927,7 @@ fn parse(words: &[String]) -> Option<Parsed> {
                 let rest = &body[k + c.len_utf8()..];
                 let value = if rest.is_empty() {
                     i += 1;
-                    words.get(i - 1)?.clone()
+                    missing_value(words, i, &name)?
                 } else {
                     rest.to_string()
                 };
@@ -916,26 +937,38 @@ fn parse(words: &[String]) -> Option<Parsed> {
             p.apply(kind, &name, None)?;
         }
     }
-    Some(p)
+    Ok(p)
+}
+
+/// Why a program other than `rg` is left alone.
+fn other_program(first: &str) -> &'static str {
+    match first {
+        "grep" | "egrep" | "fgrep" => {
+            "grep traversal, regex dialect and binary handling differ from greeg"
+        }
+        _ if first.ends_with("/rg") => "explicit executable path (only `rg` is rewritten)",
+        _ if first.contains('=') => "environment assignment",
+        _ => "not an rg command",
+    }
 }
 
 /// Rewrite a simple rg command to argv: `(original words, greeg words)`;
-/// `None` = leave it alone.
-fn rewrite_words(seg: &str) -> Option<(Vec<String>, Vec<String>)> {
+/// `Err` = leave it alone, and why.
+fn rewrite_words(seg: &str) -> Result<(Vec<String>, Vec<String>), String> {
     let words = shell_words(seg)?;
-    let first = words.first()?;
+    let first = words.first().ok_or("empty command")?;
     if first != "rg" {
-        return None;
+        return Err(other_program(first).into());
     }
     let mut p = parse(&words)?;
     if p.patterns.len() > 1 {
-        return None; // greeg accepts a single -e today
+        return Err("several -e patterns (greeg takes one)".into());
     }
     let (pattern, pattern_dd) = match p.patterns.pop() {
         Some(e) => (e, false),
         None => {
             if p.positional.is_empty() {
-                return None;
+                return Err("no pattern".into());
             }
             p.positional.remove(0)
         }
@@ -943,7 +976,7 @@ fn rewrite_words(seg: &str) -> Option<(Vec<String>, Vec<String>)> {
     let paths = std::mem::take(&mut p.positional);
     // stdin readers become tree searches: leave them alone
     if paths.iter().any(|(w, _)| w == "-") {
-        return None;
+        return Err("stdin search".into());
     }
 
     let mut out: Vec<String> = vec!["greeg".into(), "--matching".into(), "exact".into()];
@@ -956,7 +989,7 @@ fn rewrite_words(seg: &str) -> Option<(Vec<String>, Vec<String>)> {
         0 => {}
         1 => out.push("--no-ignore".into()),
         2 => out.extend(["--no-ignore".to_string(), "--hidden".to_string()]),
-        _ => return None, // -uuu also searches binaries
+        _ => return Err("-uuu also searches binary files".into()),
     }
     if p.fixed {
         out.push("-F".into());
@@ -973,7 +1006,7 @@ fn rewrite_words(seg: &str) -> Option<(Vec<String>, Vec<String>)> {
         }
         out.push(w);
     }
-    Some((words, out))
+    Ok((words, out))
 }
 
 /// A rewritten Bash command and what changed in it (for the stats records).
@@ -985,14 +1018,14 @@ pub struct Rewrite {
 
 /// Only complete simple commands qualify; a shell tail may consume another
 /// output dialect or change permission and exit-status behavior.
-pub fn rewrite_full(cmd: &str) -> Option<Rewrite> {
+pub fn rewrite_full(cmd: &str) -> Result<Rewrite, String> {
     let (original, rewritten) = rewrite_words(cmd)?;
     let command = rewritten
         .iter()
         .map(|w| quote(w))
         .collect::<Vec<_>>()
         .join(" ");
-    Some(Rewrite {
+    Ok(Rewrite {
         command,
         original,
         rewritten,
@@ -1013,6 +1046,32 @@ fn hook_reply(agent: Agent, command: &str) -> Value {
     json!({"hookSpecificOutput": specific})
 }
 
+/// What the hook does with `cmd` in this environment: the rewrite, or why
+/// the original command runs unchanged.
+fn decide(cmd: &str) -> Result<Rewrite, String> {
+    // A configured ripgrep can select another file set or run a preprocessor.
+    if std::env::var_os("RIPGREP_CONFIG_PATH").is_some_and(|p| !p.is_empty()) {
+        return Err("RIPGREP_CONFIG_PATH is set (ripgrep configuration is not interpreted)".into());
+    }
+    rewrite_full(cmd)
+}
+
+/// `greeg hook explain COMMAND`: the command the hook would run instead
+/// (exit 0), or `declined: REASON` (exit 1).
+pub fn explain(cmd: &str) -> Result<bool> {
+    let mut w = std::io::stdout().lock();
+    match decide(cmd) {
+        Ok(rw) => {
+            writeln!(w, "{}", rw.command)?;
+            Ok(true)
+        }
+        Err(why) => {
+            writeln!(w, "declined: {why}")?;
+            Ok(false)
+        }
+    }
+}
+
 pub fn run(agent: Agent) -> Result<()> {
     let mut input = String::new();
     std::io::stdin().read_to_string(&mut input)?;
@@ -1030,13 +1089,7 @@ pub fn run(agent: Agent) -> Result<()> {
     else {
         return Ok(());
     };
-    // A configured ripgrep can select another file set or run a preprocessor.
-    if std::env::var_os("RIPGREP_CONFIG_PATH").is_some_and(|p| !p.is_empty()) {
-        return Ok(());
-    }
-    if let Some(rw) = rewrite_full(cmd)
-        && rw.command != cmd
-    {
+    if let Ok(rw) = decide(cmd) {
         let out = hook_reply(agent, &rw.command);
         let mut w = std::io::stdout().lock();
         serde_json::to_writer(&mut w, &out)?;
@@ -1069,7 +1122,7 @@ mod tests {
             assert_eq!(rewrite_full(command).unwrap().original, ["rg", pattern]);
         }
         for command in ["rg foo\necho tail", "rg foo\\\n", "rg foo\\\n\n"] {
-            assert!(rewrite_full(command).is_none(), "{command:?}");
+            assert!(rewrite_full(command).is_err(), "{command:?}");
         }
     }
 
@@ -1100,7 +1153,39 @@ mod tests {
             "rg --ignore-case=false needle",
             "rg --fixed-strings=no needle",
         ] {
-            assert!(rewrite_full(cmd).is_none(), "unexpected rewrite: {cmd:?}");
+            assert!(rewrite_full(cmd).is_err(), "unexpected rewrite: {cmd:?}");
+        }
+    }
+
+    #[test]
+    fn declined_commands_name_the_reason() {
+        for (cmd, why) in [
+            ("grep -rl needle .", "grep traversal"),
+            ("./rg needle", "explicit executable path"),
+            ("FOO=1 rg foo", "environment assignment"),
+            ("git status", "not an rg command"),
+            ("rg needle # comment", "shell comment"),
+            ("rg needle | head", "pipeline"),
+            ("rg needle\necho done", "several commands"),
+            ("rg foo > out.txt", "redirection"),
+            ("rg foo $DIR", "shell expansion"),
+            ("rg foo src/*.rs", "unquoted glob"),
+            ("rg foo ~/src", "tilde expansion"),
+            ("rg foo 'unterminated", "unterminated quote"),
+            ("rg needle\\\n src", "line continuation"),
+            ("rg --pre=./script foo", "unsupported flag `--pre`"),
+            ("rg -iv foo", "unsupported flag `-v`"),
+            ("rg --count=false needle", "`--count` does not take a value"),
+            ("rg -A x foo", "`-A` needs a whole number"),
+            ("rg --glob", "`--glob` needs a value"),
+            ("rg --max-filesize 1 --max-filesize 2 foo", "given twice"),
+            ("rg -e a -e b", "several -e patterns"),
+            ("rg", "no pattern"),
+            ("rg foo -", "stdin search"),
+            ("rg -uuu foo", "binary files"),
+        ] {
+            let got = rewrite_full(cmd).err().unwrap_or_default();
+            assert!(got.contains(why), "{cmd:?}: {got:?}");
         }
     }
 
@@ -1116,7 +1201,7 @@ mod tests {
     #[track_caller]
     fn same(cmd: &str, want: &str) {
         assert_eq!(
-            rewrite_full(cmd).map(|r| r.command).as_deref(),
+            rewrite_full(cmd).ok().map(|r| r.command).as_deref(),
             Some(want),
             "{cmd}"
         );
@@ -1124,7 +1209,7 @@ mod tests {
 
     #[track_caller]
     fn untouched(cmd: &str) {
-        assert!(rewrite_full(cmd).is_none(), "unexpected rewrite: {cmd:?}");
+        assert!(rewrite_full(cmd).is_err(), "unexpected rewrite: {cmd:?}");
     }
 
     #[test]

@@ -163,7 +163,8 @@ preserves ripgrep's requested limit (unlimited by default), so files over 4 MiB
 are not silently omitted. It leaves grep variants,
 JSON/stats output, explicit executable paths, pipelines, compound commands,
 comments, redirections and shell expansions with the original tool. An inherited
-`RIPGREP_CONFIG_PATH` also disables rewriting. See the
+`RIPGREP_CONFIG_PATH` also disables rewriting. `greeg hook explain 'rg -l foo src'`
+shows the rewrite, or why a command is left alone. See the
 [hook capability matrix](references/ARCHITECTURE.md#agent-hook-contract) for the
 supported subset and validation limits.
 

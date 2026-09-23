@@ -427,6 +427,11 @@ enum HookCmd {
         #[arg(long = "dry-run")]
         dry_run: bool,
     },
+    /// Show what the hook does with a Bash COMMAND: the greeg command it would run (exit 0), or `declined: REASON` (exit 1)
+    Explain {
+        /// The Bash command, quoted as one argument: `greeg hook explain 'rg -l foo src'`
+        command: String,
+    },
     /// The hook itself: reads the tool call on stdin, prints a rewritten command (internal)
     Run {
         /// Which agent is calling; shapes the reply (Codex applies a rewrite only with permissionDecision=allow)
@@ -864,6 +869,14 @@ fn run() -> Result<()> {
             Cmd::Hook {
                 which: HookCmd::Codex { uninstall, dry_run },
             } => hook::install_codex(uninstall, dry_run),
+            Cmd::Hook {
+                which: HookCmd::Explain { command },
+            } => {
+                if !hook::explain(&command)? {
+                    std::process::exit(1);
+                }
+                Ok(())
+            }
             Cmd::Hook {
                 which: HookCmd::Run { agent },
             } => hook::run(agent),
