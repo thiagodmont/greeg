@@ -1,0 +1,39 @@
+references/BENCH.md
+  s_09357c044b6e84::t_8f673ad08a8482 9-10,38-39,59-60,76-77,86-87,113-114,152-153,191-192,234-235,277-278,337-338,368-369,407-408,448-449,489
+  s_09357c044b6e84::t_de5d21376d4243 490
+bench/bench.py
+  s_09357c044b6e84::t_8b297d42eccc04 1106,1138,1168,1212,1267
+bench/reports.toml
+  s_09357c044b6e84::t_8b297d42eccc04 9-11,19-21,29-31,39-41,50-52,60-62,70-72,80-82,90-92,100-102,110-112,120-122,130-132,141-143,152-154
+bench/test_report_catalog.py
+  s_09357c044b6e84::t_c8a2c99deee38c 173-175
+  s_09357c044b6e84::t_8fe2de54d0254d 160-172,176-187,214-215,223
+bench/results/report-timestamps-2026-09-23-darwin-arm64.json
+  s_09357c044b6e84::t_1774783aa0ec05 1-376
+bench/report_catalog.py
+  s_09357c044b6e84::t_7a9d9a3d9dc7ba 44-46,74-78,83-91
+  s_09357c044b6e84::t_0dcc78a529b17a 3,79-82
+bench/test_report_rendering.py
+  s_09357c044b6e84::t_8fe2de54d0254d 2-3,11,93-95,98-107
+  s_09357c044b6e84::t_3ed38a93ef17b6 108
+references/ARCHITECTURE.md
+  s_09357c044b6e84::t_8b297d42eccc04 411-420
+bench/reporting.py
+  s_09357c044b6e84::t_7a9d9a3d9dc7ba 2,8-20
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "9288d605f908b87bcd10c5a988f645efc3e94d42",
+  "prompts": {},
+  "sessions": {
+    "s_09357c044b6e84": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0c9a2-d91e-7fc2-8558-a87341dafdb2",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
