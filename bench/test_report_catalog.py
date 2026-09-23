@@ -242,8 +242,12 @@ class CatalogTests(unittest.TestCase):
             text = "\n".join(bench.session_report(str(root), store))
             self.assertIn("Session/search contracts: **1/1 → 1/1**", text)
             self.assertIn("bench/sessions.py BASELINE CANDIDATE --runs 2", text)
+            self.assertIn("| Backend | Case |", text)
             del row["candidate"]["search_equal"]
             with self.assertRaisesRegex(ReportDataError, "search_equal"):
+                validate_dataset(data, store.section("session")[0])
+            row["candidate"]["search_equal"] = False
+            with self.assertRaisesRegex(ReportDataError, "contract"):
                 validate_dataset(data, store.section("session")[0])
 
     def test_recheck_notes_stay_with_their_dataset_when_new_reports_follow(self):

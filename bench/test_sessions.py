@@ -28,6 +28,32 @@ class SessionHarnessTests(unittest.TestCase):
             self.assertEqual(row["stdout_bytes"], 7)
             self.assertEqual(row["error"], "TimeoutExpired")
 
+    def test_non_object_storage_rows_fail_contract_without_aborting(self):
+        for value in (None, 42, "text", [], {"t": None}):
+            with self.subTest(value=value), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                env = {"GREEG_INDEX_DIR": str(root / "index")}
+                def run(*args, **kwargs):
+                    directory = root / "index/session"
+                    directory.mkdir(parents=True, mode=0o700)
+                    path = directory / "measured.jsonl"
+                    path.write_text(json.dumps(value) + "\n")
+                    path.chmod(0o600)
+                    return subprocess.CompletedProcess([], 0, b"", b"")
+                with patch.object(sessions.subprocess, "run", side_effect=run):
+                    row = sessions.invoke(Path("fake"), "scan", "fresh", root, env, (0, b"", b""), None, 100000)
+                self.assertFalse(row["contract"])
+                self.assertTrue(row["search_equal"])
+
+    def test_missing_compiler_does_not_abort_prebuilt_benchmark(self):
+        with tempfile.TemporaryDirectory() as temp:
+            output = Path(temp) / "result.json"
+            with patch("sys.argv", ["sessions.py", "/fake/baseline", "/fake/candidate", "--output", str(output)]), \
+                    patch.object(sessions.subprocess, "check_output", side_effect=FileNotFoundError("rustc")), \
+                    patch.object(sessions.tempfile, "TemporaryDirectory", side_effect=RuntimeError("measurement reached")):
+                with self.assertRaisesRegex(RuntimeError, "measurement reached"):
+                    sessions.main()
+
     def test_storage_success_does_not_hide_search_output_drift(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

@@ -252,3 +252,13 @@ pr = 21
 measured_at = 2026-09-23T16:31:06.495386Z
 timestamp_source = "measurement"
 notes = "The 151-pair confirmation uses the same binary digests and passes all 14 candidate contracts with unchanged output bytes/tokens. Fresh/warm median overhead is 0.1–0.3 ms. Compaction/expiry retain four median flags (+10.9–14.2%, or 0.6–0.8 ms) from reloading bounded history under a lock and atomic replacement. This is an explicit session-persistence reliability cost, not a search speedup. No p95 exceeds +20%; the initial fresh scan tail flag did not repeat. Sessions-disabled median changes are +5.5% scan / +1.6% index. Both runs are retained; they do not measure whole-task quality or cold-cache behavior."
+
+[[datasets]]
+id = "private_sessions_review"
+section = "session"
+filename = "private-sessions-review-2026-09-23-darwin-arm64.json"
+title = "Private session memory: cleanup review (2026-09-23)"
+pr = 21
+measured_at = 2026-09-23T16:57:25.076374Z
+timestamp_source = "measurement"
+notes = "These 51-pair incremental measurements compare the retained original session binary with anchored cleanup and shorter lock scope. Both binaries pass 14/14 session/search contracts; stdout, stderr, statuses, bytes and tokens remain unchanged, with scan/index matching-file parity. No case exceeds +10% median or +20% p95: maximum increases are +2.4% median and +19.0% p95. Directory-rename and busy-writer cleanup safety are covered by deterministic Rust regressions; these small-directory timings do not establish a large-directory contention speedup. Original costs versus merged main remain documented above."

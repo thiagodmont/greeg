@@ -329,12 +329,18 @@ mod tests {
     impl Fixture {
         fn new() -> Self {
             static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-            let path = std::env::temp_dir().join(format!(
-                "greeg-session-{}-{}",
-                std::process::id(),
-                NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-            ));
-            fs::create_dir(&path).unwrap();
+            let path = loop {
+                let candidate = std::env::temp_dir().join(format!(
+                    "greeg-session-{}-{}",
+                    std::process::id(),
+                    NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+                ));
+                match fs::create_dir(&candidate) {
+                    Ok(()) => break candidate,
+                    Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                    Err(e) => panic!("fixture directory: {e}"),
+                }
+            };
             Self(path)
         }
 

@@ -15,7 +15,7 @@ import tempfile
 import time
 
 from hook_config import summary
-from hooks import benchmark_environment
+from hooks import benchmark_environment, compiler_version
 
 MAX_BYTES = 4 * 1024 * 1024
 CASES = ("no_session", "fresh", "warm", "compaction", "expired", "oversized", "symlink")
@@ -73,7 +73,7 @@ def invoke(binary, backend, case, base, env, expected, encoding, now):
                       and stat.S_IMODE(path.stat().st_mode) == 0o600
                       and stat.S_IMODE(session.stat().st_mode) == 0o700
                       and all(now - 86400 < r["t"] <= int(time.time()) for r in records))
-        except (OSError, ValueError, KeyError):
+        except (OSError, ValueError, KeyError, TypeError):
             stored = False
     return {"ms": elapsed, "contract": search_equal and stored, "search_equal": search_equal,
             "status": run.returncode, "stdout_bytes": len(run.stdout), "stderr_bytes": len(run.stderr),
@@ -105,7 +105,7 @@ def main():
               "binaries": {}, "results": [], "corpus": CORPUS,
               "corpus_sha256": hashlib.sha256(json.dumps(CORPUS, sort_keys=True).encode()).hexdigest(),
               "harness_sha256": {name: hashlib.sha256(Path(__file__).with_name(name).read_bytes()).hexdigest() for name in ("sessions.py", "hook_config.py", "hooks.py")},
-              "compiler": subprocess.check_output(["rustc", "--version"], text=True).strip()}
+              "compiler": compiler_version()}
     rng = random.Random(report["seed"])
     with tempfile.TemporaryDirectory(prefix="greeg-session-bench-") as temp:
         base = Path(temp)

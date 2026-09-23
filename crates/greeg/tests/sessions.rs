@@ -10,12 +10,18 @@ struct Fixture(PathBuf);
 impl Fixture {
     fn new() -> Self {
         static NEXT: AtomicUsize = AtomicUsize::new(0);
-        let path = std::env::temp_dir().join(format!(
-            "greeg-session-cli-{}-{}",
-            std::process::id(),
-            NEXT.fetch_add(1, Ordering::Relaxed)
-        ));
-        fs::create_dir(&path).unwrap();
+        let path = loop {
+            let candidate = std::env::temp_dir().join(format!(
+                "greeg-session-cli-{}-{}",
+                std::process::id(),
+                NEXT.fetch_add(1, Ordering::Relaxed)
+            ));
+            match fs::create_dir(&candidate) {
+                Ok(()) => break candidate,
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(e) => panic!("fixture directory: {e}"),
+            }
+        };
         fs::create_dir(path.join("home")).unwrap();
         fs::write(path.join("file.rs"), "pub fn needle() {}\n").unwrap();
         Self(path)
@@ -102,24 +108,40 @@ fn no_session_has_no_session_side_effects_and_unsafe_storage_does_not_fail_searc
 #[test]
 fn simultaneous_processes_leave_complete_records() {
     let f = Fixture::new();
-    let children: Vec<_> = (0..8)
-        .map(|_| {
-            f.command()
-                .args(["--session", "parallel"])
-                .stdout(Stdio::null())
-                .stderr(Stdio::piped())
-                .spawn()
-                .unwrap()
-        })
-        .collect();
-    for child in children {
-        let run = child.wait_with_output().unwrap();
-        assert!(run.status.success(), "{run:?}");
-    }
-    let text = fs::read_to_string(f.0.join("index/session/parallel.jsonl")).unwrap();
-    assert_eq!(text.lines().count(), 8);
-    for line in text.lines() {
-        let _: serde_json::Value = serde_json::from_str(line).unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    let mut recorded = 0;
+    while recorded < 8 {
+        let children: Vec<_> = (recorded..8)
+            .map(|_| {
+                f.command()
+                    .args(["--session", "parallel"])
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::piped())
+                    .spawn()
+                    .unwrap()
+            })
+            .collect();
+        for child in children {
+            let run = child.wait_with_output().unwrap();
+            assert!(run.status.success(), "{run:?}");
+        }
+        let text = match fs::read_to_string(f.0.join("index/session/parallel.jsonl")) {
+            Ok(text) => text,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+            Err(e) => panic!("session log: {e}"),
+        };
+        for line in text.lines() {
+            let row: serde_json::Value = serde_json::from_str(line).unwrap();
+            assert_eq!(row["q"], "needle");
+        }
+        let count = text.lines().count();
+        assert!((recorded..=8).contains(&count));
+        recorded = count;
+        // Best-effort writes may skip a record after the bounded lock wait.
+        assert!(
+            recorded == 8 || std::time::Instant::now() < deadline,
+            "only {recorded}/8 complete records after retries"
+        );
     }
 }
 

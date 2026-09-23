@@ -293,8 +293,9 @@ regular log, lock and temporary files are single-link, current-user-owned and
 mode `0600`. Existing verified session objects have their permissions tightened.
 Caller-selected parent directories are never chmodded. The final index directory
 and session directory cannot be symlinks; ancestor paths are caller-controlled.
-Leaf opens use `O_NOFOLLOW` and directory-relative descriptors, including rename
-and unlink, so an opened session directory remains the publication anchor.
+Leaf opens use `O_NOFOLLOW` and directory-relative descriptors, including directory
+enumeration, rename and unlink, so cleanup and publication remain anchored after
+a directory rename.
 Extended ACLs are conservatively refused instead of relying only on mode bits.
 Symlinks, hard links, foreign owners and nonregular files are refused before
 reading or writing log content. Extremely restrictive permissions/umasks or an
@@ -316,7 +317,9 @@ record-count compaction retains the newest half, and byte-limit compaction aims
 for half the byte budget. Expired/invalid records are removed on the next accepted
 write. New/empty logs trigger a bounded sweep of up to 4,096 directory entries,
 removing only recognized, single-link, user-owned regular log files whose mtime
-is at least 24 hours old. Other entries and the stable lock remain intact.
+is at least 24 hours old. Enumeration runs after releasing the append lock; each
+expired candidate is rechecked under a nonblocking lock before deletion. A busy
+writer stops cleanup without waiting. Other entries and the stable lock remain intact.
 This is opportunistic cleanup, not a global disk quota or a background eraser;
 inactive logs beyond the sweep limit and crash-left temporary files may remain.
 
@@ -489,10 +492,14 @@ Reports normalize times to UTC and explicitly label these commit dates as estima
 not recorded execution times. Omit all three fields if neither time is known;
 partial metadata and datetimes without a timezone are rejected. Other measurement
 metadata stays in the raw results.
-Add measurements to `hook`, `hook_config` or `matching_review` there without
+Add measurements to `hook`, `hook_config`, `session` or `matching_review` there without
 changing renderers; `matching` and `matching_recheck` each allow exactly one dataset.
 `bench/report_catalog.py` validates the catalog and report-facing fields for
-matching, hook and installer protocols 1/2, and reads each dataset once per render.
+matching, hook, installer and session protocols 1/2, and reads each dataset once
+per render. The session harness emits protocol 2. Session rows require search
+equality for a passing storage/search contract and reuse the shared latency/token tables. New measurement
+families need a documented schema, validator and renderer; new runs within an
+existing family need only catalog entries.
 Unknown result metadata is allowed; unknown catalog options and protocols fail.
 Missing files and valid empty result arrays produce no section. Present invalid
 JSON, duplicate fields, invalid types or missing required fields stop the report

@@ -1,12 +1,14 @@
 //! Private, bounded session logs. All leaf operations use an anchored directory.
 use crate::session::{MAX_AGE_SECS, MAX_RECORDS, Record};
 use std::collections::VecDeque;
-use std::ffi::CString;
+use std::ffi::{CStr, CString};
 use std::fs::{self, File};
 use std::io::{self, Read, Write};
-use std::os::fd::{AsRawFd, FromRawFd};
+use std::os::fd::{AsRawFd, FromRawFd, IntoRawFd};
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
-use std::path::{Path, PathBuf};
+use std::path::Path;
+#[cfg(test)]
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant, SystemTime};
 
@@ -15,6 +17,7 @@ const MAX_RECORD_BYTES: usize = 256 * 1024;
 
 pub(crate) struct Store {
     dir: File,
+    #[cfg(test)]
     path: PathBuf,
     name: String,
 }
@@ -125,6 +128,14 @@ impl Drop for Lock {
     }
 }
 
+struct DirectoryStream(*mut libc::DIR);
+impl Drop for DirectoryStream {
+    fn drop(&mut self) {
+        // SAFETY: fdopendir transferred exclusive ownership to this stream.
+        unsafe { libc::closedir(self.0) };
+    }
+}
+
 impl Store {
     pub fn open(path: &Path, key: &str) -> io::Result<Self> {
         let parent = path
@@ -151,6 +162,7 @@ impl Store {
         private(&dir, true)?;
         Ok(Self {
             dir,
+            #[cfg(test)]
             path: path.to_owned(),
             name: format!("{key}.jsonl"),
         })
@@ -247,7 +259,7 @@ impl Store {
         if line.len() > MAX_RECORD_BYTES {
             return Err(invalid("session record exceeds byte limit"));
         }
-        let _lock = self
+        let lock = self
             .lock()
             .map_err(|e| io::Error::new(e.kind(), format!("lock: {e}")))?;
         let loaded = self
@@ -290,6 +302,7 @@ impl Store {
                 self.file(&self.name, libc::O_WRONLY | libc::O_CREAT | libc::O_APPEND)?;
             file.write_all(&line)?;
         }
+        drop(lock);
         if loaded.bytes == 0 {
             self.prune();
         }
@@ -346,12 +359,41 @@ impl Store {
         }
     }
 
+    fn expired_log(&self, name: &str) -> bool {
+        let Ok(file) = open_at(&self.dir, name, libc::O_RDONLY) else {
+            return false;
+        };
+        let Ok(m) = file.metadata() else { return false };
+        // SAFETY: geteuid has no preconditions.
+        m.is_file()
+            && m.nlink() == 1
+            && m.uid() == unsafe { libc::geteuid() }
+            && m.modified()
+                .ok()
+                .and_then(|t| SystemTime::now().duration_since(t).ok())
+                .is_some_and(|age| age.as_secs() >= MAX_AGE_SECS)
+    }
+
     fn prune(&self) {
-        let Ok(entries) = fs::read_dir(&self.path) else {
+        // A new open description keeps each sweep's offset independent.
+        let Ok(directory) = open_at(&self.dir, ".", libc::O_RDONLY | libc::O_DIRECTORY) else {
             return;
         };
-        for entry in entries.take(4096).flatten() {
-            let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
+        // SAFETY: directory owns a readable directory descriptor.
+        let stream = unsafe { libc::fdopendir(directory.as_raw_fd()) };
+        if stream.is_null() {
+            return;
+        }
+        let _ = directory.into_raw_fd();
+        let stream = DirectoryStream(stream);
+        for _ in 0..4096 {
+            // SAFETY: the stream is live and exclusively accessed here.
+            let entry = unsafe { libc::readdir(stream.0) };
+            if entry.is_null() {
+                break;
+            }
+            // SAFETY: readdir supplies a NUL-terminated name, valid until the next call.
+            let Ok(name) = unsafe { CStr::from_ptr((*entry).d_name.as_ptr()) }.to_str() else {
                 continue;
             };
             let Some(key) = name.strip_suffix(".jsonl") else {
@@ -370,20 +412,19 @@ impl Store {
             if name == self.name || !(safe || hashed) {
                 continue;
             }
-            let Ok(file) = open_at(&self.dir, &name, libc::O_RDONLY) else {
+            if !self.expired_log(name) {
                 continue;
+            }
+            let Ok(lock) = self.file(".lock", libc::O_RDWR | libc::O_CREAT) else {
+                return;
             };
-            let Ok(m) = file.metadata() else { continue };
-            // SAFETY: geteuid has no preconditions.
-            if m.is_file()
-                && m.nlink() == 1
-                && m.uid() == unsafe { libc::geteuid() }
-                && m.modified()
-                    .ok()
-                    .and_then(|t| SystemTime::now().duration_since(t).ok())
-                    .is_some_and(|age| age.as_secs() >= MAX_AGE_SECS)
-            {
-                self.unlink(&name);
+            if lock.try_lock().is_err() {
+                return;
+            }
+            let _lock = Lock(lock);
+            // A writer may have refreshed or replaced the log during enumeration.
+            if self.expired_log(name) {
+                self.unlink(name);
             }
         }
     }
@@ -398,12 +439,18 @@ mod tests {
     impl Fixture {
         fn new() -> Self {
             static NEXT: AtomicU64 = AtomicU64::new(0);
-            let path = std::env::temp_dir().join(format!(
-                "greeg-session-store-{}-{}",
-                std::process::id(),
-                NEXT.fetch_add(1, Ordering::Relaxed)
-            ));
-            fs::create_dir(&path).unwrap();
+            let path = loop {
+                let candidate = std::env::temp_dir().join(format!(
+                    "greeg-session-store-{}-{}",
+                    std::process::id(),
+                    NEXT.fetch_add(1, Ordering::Relaxed)
+                ));
+                match fs::create_dir(&candidate) {
+                    Ok(()) => break candidate,
+                    Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                    Err(e) => panic!("fixture directory: {e}"),
+                }
+            };
             Self(path)
         }
         fn store(&self, key: &str) -> Store {
@@ -521,6 +568,54 @@ mod tests {
                 .count(),
             MAX_RECORDS / 2 + 1
         );
+    }
+
+    #[test]
+    fn pruning_stays_anchored_and_restarts_each_sweep() {
+        let f = Fixture::new();
+        let store = f.store("active");
+        let moved = f.0.join("moved");
+        fs::rename(&store.path, &moved).unwrap();
+        fs::create_dir(&store.path).unwrap();
+        let old = SystemTime::now() - Duration::from_secs(MAX_AGE_SECS + 1);
+        for name in ["first.jsonl", "second.jsonl"] {
+            let path = moved.join(name);
+            fs::write(&path, "expired").unwrap();
+            File::open(&path)
+                .unwrap()
+                .set_times(fs::FileTimes::new().set_modified(old))
+                .unwrap();
+            fs::write(store.path.join("unrelated.jsonl"), "untouched").unwrap();
+            store.prune();
+            assert!(!path.exists());
+            assert_eq!(
+                fs::read_to_string(store.path.join("unrelated.jsonl")).unwrap(),
+                "untouched"
+            );
+        }
+    }
+
+    #[test]
+    fn pruning_skips_busy_writers_then_rechecks_expiry() {
+        let f = Fixture::new();
+        let store = f.store("active");
+        let other = f.store("other");
+        seed(&other, 1);
+        let path = other.path.join(&other.name);
+        File::open(&path)
+            .unwrap()
+            .set_times(
+                fs::FileTimes::new()
+                    .set_modified(SystemTime::now() - Duration::from_secs(MAX_AGE_SECS + 1)),
+            )
+            .unwrap();
+        let lock = other.lock().unwrap();
+        store.prune();
+        assert!(path.exists(), "cleanup must not race a writer");
+        drop(lock);
+        other.append(&record(2), 100_000).unwrap();
+        store.prune();
+        assert_eq!(other.load(100_000).unwrap().records.len(), 2);
     }
 
     #[test]
