@@ -403,6 +403,51 @@ Hook process median latency changes ranged from -0.4% to +5.6%. Cases above the 
 
 [Raw samples, reply sizes, and binary/corpus digests](../bench/results/skill-hook-recheck-2026-09-23-darwin-arm64.json). Reproduce: `python3 bench/hooks.py BASELINE CANDIDATE --runs 301 --tokens --output skill-hook-recheck-2026-09-23-darwin-arm64.json`.
 
+## Generated skills: recurring hooks after review fixes (2026-09-23)
+
+Originating PR: [#20](https://github.com/thiagodmont/greeg/pull/20).
+
+Measurement time: 2026-09-23T15:34:23.615583Z (recorded).
+
+The 301-pair comparison isolates the review fixes against the original skill implementation. All 28 hook contracts and 40 scan/index search comparisons pass with identical reply bytes/tokens. No case exceeds +10% median / +20% p95; maximum increases are +3.8%/+10.4%. The earlier merged-main comparison remains above. These are warm synthetic measurements.
+
+`greeg 0.6.0+9fb9f030e.dirty` → `greeg 0.6.0+b85c1282d.dirty`; 301 randomized pairs per case after 3 warmups. The candidate passed 28/28 hook eligibility/explicit-policy checks. Candidate file/count match-row and exit-status checks: 20/20 against ripgrep 15.2.0. Explicit source paths and expected hit/miss assertions exercise both scan and full-index searches, including files over 4 MiB and explicit size limits. The oracle ignores row ordering and does not require identical stderr.
+
+Hook process median latency changes ranged from -1.8% to +3.8%. Cases above the 10% median / 20% p95 investigation thresholds: **0**.
+
+| Host protocol | Case | Median ms, before → after | p95 ms, before → after | Reply tokens, before → after |
+|---|---|---:|---:|---:|
+| claude | ranked | 4.472 → 4.547 | 6.303 → 6.431 | 46 → 46 |
+| claude | files | 4.531 → 4.498 | 8.108 → 8.568 | 48 → 48 |
+| claude | count miss | 4.288 → 4.300 | 5.392 → 5.391 | 49 → 49 |
+| claude | quoted | 4.263 → 4.291 | 5.011 → 5.139 | 51 → 51 |
+| claude | trailing newline | 4.295 → 4.273 | 5.733 → 6.003 | 46 → 46 |
+| claude | size limit | 4.351 → 4.315 | 6.019 → 6.033 | 46 → 46 |
+| claude | recursive grep | 4.207 → 4.264 | 6.058 → 6.007 | 0 → 0 |
+| claude | grep file | 4.204 → 4.228 | 5.630 → 5.892 | 0 → 0 |
+| claude | json | 4.184 → 4.320 | 5.857 → 6.057 | 0 → 0 |
+| claude | executable path | 4.306 → 4.437 | 6.075 → 6.295 | 0 → 0 |
+| claude | comment | 4.129 → 4.082 | 5.663 → 5.353 | 0 → 0 |
+| claude | pipeline | 4.171 → 4.255 | 6.092 → 6.727 | 0 → 0 |
+| claude | compound | 4.068 → 4.025 | 4.790 → 4.760 | 0 → 0 |
+| claude | config | 4.057 → 4.085 | 4.945 → 4.863 | 0 → 0 |
+| codex | ranked | 4.223 → 4.381 | 5.671 → 5.794 | 51 → 51 |
+| codex | files | 4.333 → 4.363 | 5.902 → 5.619 | 53 → 53 |
+| codex | count miss | 4.290 → 4.285 | 5.121 → 5.301 | 54 → 54 |
+| codex | quoted | 4.081 → 4.171 | 4.979 → 5.006 | 56 → 56 |
+| codex | trailing newline | 4.043 → 4.077 | 5.120 → 5.314 | 51 → 51 |
+| codex | size limit | 4.177 → 4.214 | 5.845 → 6.339 | 51 → 51 |
+| codex | recursive grep | 4.191 → 4.175 | 6.937 → 6.897 | 0 → 0 |
+| codex | grep file | 4.225 → 4.148 | 5.967 → 6.109 | 0 → 0 |
+| codex | json | 3.997 → 4.081 | 4.670 → 4.831 | 0 → 0 |
+| codex | executable path | 4.331 → 4.310 | 6.744 → 6.894 | 0 → 0 |
+| codex | comment | 4.238 → 4.248 | 5.708 → 5.882 | 0 → 0 |
+| codex | pipeline | 4.409 → 4.572 | 6.984 → 6.641 | 0 → 0 |
+| codex | compound | 4.223 → 4.218 | 5.391 → 5.568 | 0 → 0 |
+| codex | config | 4.457 → 4.454 | 5.469 → 5.483 | 0 → 0 |
+
+[Raw samples, reply sizes, and binary/corpus digests](../bench/results/skill-hook-final-2026-09-23-darwin-arm64.json). Reproduce: `python3 bench/hooks.py BASELINE CANDIDATE --runs 301 --tokens --output skill-hook-final-2026-09-23-darwin-arm64.json`.
+
 The initial run triggered a longer paired recheck; both are retained. Reply tokens count only hook JSON with the recorded tokenizer, not search results or total agent usage. Explicit matching and file-size flags add reply cost; declined commands emit no reply and continue with the original tool. Tests use synthetic fixtures and the recorded response shapes, not live host approvals. No new cold-cache, RSS, native-search performance, or whole-task token claim is made.
 
 ## Disposable edit and soak corpora (2026-09-23)
@@ -700,6 +745,98 @@ These checks validate configuration editing, not live host approval behavior. No
 Invocation failures: 0. Timeouts/launch failures retain their elapsed time and partial output sizes, fail the contract, and suppress the affected timing ratios. Version probes remain preflight checks.
 
 Cases above the +10% median / +20% p95 investigation thresholds: **6/20**. Maximum median/p95 increases: 170.1%/150.4%.
+
+## Generated skills: lifecycle review fixes (2026-09-23)
+
+Originating PR: [#20](https://github.com/thiagodmont/greeg/pull/20).
+
+Measurement time: 2026-09-23T15:33:32.057350Z (recorded).
+
+The 51-pair comparison isolates the inherited-lock and read-only removal fixes against the original skill implementation. All 22 contracts pass in both versions. Maximum median increase is 4.2%; Codex custom_install p95 rises 23.0% with median +1.9%. The larger confirmation retains this run for comparison.
+
+`greeg 0.6.0+9fb9f030e.dirty` → `greeg 0.6.0+b85c1282d.dirty`; 51 randomized paired runs per case after 3 warmups. Each invocation uses a reset disposable home and an isolated configuration/cache. Timing includes process startup and installation/removal, excluding fixture reset and validation.
+
+**Skill and configuration contracts:** 22/22 → 22/22. Checks cover skill creation, managed no-ops, legacy adoption, edited/custom preservation, managed/legacy removal, absent skills and dry runs, alongside configuration outcomes. Preservation and no-op cases require identical content, inode, mode, mtime and ctime. Baseline failures are not equivalent successful work; their timing differences are not speedup claims.
+
+| Host | Case | Median ms, before → after | p95 ms, before → after |
+|---|---|---:|---:|
+| claude | fresh install | 12.230 → 12.075 | 13.230 → 13.983 |
+| claude | managed noop | 4.047 → 4.097 | 4.881 → 4.819 |
+| claude | legacy upgrade | 12.385 → 12.102 | 13.863 → 14.009 |
+| claude | custom install | 4.240 → 4.271 | 5.210 → 5.450 |
+| claude | edited install | 5.250 → 5.251 | 6.503 → 7.072 |
+| claude | managed uninstall | 17.787 → 17.631 | 20.110 → 19.782 |
+| claude | legacy uninstall | 17.577 → 17.634 | 18.987 → 19.614 |
+| claude | custom uninstall | 13.146 → 13.146 | 14.255 → 14.787 |
+| claude | edited uninstall | 12.706 → 12.570 | 13.826 → 14.185 |
+| claude | absent skill uninstall | 12.986 → 13.029 | 14.167 → 14.120 |
+| claude | managed dry uninstall | 4.093 → 3.986 | 5.807 → 6.058 |
+| codex | fresh install | 12.980 → 12.868 | 14.531 → 14.131 |
+| codex | managed noop | 4.009 → 4.141 | 5.260 → 5.153 |
+| codex | legacy upgrade | 13.410 → 13.240 | 16.077 → 15.223 |
+| codex | custom install | 3.973 → 4.048 | 4.542 → 5.586 |
+| codex | edited install | 4.496 → 4.685 | 5.604 → 5.965 |
+| codex | managed uninstall | 17.055 → 16.839 | 20.944 → 19.441 |
+| codex | legacy uninstall | 17.679 → 17.757 | 19.026 → 20.337 |
+| codex | custom uninstall | 12.981 → 13.055 | 13.892 → 15.604 |
+| codex | edited uninstall | 12.888 → 13.382 | 13.878 → 14.857 |
+| codex | absent skill uninstall | 13.100 → 13.176 | 14.161 → 15.198 |
+| codex | managed dry uninstall | 4.114 → 4.139 | 5.460 → 5.247 |
+
+[Raw samples, output bytes/statuses, fixture/harness hashes and binary digests](../bench/results/skill-lifecycle-review-2026-09-23-darwin-arm64.json). Reproduce: `python3 bench/hook_config.py BASELINE CANDIDATE --suite skills --runs 51 --output skill-lifecycle-review-2026-09-23-darwin-arm64.json`.
+
+These checks validate skill lifecycle and configuration editing, not live host approval behavior. No agent-task token, native-search latency, atomic-write or concurrent-edit safety claim is made. Positional hook IDs may shift on removal; stored trust records are retained unchanged.
+
+Invocation failures: 0. Timeouts/launch failures retain their elapsed time and partial output sizes, fail the contract, and suppress the affected timing ratios. Version probes remain preflight checks.
+
+Cases above the +10% median / +20% p95 investigation thresholds: **1/22**. Maximum median/p95 increases: 4.2%/23.0%.
+
+## Generated skills: lifecycle review confirmation (2026-09-23)
+
+Originating PR: [#20](https://github.com/thiagodmont/greeg/pull/20).
+
+Measurement time: 2026-09-23T15:38:35.296622Z (recorded).
+
+The 151-pair confirmation passes all 22 contracts in both versions, with no +10% median / +20% p95 crossings. Maximum increases are +4.7%/+15.0%; Codex custom_install p95 changes 5.143 → 5.174 ms (+0.6%), so its initial tail increase did not repeat.
+
+`greeg 0.6.0+9fb9f030e.dirty` → `greeg 0.6.0+b85c1282d.dirty`; 151 randomized paired runs per case after 3 warmups. Each invocation uses a reset disposable home and an isolated configuration/cache. Timing includes process startup and installation/removal, excluding fixture reset and validation.
+
+**Skill and configuration contracts:** 22/22 → 22/22. Checks cover skill creation, managed no-ops, legacy adoption, edited/custom preservation, managed/legacy removal, absent skills and dry runs, alongside configuration outcomes. Preservation and no-op cases require identical content, inode, mode, mtime and ctime. Baseline failures are not equivalent successful work; their timing differences are not speedup claims.
+
+| Host | Case | Median ms, before → after | p95 ms, before → after |
+|---|---|---:|---:|
+| claude | fresh install | 13.246 → 13.150 | 34.139 → 25.445 |
+| claude | managed noop | 4.078 → 4.129 | 8.413 → 9.195 |
+| claude | legacy upgrade | 13.315 → 13.387 | 16.139 → 16.477 |
+| claude | custom install | 3.973 → 3.997 | 4.464 → 4.578 |
+| claude | edited install | 4.289 → 4.352 | 5.857 → 5.841 |
+| claude | managed uninstall | 16.988 → 16.980 | 19.148 → 20.017 |
+| claude | legacy uninstall | 16.913 → 16.956 | 19.550 → 20.254 |
+| claude | custom uninstall | 12.693 → 12.591 | 14.589 → 14.565 |
+| claude | edited uninstall | 12.118 → 12.693 | 13.982 → 13.833 |
+| claude | absent skill uninstall | 13.002 → 13.093 | 15.213 → 15.076 |
+| claude | managed dry uninstall | 4.862 → 5.088 | 10.321 → 11.868 |
+| codex | fresh install | 12.079 → 12.082 | 13.171 → 13.287 |
+| codex | managed noop | 4.034 → 4.073 | 5.674 → 5.684 |
+| codex | legacy upgrade | 12.733 → 12.747 | 15.568 → 16.713 |
+| codex | custom install | 4.012 → 4.057 | 5.143 → 5.174 |
+| codex | edited install | 4.008 → 4.013 | 7.154 → 5.989 |
+| codex | managed uninstall | 16.791 → 16.822 | 17.912 → 18.146 |
+| codex | legacy uninstall | 15.758 → 15.879 | 17.983 → 18.882 |
+| codex | custom uninstall | 12.915 → 12.894 | 14.900 → 14.505 |
+| codex | edited uninstall | 12.877 → 12.850 | 13.918 → 14.062 |
+| codex | absent skill uninstall | 13.107 → 13.182 | 14.232 → 14.351 |
+| codex | managed dry uninstall | 3.704 → 3.816 | 4.344 → 4.208 |
+
+[Raw samples, output bytes/statuses, fixture/harness hashes and binary digests](../bench/results/skill-lifecycle-confirmation-2026-09-23-darwin-arm64.json). Reproduce: `python3 bench/hook_config.py BASELINE CANDIDATE --suite skills --runs 151 --output skill-lifecycle-confirmation-2026-09-23-darwin-arm64.json`.
+
+These checks validate skill lifecycle and configuration editing, not live host approval behavior. No agent-task token, native-search latency, atomic-write or concurrent-edit safety claim is made. Positional hook IDs may shift on removal; stored trust records are retained unchanged.
+
+Invocation failures: 0. Timeouts/launch failures retain their elapsed time and partial output sizes, fail the contract, and suppress the affected timing ratios. Version probes remain preflight checks.
+
+Cases above the +10% median / +20% p95 investigation thresholds: **0/22**. Maximum median/p95 increases: 4.7%/15.0%.
+
+These incremental measurements compare the original skill implementation with the explicit lock-release and read-only removal fixes. Both the initial run and latency recheck are retained above. Both runs use the same binary digests. Read-only removal and inherited-lock behavior are covered by Rust regressions; timing fixtures use ordinary permissions. Initial skill creation/removal costs versus merged main remain documented above.
 
 ## Speed
 

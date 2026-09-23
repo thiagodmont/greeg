@@ -197,3 +197,38 @@ pr = 20
 measured_at = 2026-09-23T15:16:49.229448Z
 timestamp_source = "measurement"
 notes = "A 301-pair confirmation with the same binary digests has no cases above +10% median / +20% p95. Maximum median/p95 increases are +5.6%/+13.7%; Codex count_miss p95 is 4.686 → 4.780 ms (+2.0%). All 28 hook contracts and 40 search comparisons pass, with unchanged reply bytes/tokens. Both runs are retained; these warm synthetic measurements do not establish cold-cache or agent-task performance."
+
+[[datasets]]
+id = "skill_lifecycle_review"
+section = "hook_config"
+filename = "skill-lifecycle-review-2026-09-23-darwin-arm64.json"
+title = "Generated skills: lifecycle review fixes (2026-09-23)"
+pr = 20
+measured_at = 2026-09-23T15:33:32.057350Z
+timestamp_source = "measurement"
+notes = "The 51-pair comparison isolates the inherited-lock and read-only removal fixes against the original skill implementation. All 22 contracts pass in both versions. Maximum median increase is 4.2%; Codex custom_install p95 rises 23.0% with median +1.9%. The larger confirmation retains this run for comparison."
+analysis = "thresholds"
+
+[[datasets]]
+id = "skill_hook_final"
+section = "hook"
+filename = "skill-hook-final-2026-09-23-darwin-arm64.json"
+title = "Generated skills: recurring hooks after review fixes (2026-09-23)"
+pr = 20
+measured_at = 2026-09-23T15:34:23.615583Z
+timestamp_source = "measurement"
+notes = "The 301-pair comparison isolates the review fixes against the original skill implementation. All 28 hook contracts and 40 scan/index search comparisons pass with identical reply bytes/tokens. No case exceeds +10% median / +20% p95; maximum increases are +3.8%/+10.4%. The earlier merged-main comparison remains above. These are warm synthetic measurements."
+
+[[datasets]]
+id = "skill_lifecycle_confirmation"
+section = "hook_config"
+filename = "skill-lifecycle-confirmation-2026-09-23-darwin-arm64.json"
+title = "Generated skills: lifecycle review confirmation (2026-09-23)"
+pr = 20
+measured_at = 2026-09-23T15:38:35.296622Z
+timestamp_source = "measurement"
+notes = "The 151-pair confirmation passes all 22 contracts in both versions, with no +10% median / +20% p95 crossings. Maximum increases are +4.7%/+15.0%; Codex custom_install p95 changes 5.143 → 5.174 ms (+0.6%), so its initial tail increase did not repeat."
+analysis = "thresholds"
+recheck_of = "skill_lifecycle_review"
+comparison_intro = "These incremental measurements compare the original skill implementation with the explicit lock-release and read-only removal fixes."
+comparison_limits = "Read-only removal and inherited-lock behavior are covered by Rust regressions; timing fixtures use ordinary permissions. Initial skill creation/removal costs versus merged main remain documented above."
