@@ -2,7 +2,7 @@
 //! published (stat pass, or FSEvents history on macOS), and apply changes as
 //! a delta segment plus tombstones.
 
-use crate::build::{Noted, WalkedDir, WalkedFile, build_delta, mtime_ns, rel_to, walker_noting};
+use crate::build::{Noted, Stamp, WalkedDir, WalkedFile, build_delta, rel_to, walker_noting};
 use crate::format::{self, FileRec, NONE, is_ignore_file};
 use crate::skipped;
 use crate::{Index, now_ms, read_manifest, write_manifest};
@@ -51,6 +51,9 @@ pub struct Changes {
     /// FSEvents id captured *before* the check ran, so edits made while the
     /// check was running are replayed by the next check (C15).
     pub fsevents_id: u64,
+    /// This check found that the file system does not keep inode numbers
+    /// (`classify_all`); `apply` records it in the manifest.
+    pub no_ino: bool,
 }
 
 impl Changes {
@@ -81,8 +84,8 @@ pub const VERIFY_WRITE_MS: u64 = 1000;
 struct Known<'a> {
     // (id, rel, rec)
     files: Vec<(u32, &'a str, &'a FileRec)>,
-    // dir rel -> mtime (latest record wins)
-    dirs: HashMap<&'a str, i64>,
+    // dir rel -> stamp (latest record wins)
+    dirs: HashMap<&'a str, Stamp>,
 }
 
 fn parent_of(rel: &str) -> &str {
@@ -92,7 +95,7 @@ fn parent_of(rel: &str) -> &str {
 impl<'a> Known<'a> {
     /// Known child names (files and dirs) of each directory in `dirs`, in one
     /// pass over the file table.
-    fn children_of<'d>(&self, dirs: &'d [(String, i64)]) -> HashMap<&'d str, HashSet<&'a str>> {
+    fn children_of<'d>(&self, dirs: &'d [(String, Stamp)]) -> HashMap<&'d str, HashSet<&'a str>> {
         let mut out: HashMap<&'d str, HashSet<&'a str>> = dirs
             .iter()
             .map(|(d, _)| (d.as_str(), HashSet::new()))
@@ -118,18 +121,18 @@ impl<'a> Known<'a> {
 fn known(idx: &Index) -> Known<'_> {
     let mut files = Vec::with_capacity(idx.base.n_files as usize);
     files.extend(idx.tracked_files());
-    let mut dirs: HashMap<&str, i64> = HashMap::with_capacity(idx.base.files().dirs.len());
+    let mut dirs: HashMap<&str, Stamp> = HashMap::with_capacity(idx.base.files().dirs.len());
     for (_, seg) in idx.segments() {
         let fv = seg.files();
         for d in fv.dirs {
-            dirs.insert(fv.dir_path(d), d.mtime_ns);
+            dirs.insert(fv.dir_path(d), d.stamp());
         }
     }
     Known { files, dirs }
 }
 
-/// Parallel lstat of `items`, returning per item Some(size, mtime), or None
-/// when missing or no longer of the `kind` the index holds (a regular file
+/// Parallel lstat of `items`, returning per item its stamp, or None when
+/// missing or no longer of the `kind` the index holds (a regular file
 /// replaced by a symlink reads as deleted, as a scan would skip it).
 fn stat_many<T: Sync>(
     root: &Path,
@@ -137,9 +140,9 @@ fn stat_many<T: Sync>(
     rel: impl Fn(&T) -> &str + Sync,
     kind: fn(&fs::FileType) -> bool,
     threads: usize,
-) -> Vec<Option<(u64, i64)>> {
+) -> Vec<Option<Stamp>> {
     let n = items.len();
-    let mut out: Vec<Option<(u64, i64)>> = vec![None; n];
+    let mut out: Vec<Option<Stamp>> = vec![None; n];
     if n == 0 {
         return out;
     }
@@ -154,7 +157,7 @@ fn stat_many<T: Sync>(
                     *o = fs::symlink_metadata(root.join(rel(it)))
                         .ok()
                         .filter(|md| kind(&md.file_type()))
-                        .map(|md| (md.len(), mtime_ns(&md)));
+                        .map(|md| Stamp::of(&md));
                 }
             });
         }
@@ -163,8 +166,8 @@ fn stat_many<T: Sync>(
 }
 
 /// List a directory with ignore rules (one level), returning (name, is_dir,
-/// size, mtime) for subdirectories and regular files, and what it skipped.
-fn list_dir(root: &Path, rel: &str) -> (Vec<(String, bool, u64, i64)>, skipped::Children) {
+/// stamp) for subdirectories and regular files, and what it skipped.
+fn list_dir(root: &Path, rel: &str) -> (Vec<(String, bool, Stamp)>, skipped::Children) {
     let abs = if rel.is_empty() {
         root.to_path_buf()
     } else {
@@ -189,7 +192,7 @@ fn list_dir(root: &Path, rel: &str) -> (Vec<(String, bool, u64, i64)>, skipped::
         }
         let Ok(md) = e.metadata() else { continue };
         let name = e.file_name().to_string_lossy().into_owned();
-        out.push((name, ft.is_dir(), md.len(), mtime_ns(&md)));
+        out.push((name, ft.is_dir(), Stamp::of(&md)));
     }
     let noted = noted_rels(root, &noted);
     let kept: HashSet<&str> = kept.iter().map(String::as_str).collect();
@@ -228,7 +231,7 @@ fn walk_new_dir(root: &Path, rel: &str, dir_id: u32, ch: &mut Changes) {
             walked.push(r.clone());
             ch.added_dirs.push(WalkedDir {
                 rel: r,
-                mtime_ns: mtime_ns(&md),
+                stamp: Stamp::of(&md),
             });
         } else if e.file_type().map(|t| t.is_file()).unwrap_or(false) {
             if is_ignore_file(&r) {
@@ -236,8 +239,7 @@ fn walk_new_dir(root: &Path, rel: &str, dir_id: u32, ch: &mut Changes) {
             }
             ch.added.push(WalkedFile {
                 rel: r,
-                size: md.len(),
-                mtime_ns: mtime_ns(&md),
+                stamp: Stamp::of(&md),
                 dir: dir_id,
             });
         }
@@ -250,8 +252,9 @@ fn walk_new_dir(root: &Path, rel: &str, dir_id: u32, ch: &mut Changes) {
         .extend(skipped::list(root, &dirs, &kept, &hidden));
 }
 
-/// Record the stat outcome of one known file.
-fn classify(ch: &mut Changes, id: u32, rel: &str, rec: &FileRec, s: Option<(u64, i64)>) {
+/// Record the stat outcome of one known file. A record marked for a recheck
+/// counts as modified whatever its stamp says.
+fn classify(ch: &mut Changes, id: u32, rel: &str, rec: &FileRec, s: Option<Stamp>, no_ino: bool) {
     match s {
         None => {
             if is_ignore_file(rel) {
@@ -259,7 +262,9 @@ fn classify(ch: &mut Changes, id: u32, rel: &str, rec: &FileRec, s: Option<(u64,
             }
             ch.deleted.push(id);
         }
-        Some((sz, m)) if sz != rec.size || m != rec.mtime_ns => {
+        Some(st)
+            if !st.same(&rec.stamp(), no_ino) || rec.stamp_flags & format::STAMP_RECHECK != 0 =>
+        {
             if is_ignore_file(rel) {
                 ch.ignore_changed = true;
             }
@@ -267,14 +272,44 @@ fn classify(ch: &mut Changes, id: u32, rel: &str, rec: &FileRec, s: Option<(u64,
                 id,
                 WalkedFile {
                     rel: rel.to_string(),
-                    size: sz,
-                    mtime_ns: m,
+                    stamp: st,
                     dir: rec.dir,
                 },
             ));
         }
         _ => {}
     }
+}
+
+/// Stat'ed files needed before a check concludes that the file system does
+/// not keep inode numbers.
+const NO_INO_MIN: usize = 16;
+
+/// Classify every stat'ed file. When most of them differ from their records
+/// only by inode or device, the file system does not keep inode numbers (some
+/// network and FUSE mounts): the check stops comparing them rather than
+/// re-extract the tree every time, and `apply` records `stamp_mode = "no-ino"`.
+fn classify_all(
+    ch: &mut Changes,
+    mut no_ino: bool,
+    files: &[(u32, &str, &FileRec)],
+    st: Vec<Option<Stamp>>,
+) -> bool {
+    if !no_ino {
+        let moved = files
+            .iter()
+            .zip(&st)
+            .filter(|(f, s)| s.is_some_and(|s| s.moved_only(&f.2.stamp())))
+            .count();
+        if moved >= NO_INO_MIN && moved * 2 > files.len() {
+            no_ino = true;
+            ch.no_ino = true;
+        }
+    }
+    for ((id, rel, rec), s) in files.iter().zip(st) {
+        classify(ch, *id, rel, rec, s, no_ino);
+    }
+    no_ino
 }
 
 /// Full stat pass.
@@ -288,16 +323,14 @@ pub fn check_stat(idx: &Index, root: &Path, threads: usize) -> Changes {
         ..Default::default()
     };
     let st = stat_many(root, &k.files, |f| f.1, fs::FileType::is_file, threads);
-    for ((id, rel, rec), s) in k.files.iter().zip(st) {
-        classify(&mut ch, *id, rel, rec, s);
-    }
-    let dirs: Vec<(&str, i64)> = k.dirs.iter().map(|(p, m)| (*p, *m)).collect();
+    let no_ino = classify_all(&mut ch, idx.no_ino(), &k.files, st);
+    let dirs: Vec<(&str, Stamp)> = k.dirs.iter().map(|(p, m)| (*p, *m)).collect();
     let ds = stat_many(root, &dirs, |d| d.0, fs::FileType::is_dir, threads);
-    let mut changed_dirs: Vec<(String, i64)> = Vec::new();
-    for ((rel, mt), s) in dirs.iter().zip(ds) {
+    let mut changed_dirs: Vec<(String, Stamp)> = Vec::new();
+    for ((rel, old), s) in dirs.iter().zip(ds) {
         match s {
             None => {}
-            Some((_, m)) if m != *mt => changed_dirs.push((rel.to_string(), m)),
+            Some(st) if !st.same_dir(old, no_ino) => changed_dirs.push((rel.to_string(), st)),
             _ => {}
         }
     }
@@ -307,22 +340,22 @@ pub fn check_stat(idx: &Index, root: &Path, threads: usize) -> Changes {
 }
 
 /// Re-list changed directories to find additions (files and subdirectories).
-fn relist_dirs(root: &Path, k: &Known, changed_dirs: &[(String, i64)], ch: &mut Changes) {
+fn relist_dirs(root: &Path, k: &Known, changed_dirs: &[(String, Stamp)], ch: &mut Changes) {
     if changed_dirs.is_empty() {
         return;
     }
     let kids = k.children_of(changed_dirs);
     let dir_ids: HashMap<&str, u32> = k.files.iter().map(|f| (parent_of(f.1), f.2.dir)).collect();
-    for (rel, new_mtime) in changed_dirs {
+    for (rel, new_stamp) in changed_dirs {
         ch.touched_dirs.push(WalkedDir {
             rel: rel.clone(),
-            mtime_ns: *new_mtime,
+            stamp: *new_stamp,
         });
         let known_kids = kids.get(rel.as_str());
         let dir_id = *dir_ids.get(rel.as_str()).unwrap_or(&0);
         let (listed, skipped) = list_dir(root, rel);
         ch.skipped.push((rel.clone(), skipped));
-        for (name, is_dir, size, mt) in listed {
+        for (name, is_dir, stamp) in listed {
             if known_kids.map(|s| s.contains(&name[..])).unwrap_or(false) {
                 continue;
             }
@@ -339,8 +372,7 @@ fn relist_dirs(root: &Path, k: &Known, changed_dirs: &[(String, i64)], ch: &mut 
                 }
                 ch.added.push(WalkedFile {
                     rel: child_rel,
-                    size,
-                    mtime_ns: mt,
+                    stamp,
                     dir: dir_id,
                 });
             }
@@ -394,16 +426,16 @@ pub fn check_fsevents(idx: &Index, root: &Path, threads: usize) -> Option<Change
     let mut changed_dirs = Vec::new();
     let mut moved: HashSet<&str> = HashSet::new();
     for r in &rels {
-        if let Some(&old) = k.dirs.get(r.as_str())
+        if let Some(old) = k.dirs.get(r.as_str())
             && let Ok(md) = fs::symlink_metadata(if r.is_empty() {
                 abs_root.clone()
             } else {
                 abs_root.join(r)
             })
         {
-            let m = mtime_ns(&md);
-            if m != old {
-                changed_dirs.push((r.clone(), m));
+            let st = Stamp::of(&md);
+            if !st.same_dir(old, idx.no_ino()) {
+                changed_dirs.push((r.clone(), st));
                 moved.insert(r.as_str());
             }
         }
@@ -425,15 +457,14 @@ pub fn check_fsevents(idx: &Index, root: &Path, threads: usize) -> Option<Change
         false
     };
     // stat files whose parent dir changed, or that live below a dir whose entries moved
-    let files: Vec<&(u32, &str, &FileRec)> = k
+    let files: Vec<(u32, &str, &FileRec)> = k
         .files
         .iter()
         .filter(|f| rels.contains(parent_of(f.1)) || under_moved(f.1))
+        .copied()
         .collect();
     let st = stat_many(root, &files, |f| f.1, fs::FileType::is_file, threads);
-    for (f, s) in files.iter().zip(st) {
-        classify(&mut ch, f.0, f.1, f.2, s);
-    }
+    classify_all(&mut ch, idx.no_ino(), &files, st);
     relist_dirs(root, &k, &changed_dirs, &mut ch);
     ch.ms = t.elapsed().as_secs_f64() * 1e3;
     Some(ch)
@@ -506,7 +537,7 @@ pub fn apply(idx: &Index, root: &Path, ch: &Changes) -> Result<usize> {
     };
     if ch.is_empty() {
         // nothing to publish: refresh the TTL stamp, at most once per second
-        if now_ms().saturating_sub(idx.manifest.verified_unix_ms) < VERIFY_WRITE_MS {
+        if !ch.no_ino && now_ms().saturating_sub(idx.manifest.verified_unix_ms) < VERIFY_WRITE_MS {
             return Ok(0);
         }
         let _lock = crate::lock::writer(&idx.dir)?;
@@ -520,6 +551,9 @@ pub fn apply(idx: &Index, root: &Path, ch: &Changes) -> Result<usize> {
         if fsid != 0 {
             m.fsevents_id = fsid;
         }
+        if ch.no_ino {
+            m.stamp_mode = crate::STAMP_NO_INO.into();
+        }
         write_manifest(&idx.dir, &m)?;
         return Ok(0);
     }
@@ -530,37 +564,17 @@ pub fn apply(idx: &Index, root: &Path, ch: &Changes) -> Result<usize> {
     for (id, w) in &ch.modified {
         tomb.insert(*id);
         prev.push(*id);
-        files.push(WalkedFile {
-            rel: w.rel.clone(),
-            size: w.size,
-            mtime_ns: w.mtime_ns,
-            dir: w.dir,
-        });
+        files.push(w.clone());
     }
     for id in &ch.deleted {
         tomb.insert(*id);
     }
     for w in &ch.added {
         prev.push(NONE);
-        files.push(WalkedFile {
-            rel: w.rel.clone(),
-            size: w.size,
-            mtime_ns: w.mtime_ns,
-            dir: w.dir,
-        });
+        files.push(w.clone());
     }
-    let mut dirs: Vec<WalkedDir> = ch
-        .added_dirs
-        .iter()
-        .map(|d| WalkedDir {
-            rel: d.rel.clone(),
-            mtime_ns: d.mtime_ns,
-        })
-        .collect();
-    dirs.extend(ch.touched_dirs.iter().map(|d| WalkedDir {
-        rel: d.rel.clone(),
-        mtime_ns: d.mtime_ns,
-    }));
+    let mut dirs: Vec<WalkedDir> = ch.added_dirs.clone();
+    dirs.extend(ch.touched_dirs.iter().cloned());
     // extraction runs outside the lock; only the publish is serialized
     let body = build_delta(idx, root, first_id, &files, &prev, &dirs, &tomb)?;
     // an index without the record stays without it: coverage unknown
@@ -598,6 +612,9 @@ pub fn apply(idx: &Index, root: &Path, ch: &Changes) -> Result<usize> {
     }
     m.deltas = n;
     m.tombstones += tomb.len() as u32;
+    if ch.no_ino {
+        m.stamp_mode = crate::STAMP_NO_INO.into();
+    }
     m.verified_unix_ms = now_ms();
     if fsid != 0 {
         m.fsevents_id = fsid;
@@ -628,6 +645,70 @@ pub fn needs_rebuild(idx: &Index, ch: &Changes) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn inode_only_changes_switch_to_no_ino_mode_only_when_most_files_show_them() {
+        let stamp = |ino: u64| Stamp {
+            size: 10,
+            mtime_ns: 1_000,
+            ctime_ns: 2_000,
+            ino,
+            dev: 1,
+        };
+        let rec = |ino: u64| FileRec {
+            size: 10,
+            mtime_ns: 1_000,
+            ctime_ns: 2_000,
+            ino,
+            dev: 1,
+            ..bytemuck::Zeroable::zeroed()
+        };
+        let recs: Vec<FileRec> = (0..20).map(rec).collect();
+        let files: Vec<(u32, &str, &FileRec)> = recs
+            .iter()
+            .enumerate()
+            .map(|(i, r)| (i as u32, "f", r))
+            .collect();
+
+        // every inode moved and nothing else: inode numbers are not kept
+        let mut ch = Changes::default();
+        assert!(classify_all(
+            &mut ch,
+            false,
+            &files,
+            (0..20).map(|i| Some(stamp(i + 100))).collect()
+        ));
+        assert!(ch.no_ino && ch.modified.is_empty());
+
+        // three atomic replaces among stable inodes are changes
+        let mut ch = Changes::default();
+        let st = (0..20)
+            .map(|i| Some(stamp(if i < 3 { i + 100 } else { i })))
+            .collect();
+        assert!(!classify_all(&mut ch, false, &files, st));
+        assert!(!ch.no_ino);
+        assert_eq!(
+            ch.modified.iter().map(|m| m.0).collect::<Vec<_>>(),
+            [0, 1, 2]
+        );
+
+        // a recheck mark is a change even with an identical stamp
+        let mut marked = recs.clone();
+        marked[5].stamp_flags = format::STAMP_RECHECK;
+        let files: Vec<(u32, &str, &FileRec)> = marked
+            .iter()
+            .enumerate()
+            .map(|(i, r)| (i as u32, "f", r))
+            .collect();
+        let mut ch = Changes::default();
+        classify_all(
+            &mut ch,
+            false,
+            &files,
+            (0..20).map(|i| Some(stamp(i))).collect(),
+        );
+        assert_eq!(ch.modified.iter().map(|m| m.0).collect::<Vec<_>>(), [5]);
+    }
     use crate::build::{BuildOpts, build};
     use crate::format::NONE;
 

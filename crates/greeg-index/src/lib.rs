@@ -29,7 +29,7 @@ use std::path::{Path, PathBuf};
 /// The on-disk layout. Every change to what a build or refresh writes gets a
 /// new number, released or not, so binaries of different layouts never share
 /// files (`format_dir`); `layout_fingerprint_matches_format_version` enforces it.
-pub const FORMAT_VERSION: u32 = 6;
+pub const FORMAT_VERSION: u32 = 7;
 
 /// Create an index directory and any missing parents owner-only (0700).
 /// Existing directories are left as they are, never chmodded.
@@ -133,7 +133,14 @@ pub struct Manifest {
     /// in manifests written before it was recorded: coverage is then unknown.
     #[serde(default)]
     pub skipped: String,
+    /// `STAMP_NO_INO` once a check found that this file system does not keep
+    /// inode numbers; empty otherwise (`fresh::classify_all`).
+    #[serde(default)]
+    pub stamp_mode: String,
 }
+
+/// `Manifest::stamp_mode` when freshness no longer compares inode numbers.
+pub const STAMP_NO_INO: &str = "no-ino";
 
 /// A repository root's identity: its canonical path's bytes (hashed), device
 /// and inode. A root replaced at the same path (a new clone) differs too.
