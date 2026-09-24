@@ -1,0 +1,20 @@
+bench/index_costs.py
+  s_b1057b2933cdb0::t_272c161f68d273 71-73,76,78,81,113,139,144
+  s_b1057b2933cdb0::t_ff9bf42dd2c947 222-224
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "e69289e221665b2b06dc21219d47988b8da18e5e",
+  "prompts": {},
+  "sessions": {
+    "s_b1057b2933cdb0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0aa73425-0ec9-4b76-ae94-35b6bdff17bb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
