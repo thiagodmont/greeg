@@ -68,16 +68,17 @@ def edit_target(files, lang):
     return candidates[len(candidates) // 2]
 
 
-def tree_bytes(path):
-    total = count = 0
+def tree_listing(path):
+    """Every file under the index directory: {relative path: bytes}."""
+    listing = {}
     for dirpath, _, names in os.walk(path):
         for n in names:
+            full = os.path.join(dirpath, n)
             try:
-                total += os.lstat(os.path.join(dirpath, n)).st_size
-                count += 1
+                listing[os.path.relpath(full, path)] = os.lstat(full).st_size
             except OSError:
                 pass
-    return total, count
+    return dict(sorted(listing.items()))
 
 
 def settle(index, timeout=30.0):
@@ -109,7 +110,7 @@ def measure(name, binaries, args, rng):
     cases = {"open_miss": ["-l", MISS, "--fresh", "none"],
              "fresh_miss": ["-l", MISS, "--fresh", "stat"]}
     if queries.get("word"):
-        cases["word_count"] = ["-c", "-w", queries["word"], "--fresh", "stat"]
+        cases["word_count"] = ["-c", "-w", queries["word"], "--sort", "path", "--fresh", "stat"]
     for verb in ("def", "refs"):
         if queries.get(verb):
             cases[verb] = [verb, queries[verb], "--fresh", "stat"]
@@ -135,12 +136,12 @@ def measure(name, binaries, args, rng):
                 builds[label].append((wall, cpu, rss))
         for label in binaries:
             idx = Path(envs[label]["GREEG_INDEX_DIR"])
-            disk, count = tree_bytes(idx)
+            listing = tree_listing(idx)
             manifest = json.loads((idx / "manifest").read_text())
             walls, cpus, rsss = zip(*builds[label])
             entry["build"][label] = {
                 "wall_ms": summary(walls), "cpu_ms": summary(cpus), "peak_rss_mb": summary(rsss),
-                "samples_wall_ms": list(walls), "index_bytes": disk, "index_files": count,
+                "samples_wall_ms": list(walls), "index_bytes": sum(listing.values()), "index_files": listing,
                 "manifest": {k: manifest.get(k) for k in ("files", "build_ms", "phase2_ms", "peak_rss")},
             }
         entry["build"]["wall_change_percent"] = change(entry["build"]["baseline"]["wall_ms"], entry["build"]["candidate"]["wall_ms"])
@@ -218,6 +219,9 @@ def row(corpus, case, query, got, first):
                     "cpu_ms": summary(cpus), "peak_rss_mb": summary(rsss), "exit": code,
                     "stdout_bytes": len(out), "stdout_sha256": hashlib.sha256(out).hexdigest()}
     r["same_output"] = first["baseline"] == first["candidate"]
+    if not r["same_output"]:
+        # both answers, for diagnosis (the digests alone cannot show what differs)
+        r["outputs"] = {label: first[label][1][:65536].decode(errors="replace") for label in first}
     r["wall_change_percent"] = change(*({"median": r[l]["median_ms"], "p95": r[l]["p95_ms"]} for l in ("baseline", "candidate")))
     r["cpu_change_percent"] = change(r["baseline"]["cpu_ms"], r["candidate"]["cpu_ms"])
     r["flagged"] = flagged(r["wall_change_percent"])
