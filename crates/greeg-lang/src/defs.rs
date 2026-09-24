@@ -444,31 +444,70 @@ fn def_at(lang: Lang, res: &LangRes, seg: &[u8]) -> Option<(DefKind, usize, usiz
     Some((kind, ns, ne))
 }
 
-/// Where a definition may start after the line's own start: just past each
-/// `{` in code, for brace-scoped languages (`mod m { pub fn x() {} }`).
-/// `in_code` says whether an offset within the line is outside comments and
-/// strings.
+/// Where a definition may start after the line's own start, in
+/// brace-scoped languages: just past each `{`, `}` or `;` in code, so
+/// `mod m { fn a() {} fn b() {} }` yields both functions. Each start comes
+/// with the brace depth there. `in_code` says whether an offset within the
+/// line is outside comments and strings.
 fn nested_starts<'a>(
     lang: Lang,
     line: &'a [u8],
     in_code: impl Fn(usize) -> bool + 'a,
-) -> impl Iterator<Item = usize> + 'a {
+) -> impl Iterator<Item = (usize, usize)> + 'a {
     let braces = !lang.indent_scoped();
-    memchr::memchr_iter(b'{', line)
+    let mut depth = 0usize;
+    memchr::memchr3_iter(b'{', b'}', b';', line)
         .filter(move |&i| braces && in_code(i))
-        .map(|i| i + 1)
+        .map(move |i| {
+            match line[i] {
+                b'{' => depth += 1,
+                b'}' => depth = depth.saturating_sub(1),
+                _ => {}
+            }
+            (i + 1, depth)
+        })
 }
 
-/// Every definition name on `line`: the one starting it and any nested after
-/// a `{` on the same line. Used by scan mode before any outline exists.
-pub fn def_names_on_line(lang: Lang, line: &[u8]) -> Vec<(usize, usize)> {
-    let Some(res) = res_for(lang) else {
-        return Vec::new();
-    };
-    let mut out: Vec<(usize, usize)> = def_name_on_line(lang, line).into_iter().collect();
-    if !line[1.min(line.len())..].contains(&b'{') {
-        return out;
+/// Can a definition start after the line's own start?
+fn may_nest(lang: Lang, line: &[u8]) -> bool {
+    !lang.indent_scoped() && memchr::memchr3(b'{', b'}', b';', line).is_some()
+}
+
+/// Names of the definitions nested on `line`, as (start, end, depth).
+fn nested_names<'a>(
+    lang: Lang,
+    res: &'a LangRes,
+    line: &'a [u8],
+    in_code: impl Fn(usize) -> bool + 'a,
+) -> impl Iterator<Item = (DefKind, usize, usize, usize)> + 'a {
+    nested_starts(lang, line, in_code).filter_map(move |(seg, depth)| {
+        def_at(lang, res, &line[seg..]).map(|(k, ns, ne)| (k, seg + ns, seg + ne, depth))
+    })
+}
+
+/// Does the occurrence `ms..me` of `line` overlap a definition name, the one
+/// starting the line or one nested on it? Allocates nothing on a line that
+/// cannot nest. `in_code` as for [`nested_starts`].
+pub fn is_def_name_on_line(
+    lang: Lang,
+    line: &[u8],
+    ms: usize,
+    me: usize,
+    in_code: impl Fn(usize) -> bool,
+) -> bool {
+    let overlaps = |(ns, ne): (usize, usize)| ns < me && ms < ne;
+    if def_name_on_line(lang, line).is_some_and(overlaps) {
+        return true;
     }
+    let Some(res) = res_for(lang) else {
+        return false;
+    };
+    may_nest(lang, line)
+        && nested_names(lang, res, line, in_code).any(|(_, ns, ne, _)| overlaps((ns, ne)))
+}
+
+/// `in_code` for a line lexed on its own (no file context).
+pub fn line_code(lang: Lang, line: &[u8]) -> impl Fn(usize) -> bool {
     let lexed = if memchr::memchr3(b'"', b'\'', b'/', line).is_some()
         || memchr::memchr2(b'#', b'`', line).is_some()
     {
@@ -476,10 +515,18 @@ pub fn def_names_on_line(lang: Lang, line: &[u8]) -> Vec<(usize, usize)> {
     } else {
         Lexed::default()
     };
-    for seg in nested_starts(lang, line, |i| lexed.span_at(i as u32).is_none()) {
-        if let Some((_, ns, ne)) = def_at(lang, res, &line[seg..]) {
-            out.push((seg + ns, seg + ne));
-        }
+    move |i| lexed.span_at(i as u32).is_none()
+}
+
+/// Every definition name on `line`: the one starting it and any nested on
+/// it, the line lexed on its own.
+pub fn def_names_on_line(lang: Lang, line: &[u8]) -> Vec<(usize, usize)> {
+    let mut out: Vec<(usize, usize)> = def_name_on_line(lang, line).into_iter().collect();
+    if let Some(res) = res_for(lang)
+        && may_nest(lang, line)
+    {
+        let in_code = line_code(lang, line);
+        out.extend(nested_names(lang, res, line, in_code).map(|(_, ns, ne, _)| (ns, ne)));
     }
     out
 }
@@ -534,16 +581,23 @@ pub fn outline(lang: Lang, src: &[u8], lexed: &Lexed) -> Outline {
             continue;
         }
         let mut nested: Vec<Def> = Vec::new();
-        // definitions nested after a `{` on this line
-        for seg in nested_starts(lang, line, |i| lexed.span_at((ls + i) as u32).is_none()) {
-            if let Some((kind, ns, ne)) = def_at(lang, res, &line[seg..]) {
+        // definitions nested on this line; their indentation counts the
+        // braces they sit in, so scope rules (Kotlin members) see the depth
+        if may_nest(lang, line) {
+            let indent = crate::indent_of(line);
+            let in_code = |i: usize| lexed.span_at((ls + i) as u32).is_none();
+            for (kind, ns, ne, depth) in nested_names(lang, res, line, in_code) {
+                let start = line[..ns]
+                    .iter()
+                    .rposition(|b| matches!(b, b'{' | b'}' | b';'))
+                    .map_or(0, |k| k + 1);
                 nested.push(Def {
-                    name_start: (ls + seg + ns) as u32,
-                    name_end: (ls + seg + ne) as u32,
-                    start: (ls + seg) as u32,
+                    name_start: (ls + ns) as u32,
+                    name_end: (ls + ne) as u32,
+                    start: (ls + start) as u32,
                     end: 0,
                     line: line_no,
-                    indent: crate::indent_of(line).min(u16::MAX as usize) as u16,
+                    indent: (indent + 4 * depth).min(u16::MAX as usize) as u16,
                     kind,
                     parent: None,
                 });
@@ -862,6 +916,12 @@ mod tests {
             Vec::<String>::new()
         );
         assert_eq!(names(Lang::Python, b"class A: pass"), ["A"]);
+        assert_eq!(
+            names(Lang::Rust, b"mod m { fn a() {} fn b() {} }"),
+            ["m", "a", "b"]
+        );
+        assert_eq!(names(Lang::Rust, b"{ fn lead() {} }"), ["lead"]);
+        assert_eq!(names(Lang::Rust, b"foo(); bar();"), Vec::<String>::new());
 
         let src = b"mod m { pub fn nested() {} }\n";
         let ol = outline(Lang::Rust, src, &crate::lexer::lex(Lang::Rust, src));
@@ -871,6 +931,22 @@ mod tests {
             .map(|d| (&src[d.name_start as usize..d.name_end as usize], d.parent))
             .collect();
         assert_eq!(got, [(&b"m"[..], None), (&b"nested"[..], Some(0))]);
+
+        // a same-line member stays a member, a same-line local in init does not
+        let src =
+            b"class A {\n    val m = 1\n    init { val local = 2 }\n}\nclass B { val n = 3 }\n";
+        let ol = outline(Lang::Kotlin, src, &crate::lexer::lex(Lang::Kotlin, src));
+        let names: Vec<&[u8]> = ol
+            .defs
+            .iter()
+            .map(|d| &src[d.name_start as usize..d.name_end as usize])
+            .collect();
+        assert_eq!(names, [&b"A"[..], b"m", b"B", b"n"]);
+
+        // a brace that closes a multiline string is not a scope
+        let src = b"let s = \"a\n} fn fake() {}\";\n";
+        let ol = outline(Lang::Rust, src, &crate::lexer::lex(Lang::Rust, src));
+        assert!(ol.defs.is_empty(), "{:?}", ol.defs.len());
     }
 
     #[test]
