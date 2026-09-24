@@ -806,14 +806,14 @@ fn a_resolver_config_edit_is_not_answered_from_stale_edges() {
 
 #[test]
 #[ignore = "known gap: graph verbs exit 2 while a rebuild runs"]
-fn graph_verbs_during_a_rebuild_answer_fresh_or_fail_explicitly() {
+fn graph_verbs_wait_for_a_short_rebuild() {
     let f = Fixture::with_filler(&[
         ("a.rs", "pub fn alpha() {}\n"),
         ("b.rs", "pub fn bravo() {}\n"),
     ]);
     f.indexed();
     // an ignore-input change needs a rebuild; this tree's is well under the
-    // wait, so the answer must come from the new index
+    // wait, so the answer must come from the new index, not exit 2
     w(&f.root.join(".git/info/exclude"), "b.rs\n");
     std::thread::sleep(PAST_FRESHNESS_WINDOW);
     let o = f.run(&["--fresh", "stat", "map", "."]);

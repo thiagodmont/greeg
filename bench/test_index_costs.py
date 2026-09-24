@@ -28,8 +28,9 @@ class IndexCostTests(unittest.TestCase):
             [sys.executable, "-c", "import sys; print('x'); sys.stderr.write('e'); sys.exit(3)"], ".", None)
         self.assertEqual((code, out, err), (3, b"x\n", b"e"))
         self.assertGreater(wall, 0)
-        self.assertGreaterEqual(cpu, 0)
-        self.assertGreater(rss, 0)
+        self.assertLessEqual(cpu, wall)
+        # a Python interpreter's peak RSS is some MB, whatever the platform's unit
+        self.assertTrue(1 < rss < 1000, rss)
 
 
 if __name__ == "__main__":

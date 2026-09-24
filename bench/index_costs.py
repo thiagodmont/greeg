@@ -156,7 +156,9 @@ def measure(name, binaries, args, rng):
                 order = list(binaries)
                 rng.shuffle(order)
                 for label in order:
-                    wall, cpu, rss, code, out, _ = sample(argv[label], root, envs[label])
+                    wall, cpu, rss, code, out, err = sample(argv[label], root, envs[label])
+                    if code not in (0, 1):
+                        raise RuntimeError(f"{name}/{label}/{case}: exit {code}: {err[-400:]!r}")
                     first.setdefault(label, (code, out))
                     if i >= WARMUPS:
                         got[label].append((wall, cpu, rss))
