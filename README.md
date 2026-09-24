@@ -347,8 +347,12 @@ small-corpus speed protocol. The nightly workflow adds the large-corpus
 benchmarks, the accuracy oracle and a randomized soak
 (`bench/soak.py MINUTES GREEG CORPUS… --seed SEED`).
 
-`bench/edits.py CORPUS GREEG` and the soak harness copy each source into a
-private temporary snapshot and working directory. Dirty, untracked and ignored
+`bench/index_costs.py BASELINE CANDIDATE --corpora tokio,django` compares two
+binaries' index build time, disk size, peak memory, open, freshness and
+post-edit refresh costs, in paired randomized runs.
+
+`bench/edits.py CORPUS GREEG`, the index-cost harness and the soak harness copy
+each source into a private temporary snapshot and working directory. Dirty, untracked and ignored
 files are included; edits and restores affect only the copy. Each corpus gets
 its own index and isolated home/config/cache, with sessions and statistics
 disabled. Relative executable paths are resolved before changing directories.
