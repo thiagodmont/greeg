@@ -320,7 +320,8 @@ impl Source {
 
 #[derive(Clone, Debug)]
 pub struct FileResult {
-    pub rel: String,
+    /// Root-relative path bytes (`greeg_index::rel`).
+    pub rel: Vec<u8>,
     pub path: PathBuf,
     pub lang: Lang,
     pub flags: FileFlags,
@@ -347,9 +348,13 @@ pub struct FileResult {
 }
 
 impl FileResult {
+    /// `rel` as text to read (`greeg_index::rel::display`).
+    pub fn rel_text(&self) -> std::borrow::Cow<'_, str> {
+        greeg_index::rel::display(&self.rel)
+    }
     pub(crate) fn empty() -> FileResult {
         FileResult {
-            rel: String::new(),
+            rel: Vec::new(),
             path: PathBuf::new(),
             lang: Lang::None,
             flags: FileFlags::default(),
@@ -798,6 +803,12 @@ const MOCK_SEGMENTS: &[&str] = &[
     "fake",
     "fakes",
 ];
+
+/// `greeg_lang::path_flags` of a path's bytes; names that are not UTF-8
+/// are read as `greeg_index::rel::display` shows them.
+pub(crate) fn path_flags_of(rel: &[u8]) -> FileFlags {
+    path_flags(&greeg_index::rel::display(rel))
+}
 
 /// A path with a `mock`/`stub`/`fake` directory or file stem: demoted like tests.
 pub fn is_mock_path(rel: &str) -> bool {
@@ -1536,7 +1547,7 @@ pub(crate) fn excluded_by_flags(o: &Options, flags: FileFlags) -> bool {
 pub(crate) fn process_file(
     cx: &Ctx,
     path: &Path,
-    rel: String,
+    rel: Vec<u8>,
     searcher: &mut Searcher,
     buf: &mut Vec<u8>,
     kind_of: Option<SpanKindOf>,
@@ -1547,7 +1558,7 @@ pub(crate) fn process_file(
     let mut flags = FileFlags::default();
     let need_path_flags = !o.all && (o.no_tests || o.no_vendored || o.no_generated);
     if need_path_flags {
-        flags = path_flags(&rel);
+        flags = path_flags_of(&rel);
         if excluded_by_flags(o, flags) {
             return None;
         }
@@ -1634,7 +1645,7 @@ pub(crate) fn process_file(
     let t_cls = Instant::now();
     // Only matched files pay for flags, metadata and classification.
     if !need_path_flags {
-        flags = path_flags(&rel);
+        flags = path_flags_of(&rel);
     }
     flags.0 |= content_flags(&body[..body.len().min(65536)], src.len() as u64).0;
     if flags.has(FileFlags::BINARY) {
@@ -1656,7 +1667,7 @@ pub(crate) fn process_file(
         .and_then(|m| SystemTime::now().duration_since(m).ok())
         .map(|d| d.as_secs_f32() / 86400.0)
         .unwrap_or(365.0);
-    let prior = file_prior(flags, &rel, o);
+    let prior = file_prior(flags, &greeg_index::rel::display(&rel), o);
     let mut hits = Vec::with_capacity(sink.hits.len());
     let mut kinds = [0u32; 9];
     // classification for display: lexed up to the last retained line
@@ -1676,7 +1687,12 @@ pub(crate) fn process_file(
             if std::env::var_os("GREEG_DEBUG").is_some() {
                 eprintln!(
                     "greeg: offset mismatch in {} line {} ls={} le={} ms={} me={}",
-                    rel, lh.line, ls, le, ms, me
+                    greeg_index::rel::display(&rel),
+                    lh.line,
+                    ls,
+                    le,
+                    ms,
+                    me
                 );
             }
             continue;
@@ -1846,7 +1862,7 @@ pub fn refine_file(f: &mut FileResult) {
     if std::env::var_os("GREEG_DEBUG").is_some() {
         eprintln!(
             "refine {} full={} window={} read={}us lex={}us outline={}us defs={}",
-            f.rel,
+            f.rel_text(),
             full.len(),
             window.len(),
             read_us,
@@ -2074,11 +2090,7 @@ fn scan_once(o: &Options, bounds: &ScanBounds) -> Result<ScanResult> {
             }
             let p = e.path();
             cx.stats.walked.fetch_add(1, Relaxed);
-            let rel = p
-                .strip_prefix(root)
-                .unwrap_or(p)
-                .to_string_lossy()
-                .replace('\\', "/");
+            let rel = greeg_index::rel::of(root, p);
             if let Some(fr) = process_file(cx, p, rel, &mut searcher, &mut buf, None) {
                 let n = cx.stats.matched.fetch_add(1, Relaxed) + 1;
                 local.v.push(fr);
@@ -2502,7 +2514,7 @@ mod tests {
         process_file(
             &cx,
             path,
-            path.file_name().unwrap().to_string_lossy().to_string(),
+            path.file_name().unwrap().as_encoded_bytes().to_vec(),
             &mut searcher,
             &mut buf,
             None,

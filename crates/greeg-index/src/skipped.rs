@@ -9,10 +9,12 @@
 //!   u32 n, then n × (u8 bits, u32 len, path bytes), sorted by path
 
 use crate::format::{self, is_ignore_file};
+use crate::rel::join;
 use anyhow::{Context, Result, bail};
 use hashbrown::HashSet;
 use std::collections::BTreeMap;
 use std::fs;
+use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 
 /// A directory (otherwise a regular file).
@@ -20,40 +22,31 @@ pub const DIR: u8 = 1;
 /// Excluded by an ignore rule (otherwise only for its hidden name, or a
 /// tracked-only ignore file).
 pub const IGNORED: u8 = 2;
-/// The directory's children could not be listed exactly (a read error, or
-/// a name that is not UTF-8): the entry stands for the directory itself,
-/// and only a scan covers it.
+/// The directory's children could not be listed (a read error): the entry
+/// stands for the directory itself, and only a scan covers it.
 pub const UNKNOWN: u8 = 4;
 
-/// One directory's skipped children: (name, bits).
-pub type Children = Vec<(String, u8)>;
+/// One directory's skipped children: (name bytes, bits).
+pub type Children = Vec<(Vec<u8>, u8)>;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Skipped {
     /// Walked directory → its skipped children.
-    by_dir: BTreeMap<String, Children>,
-}
-
-fn join(dir: &str, name: &str) -> String {
-    if dir.is_empty() {
-        name.to_string()
-    } else {
-        format!("{dir}/{name}")
-    }
+    by_dir: BTreeMap<Vec<u8>, Children>,
 }
 
 impl Skipped {
     /// Replace one walked directory's skipped children.
-    pub fn set(&mut self, dir: &str, mut kids: Children) {
+    pub fn set(&mut self, dir: &[u8], mut kids: Children) {
         kids.sort();
         if kids.is_empty() {
             self.by_dir.remove(dir);
         } else {
-            self.by_dir.insert(dir.to_string(), kids);
+            self.by_dir.insert(dir.to_vec(), kids);
         }
     }
 
-    pub fn update(&mut self, dirs: &[(String, Children)]) {
+    pub fn update(&mut self, dirs: &[(Vec<u8>, Children)]) {
         for (d, kids) in dirs {
             self.set(d, kids.clone());
         }
@@ -61,7 +54,7 @@ impl Skipped {
 
     /// Every skipped entry as (root-relative path, bits); an `UNKNOWN`
     /// entry's path is its directory.
-    pub fn entries(&self) -> impl Iterator<Item = (String, u8)> + '_ {
+    pub fn entries(&self) -> impl Iterator<Item = (Vec<u8>, u8)> + '_ {
         self.by_dir.iter().flat_map(|(d, kids)| {
             kids.iter().map(move |(n, b)| {
                 if n.is_empty() {
@@ -82,7 +75,7 @@ impl Skipped {
                 let rel = join(d, name);
                 out.push(*bits);
                 out.extend_from_slice(&(rel.len() as u32).to_le_bytes());
-                out.extend_from_slice(rel.as_bytes());
+                out.extend_from_slice(&rel);
             }
         }
         out
@@ -99,16 +92,14 @@ impl Skipped {
                     .context("skipped: truncated")?
                     .try_into()?,
             ) as usize;
-            let rel = std::str::from_utf8(
-                body.get(at + 5..at + 5 + len)
-                    .context("skipped: truncated")?,
-            )?;
+            let rel = body
+                .get(at + 5..at + 5 + len)
+                .context("skipped: truncated")?;
             at += 5 + len;
-            let (d, name) = rel.rsplit_once('/').unwrap_or(("", rel));
             s.by_dir
-                .entry(d.to_string())
+                .entry(crate::rel::parent(rel).to_vec())
                 .or_default()
-                .push((name.to_string(), bits));
+                .push((crate::rel::file_name(rel).to_vec(), bits));
         }
         if at != body.len() {
             bail!("skipped: trailing bytes");
@@ -143,10 +134,10 @@ pub fn path(dir: &Path, name: &str) -> Option<PathBuf> {
 /// they count as skipped hidden files. Lists on a few threads.
 pub fn list(
     root: &Path,
-    dirs: &[&str],
-    kept: &HashSet<&str>,
-    hidden: &HashSet<&str>,
-) -> Vec<(String, Children)> {
+    dirs: &[&[u8]],
+    kept: &HashSet<&[u8]>,
+    hidden: &HashSet<&[u8]>,
+) -> Vec<(Vec<u8>, Children)> {
     const THREADS: usize = 4;
     let chunk = dirs.len().div_ceil(THREADS).max(1);
     std::thread::scope(|sc| {
@@ -155,7 +146,7 @@ pub fn list(
             .map(|part| {
                 sc.spawn(move || {
                     part.iter()
-                        .map(|d| (d.to_string(), children(root, d, kept, hidden)))
+                        .map(|d| (d.to_vec(), children(root, d, kept, hidden)))
                         .collect::<Vec<_>>()
                 })
             })
@@ -167,12 +158,12 @@ pub fn list(
     })
 }
 
-fn children(root: &Path, d: &str, kept: &HashSet<&str>, hidden: &HashSet<&str>) -> Children {
-    let unknown = || vec![(String::new(), UNKNOWN)];
+fn children(root: &Path, d: &[u8], kept: &HashSet<&[u8]>, hidden: &HashSet<&[u8]>) -> Children {
+    let unknown = || vec![(Vec::new(), UNKNOWN)];
     let Ok(rd) = fs::read_dir(if d.is_empty() {
         root.to_path_buf()
     } else {
-        root.join(d)
+        root.join(crate::rel::as_path(d))
     }) else {
         return unknown();
     };
@@ -183,16 +174,14 @@ fn children(root: &Path, d: &str, kept: &HashSet<&str>, hidden: &HashSet<&str>) 
         if !ft.is_dir() && !ft.is_file() {
             continue;
         }
-        let Some(name) = e.file_name().to_str().map(str::to_string) else {
-            return unknown();
-        };
+        let name = e.file_name().as_bytes().to_vec();
         let rel = join(d, &name);
-        let yielded = kept.contains(rel.as_str());
+        let yielded = kept.contains(rel.as_slice());
         if yielded && !(ft.is_file() && is_ignore_file(&name)) {
             continue;
         }
         let mut bits = if ft.is_dir() { DIR } else { 0 };
-        if !yielded && !hidden.contains(rel.as_str()) {
+        if !yielded && !hidden.contains(rel.as_slice()) {
             bits |= IGNORED;
         }
         kids.push((name, bits));
@@ -209,23 +198,26 @@ mod tests {
     fn records_round_trip_and_replace_per_directory() {
         let mut s = Skipped::default();
         s.set(
-            "",
-            vec![(".env".into(), 0), ("target".into(), DIR | IGNORED)],
+            b"",
+            vec![(b".env".to_vec(), 0), (b"target".to_vec(), DIR | IGNORED)],
         );
-        s.set("src", vec![("gen.rs".into(), IGNORED)]);
+        s.set(b"src", vec![(b"gen.rs".to_vec(), IGNORED)]);
         let back = Skipped::parse(&s.serialize()).unwrap();
         assert_eq!(back, s);
         assert_eq!(
             back.entries().collect::<Vec<_>>(),
             [
-                (".env".to_string(), 0),
-                ("target".to_string(), DIR | IGNORED),
-                ("src/gen.rs".to_string(), IGNORED)
+                (b".env".to_vec(), 0),
+                (b"target".to_vec(), DIR | IGNORED),
+                (b"src/gen.rs".to_vec(), IGNORED)
             ]
         );
         let mut s2 = back;
-        s2.update(&[("src".into(), vec![]), ("".into(), vec![(".x".into(), 0)])]);
-        assert_eq!(s2.entries().collect::<Vec<_>>(), [(".x".to_string(), 0)]);
+        s2.update(&[
+            (b"src".to_vec(), vec![]),
+            (b"".to_vec(), vec![(b".x".to_vec(), 0)]),
+        ]);
+        assert_eq!(s2.entries().collect::<Vec<_>>(), [(b".x".to_vec(), 0)]);
         assert!(Skipped::parse(&[1, 0, 0, 0]).is_err());
         assert!(path(Path::new("/"), "../x").is_none());
     }
@@ -233,17 +225,17 @@ mod tests {
     #[test]
     fn nested_unknown_markers_round_trip_and_a_refresh_replaces_them() {
         let mut s = Skipped::default();
-        s.set("a/b", vec![(String::new(), UNKNOWN)]);
+        s.set(b"a/b", vec![(Vec::new(), UNKNOWN)]);
         let mut back = Skipped::parse(&s.serialize()).unwrap();
         assert_eq!(back, s);
         assert_eq!(
             back.entries().collect::<Vec<_>>(),
-            [("a/b".to_string(), UNKNOWN)]
+            [(b"a/b".to_vec(), UNKNOWN)]
         );
-        back.update(&[("a/b".into(), vec![(".x".into(), 0)])]);
+        back.update(&[(b"a/b".to_vec(), vec![(b".x".to_vec(), 0)])]);
         assert_eq!(
             back.entries().collect::<Vec<_>>(),
-            [("a/b/.x".to_string(), 0)]
+            [(b"a/b/.x".to_vec(), 0)]
         );
     }
 
@@ -252,15 +244,15 @@ mod tests {
         let kept = HashSet::new();
         let got = list(
             Path::new("/nonexistent-greeg-root"),
-            &["", "a"],
+            &[b"", b"a"],
             &kept,
             &kept,
         );
         assert_eq!(
             got,
             [
-                ("".to_string(), vec![(String::new(), UNKNOWN)]),
-                ("a".to_string(), vec![(String::new(), UNKNOWN)])
+                (b"".to_vec(), vec![(Vec::new(), UNKNOWN)]),
+                (b"a".to_vec(), vec![(Vec::new(), UNKNOWN)])
             ]
         );
         let mut s = Skipped::default();
@@ -268,22 +260,29 @@ mod tests {
         let back = Skipped::parse(&s.serialize()).unwrap();
         assert_eq!(
             back.entries().collect::<Vec<_>>(),
-            [("".to_string(), UNKNOWN), ("a".to_string(), UNKNOWN)]
+            [(b"".to_vec(), UNKNOWN), (b"a".to_vec(), UNKNOWN)]
         );
     }
 
     #[cfg(target_os = "linux")]
     #[test]
-    fn a_name_that_is_not_utf8_makes_its_directory_unknown() {
-        use std::os::unix::ffi::OsStrExt;
+    fn a_name_that_is_not_utf8_is_recorded_as_it_is() {
         let base = std::env::temp_dir().join(format!("greeg-skipped-utf8-{}", std::process::id()));
         let _ = fs::remove_dir_all(&base);
         fs::create_dir_all(&base).unwrap();
         fs::write(base.join(std::ffi::OsStr::from_bytes(b".h\xff.rs")), "x").unwrap();
         let kept = HashSet::new();
+        let got = list(&base, &[b""], &kept, &kept);
         assert_eq!(
-            list(&base, &[""], &kept, &kept),
-            [("".to_string(), vec![(String::new(), UNKNOWN)])]
+            got,
+            [(b"".to_vec(), vec![(b".h\xff.rs".to_vec(), IGNORED)])]
+        );
+        let mut s = Skipped::default();
+        s.update(&got);
+        let back = Skipped::parse(&s.serialize()).unwrap();
+        assert_eq!(
+            back.entries().collect::<Vec<_>>(),
+            [(b".h\xff.rs".to_vec(), IGNORED)]
         );
         let _ = fs::remove_dir_all(&base);
     }

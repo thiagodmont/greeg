@@ -32,16 +32,8 @@ fn w(p: &Path, body: &str) {
 /// file, a binary file, an ignored directory, and identifiers that are
 /// prefixes of one another (for `related`).
 fn fixture() -> Fixture {
-    let base = std::env::temp_dir().join(format!(
-        "greeg-cli-{}-{}",
-        std::process::id(),
-        N.fetch_add(1, Ordering::Relaxed)
-    ));
-    let root = base.join("tree");
-    let index = base.join("index");
-    fs::create_dir_all(&root).unwrap();
-    // `.gitignore` only applies inside a git repository, as in ripgrep
-    fs::create_dir_all(root.join(".git")).unwrap();
+    let f = empty_fixture();
+    let root = &f.root;
 
     w(
         &root.join("src/handler.rs"),
@@ -89,6 +81,28 @@ fn fixture() -> Fixture {
     fs::write(root.join("bin.dat"), b"\x00\x01handle_request\x00").unwrap();
     w(&root.join("skipped/hidden.rs"), "fn handle_request() {}\n");
     w(&root.join(".gitignore"), "skipped/\n");
+    f
+}
+
+/// An empty git work tree in a directory this fixture creates itself, so
+/// `Drop` never removes one left behind by another run.
+fn empty_fixture() -> Fixture {
+    let base = loop {
+        let base = std::env::temp_dir().join(format!(
+            "greeg-cli-{}-{}",
+            std::process::id(),
+            N.fetch_add(1, Ordering::Relaxed)
+        ));
+        match fs::create_dir(&base) {
+            Ok(()) => break base,
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => panic!("create fixture: {e}"),
+        }
+    };
+    let root = base.join("tree");
+    let index = base.join("index");
+    // `.gitignore` only applies inside a git repository, as in ripgrep
+    fs::create_dir_all(root.join(".git")).unwrap();
     Fixture { base, root, index }
 }
 
@@ -966,4 +980,167 @@ fn a_check_from_another_root_leaves_the_index_alone() {
         "{o:?}"
     );
     assert_eq!(files_under(&layout, &[]), before);
+}
+
+/// Write `names` (raw bytes, `/`-separated) below `root`, each holding `body`.
+fn byte_tree(root: &Path, names: &[&[u8]], body: &str) {
+    use std::os::unix::ffi::OsStrExt;
+    for n in names {
+        let p = root.join(std::ffi::OsStr::from_bytes(n));
+        fs::create_dir_all(p.parent().unwrap()).unwrap();
+        fs::write(p, body).unwrap();
+    }
+}
+
+/// The `path` of every `event` line of a JSON answer, sorted (`--sort`
+/// does not apply to JSON).
+fn json_paths(stdout: &[u8], event: &str) -> Vec<serde_json::Value> {
+    let mut v: Vec<serde_json::Value> = String::from_utf8(stdout.to_vec())
+        .unwrap()
+        .lines()
+        .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
+        .filter(|v| v["type"] == event)
+        .map(|v| v["data"]["path"].clone())
+        .collect();
+    v.sort_by_key(|p| p.to_string());
+    v
+}
+
+/// Which backend answered, from the JSON footer's outcome.
+fn source(stdout: &[u8]) -> String {
+    let last: serde_json::Value =
+        serde_json::from_str(String::from_utf8_lossy(stdout).lines().last().unwrap()).unwrap();
+    last["data"]["outcome"]["source"]
+        .as_str()
+        .unwrap()
+        .to_string()
+}
+
+#[test]
+fn file_lists_name_every_path_byte_for_byte() {
+    let f = empty_fixture();
+    let mut names: Vec<&[u8]> = vec![
+        b"a\\b.txt",
+        b"-lead.txt",
+        b"co:lon.txt",
+        b"tab\tname.txt",
+        b"new\nline.txt",
+        b"sp ace.txt",
+        b"back\\slash/in.txt",
+        "caf\u{e9}.txt".as_bytes(),
+    ];
+    byte_tree(&f.root, &names, "pathneedle\n");
+    names.sort();
+    let listed: Vec<u8> = names.iter().flat_map(|n| [*n, b"\n"].concat()).collect();
+    let parity: Vec<u8> = names
+        .iter()
+        .flat_map(|n| [*n, b":1:pathneedle\n"].concat())
+        .collect();
+    f.indexed();
+    for backend in [&[][..], &["--no-index"][..]] {
+        let run = |args: &[&str]| {
+            let o = f.run(&[args, backend].concat());
+            assert_eq!(o.status.code(), Some(0), "{args:?} {backend:?}: {o:?}");
+            o.stdout
+        };
+        assert_eq!(
+            run(&["-l", "--sort", "path", "pathneedle"]),
+            listed,
+            "{backend:?}"
+        );
+        assert_eq!(
+            run(&["--budget", "0", "--sort", "path", "pathneedle"]),
+            parity,
+            "{backend:?}"
+        );
+        let json = run(&["--json", "pathneedle"]);
+        let want: Vec<serde_json::Value> = names
+            .iter()
+            .map(|n| serde_json::json!({"text": std::str::from_utf8(n).unwrap()}))
+            .collect();
+        let mut want = want;
+        want.sort_by_key(|p| p.to_string());
+        assert_eq!(json_paths(&json, "begin"), want, "{backend:?}");
+        assert_eq!(
+            source(&json),
+            if backend.is_empty() { "index" } else { "scan" }
+        );
+        // headers are read, not reopened: control bytes are escaped there
+        let ranked = String::from_utf8(run(&["pathneedle"])).unwrap();
+        assert!(ranked.contains("\ntab\\x09name.txt\n"), "{ranked}");
+        assert!(ranked.contains("\nnew\\x0Aline.txt\n"), "{ranked}");
+    }
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn a_non_utf8_file_name_round_trips_through_the_index() {
+    let f = empty_fixture();
+    byte_tree(&f.root, &[b"caf\xff.txt", b"d\xfe/x.txt"], "needle\n");
+    // enough other files that one edit is refreshed, not rebuilt
+    for i in 0..100 {
+        w(&f.root.join(format!("filler/f{i:03}.txt")), "filler\n");
+    }
+    f.indexed();
+    for backend in [&[][..], &["--no-index"][..]] {
+        let run = |args: &[&str]| f.run(&[args, backend].concat()).stdout;
+        assert_eq!(
+            run(&["--budget", "0", "--sort", "path", "needle"]),
+            b"caf\xff.txt:1:needle\nd\xfe/x.txt:1:needle\n",
+            "{backend:?}"
+        );
+        assert_eq!(
+            run(&["-l", "--sort", "path", "needle"]),
+            b"caf\xff.txt\nd\xfe/x.txt\n"
+        );
+        let json = run(&["--json", "needle"]);
+        assert_eq!(
+            json_paths(&json, "begin"),
+            [
+                serde_json::json!({"bytes": "Y2Fm/y50eHQ="}),
+                serde_json::json!({"bytes": "ZP4veC50eHQ="})
+            ]
+        );
+        assert_eq!(
+            source(&json),
+            if backend.is_empty() { "index" } else { "scan" }
+        );
+        let ranked = String::from_utf8(run(&["needle"])).unwrap();
+        assert!(ranked.contains("caf\\xFF.txt\n"), "{ranked}");
+    }
+    // an edit is answered from disk, then from the delta it published
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    byte_tree(&f.root, &[b"caf\xff.txt"], "needle\nfreshterm\n");
+    for _ in 0..2 {
+        assert_eq!(
+            f.run(&["--budget", "0", "freshterm"]).stdout,
+            b"caf\xff.txt:2:freshterm\n"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
+    let json = f.run(&["--json", "freshterm"]).stdout;
+    assert_eq!(source(&json), "index");
+    assert_eq!(
+        json_paths(&json, "begin"),
+        [serde_json::json!({"bytes": "Y2Fm/y50eHQ="})]
+    );
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn skipped_entries_with_non_utf8_names_keep_coverage_known() {
+    let f = empty_fixture();
+    byte_tree(&f.root, &[b".h\xff.txt", b"seen.txt"], "needle\n");
+    f.indexed();
+    let args = ["--json", "-g", "*.txt", "needle"];
+    let json = f.run(&args).stdout;
+    assert_eq!(source(&json), "index", "the skipped record lists the name");
+    assert_eq!(
+        json_paths(&json, "begin"),
+        json_paths(
+            &f.run(&[&args[..], &["--no-index"]].concat()).stdout,
+            "begin"
+        )
+    );
+    assert_eq!(json_paths(&json, "begin").len(), 2);
 }

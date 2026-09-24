@@ -1264,7 +1264,7 @@ pub(crate) fn container_of(
 pub(crate) fn flag_suffix(f: &greeg_query::FileResult) -> String {
     let mut flags = f.flags.names();
     flags.retain(|x| *x != "huge");
-    if flags.is_empty() && greeg_query::is_mock_path(&f.rel) {
+    if flags.is_empty() && greeg_query::is_mock_path(&f.rel_text()) {
         flags.push("mock");
     }
     if flags.is_empty() {
@@ -1353,7 +1353,7 @@ pub(crate) fn write_groups(
         let hits = groups.get_mut(&fi).unwrap();
         hits.sort_by_key(|&hi| f.hits[hi].line);
         let hits = &hits[..];
-        writeln!(w, "{}{}", f.rel, flag_suffix(f))?;
+        writeln!(w, "{}{}", f.rel_text(), flag_suffix(f))?;
         let lw = hits
             .iter()
             .map(|&hi| digits(f.hits[hi].line))
@@ -1419,9 +1419,11 @@ fn render_body(w: &mut impl Write, r: &ScanResult, rep: &Report, fmt: Fmt) -> Re
     let files = &r.files;
     let parity = r.opts.budget == 0;
     match rep.layout {
+        // file lists name each path byte for byte, so it can be opened again
         Layout::Files => {
             for sf in &rep.files {
-                writeln!(w, "{}", files[sf.file].rel)?;
+                w.write_all(&files[sf.file].rel)?;
+                writeln!(w)?;
             }
         }
         Layout::Count => {
@@ -1429,14 +1431,15 @@ fn render_body(w: &mut impl Write, r: &ScanResult, rep: &Report, fmt: Fmt) -> Re
                 if fmt.stdin {
                     writeln!(w, "{}", files[sf.file].total)?;
                 } else {
-                    writeln!(w, "{}:{}", files[sf.file].rel, files[sf.file].total)?;
+                    w.write_all(&files[sf.file].rel)?;
+                    writeln!(w, ":{}", files[sf.file].total)?;
                 }
             }
         }
         Layout::Outline => {
             for sf in &rep.files {
                 let f = &files[sf.file];
-                writeln!(w, "{}{}", f.rel, flag_suffix(f))?;
+                writeln!(w, "{}{}", f.rel_text(), flag_suffix(f))?;
                 let lw = sf
                     .hits
                     .iter()
@@ -1477,7 +1480,7 @@ fn render_body(w: &mut impl Write, r: &ScanResult, rep: &Report, fmt: Fmt) -> Re
                     writeln!(w)?;
                 }
                 first = false;
-                writeln!(w, "{}{}", f.rel, flag_suffix(f))?;
+                writeln!(w, "{}{}", f.rel_text(), flag_suffix(f))?;
                 render_hits(w, f, sf, fmt)?;
             }
         }
@@ -1531,12 +1534,13 @@ fn render_body(w: &mut impl Write, r: &ScanResult, rep: &Report, fmt: Fmt) -> Re
             if !fc.top_hits.is_empty() || !fc.import_files.is_empty() {
                 writeln!(w, "\ntop hits")?;
                 if !fc.import_files.is_empty() {
-                    let names = short_names(
-                        fc.import_files
-                            .iter()
-                            .take(6)
-                            .map(|&fi| files[fi].rel.as_str()),
-                    );
+                    let rels: Vec<_> = fc
+                        .import_files
+                        .iter()
+                        .take(6)
+                        .map(|&fi| files[fi].rel_text())
+                        .collect();
+                    let names = short_names(rels.iter().map(|r| &**r));
                     let more = fc.import_files.len().saturating_sub(6);
                     writeln!(
                         w,
@@ -1572,17 +1576,16 @@ fn render_parity(w: &mut impl Write, r: &ScanResult, rep: &Report, fmt: Fmt) -> 
     let mut first_file = true;
     for sf in &rep.files {
         let f = &r.files[sf.file];
-        let prefix = |ln: u32, sep: char| -> String {
-            let mut s = String::new();
+        // the path as its bytes, as ripgrep writes it
+        let prefix = |w: &mut dyn Write, ln: u32, sep: char| -> std::io::Result<()> {
             if !fmt.stdin {
-                s.push_str(&f.rel);
-                s.push(sep);
+                w.write_all(&f.rel)?;
+                write!(w, "{sep}")?;
             }
             if !fmt.stdin || fmt.line_numbers {
-                s.push_str(&ln.to_string());
-                s.push(sep);
+                write!(w, "{ln}{sep}")?;
             }
-            s
+            Ok(())
         };
         let has_ctx = sf.hits.iter().any(|sh| sh.context.is_some());
         if has_ctx && !first_file {
@@ -1604,22 +1607,15 @@ fn render_parity(w: &mut impl Write, r: &ScanResult, rep: &Report, fmt: Fmt) -> 
                         if ln <= last {
                             continue;
                         }
-                        if hit_lines.contains(&ln) {
-                            writeln!(w, "{}{}", prefix(ln, ':'), String::from_utf8_lossy(l))?;
-                        } else {
-                            writeln!(w, "{}{}", prefix(ln, '-'), String::from_utf8_lossy(l))?;
-                        }
+                        prefix(w, ln, if hit_lines.contains(&ln) { ':' } else { '-' })?;
+                        writeln!(w, "{}", String::from_utf8_lossy(l))?;
                         last = ln;
                     }
                 }
                 None => {
                     if h.line > last {
-                        writeln!(
-                            w,
-                            "{}{}",
-                            prefix(h.line, ':'),
-                            String::from_utf8_lossy(&h.raw)
-                        )?;
+                        prefix(w, h.line, ':')?;
+                        writeln!(w, "{}", String::from_utf8_lossy(&h.raw))?;
                         last = h.line;
                     }
                 }
@@ -1847,6 +1843,33 @@ fn line_span(bytes: &[u8], anchor_line: u32, anchor_start: u32, n: u32) -> Optio
     Some((start, end))
 }
 
+/// ripgrep's JSON form of bytes: `{"text": ...}` when they are UTF-8,
+/// otherwise `{"bytes": <base64>}`.
+fn json_data(b: &[u8]) -> serde_json::Value {
+    match std::str::from_utf8(b) {
+        Ok(s) => serde_json::json!({ "text": s }),
+        Err(_) => serde_json::json!({ "bytes": base64(b) }),
+    }
+}
+
+fn base64(b: &[u8]) -> String {
+    const A: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(b.len().div_ceil(3) * 4);
+    for c in b.chunks(3) {
+        let n = (c[0] as u32) << 16
+            | (*c.get(1).unwrap_or(&0) as u32) << 8
+            | *c.get(2).unwrap_or(&0) as u32;
+        for i in 0..4 {
+            out.push(if i <= c.len() {
+                A[(n >> (18 - 6 * i) & 63) as usize] as char
+            } else {
+                '='
+            });
+        }
+    }
+    out
+}
+
 fn render_json(w: &mut impl Write, r: &ScanResult, rep: &Report) -> Result<()> {
     use serde_json::json;
     let files = &r.files;
@@ -1858,7 +1881,7 @@ fn render_json(w: &mut impl Write, r: &ScanResult, rep: &Report) -> Result<()> {
         let f = &files[sf.file];
         serde_json::to_writer(
             &mut *w,
-            &json!({"type":"begin","data":{"path":{"text":f.rel}}}),
+            &json!({"type":"begin","data":{"path":json_data(&f.rel)}}),
         )?;
         writeln!(w)?;
         // hits in line order, with their explicit context ranges merged
@@ -1894,7 +1917,7 @@ fn render_json(w: &mut impl Write, r: &ScanResult, rep: &Report) -> Result<()> {
             serde_json::to_writer(
                 &mut *w,
                 &json!({"type":"match","data":{
-                    "path":{"text":f.rel},
+                    "path":json_data(&f.rel),
                     "lines":{"text":text},
                     "line_number":h.line,
                     "absolute_offset":h.line_start,
@@ -1924,7 +1947,7 @@ fn render_json(w: &mut impl Write, r: &ScanResult, rep: &Report) -> Result<()> {
                             let text = String::from_utf8_lossy(&b[s..e]);
                             serde_json::to_writer(
                                 &mut *w,
-                                &json!({"type":"context","data":{"path":{"text":f.rel},"lines":{"text":text},"line_number":ln,"absolute_offset":s,"submatches":[]}}),
+                                &json!({"type":"context","data":{"path":json_data(&f.rel),"lines":{"text":text},"line_number":ln,"absolute_offset":s,"submatches":[]}}),
                             )?;
                             writeln!(w)?;
                         }
@@ -1943,7 +1966,7 @@ fn render_json(w: &mut impl Write, r: &ScanResult, rep: &Report) -> Result<()> {
         printed_matches += file_matches;
         serde_json::to_writer(
             &mut *w,
-            &json!({"type":"end","data":{"path":{"text":f.rel},"binary_offset":null,"stats":{"elapsed":{"secs":0,"nanos":0,"human":"0s"},"searches":1,"searches_with_match":1,"bytes_searched":f.size,"bytes_printed":0,"matched_lines":f.total,"matches":file_matches,"shown":file_lines}}}),
+            &json!({"type":"end","data":{"path":json_data(&f.rel),"binary_offset":null,"stats":{"elapsed":{"secs":0,"nanos":0,"human":"0s"},"searches":1,"searches_with_match":1,"bytes_searched":f.size,"bytes_printed":0,"matched_lines":f.total,"matches":file_matches,"shown":file_lines}}}),
         )?;
         writeln!(w)?;
         Ok(())
@@ -1956,7 +1979,7 @@ fn render_json(w: &mut impl Write, r: &ScanResult, rep: &Report) -> Result<()> {
                 "by_kind":fc.by_kind.iter().map(|(k,n)| json!([k.name(), n])).collect::<Vec<_>>(),
                 "by_dir":fc.by_dir,"by_lang":fc.by_lang,"by_flag":fc.by_flag,
                 "definitions_total":fc.defs_total,"demoted_definitions":fc.demoted_defs,
-                "imported_by":fc.import_files.iter().map(|&fi| files[fi].rel.clone()).collect::<Vec<_>>()
+                "imported_by":fc.import_files.iter().map(|&fi| files[fi].rel_text()).collect::<Vec<_>>()
             }}),
         )?;
         writeln!(w)?;
@@ -1990,6 +2013,25 @@ fn render_json(w: &mut impl Write, r: &ScanResult, rep: &Report) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn json_data_is_text_when_it_can_be_and_base64_otherwise() {
+        assert_eq!(
+            json_data(b"a\\b.rs"),
+            serde_json::json!({"text": "a\\b.rs"})
+        );
+        for (raw, b64) in [
+            (&b""[..], ""),
+            (b"f", "Zg=="),
+            (b"fo", "Zm8="),
+            (b"foo", "Zm9v"),
+            (b"\xff", "/w=="),
+            (b"caf\xff.txt", "Y2Fm/y50eHQ="),
+        ] {
+            assert_eq!(base64(raw), b64);
+        }
+        assert_eq!(json_data(b"x\xfe"), serde_json::json!({"bytes": "eP4="}));
+    }
 
     #[test]
     fn patterns_join_like_ripgrep() {

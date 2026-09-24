@@ -14,13 +14,13 @@ use greeg_index::symtab::{kind_from_code, kind_weight};
 use greeg_lang::sym::{SYM_EXPORTED, SYM_HAS_DOC, SYM_OBJ_MEMBER, SYM_TEST};
 use greeg_lang::{DefKind, FileFlags, Lang};
 use std::collections::BTreeMap;
-use std::path::Path;
 use std::time::Instant;
 
 /// One definition, fully described for output.
 #[derive(Clone, Debug)]
 pub struct DefEntry {
-    pub rel: String,
+    /// Root-relative path bytes (`greeg_index::rel`).
+    pub rel: Vec<u8>,
     pub line: u32,
     pub kind: DefKind,
     pub name: String,
@@ -54,13 +54,11 @@ pub struct DefResult {
     pub suggestions: Vec<String>,
 }
 
-fn loc_w(flags: FileFlags, rel: &str, all: bool) -> f32 {
-    crate::loc_weight(flags, rel, all)
+fn loc_w(flags: FileFlags, rel: &[u8], all: bool) -> f32 {
+    crate::loc_weight(flags, &greeg_index::rel::display(rel), all)
 }
 
-fn dir_of(rel: &str) -> &str {
-    rel.rsplit_once('/').map(|(d, _)| d).unwrap_or("")
-}
+use greeg_index::rel::{as_path, parent as dir_of};
 
 /// Import reachability: 1.0 direct, 0.8 within two hops,
 /// 0.6 same directory, 0.4 otherwise. `origins` are file ids.
@@ -68,7 +66,7 @@ pub fn reach(idx: &Index, origins: &[u32], target: u32) -> f32 {
     if origins.is_empty() {
         return 0.6;
     }
-    let trel = idx.path(target).unwrap_or("");
+    let trel = idx.path(target).unwrap_or_default();
     let target = idx.latest(target);
     let mut best = 0.4f32;
     for &o in origins {
@@ -90,7 +88,7 @@ pub fn reach(idx: &Index, origins: &[u32], target: u32) -> f32 {
         if best < 0.8 && idx.in_edges(o).contains(&target) {
             best = best.max(0.8);
         }
-        if dir_of(idx.path(o).unwrap_or("")) == dir_of(trel) {
+        if dir_of(idx.path(o).unwrap_or_default()) == dir_of(trel) {
             best = best.max(0.6);
         }
     }
@@ -104,7 +102,10 @@ pub fn origin_ids(idx: &Index, from: &[String]) -> Vec<u32> {
         return ids;
     }
     for (id, rel, _) in idx.live_files() {
-        if from.iter().any(|f| f.trim_start_matches("./") == rel) {
+        if from
+            .iter()
+            .any(|f| f.trim_start_matches("./").as_bytes() == rel)
+        {
             ids.push(id);
         }
     }
@@ -284,7 +285,7 @@ const DESCRIBED_IMPLS: usize = 200;
 const DESCRIBED_DEFS: usize = 256;
 
 /// A definition's ranking score, from the index alone.
-fn def_score(idx: &Index, s: SymId, fid: u32, rel: &str, all: bool, reach: f32) -> f32 {
+fn def_score(idx: &Index, s: SymId, fid: u32, rel: &[u8], all: bool, reach: f32) -> f32 {
     let Some(r) = idx.sym(s) else { return 0.0 };
     let fflags = FileFlags(idx.rec(fid).map(|r| r.flags).unwrap_or(0));
     let exported = if r.flags & SYM_EXPORTED != 0 {
@@ -317,7 +318,7 @@ fn def_score(idx: &Index, s: SymId, fid: u32, rel: &str, all: bool, reach: f32) 
 /// Does the request select the indexed file `fid`?
 fn selected(idx: &Index, sel: &Selection, fid: u32) -> bool {
     idx.rec(fid)
-        .is_some_and(|r| sel.selects(idx.path(fid).unwrap_or(""), FileFlags(r.flags)))
+        .is_some_and(|r| sel.selects(idx.path(fid).unwrap_or_default(), FileFlags(r.flags)))
 }
 
 fn kind_filter_ok(kinds: &[HitKind], _k: DefKind) -> bool {
@@ -438,12 +439,12 @@ pub fn def(
         let origins = origin_ids(idx, from);
         // rank every eligible definition on metadata, then describe the best
         // ones: all of them without a budget
-        let mut ranked: Vec<(f32, SymId, &str, u32, f32)> = syms
+        let mut ranked: Vec<(f32, SymId, &[u8], u32, f32)> = syms
             .iter()
             .filter_map(|s| {
                 let r = idx.sym(*s)?;
                 let fid = idx.sym_file(*s);
-                let rel = idx.path(fid).unwrap_or("");
+                let rel = idx.path(fid).unwrap_or_default();
                 let rch = reach(idx, &origins, fid);
                 let score = def_score(idx, *s, fid, rel, o.all, rch);
                 Some((score, *s, rel, r.line, rch))
@@ -470,7 +471,7 @@ pub fn def(
                 .collect();
             let chain = chain[..chain.len().saturating_sub(1)].to_vec();
             entries.push(DefEntry {
-                rel: rel.to_string(),
+                rel: rel.to_vec(),
                 line: r.line,
                 kind: kind_from_code(r.kind),
                 name: idx.sym_name(s).to_string(),
@@ -491,7 +492,7 @@ pub fn def(
         for &fid in &file_mods {
             let rec = idx.rec(fid).context("file record")?;
             let fflags = FileFlags(rec.flags);
-            let rel = idx.path(fid).unwrap_or("").to_string();
+            let rel = idx.path(fid).unwrap_or_default().to_vec();
             let rch = reach(idx, &origins, fid);
             let score =
                 FILE_MODULE_W * loc_w(fflags, &rel, o.all) * (0.6 + 0.4 * idx.rank(fid)) * rch;
@@ -519,7 +520,7 @@ pub fn def(
             let mut so = o.clone();
             so.paths = also
                 .iter()
-                .map(|r| o.root.join(r))
+                .map(|r| o.root.join(as_path(r)))
                 .filter(|p| p.is_file())
                 .collect();
             so.use_index = false;
@@ -555,17 +556,17 @@ pub fn def(
         } else {
             (o.budget / 40).clamp(3, 40)
         };
-        let mut cache: BTreeMap<String, Vec<u8>> = BTreeMap::new();
+        let mut cache: BTreeMap<Vec<u8>, Vec<u8>> = BTreeMap::new();
         for e in entries.iter_mut().take(show) {
-            let src = cache
-                .entry(e.rel.clone())
-                .or_insert_with(|| greeg_lang::read_text(o.root.join(&e.rel)).unwrap_or_default());
+            let src = cache.entry(e.rel.clone()).or_insert_with(|| {
+                greeg_lang::read_text(o.root.join(as_path(&e.rel))).unwrap_or_default()
+            });
             if src.is_empty() || e.start as usize >= src.len() {
                 continue;
             }
             if e.file_module {
                 let (sig, doc) =
-                    module_signature_and_doc(src, Lang::from_path(Path::new(&e.rel)), &e.name);
+                    module_signature_and_doc(src, Lang::from_path(as_path(&e.rel)), &e.name);
                 e.signature = sig;
                 e.doc = doc;
                 continue;
@@ -575,7 +576,7 @@ pub fn def(
                 src,
                 e.start,
                 e.flags,
-                Lang::from_path(Path::new(&e.rel)),
+                Lang::from_path(as_path(&e.rel)),
             );
             e.signature = sig;
             e.doc = doc;
@@ -732,7 +733,8 @@ pub fn refs(o: &Options, name: &str, kinds: &[HitKind]) -> Result<RefsResult> {
 /// One calling function (`callers`).
 #[derive(Clone, Debug)]
 pub struct Caller {
-    pub rel: String,
+    /// Root-relative path bytes (`greeg_index::rel`).
+    pub rel: Vec<u8>,
     pub chain: Vec<(DefKind, String)>,
     pub def_line: u32,
     pub count: usize,
@@ -767,7 +769,7 @@ pub fn callers(o: &Options, name: &str, depth: usize) -> Result<CallersResult> {
     let mut r = scan(&so)?;
     let idxs: Vec<usize> = (0..r.files.len().min(400)).collect();
     crate::refine(&mut r, &idxs);
-    let mut map: BTreeMap<(String, Option<u32>), Caller> = BTreeMap::new();
+    let mut map: BTreeMap<(Vec<u8>, Option<u32>), Caller> = BTreeMap::new();
     let mut total = 0usize;
     for f in &r.files {
         if !f.lang.has_grammar() {
@@ -886,7 +888,7 @@ pub fn impls(o: &Options, name: &str) -> Result<ImplsResult> {
     let mut direct_total = 0;
     let mut source = "scan";
     let mut fresh = "";
-    let mut have: Vec<(String, u32)> = Vec::new();
+    let mut have: Vec<(Vec<u8>, u32)> = Vec::new();
     let sel = Selection::new(o, Vec::new())?;
     if o.use_index
         && let Some(op) = indexed::open_fresh(o, threads)?
@@ -897,7 +899,7 @@ pub fn impls(o: &Options, name: &str) -> Result<ImplsResult> {
         let idx = &op.idx;
         source = "index";
         fresh = op.fresh_method;
-        let mut cache: BTreeMap<String, Vec<u8>> = BTreeMap::new();
+        let mut cache: BTreeMap<Vec<u8>, Vec<u8>> = BTreeMap::new();
         // rank every eligible implementation before reading any source
         let mut found: Vec<(f32, SymId)> = idx
             .implementors(name)
@@ -907,7 +909,7 @@ pub fn impls(o: &Options, name: &str) -> Result<ImplsResult> {
                 let r = idx.sym(s)?;
                 let fid = idx.sym_file(s);
                 let fflags = FileFlags(idx.rec(fid).map(|r| r.flags).unwrap_or(0));
-                let rel = idx.path(fid).unwrap_or("");
+                let rel = idx.path(fid).unwrap_or_default();
                 Some((
                     kind_weight(r.kind) * loc_w(fflags, rel, o.all) * (0.6 + 0.4 * idx.rank(fid)),
                     s,
@@ -929,7 +931,7 @@ pub fn impls(o: &Options, name: &str) -> Result<ImplsResult> {
         for (_, s) in found {
             let Some(r) = idx.sym(s) else { continue };
             let fid = idx.sym_file(s);
-            let rel = idx.path(fid).unwrap_or("").to_string();
+            let rel = idx.path(fid).unwrap_or_default().to_vec();
             let fflags = FileFlags(idx.rec(fid).map(|r| r.flags).unwrap_or(0));
             let chain: Vec<(DefKind, String)> = idx
                 .sym_chain(s)
@@ -937,16 +939,16 @@ pub fn impls(o: &Options, name: &str) -> Result<ImplsResult> {
                 .map(|(k, n)| (kind_from_code(k), n.to_string()))
                 .collect();
             let chain = chain[..chain.len().saturating_sub(1)].to_vec();
-            let src = cache
-                .entry(rel.clone())
-                .or_insert_with(|| greeg_lang::read_text(o.root.join(&rel)).unwrap_or_default());
+            let src = cache.entry(rel.clone()).or_insert_with(|| {
+                greeg_lang::read_text(o.root.join(as_path(&rel))).unwrap_or_default()
+            });
             let (sig, doc) = if (r.start as usize) < src.len() {
                 signature_and_doc(
                     Some((idx, fid)),
                     src,
                     r.start,
                     r.flags,
-                    Lang::from_path(Path::new(&rel)),
+                    Lang::from_path(as_path(&rel)),
                 )
             } else {
                 (String::new(), None)
@@ -1058,7 +1060,8 @@ pub fn impls(o: &Options, name: &str) -> Result<ImplsResult> {
 }
 
 pub struct OutlineResult {
-    pub rel: String,
+    /// Root-relative path bytes (`greeg_index::rel`).
+    pub rel: Vec<u8>,
     pub defs: Vec<DefSummary>,
     pub imports: Vec<String>,
     pub source: &'static str,
@@ -1070,8 +1073,8 @@ pub struct OutlineResult {
 /// `greeg outline FILE`: the definitions of one file as a tree.
 pub fn outline(o: &Options, file: &str) -> Result<OutlineResult> {
     let t0 = Instant::now();
-    let rel = file.trim_start_matches("./").to_string();
-    let path = o.root.join(&rel);
+    let rel = file.trim_start_matches("./").as_bytes().to_vec();
+    let path = o.root.join(as_path(&rel));
     let lang = Lang::from_path(&path);
     let threads = if o.threads == 0 {
         crate::default_threads()
@@ -1103,9 +1106,9 @@ pub fn outline(o: &Options, file: &str) -> Result<OutlineResult> {
     }
     let src = greeg_lang::read_text(&path).with_context(|| format!("read {}", path.display()))?;
     if !lang.has_grammar() {
-        bail!("{rel}: no grammar for this file type");
+        bail!("{file}: no grammar for this file type");
     }
-    let ex = greeg_lang::sym::extract(lang, greeg_lang::sym::is_tsx(&rel), &src);
+    let ex = greeg_lang::sym::extract(lang, greeg_lang::sym::is_tsx(file), &src);
     let mut defs: Vec<DefSummary> = Vec::with_capacity(ex.symbols.len());
     for (i, s) in ex.symbols.iter().enumerate() {
         let mut chain = Vec::new();
@@ -1156,8 +1159,8 @@ pub const BODY_CAP: u32 = 200;
 pub const WINDOW: u32 = 20;
 
 /// Read one file for bodies.
-pub fn source_of(o: &Options, rel: &str) -> Result<crate::Source> {
-    let path = o.root.join(rel);
+pub fn source_of(o: &Options, rel: &[u8]) -> Result<crate::Source> {
+    let path = o.root.join(as_path(rel));
     let bytes = greeg_lang::read_text(&path).with_context(|| format!("read {}", path.display()))?;
     Ok(crate::Source::new(bytes))
 }
@@ -1201,7 +1204,8 @@ pub fn body(o: &Options, src: &crate::Source, from: u32, to: u32, est: &mut usiz
 /// line between definitions).
 #[derive(Clone, Debug)]
 pub struct ShowItem {
-    pub rel: String,
+    /// Root-relative path bytes (`greeg_index::rel`).
+    pub rel: Vec<u8>,
     pub asked: u32,
     pub def: Option<DefSummary>,
     pub body: Body,
@@ -1221,11 +1225,11 @@ pub fn show(o: &Options, locs: &[(String, u32)]) -> Result<ShowResult> {
     let mut source = "text";
     let mut est = 0usize;
     for (file, asked) in locs {
-        let rel = file.trim_start_matches("./").to_string();
-        let src = source_of(o, &rel)?;
+        let rel = file.trim_start_matches("./");
+        let src = source_of(o, rel.as_bytes())?;
         let asked = (*asked).clamp(1, src.line_count().max(1));
-        let defs = if Lang::from_path(&o.root.join(&rel)).has_grammar() {
-            let ol = outline(o, &rel)?;
+        let defs = if Lang::from_path(&o.root.join(rel)).has_grammar() {
+            let ol = outline(o, rel)?;
             source = ol.source;
             ol.defs
         } else {
@@ -1251,7 +1255,7 @@ pub fn show(o: &Options, locs: &[(String, u32)]) -> Result<ShowResult> {
         };
         let body = body(o, &src, from, to, &mut est);
         items.push(ShowItem {
-            rel,
+            rel: rel.as_bytes().to_vec(),
             asked,
             def,
             body,
@@ -1267,7 +1271,8 @@ pub fn show(o: &Options, locs: &[(String, u32)]) -> Result<ShowResult> {
 /// One file in a `map`.
 #[derive(Clone, Debug)]
 pub struct MapFile {
-    pub rel: String,
+    /// Root-relative path bytes (`greeg_index::rel`).
+    pub rel: Vec<u8>,
     pub rank: f32,
     pub symbols: usize,
     pub by_kind: Vec<(DefKind, usize)>,
@@ -1279,11 +1284,12 @@ pub struct MapFile {
 
 #[derive(Clone, Debug)]
 pub struct MapDir {
-    pub rel: String,
+    /// Root-relative path bytes (`greeg_index::rel`).
+    pub rel: Vec<u8>,
     pub files: usize,
     pub symbols: usize,
     pub rank: f32,
-    pub top_files: Vec<String>,
+    pub top_files: Vec<Vec<u8>>,
 }
 
 pub struct MapResult {
@@ -1298,29 +1304,28 @@ pub struct MapResult {
 
 /// Count a file in its immediate subdirectory under `prefix`, if any.
 fn count_in_dir(
-    dirs: &mut BTreeMap<String, MapDir>,
-    prefix: &str,
-    rel: &str,
+    dirs: &mut BTreeMap<Vec<u8>, MapDir>,
+    prefix: &[u8],
+    rel: &[u8],
     symbols: usize,
     rank: f32,
 ) {
-    let Some((sub, _)) = rel[prefix.len()..].split_once('/') else {
+    let Some(k) = rel[prefix.len()..].iter().position(|&b| b == b'/') else {
         return;
     };
-    let d = dirs
-        .entry(format!("{prefix}{sub}"))
-        .or_insert_with(|| MapDir {
-            rel: format!("{prefix}{sub}"),
-            files: 0,
-            symbols: 0,
-            rank: 0.0,
-            top_files: Vec::new(),
-        });
+    let sub = &rel[..prefix.len() + k];
+    let d = dirs.entry(sub.to_vec()).or_insert_with(|| MapDir {
+        rel: sub.to_vec(),
+        files: 0,
+        symbols: 0,
+        rank: 0.0,
+        top_files: Vec::new(),
+    });
     d.files += 1;
     d.symbols += symbols;
     d.rank = d.rank.max(rank);
     if d.top_files.len() < 3 {
-        d.top_files.push(rel.to_string());
+        d.top_files.push(rel.to_vec());
     }
 }
 
@@ -1357,12 +1362,12 @@ pub fn map(o: &Options, dir: &str) -> Result<MapResult> {
         );
     };
     let prefix = if dir.is_empty() {
-        String::new()
+        Vec::new()
     } else {
-        format!("{dir}/")
+        format!("{dir}/").into_bytes()
     };
     let mut files: Vec<MapFile> = Vec::new();
-    let mut dirs: BTreeMap<String, MapDir> = BTreeMap::new();
+    let mut dirs: BTreeMap<Vec<u8>, MapDir> = BTreeMap::new();
     let mut symbols_total = 0usize;
     for (id, rel, rec) in idx.live_files() {
         let flags = FileFlags(rec.flags);
@@ -1378,7 +1383,7 @@ pub fn map(o: &Options, dir: &str) -> Result<MapResult> {
         count_in_dir(&mut dirs, &prefix, rel, n, rank);
         if n == 0
             && !flags.has(FileFlags::PARSE_ERRORS)
-            && !Lang::from_path(Path::new(rel)).has_grammar()
+            && !Lang::from_path(as_path(rel)).has_grammar()
         {
             continue;
         }
@@ -1415,7 +1420,7 @@ pub fn map(o: &Options, dir: &str) -> Result<MapResult> {
         top.truncate(5);
         let imported_by = idx.in_edges(id).len();
         files.push(MapFile {
-            rel: rel.to_string(),
+            rel: rel.to_vec(),
             rank,
             symbols: n,
             by_kind: by_kind
@@ -1430,14 +1435,14 @@ pub fn map(o: &Options, dir: &str) -> Result<MapResult> {
     // selected files the index skipped: no symbols or rank are known
     for rel in also.iter().filter(|r| r.starts_with(&prefix)) {
         count_in_dir(&mut dirs, &prefix, rel, 0, 0.0);
-        if Lang::from_path(Path::new(rel)).has_grammar() {
+        if Lang::from_path(as_path(rel)).has_grammar() {
             files.push(MapFile {
                 rel: rel.clone(),
                 rank: 0.0,
                 symbols: 0,
                 by_kind: Vec::new(),
                 top: Vec::new(),
-                flags: greeg_lang::path_flags(rel),
+                flags: crate::path_flags_of(rel),
                 imported_by: 0,
             });
         }
@@ -1469,7 +1474,8 @@ pub fn map(o: &Options, dir: &str) -> Result<MapResult> {
 
 /// `greeg impact NAME`: what would break if NAME changed.
 pub struct ImpactFile {
-    pub rel: String,
+    /// Root-relative path bytes (`greeg_index::rel`).
+    pub rel: Vec<u8>,
     pub kinds: Vec<(HitKind, usize)>,
     pub flags: FileFlags,
     pub hits: usize,
@@ -1617,7 +1623,7 @@ mod tests {
         let rows: Vec<(&str, u32, bool)> = r
             .entries
             .iter()
-            .map(|e| (e.rel.as_str(), e.line, e.file_module))
+            .map(|e| (std::str::from_utf8(&e.rel).unwrap(), e.line, e.file_module))
             .collect();
         assert_eq!(
             rows,
@@ -1634,7 +1640,7 @@ mod tests {
         let rows: Vec<(&str, bool)> = r
             .entries
             .iter()
-            .map(|e| (e.rel.as_str(), e.file_module))
+            .map(|e| (std::str::from_utf8(&e.rel).unwrap(), e.file_module))
             .collect();
         assert_eq!(rows, vec![("src/net/mod.rs", true)]);
 
@@ -1642,7 +1648,7 @@ mod tests {
         let rows: Vec<(&str, bool)> = r
             .entries
             .iter()
-            .map(|e| (e.rel.as_str(), e.file_module))
+            .map(|e| (std::str::from_utf8(&e.rel).unwrap(), e.file_module))
             .collect();
         assert_eq!(rows, vec![("pkg/__init__.py", true)]);
         assert_eq!(r.entries[0].signature, "module pkg");

@@ -25,7 +25,7 @@ pub struct Record {
     #[serde(default, skip_serializing)]
     pub pat: String,
     pub hits: usize,
-    /// Files shown (relative paths).
+    /// Files shown (relative paths, as `FileResult::rel_text` shows them).
     pub files: Vec<String>,
     /// Legacy (file, line) pairs; superseded by `shown`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -230,7 +230,7 @@ impl Session {
             for sh in &mut sf.hits {
                 if let Some((first, lines)) = &sh.context {
                     let last = first + lines.len().saturating_sub(1) as u32;
-                    if covered(&shown, &f.rel, *first, last, f.mtime) {
+                    if covered(&shown, &f.rel_text(), *first, last, f.mtime) {
                         sh.context = None;
                         sh.seen_before = true;
                     }
@@ -256,7 +256,7 @@ impl Session {
             let new_files = r
                 .files
                 .iter()
-                .filter(|f| !shown.contains(f.rel.as_str()))
+                .filter(|f| !shown.contains(&*f.rel_text()))
                 .count();
             let ident = o
                 .pattern
@@ -287,18 +287,14 @@ impl Session {
         let mut shown: Vec<(String, u32, u32, u64)> = Vec::new();
         for sf in &rep.files {
             let f = &r.files[sf.file];
-            if !files.contains(&f.rel) {
-                files.push(f.rel.clone());
+            let rel = f.rel_text().into_owned();
+            if !files.contains(&rel) {
+                files.push(rel.clone());
             }
             for sh in &sf.hits {
                 for (first, lines) in sh.context.iter().chain(sh.block.iter()) {
                     if !lines.is_empty() {
-                        shown.push((
-                            f.rel.clone(),
-                            *first,
-                            first + lines.len() as u32 - 1,
-                            f.mtime,
-                        ));
+                        shown.push((rel.clone(), *first, first + lines.len() as u32 - 1, f.mtime));
                     }
                 }
             }

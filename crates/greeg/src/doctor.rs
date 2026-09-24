@@ -181,7 +181,7 @@ pub fn run(c: &Common) -> Result<()> {
             if let Ok(idx) = greeg_index::Index::open(&dir) {
                 let mut per: BTreeMap<String, (usize, usize, bool)> = BTreeMap::new();
                 for (_, rel, rec) in idx.live_files() {
-                    let l = Lang::from_path(Path::new(rel));
+                    let l = Lang::from_path(greeg_index::rel::as_path(rel));
                     let e = per
                         .entry(l.name().to_string())
                         .or_insert((0, 0, l.has_grammar()));
