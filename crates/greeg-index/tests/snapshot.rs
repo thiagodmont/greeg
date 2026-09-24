@@ -4,7 +4,7 @@
 
 use greeg_index::build::{BuildOpts, after_phase1_on_this_thread, build};
 use greeg_index::fresh::{self, Mode};
-use greeg_index::snapshot::{MAX_REMOVALS, OPEN_ATTEMPTS, expire_retired, gen_dir};
+use greeg_index::snapshot::{MAX_REMOVALS, OPEN_ATTEMPTS, RETIRED_BUILDS, expire_retired, gen_dir};
 use greeg_index::{Index, format, read_manifest, write_manifest};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -293,4 +293,19 @@ fn an_idle_index_drops_retired_entries_on_its_next_check() {
     assert!(!previous.exists());
     assert!(read_manifest(&t.dir).unwrap().retired.is_empty());
     assert_eq!(idx.live_count(), 2);
+}
+
+#[test]
+fn a_burst_of_rebuilds_keeps_a_bounded_number_of_builds() {
+    let t = tree();
+    for _ in 0..6 {
+        build(&t.root, &t.dir, &opts()).unwrap();
+    }
+    let builds = fs::read_dir(&t.dir)
+        .unwrap()
+        .flatten()
+        .filter(|e| e.file_name().to_string_lossy().starts_with("g-"))
+        .count();
+    assert_eq!(builds, 1 + RETIRED_BUILDS);
+    assert!(Index::open(&t.dir).is_ok());
 }
