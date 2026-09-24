@@ -70,6 +70,23 @@ pub fn display(rel: &[u8]) -> Cow<'_, str> {
     }
 }
 
+/// A lossless text form, for identities kept as text (sessions): the path
+/// itself when it is UTF-8, otherwise a NUL, which no path holds, and the
+/// bytes in hex.
+pub fn key(rel: &[u8]) -> Cow<'_, str> {
+    match std::str::from_utf8(rel) {
+        Ok(s) => Cow::Borrowed(s),
+        Err(_) => {
+            let mut out = String::with_capacity(1 + 2 * rel.len());
+            out.push('\0');
+            for b in rel {
+                out.push_str(&format!("{b:02x}"));
+            }
+            Cow::Owned(out)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -91,5 +108,15 @@ mod tests {
             Cow::Borrowed("src/a\\b.rs")
         ));
         assert_eq!(display(b"caf\xc3\xa9/x\xff\ty.rs"), "café/x\\xFF\\x09y.rs");
+    }
+
+    #[test]
+    fn keys_tell_every_path_apart() {
+        // the display form of these two is the same
+        assert_eq!(display(b"a\\x0Ab"), display(b"a\nb"));
+        assert_ne!(key(b"a\\x0Ab"), key(b"a\nb"));
+        assert_eq!(key(b"a\nb"), "a\nb");
+        assert_eq!(key(b"x\xff"), "\u{0}78ff");
+        assert_ne!(key(b"x\xff"), key("x\u{fffd}".as_bytes()));
     }
 }

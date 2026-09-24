@@ -65,11 +65,14 @@ Paths are the bytes of each name below the root, joined by `/`, the only
 separator on Unix: a backslash or a byte that is not UTF-8 is part of a name
 and is never converted, in the file table, the `skipped` record, freshness
 checks or scans. `--budget 0`, `-l` and `-c` write paths byte for byte, as
-ripgrep does, so each can be opened again. JSON gives a path as `{"text"}`
-when it is UTF-8 and as `{"bytes"}` (base64) otherwise. Ranked headers, verb
-output and sessions show invalid UTF-8 and control bytes as `\xNN`, and path
-heuristics (test, vendored and generated flags) read that form. Import
-resolution only sees UTF-8 paths, since no import can name any other.
+ripgrep does, so each can be opened again. ripgrep-shaped JSON gives a path
+as `{"text"}` when it is UTF-8 and as `{"bytes"}` (base64) otherwise; greeg's
+own JSON fields give the string, or `{"bytes"}`. Ranked headers and verb text
+show invalid UTF-8 and control bytes as `\xNN`, and path heuristics (test,
+vendored and generated flags) read that form. Sessions keep the UTF-8 path,
+or a NUL and the bytes in hex. A file whose path is not UTF-8 resolves no
+imports of its own, and resolution by path never reaches it, since no import
+can spell its path; a Kotlin import resolves by package and still can.
 
 Two choices here were deliberate.
 

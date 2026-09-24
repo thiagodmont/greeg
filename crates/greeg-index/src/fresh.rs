@@ -392,9 +392,10 @@ pub fn check_fsevents(idx: &Index, root: &Path, threads: usize) -> Option<Change
     let t = Instant::now();
     let fsevents_id = current_fsevents_id();
     let abs_root = fs::canonicalize(root).ok()?;
-    let root_s = abs_root.to_string_lossy().into_owned();
+    // a root that is not UTF-8 cannot be named to FSEvents: the stat pass runs
+    let root_s = abs_root.to_str()?;
     let dirs =
-        greeg_fsevents::changed_dirs_since(idx.manifest.fsevents_id, &root_s, FSEVENTS_CUTOFF)?;
+        greeg_fsevents::changed_dirs_since(idx.manifest.fsevents_id, root_s, FSEVENTS_CUTOFF)?;
     let mut ch = Changes {
         method: "fsevents",
         fsevents_id,
@@ -407,16 +408,18 @@ pub fn check_fsevents(idx: &Index, root: &Path, threads: usize) -> Option<Change
     let k = known(idx);
     // relative dir set
     let mut rels: HashSet<Vec<u8>> = HashSet::new();
-    for d in dirs {
-        let d = d.trim_end_matches('/');
-        let r = if d.len() > root_s.len() {
-            d[root_s.len()..].trim_start_matches('/').to_string()
-        } else {
-            String::new()
-        };
+    for d in &dirs {
+        let mut d = d.as_slice();
+        while let [rest @ .., b'/'] = d {
+            d = rest;
+        }
+        let mut r: &[u8] = d.get(root_s.len()..).unwrap_or_default();
+        while let [b'/', rest @ ..] = r {
+            r = rest;
+        }
         // events on paths outside the index (ignored dirs) still matter when they are
         // new: their parent appears too, so only known dirs and the root are listed.
-        rels.insert(r.into_bytes());
+        rels.insert(r.to_vec());
     }
     // known dirs whose entry list moved: a rename or removal of a subdirectory
     // reports only the parent, so every known file below it is re-stat'd too

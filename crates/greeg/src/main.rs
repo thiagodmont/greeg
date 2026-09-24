@@ -1852,6 +1852,15 @@ fn json_data(b: &[u8]) -> serde_json::Value {
     }
 }
 
+/// A path in greeg's own JSON fields (verbs, facets): the string when it is
+/// UTF-8, otherwise `{"bytes": <base64>}`, so every path can be reopened.
+pub(crate) fn json_rel(b: &[u8]) -> serde_json::Value {
+    match std::str::from_utf8(b) {
+        Ok(s) => serde_json::Value::from(s),
+        Err(_) => serde_json::json!({ "bytes": base64(b) }),
+    }
+}
+
 fn base64(b: &[u8]) -> String {
     const A: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::with_capacity(b.len().div_ceil(3) * 4);
@@ -1979,7 +1988,7 @@ fn render_json(w: &mut impl Write, r: &ScanResult, rep: &Report) -> Result<()> {
                 "by_kind":fc.by_kind.iter().map(|(k,n)| json!([k.name(), n])).collect::<Vec<_>>(),
                 "by_dir":fc.by_dir,"by_lang":fc.by_lang,"by_flag":fc.by_flag,
                 "definitions_total":fc.defs_total,"demoted_definitions":fc.demoted_defs,
-                "imported_by":fc.import_files.iter().map(|&fi| files[fi].rel_text()).collect::<Vec<_>>()
+                "imported_by":fc.import_files.iter().map(|&fi| json_rel(&files[fi].rel)).collect::<Vec<_>>()
             }}),
         )?;
         writeln!(w)?;
@@ -2031,6 +2040,8 @@ mod tests {
             assert_eq!(base64(raw), b64);
         }
         assert_eq!(json_data(b"x\xfe"), serde_json::json!({"bytes": "eP4="}));
+        assert_eq!(json_rel(b"a\tb.rs"), serde_json::json!("a\tb.rs"));
+        assert_eq!(json_rel(b"x\xfe"), serde_json::json!({"bytes": "eP4="}));
     }
 
     #[test]

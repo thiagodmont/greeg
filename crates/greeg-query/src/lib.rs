@@ -844,8 +844,9 @@ pub(crate) fn loc_weight(flags: FileFlags, rel: &str, all: bool) -> f32 {
 
 /// File prior: location × near. (Recency from mtime is not used: every file
 /// of a fresh clone is "today".)
-pub(crate) fn file_prior(flags: FileFlags, rel: &str, o: &Options) -> f32 {
-    loc_weight(flags, rel, o.all) * 0.8 * near_weight(rel, &o.near)
+pub(crate) fn file_prior(flags: FileFlags, rel: &[u8], o: &Options) -> f32 {
+    use greeg_index::rel::{display, key};
+    loc_weight(flags, &display(rel), o.all) * 0.8 * near_weight(&key(rel), &o.near)
 }
 
 /// Last whitespace-delimited identifier at the end of `head`, if `head` ends with one.
@@ -1667,7 +1668,7 @@ pub(crate) fn process_file(
         .and_then(|m| SystemTime::now().duration_since(m).ok())
         .map(|d| d.as_secs_f32() / 86400.0)
         .unwrap_or(365.0);
-    let prior = file_prior(flags, &greeg_index::rel::display(&rel), o);
+    let prior = file_prior(flags, &rel, o);
     let mut hits = Vec::with_capacity(sink.hits.len());
     let mut kinds = [0u32; 9];
     // classification for display: lexed up to the last retained line

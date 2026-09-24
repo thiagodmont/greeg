@@ -101,11 +101,10 @@ pub fn origin_ids(idx: &Index, from: &[String]) -> Vec<u32> {
     if from.is_empty() {
         return ids;
     }
+    // session focus holds `greeg_index::rel::key` forms
     for (id, rel, _) in idx.live_files() {
-        if from
-            .iter()
-            .any(|f| f.trim_start_matches("./").as_bytes() == rel)
-        {
+        let key = greeg_index::rel::key(rel);
+        if from.iter().any(|f| f.trim_start_matches("./") == key) {
             ids.push(id);
         }
     }

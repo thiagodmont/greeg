@@ -340,7 +340,7 @@ fn per_hit(r: &ScanResult, fi: usize, hi: usize) -> usize {
 }
 
 fn header_cost(r: &ScanResult, fi: usize) -> usize {
-    tokens::path(&r.files[fi].rel) + 2 + MORE_COST
+    tokens::path(r.files[fi].rel_text().as_bytes()) + 2 + MORE_COST
 }
 
 /// The pattern is a bare identifier searched literally and case-sensitively, so

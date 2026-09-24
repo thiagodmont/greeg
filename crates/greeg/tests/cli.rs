@@ -1144,3 +1144,34 @@ fn skipped_entries_with_non_utf8_names_keep_coverage_known() {
     );
     assert_eq!(json_paths(&json, "begin").len(), 2);
 }
+
+#[test]
+fn verb_json_paths_name_the_file_exactly() {
+    let f = empty_fixture();
+    let names: Vec<(&[u8], serde_json::Value)> = vec![
+        (b"tab\tdefs.rs", serde_json::json!("tab\tdefs.rs")),
+        // APFS refuses names that are not UTF-8
+        #[cfg(target_os = "linux")]
+        (b"caf\xff.rs", serde_json::json!({"bytes": "Y2Fm/y5ycw=="})),
+    ];
+    for (n, _) in &names {
+        byte_tree(&f.root, &[n], "pub fn exact_path_fn() {}\n");
+    }
+    f.indexed();
+    for backend in [&[][..], &["--no-index"][..]] {
+        let o = f.run(&[&["def", "exact_path_fn", "--json"][..], backend].concat());
+        assert_eq!(o.status.code(), Some(0), "{o:?}");
+        let mut want: Vec<_> = names.iter().map(|(_, p)| p.clone()).collect();
+        want.sort_by_key(|p| p.to_string());
+        // `def` lines carry the path at the top level
+        let mut got: Vec<serde_json::Value> = String::from_utf8(o.stdout)
+            .unwrap()
+            .lines()
+            .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
+            .filter(|v| v["type"] == "def")
+            .map(|v| v["path"].clone())
+            .collect();
+        got.sort_by_key(|p| p.to_string());
+        assert_eq!(got, want, "{backend:?}");
+    }
+}

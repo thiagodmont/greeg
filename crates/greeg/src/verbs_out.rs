@@ -125,7 +125,7 @@ fn file_flag_suffix(rel: &[u8], flags: FileFlags) -> String {
 
 fn def_json(e: &DefEntry) -> serde_json::Value {
     json!({
-        "path":path_text(&e.rel), "line": e.line, "kind": e.kind.name(), "name": e.name, "container": chain_str(&e.chain),
+        "path":crate::json_rel(&e.rel), "line": e.line, "kind": e.kind.name(), "name": e.name, "container": chain_str(&e.chain),
         "signature": e.signature, "doc": e.doc, "flags": sym_flags(e.flags, e.file_flags), "supertypes": e.supers,
         "score": e.score, "reach": e.reach, "start": e.start, "end": e.end
     })
@@ -404,7 +404,7 @@ pub fn run_show(c: &Common, o: &Options, locs: &[(String, u32)]) -> Result<()> {
             });
             serde_json::to_writer(
                 &mut w,
-                &json!({"type":"show","data":{"path":path_text(&it.rel),"line":it.asked,"symbol":symbol,"start_line":it.body.first,"end_line":it.body.last,"shown_to":shown_to,"clipped":it.body.clipped,"text":text}}),
+                &json!({"type":"show","data":{"path":crate::json_rel(&it.rel),"line":it.asked,"symbol":symbol,"start_line":it.body.first,"end_line":it.body.last,"shown_to":shown_to,"clipped":it.body.clipped,"text":text}}),
             )?;
             writeln!(w)?;
         }
@@ -510,7 +510,7 @@ pub fn run_refs(c: &Common, o: &Options, name: &str) -> Result<()> {
                 let h = &f.hits[hi];
                 serde_json::to_writer(
                     &mut w,
-                    &json!({"type":"ref","data":{"kind":k.name(),"path":path_text(&f.rel),"line":h.line,"text":String::from_utf8_lossy(&h.text),"symbol":chain_str(&h.chain),"file_flags":f.flags.names(),"score":h.score}}),
+                    &json!({"type":"ref","data":{"kind":k.name(),"path":crate::json_rel(&f.rel),"line":h.line,"text":String::from_utf8_lossy(&h.text),"symbol":chain_str(&h.chain),"file_flags":f.flags.names(),"score":h.score}}),
                 )?;
                 writeln!(w)?;
             }
@@ -630,7 +630,7 @@ pub fn run_callers(c: &Common, o: &Options, name: &str, depth: usize) -> Result<
         for cl in r.callers.iter().take(limit) {
             serde_json::to_writer(
                 &mut w,
-                &json!({"type":"caller","data":{"path":path_text(&cl.rel),"symbol":chain_str(&cl.chain),"kind":cl.chain.last().map(|(k,_)| k.name()),"def_line":cl.def_line,"count":cl.count,"lines":cl.lines,"file_flags":cl.file_flags.names(),"called_by":cl.called_by}}),
+                &json!({"type":"caller","data":{"path":crate::json_rel(&cl.rel),"symbol":chain_str(&cl.chain),"kind":cl.chain.last().map(|(k,_)| k.name()),"def_line":cl.def_line,"count":cl.count,"lines":cl.lines,"file_flags":cl.file_flags.names(),"called_by":cl.called_by}}),
             )?;
             writeln!(w)?;
         }
@@ -802,13 +802,13 @@ pub fn run_outline(c: &Common, o: &Options, file: &str, imports: bool) -> Result
         for d in &r.defs {
             serde_json::to_writer(
                 &mut w,
-                &json!({"type":"symbol","data":{"path":path_text(&r.rel),"name":d.name,"kind":d.kind.name(),"line":d.line,"start":d.start,"end":d.end,"container":chain_str(&d.chain[..d.chain.len().saturating_sub(1)]),"depth":d.chain.len().saturating_sub(1),"flags":sym_flags(d.flags, FileFlags::default())}}),
+                &json!({"type":"symbol","data":{"path":crate::json_rel(&r.rel),"name":d.name,"kind":d.kind.name(),"line":d.line,"start":d.start,"end":d.end,"container":chain_str(&d.chain[..d.chain.len().saturating_sub(1)]),"depth":d.chain.len().saturating_sub(1),"flags":sym_flags(d.flags, FileFlags::default())}}),
             )?;
             writeln!(w)?;
         }
         serde_json::to_writer(
             &mut w,
-            &json!({"type":"footer","data":{"verb":"outline","path":path_text(&r.rel),"symbols":r.defs.len(),"imports":r.imports,"source":r.source,"parse_errors":r.parse_errors,"elapsed_ms":r.elapsed_ms}}),
+            &json!({"type":"footer","data":{"verb":"outline","path":crate::json_rel(&r.rel),"symbols":r.defs.len(),"imports":r.imports,"source":r.source,"parse_errors":r.parse_errors,"elapsed_ms":r.elapsed_ms}}),
         )?;
         writeln!(w)?;
         w.flush()?;
@@ -949,14 +949,14 @@ pub fn run_map(c: &Common, o: &Options, dir: &str) -> Result<()> {
         for d in r.dirs.iter().take(dir_limit) {
             serde_json::to_writer(
                 &mut w,
-                &json!({"type":"dir","data":{"path":path_text(&d.rel),"files":d.files,"symbols":d.symbols,"rank":d.rank}}),
+                &json!({"type":"dir","data":{"path":crate::json_rel(&d.rel),"files":d.files,"symbols":d.symbols,"rank":d.rank}}),
             )?;
             writeln!(w)?;
         }
         for f in r.files.iter().take(file_limit) {
             serde_json::to_writer(
                 &mut w,
-                &json!({"type":"file","data":{"path":path_text(&f.rel),"rank":f.rank,"symbols":f.symbols,"imported_by":f.imported_by,"by_kind":f.by_kind.iter().map(|(k,n)| json!([k.name(), n])).collect::<Vec<_>>(),"top":f.top.iter().map(|(k,n)| json!([k.name(), n])).collect::<Vec<_>>(),"file_flags":f.flags.names()}}),
+                &json!({"type":"file","data":{"path":crate::json_rel(&f.rel),"rank":f.rank,"symbols":f.symbols,"imported_by":f.imported_by,"by_kind":f.by_kind.iter().map(|(k,n)| json!([k.name(), n])).collect::<Vec<_>>(),"top":f.top.iter().map(|(k,n)| json!([k.name(), n])).collect::<Vec<_>>(),"file_flags":f.flags.names()}}),
             )?;
             writeln!(w)?;
         }
@@ -1101,12 +1101,12 @@ pub fn run_impact(c: &Common, o: &Options, name: &str) -> Result<()> {
         };
     if c.json {
         let grp = |files: &[verbs::ImpactFile]| -> Vec<serde_json::Value> {
-            files.iter().map(|f| json!({"path":path_text(&f.rel),"hits":f.hits,"kinds":f.kinds.iter().map(|(k,n)| json!([k.name(), n])).collect::<Vec<_>>(),"file_flags":f.flags.names(),"sample":f.sample})).collect()
+            files.iter().map(|f| json!({"path":crate::json_rel(&f.rel),"hits":f.hits,"kinds":f.kinds.iter().map(|(k,n)| json!([k.name(), n])).collect::<Vec<_>>(),"file_flags":f.flags.names(),"sample":f.sample})).collect()
         };
         serde_json::to_writer(
             &mut w,
             &json!({"type":"impact","data":{"name":r.name,"definitions":r.defs.iter().map(def_json).collect::<Vec<_>>(),"will_break":grp(&r.will_break),"may_break":grp(&r.may_break),"review":grp(&r.review),
-            "callers":r.callers.callers.iter().take(per_group).map(|cl| json!({"path":path_text(&cl.rel),"symbol":chain_str(&cl.chain),"count":cl.count,"called_by":cl.called_by})).collect::<Vec<_>>(),
+            "callers":r.callers.callers.iter().take(per_group).map(|cl| json!({"path":crate::json_rel(&cl.rel),"symbol":chain_str(&cl.chain),"count":cl.count,"called_by":cl.called_by})).collect::<Vec<_>>(),
             "total_hits":r.total_hits,"elapsed_ms":r.elapsed_ms}}),
         )?;
         writeln!(w)?;

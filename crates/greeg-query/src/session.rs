@@ -6,6 +6,7 @@
 use crate::session_store::Store;
 use crate::shape::Report;
 use crate::{Mode, Options, ScanResult};
+use greeg_index::rel::key;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 #[cfg(any(test, target_os = "linux"))]
@@ -25,7 +26,7 @@ pub struct Record {
     #[serde(default, skip_serializing)]
     pub pat: String,
     pub hits: usize,
-    /// Files shown (relative paths, as `FileResult::rel_text` shows them).
+    /// Files shown (relative paths, as `greeg_index::rel::key` spells them).
     pub files: Vec<String>,
     /// Legacy (file, line) pairs; superseded by `shown`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -230,7 +231,7 @@ impl Session {
             for sh in &mut sf.hits {
                 if let Some((first, lines)) = &sh.context {
                     let last = first + lines.len().saturating_sub(1) as u32;
-                    if covered(&shown, &f.rel_text(), *first, last, f.mtime) {
+                    if covered(&shown, &key(&f.rel), *first, last, f.mtime) {
                         sh.context = None;
                         sh.seen_before = true;
                     }
@@ -256,7 +257,7 @@ impl Session {
             let new_files = r
                 .files
                 .iter()
-                .filter(|f| !shown.contains(&*f.rel_text()))
+                .filter(|f| !shown.contains(&*key(&f.rel)))
                 .count();
             let ident = o
                 .pattern
@@ -287,7 +288,7 @@ impl Session {
         let mut shown: Vec<(String, u32, u32, u64)> = Vec::new();
         for sf in &rep.files {
             let f = &r.files[sf.file];
-            let rel = f.rel_text().into_owned();
+            let rel = key(&f.rel).into_owned();
             if !files.contains(&rel) {
                 files.push(rel.clone());
             }

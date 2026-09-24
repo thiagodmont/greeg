@@ -626,7 +626,7 @@ Same binaries, 151 pairs, on the four flagged cases in both backends. Exit statu
 
 Originating PR: [#33](https://github.com/thiagodmont/greeg/pull/33).
 
-v0.7.0 against the branch that keeps paths as their bytes from the walk to the output (format 8). All 34 cases keep their exit status and stdout, token counts are unchanged, and every contract passes. Medians range from −10.7% to +13.9%. Flags: scan fuzzy_miss_unlimited +13.9% median, scan split_miss_unlimited p95 only. Index build, disk, open, freshness and post-edit costs on tokio, django, ktor and TypeScript-5.9 (bench/index_costs.py, against v0.7.0 and against main) are in the PR. Load average was 5.2–14.7. The harness records no execution time; the result file was written at 2026-09-24T19:04:51Z.
+v0.7.0 against the branch that keeps paths as their bytes from the walk to the output (format 8). All 34 cases keep their exit status and stdout (JSON compared without elapsed fields), token counts are unchanged, and every contract passes. Medians range from −10.7% to +13.9%. Flags: scan fuzzy_miss_unlimited +13.9% median, scan split_miss_unlimited p95 only. Index build, disk, open, freshness and post-edit costs on tokio, django, ktor and TypeScript-5.9 (bench/index_costs.py, against v0.7.0 and against main) are in the PR. Load average was 5.2–14.7. The harness records no execution time; the result file was written at 2026-09-24T19:04:51Z.
 
 `greeg 0.7.0` → `greeg 0.7.0+49ed1934b.dirty`; 51 randomized pairs per case, 3 warmups on the same 256-file warm synthetic corpus. Contract checks passed: **30/30 → 30/30**. Cases above the 10% median / 20% p95 investigation thresholds: **2**.
 
@@ -673,7 +673,7 @@ v0.7.0 against the branch that keeps paths as their bytes from the walk to the o
 
 Originating PR: [#33](https://github.com/thiagodmont/greeg/pull/33).
 
-Same binaries, 151 pairs, on the two flagged cases and case_miss_files in both backends. Exit status and stdout are unchanged and every contract passes. No flag repeats: medians range from −0.6% to +1.8%, p95 at most +1.9%. Load average was 3.7–3.9. The harness records no execution time; the result file was written at 2026-09-24T19:14:57Z.
+Same binaries, 151 pairs, on the two flagged cases and case_miss_files in both backends. Exit status and stdout (JSON compared without elapsed fields) are unchanged and every contract passes. No flag repeats: medians range from −0.6% to +1.8%, p95 at most +1.9%. Load average was 3.7–3.9. The harness records no execution time; the result file was written at 2026-09-24T19:14:57Z.
 
 `greeg 0.7.0` → `greeg 0.7.0+49ed1934b.dirty`; 151 randomized pairs per case, 3 warmups on the same 256-file warm synthetic corpus. Contract checks passed: **6/6 → 6/6**. Cases above the 10% median / 20% p95 investigation thresholds: **0**.
 
