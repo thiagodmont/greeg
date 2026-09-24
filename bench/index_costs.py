@@ -81,6 +81,21 @@ def tree_listing(path):
     return dict(sorted(listing.items()))
 
 
+def manifest_path(index):
+    """The manifest of the layout directory, `v<N>/`, a binary from 0.8 on
+    writes; a top-level one (releases before 0.8, which newer binaries leave
+    in place) only when there is none."""
+    found = sorted(p for p in Path(index).glob("v*/manifest") if p.parent.name[1:].isdigit())
+    if len(found) > 1:
+        raise RuntimeError(f"expected one layout manifest in {index}, found {found}")
+    if found:
+        return found[0]
+    top = Path(index) / "manifest"
+    if not top.exists():
+        raise RuntimeError(f"no manifest in {index}")
+    return top
+
+
 def settle(index, timeout=30.0):
     """Wait until no background build or refresh marker is left in the index."""
     deadline = time.monotonic() + timeout
@@ -137,7 +152,7 @@ def measure(name, binaries, args, rng):
         for label in binaries:
             idx = Path(envs[label]["GREEG_INDEX_DIR"])
             listing = tree_listing(idx)
-            manifest = json.loads((idx / "manifest").read_text())
+            manifest = json.loads(manifest_path(idx).read_text())
             walls, cpus, rsss = zip(*builds[label])
             entry["build"][label] = {
                 "wall_ms": summary(walls), "cpu_ms": summary(cpus), "peak_rss_mb": summary(rsss),

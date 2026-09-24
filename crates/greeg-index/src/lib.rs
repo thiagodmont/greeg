@@ -26,7 +26,10 @@ use serde::{Deserialize, Serialize};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-pub const FORMAT_VERSION: u16 = 5;
+/// The on-disk layout. Every change to what a build or refresh writes gets a
+/// new number, released or not, so binaries of different layouts never share
+/// files (`format_dir`); `layout_fingerprint_matches_format_version` enforces it.
+pub const FORMAT_VERSION: u32 = 6;
 
 /// Create an index directory and any missing parents owner-only (0700).
 /// Existing directories are left as they are, never chmodded.
@@ -83,8 +86,12 @@ pub fn open_regular(path: &Path) -> std::io::Result<std::fs::File> {
 /// Manifest: JSON, small, rewritten atomically on every publish/check.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Manifest {
-    pub format: u16,
+    pub format: u32,
+    /// The root as text, for display.
     pub root: String,
+    /// The root this index was built for; an index is used only for it.
+    #[serde(default)]
+    pub root_id: RootId,
     pub generation: u32,
     pub phase1: bool,
     /// Symbols, spans and graph published (phase 2, ARCHITECTURE.md).
@@ -128,6 +135,29 @@ pub struct Manifest {
     pub skipped: String,
 }
 
+/// A repository root's identity: its canonical path's bytes (hashed), device
+/// and inode. A root replaced at the same path (a new clone) differs too.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RootId {
+    pub hash: String,
+    pub dev: u64,
+    pub ino: u64,
+}
+
+impl RootId {
+    pub fn of(root: &Path) -> Option<RootId> {
+        use std::os::unix::ffi::OsStrExt;
+        use std::os::unix::fs::MetadataExt;
+        let real = std::fs::canonicalize(root).ok()?;
+        let md = std::fs::metadata(&real).ok()?;
+        Some(RootId {
+            hash: blake3::hash(real.as_os_str().as_bytes()).to_hex()[..32].to_string(),
+            dev: md.dev(),
+            ino: md.ino(),
+        })
+    }
+}
+
 /// The user cache directory greeg owns: `~/Library/Caches/greeg` on macOS,
 /// `$XDG_CACHE_HOME/greeg` or `~/.cache/greeg` elsewhere. Per-repo index
 /// directories and the opt-in stats live under it.
@@ -141,21 +171,71 @@ pub fn cache_base() -> Result<PathBuf> {
     })
 }
 
-/// Where the index for `root` lives (ARCHITECTURE.md).
-pub fn index_dir_for(root: &Path) -> Result<PathBuf> {
+/// The directory that holds everything greeg keeps for `root`: sessions, and
+/// one index per layout in `v<N>/` (ARCHITECTURE.md). `GREEG_INDEX_DIR`
+/// overrides it, as `--index-dir` does (`repo_dir`).
+pub fn repo_dir_for(root: &Path) -> Result<PathBuf> {
     if let Some(d) = std::env::var_os("GREEG_INDEX_DIR") {
         return Ok(PathBuf::from(d));
     }
     let real =
         std::fs::canonicalize(root).with_context(|| format!("canonicalize {}", root.display()))?;
-    let hash = blake3::hash(real.to_string_lossy().as_bytes());
-    let hex = hash.to_hex();
-    let base = cache_base()?;
+    Ok(cache_base()?.join(repo_dir_name(&real)))
+}
+
+/// `<name>-<16 hex>` for a canonical root. The hash covers the path's bytes,
+/// so roots that differ only in bytes that are not UTF-8 stay apart; for a
+/// UTF-8 path it is the name releases before 0.8 used.
+fn repo_dir_name(real: &Path) -> String {
+    use std::os::unix::ffi::OsStrExt;
+    let hex = blake3::hash(real.as_os_str().as_bytes()).to_hex();
     let name = real
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_else(|| "root".into());
-    Ok(base.join(format!("{}-{}", sanitize(&name), &hex[..16])))
+    format!("{}-{}", sanitize(&name), &hex[..16])
+}
+
+/// This layout's index inside a repository directory. Other layouts' files,
+/// including the top-level files of releases before 0.8, are never touched.
+pub fn format_dir(repo: &Path) -> PathBuf {
+    repo.join(format!("v{FORMAT_VERSION}"))
+}
+
+/// The repository directory an index directory from `format_dir` belongs to.
+pub fn repo_of(index_dir: &Path) -> &Path {
+    index_dir.parent().unwrap_or(index_dir)
+}
+
+/// `repo_dir_for`, or the directory `--index-dir` named.
+pub fn repo_dir(root: &Path, explicit: Option<&Path>) -> Result<PathBuf> {
+    match explicit {
+        Some(d) => Ok(d.to_path_buf()),
+        None => repo_dir_for(root),
+    }
+}
+
+/// Where this layout's index for `root` lives.
+pub fn index_dir(root: &Path, explicit: Option<&Path>) -> Result<PathBuf> {
+    Ok(format_dir(&repo_dir(root, explicit)?))
+}
+
+pub fn index_dir_for(root: &Path) -> Result<PathBuf> {
+    index_dir(root, None)
+}
+
+/// Mark an index directory as greeg's own (`OWNER`, 0600), so cleanup and
+/// purge can tell it from anything else. Kept once written.
+pub fn write_owner(dir: &Path) -> Result<()> {
+    let path = dir.join("OWNER");
+    if path.exists() {
+        return Ok(());
+    }
+    let tmp = format::tmp_path(&path);
+    create_private(&tmp)?
+        .write_all(format!("greeg {} {FORMAT_VERSION}\n", env!("CARGO_PKG_VERSION")).as_bytes())?;
+    std::fs::rename(&tmp, &path)?;
+    Ok(())
 }
 
 fn sanitize(s: &str) -> String {
@@ -234,6 +314,22 @@ pub fn write_manifest(dir: &Path, m: &Manifest) -> Result<()> {
 mod tests {
     use super::*;
     use std::fs;
+
+    #[test]
+    fn utf8_roots_keep_the_directory_names_of_earlier_releases() {
+        let real = Path::new("/home/dev/my repo");
+        let lossy = blake3::hash(real.to_string_lossy().as_bytes()).to_hex();
+        assert_eq!(repo_dir_name(real), format!("my_repo-{}", &lossy[..16]));
+    }
+
+    #[test]
+    fn non_utf8_roots_get_distinct_index_directories() {
+        use std::os::unix::ffi::OsStrExt;
+        let a = Path::new(std::ffi::OsStr::from_bytes(b"/src/r\xff"));
+        let b = Path::new(std::ffi::OsStr::from_bytes(b"/src/r\xfe"));
+        assert_eq!(a.to_string_lossy(), b.to_string_lossy());
+        assert_ne!(repo_dir_name(a), repo_dir_name(b));
+    }
 
     #[test]
     fn open_regular_refuses_symlinks_and_fifos_without_blocking() {

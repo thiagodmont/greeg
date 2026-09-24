@@ -1,6 +1,7 @@
 //! On-disk layouts. All integers little-endian. Every file starts with a
-//! 16-byte header: magic "GREEG", format u16, component u8, payload length
-//! u64. Fixed-width tables are 8-byte aligned so they can be
+//! 48-byte header: magic "GREEG\0\0\0", format u32, component u8, 3 reserved,
+//! payload length u64, epoch u64, sequence u32, 12 reserved (the last five
+//! fields zero until snapshots use them). Fixed-width tables are 8-byte aligned so they can be
 //! viewed as `&[u32]`/`&[u64]` straight from the mmap.
 //!
 //! files.<gen>.bin
@@ -62,8 +63,8 @@ use std::io::Write;
 use std::path::Path;
 use std::sync::atomic::{AtomicU32, Ordering};
 
-pub const MAGIC: &[u8; 5] = b"GREEG";
-pub const HEADER_LEN: usize = 16;
+pub const MAGIC: &[u8; 8] = b"GREEG\0\0\0";
+pub const HEADER_LEN: usize = 48;
 pub const COMP_FILES: u8 = 1;
 pub const COMP_GRAMS: u8 = 2;
 pub const COMP_DELTA: u8 = 3;
@@ -151,27 +152,28 @@ pub struct ImpRec {
     pub info: u16,
 }
 
-/// 16 bytes: "GREEG" (5), format u16 (2), component u8 (1), payload length u64 (8).
 pub fn write_header(w: &mut impl Write, comp: u8, payload_len: u64) -> Result<()> {
-    w.write_all(MAGIC)?;
-    w.write_all(&crate::FORMAT_VERSION.to_le_bytes())?;
-    w.write_all(&[comp])?;
-    w.write_all(&payload_len.to_le_bytes())?;
+    let mut h = [0u8; HEADER_LEN];
+    h[..8].copy_from_slice(MAGIC);
+    h[8..12].copy_from_slice(&crate::FORMAT_VERSION.to_le_bytes());
+    h[12] = comp;
+    h[16..24].copy_from_slice(&payload_len.to_le_bytes());
+    w.write_all(&h)?;
     Ok(())
 }
 
 pub fn check_header(bytes: &[u8], comp: u8) -> Result<&[u8]> {
-    if bytes.len() < HEADER_LEN || &bytes[..5] != MAGIC {
+    if bytes.len() < HEADER_LEN || &bytes[..8] != MAGIC {
         bail!("not a greeg index file");
     }
-    let fmt = u16::from_le_bytes([bytes[5], bytes[6]]);
+    let fmt = u32::from_le_bytes(bytes[8..12].try_into().unwrap());
     if fmt != crate::FORMAT_VERSION {
         bail!("index format {fmt} != {}", crate::FORMAT_VERSION);
     }
-    if bytes[7] != comp {
-        bail!("wrong component {} (want {comp})", bytes[7]);
+    if bytes[12] != comp {
+        bail!("wrong component {} (want {comp})", bytes[12]);
     }
-    let len = u64::from_le_bytes(bytes[8..16].try_into().unwrap()) as usize;
+    let len = u64::from_le_bytes(bytes[16..24].try_into().unwrap()) as usize;
     if bytes.len() < HEADER_LEN + len {
         bail!("truncated index file");
     }

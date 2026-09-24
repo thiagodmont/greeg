@@ -238,7 +238,9 @@ hidden**. `--budget 0`, `-l` and `-c` disable query relaxation by default.
 
 The index lives outside your repo (under `~/Library/Caches/greeg` on macOS,
 `$XDG_CACHE_HOME/greeg` elsewhere), so it never dirties the working tree and
-survives `git clean`.
+survives `git clean`. Each index layout has its own `v<N>/` directory there, so
+two greeg versions on one repository never share or delete each other's index;
+upgrading to a new layout rebuilds once, in the background.
 
 ```bash
 greeg index                 # build now instead of on first query

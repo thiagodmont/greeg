@@ -232,7 +232,8 @@ struct Common {
     /// Do not use (or build) the index; scan the tree
     #[arg(long = "no-index", global = true)]
     no_index: bool,
-    /// Index directory (default: per-repo directory under the user cache dir)
+    /// Directory for this repository's index, kept in its v<N>/ subdirectory
+    /// (default: per-repo directory under the user cache dir)
     #[arg(long = "index-dir", global = true)]
     index_dir: Option<PathBuf>,
     /// Re-parse shown files with tree-sitter for exact hit kinds (call/type/member)
@@ -256,7 +257,7 @@ enum Cmd {
         /// Repository root (default: current directory)
         #[arg(long = "root", default_value = ".")]
         root: PathBuf,
-        /// Index directory override
+        /// Directory for this repository's index, kept in its v<N>/ subdirectory
         #[arg(long = "index-dir")]
         index_dir: Option<PathBuf>,
         /// Print the manifest and exit
@@ -465,10 +466,7 @@ fn run_index(
     quiet: bool,
     refresh: bool,
 ) -> Result<()> {
-    let dir = match index_dir {
-        Some(d) => d,
-        None => greeg_index::index_dir_for(&root)?,
-    };
+    let dir = greeg_index::index_dir(&root, index_dir.as_deref())?;
     if refresh {
         return greeg_query::indexed::refresh_now(
             &root,
@@ -486,6 +484,12 @@ fn run_index(
     }
     if check {
         let idx = greeg_index::Index::open(&dir)?;
+        if !idx.built_for(&root) {
+            anyhow::bail!(
+                "the index in {} was built for another root; run `greeg index` to rebuild it",
+                dir.display()
+            );
+        }
         let mode = greeg_index::fresh::Mode::parse(&fresh)
             .ok_or_else(|| anyhow::anyhow!("bad --fresh"))?;
         let t = std::time::Instant::now();

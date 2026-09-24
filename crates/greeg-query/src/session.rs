@@ -159,11 +159,9 @@ impl Session {
     /// Open (or create) the session for this query. `None` when no index
     /// directory can be determined or the private store cannot be accessed.
     pub fn open(o: &Options, id: Option<&str>) -> Option<Session> {
-        let dir = match &o.index_dir {
-            Some(d) => d.clone(),
-            None => greeg_index::index_dir_for(&o.root).ok()?,
-        }
-        .join("session");
+        let dir = greeg_index::repo_dir(&o.root, o.index_dir.as_deref())
+            .ok()?
+            .join("session");
         let id = id
             .map(str::to_owned)
             .or_else(|| {

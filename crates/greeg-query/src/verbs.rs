@@ -1570,7 +1570,7 @@ mod tests {
         let base = std::env::temp_dir().join(format!("greeg-def-modules-{}", std::process::id()));
         let _ = fs::remove_dir_all(&base);
         let root = base.join("tree");
-        let dir = base.join("index");
+        let dir = greeg_index::format_dir(&base.join("index"));
         fs::create_dir_all(root.join("src/net")).unwrap();
         fs::create_dir_all(root.join("pkg")).unwrap();
         fs::create_dir_all(root.join(".git")).unwrap();
@@ -1606,7 +1606,7 @@ mod tests {
         .unwrap();
         let o = Options {
             root: root.clone(),
-            index_dir: Some(dir.clone()),
+            index_dir: Some(greeg_index::repo_of(&dir).to_path_buf()),
             fresh: Fresh::None,
             ..Default::default()
         };
