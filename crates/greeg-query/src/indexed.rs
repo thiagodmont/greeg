@@ -11,6 +11,7 @@ use anyhow::{Context, Result};
 use greeg_index::format::{NONE, SymRec};
 use greeg_index::fresh::{self, Mode as Fresh};
 use greeg_index::index::SymId;
+use greeg_index::snapshot::Snapshot;
 use greeg_index::symtab::kind_from_code;
 use greeg_index::{Index, lock, plan, read_manifest};
 use greeg_lang::sym::SYM_OBJ_MEMBER;
@@ -20,7 +21,7 @@ use std::fs;
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering::Relaxed};
+use std::sync::atomic::{AtomicUsize, Ordering::Relaxed};
 use std::time::Instant;
 
 /// Queued background work: (root, index dir, refresh). `refresh` is the
@@ -171,16 +172,16 @@ fn refresh_inner(root: &Path, dir: &Path, threads: usize) -> Result<()> {
     Ok(())
 }
 
-/// Generation + 1 of the index this process last opened through `open_fresh`
-/// (0 = none), so `mark_corrupt` can tell the manifest that failed from one a
-/// rebuild published since.
-static OPENED_GEN: AtomicU64 = AtomicU64::new(0);
+/// The snapshot this process last opened through `open_fresh`, so
+/// `mark_corrupt` can tell the one that failed from one published since.
+static OPENED: Mutex<Option<Snapshot>> = Mutex::new(None);
 
 /// Drop the manifest so the next query rebuilds, and start that rebuild now.
-/// Runs under the writer lock, and only while the manifest is still the one
-/// this process opened: a generation a concurrent rebuild published since the
+/// Runs under the writer lock, and only while the manifest still names the
+/// snapshot this process opened: one a concurrent writer published since the
 /// failure is left alone (a process that never opened an index deletes
-/// unconditionally, e.g. after a SIGBUS re-exec).
+/// unconditionally, e.g. after a SIGBUS re-exec). The unnamed build
+/// directory is an orphan for the next build's cleanup.
 pub fn mark_corrupt(o: &Options) {
     let Ok(dir) = greeg_index::index_dir(&o.root, o.index_dir.as_deref()) else {
         return;
@@ -188,15 +189,14 @@ pub fn mark_corrupt(o: &Options) {
     let Ok(_lock) = lock::writer(&dir) else {
         return;
     };
-    let opened = OPENED_GEN.load(Relaxed);
-    if opened != 0
+    let opened = *OPENED.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(snap) = opened
         && let Some(m) = read_manifest(&dir)
-        && u64::from(m.generation) + 1 != opened
+        && m.snapshot() != snap
     {
         return;
     }
     let _ = fs::remove_file(dir.join("manifest"));
-    let _ = fs::remove_dir_all(dir.join("delta"));
     spawn_build(&o.root, &dir);
 }
 
@@ -340,7 +340,7 @@ fn open_fresh_with(
         }
         mode = retry_mode(&idx, mode);
     }
-    OPENED_GEN.store(u64::from(idx.manifest.generation) + 1, Relaxed);
+    *OPENED.lock().unwrap_or_else(|e| e.into_inner()) = Some(idx.manifest.snapshot());
     // a phase-1-only index answers gram queries; symbols arrive when the build finishes
     Ok(Some(Opened {
         idx,

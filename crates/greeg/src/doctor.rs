@@ -25,18 +25,6 @@ fn ago(unix_ms: u64) -> String {
     }
 }
 
-fn dir_size(dir: &Path, prefix: &str) -> u64 {
-    std::fs::read_dir(dir)
-        .map(|rd| {
-            rd.flatten()
-                .filter(|e| e.file_name().to_string_lossy().starts_with(prefix))
-                .filter_map(|e| e.metadata().ok())
-                .map(|m| m.len())
-                .sum()
-        })
-        .unwrap_or(0)
-}
-
 pub fn run(c: &Common) -> Result<()> {
     let stdout = std::io::stdout();
     let mut w = stdout.lock();
@@ -75,17 +63,21 @@ pub fn run(c: &Common) -> Result<()> {
             }
         }
         Some(m) => {
+            use greeg_index::format::{
+                COMP_FILES, COMP_GRAMS, COMP_GRAPH, COMP_SPANS, COMP_SYMBOLS, COMP_WORDS,
+            };
             let g = m.generation;
-            let sz = |p: &str| dir_size(&dir, &format!("{p}.{g}."));
+            let len = |name: String| std::fs::metadata(dir.join(name)).map_or(0, |md| md.len());
+            let sz = |comp: u8| m.component(comp).map_or(0, |(name, _)| len(name));
             let (fb, gb, wb, sb, pb, grb) = (
-                sz("files"),
-                sz("grams"),
-                sz("words"),
-                sz("symbols"),
-                sz("spans"),
-                sz("graph"),
+                sz(COMP_FILES),
+                sz(COMP_GRAMS),
+                sz(COMP_WORDS),
+                sz(COMP_SYMBOLS),
+                sz(COMP_SPANS),
+                sz(COMP_GRAPH),
             );
-            let deltas = dir_size(&dir.join("delta"), "");
+            let deltas: u64 = (1..=m.deltas).map(|n| len(m.delta(n))).sum();
             let total = fb + gb + wb + sb + pb + grb + deltas;
             writeln!(
                 w,

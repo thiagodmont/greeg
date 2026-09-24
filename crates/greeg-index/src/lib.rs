@@ -17,6 +17,7 @@ pub mod private;
 pub mod rel;
 pub mod resolve;
 pub mod skipped;
+pub mod snapshot;
 pub mod symtab;
 pub mod words;
 
@@ -30,7 +31,7 @@ use std::path::{Path, PathBuf};
 /// The on-disk layout. Every change to what a build or refresh writes gets a
 /// new number, released or not, so binaries of different layouts never share
 /// files (`format_dir`); `layout_fingerprint_matches_format_version` enforces it.
-pub const FORMAT_VERSION: u32 = 8;
+pub const FORMAT_VERSION: u32 = 9;
 
 /// Create an index directory and any missing parents owner-only (0700).
 /// Existing directories are left as they are, never chmodded.
@@ -93,7 +94,18 @@ pub struct Manifest {
     /// The root this index was built for; an index is used only for it.
     #[serde(default)]
     pub root_id: RootId,
+    /// Builds published in this directory so far.
     pub generation: u32,
+    /// This build's random identity; its files live in `g-<epoch>/`
+    /// (`snapshot.rs`), and every component header carries it.
+    pub epoch: u64,
+    /// Publication within the build: 1 after phase 1, 2 after phase 2.
+    pub seq: u32,
+    /// The publication sequence of each base component.
+    pub components: snapshot::Components,
+    /// Superseded entries, removed once their grace period is over.
+    #[serde(default)]
+    pub retired: Vec<snapshot::Retired>,
     pub phase1: bool,
     /// Symbols, spans and graph published (phase 2, ARCHITECTURE.md).
     #[serde(default)]

@@ -517,11 +517,7 @@ fn check_tree(idx: &Index, root: &Path, mode: Mode, threads: usize) -> Option<Ch
 
 /// Does the on-disk manifest still describe the index `idx` was opened from?
 fn same_index(idx: &Index, cur: &crate::Manifest) -> bool {
-    let m = &idx.manifest;
-    cur.generation == m.generation
-        && cur.phase1 == m.phase1
-        && cur.phase2 == m.phase2
-        && cur.deltas == m.deltas
+    cur.snapshot() == idx.manifest.snapshot()
 }
 
 /// Apply changes as a new delta segment; update the manifest. Returns the
@@ -554,7 +550,11 @@ pub fn apply(idx: &Index, root: &Path, ch: &Changes) -> Result<usize> {
         if ch.no_ino {
             m.stamp_mode = crate::STAMP_NO_INO.into();
         }
+        // an idle index drops what the last publication superseded here
+        let (retired, due) = crate::snapshot::retire(&m.retired, [], m.verified_unix_ms);
+        m.retired = retired;
         write_manifest(&idx.dir, &m)?;
+        crate::snapshot::clean(&idx.dir, &m, &due, false, m.verified_unix_ms);
         return Ok(0);
     }
     let first_id = idx.next_id();
@@ -594,22 +594,29 @@ pub fn apply(idx: &Index, root: &Path, ch: &Changes) -> Result<usize> {
     if !same_index(idx, &m) {
         return Ok(0);
     }
-    let ddir = idx.dir.join("delta");
-    crate::create_private_dir(&ddir)?;
     let n = idx.deltas.len() as u32 + 1;
+    let id = format::Ident {
+        epoch: m.epoch,
+        seq: n,
+    };
     // not fsynced: a torn delta fails `Index::open` and rebuilds, and the
     // F_FULLFSYNC was 4–5 ms of every post-edit query (M10)
     format::write_atomic_with(
-        &ddir.join(format!("{n:04}.bin")),
+        &idx.dir.join(m.delta(n)),
         format::COMP_DELTA,
+        id,
         &body,
         false,
     )?;
+    let now = now_ms();
+    let mut superseded = Vec::new();
     if let Some(s) = skipped {
-        let name = format!("delta/{n:04}.skipped");
-        s.write(&idx.dir.join(&name))?;
-        m.skipped = name;
+        let name = m.delta_skipped(n);
+        s.write(&idx.dir.join(&name), id)?;
+        superseded.push(std::mem::replace(&mut m.skipped, name));
     }
+    let (retired, due) = crate::snapshot::retire(&m.retired, superseded, now);
+    m.retired = retired;
     m.deltas = n;
     m.tombstones += tomb.len() as u32;
     if ch.no_ino {
@@ -620,6 +627,7 @@ pub fn apply(idx: &Index, root: &Path, ch: &Changes) -> Result<usize> {
         m.fsevents_id = fsid;
     }
     write_manifest(&idx.dir, &m)?;
+    crate::snapshot::clean(&idx.dir, &m, &due, false, now);
     Ok(files.len())
 }
 
@@ -749,8 +757,9 @@ mod tests {
         };
         build(&root, &dir, &opts).unwrap();
         let before = Index::open(&dir).unwrap();
-        // the rebuild removes the previous generation's record
+        // the rebuild retires the previous build, and its grace period ends
         build(&root, &dir, &opts).unwrap();
+        assert!(crate::snapshot::expire_retired(&dir) > 0);
         assert!(!dir.join(&before.manifest.skipped).exists());
         let sk = before.skipped().expect("record kept by the open index");
         assert!(sk.entries().any(|(rel, _)| rel == b".hidden.rs"));

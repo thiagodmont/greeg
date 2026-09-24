@@ -3,7 +3,7 @@
 
 use greeg_index::build::{BuildOpts, build};
 use greeg_index::fresh::{self, Mode};
-use greeg_index::{Index, plan, read_manifest};
+use greeg_index::{Index, format, plan, read_manifest};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -138,13 +138,18 @@ fn a_spilled_build_publishes_the_same_index_as_an_in_memory_one() {
         read_manifest(&ext_dir).unwrap().spilled,
         "the tiny budget must spill, or this test proves nothing"
     );
-    for c in ["grams", "words", "files"] {
-        let a = fs::read(mem_dir.join(format!("{c}.1.bin"))).unwrap();
-        let b = fs::read(ext_dir.join(format!("{c}.1.bin"))).unwrap();
-        assert_eq!(a.len(), b.len(), "{c}.bin length");
+    // the payloads: the headers name two different builds
+    let (mm, em) = (
+        read_manifest(&mem_dir).unwrap(),
+        read_manifest(&ext_dir).unwrap(),
+    );
+    for c in [format::COMP_GRAMS, format::COMP_WORDS, format::COMP_FILES] {
+        let a = fs::read(mem_dir.join(mm.component(c).unwrap().0)).unwrap();
+        let b = fs::read(ext_dir.join(em.component(c).unwrap().0)).unwrap();
+        assert_eq!(a.len(), b.len(), "component {c} length");
         assert!(
-            a == b,
-            "{c}.bin differs between the spilled and in-memory builds"
+            a[HDR..] == b[HDR..],
+            "component {c} differs between the spilled and in-memory builds"
         );
     }
     // and the scratch directory is gone, whichever path ran
@@ -153,7 +158,7 @@ fn a_spilled_build_publishes_the_same_index_as_an_in_memory_one() {
             .unwrap()
             .flatten()
             .map(|e| e.file_name().to_string_lossy().into_owned())
-            .filter(|n| n.starts_with("build-tmp"))
+            .filter(|n| n.starts_with("scratch-"))
             .collect();
         assert!(leftover.is_empty(), "{d:?} kept {leftover:?}");
     }
@@ -275,15 +280,20 @@ fn build_open_delta_tombstone_roundtrip() {
     assert!(check(&idx, &t.root).is_empty());
 
     // a stray delta file that the manifest does not name is ignored
-    fs::write(t.dir.join("delta/0002.bin"), b"garbage").unwrap();
+    fs::write(t.dir.join(idx.manifest.delta(2)), b"garbage").unwrap();
     let idx = Index::open(&t.dir).unwrap();
     assert_eq!(idx.deltas.len(), 1);
 
-    // a rebuild starts a new generation and drops the deltas
+    // a rebuild starts a new build directory and retires the old one, deltas
+    // included, until its grace period ends
     let m2 = build(&t.root, &t.dir, &opts()).unwrap();
     assert_eq!(m2.generation, m.generation + 1);
-    assert!(!t.dir.join("delta").exists());
-    assert!(!t.dir.join(format!("files.{}.bin", m.generation)).exists());
+    assert_ne!(m2.epoch, m.epoch);
+    let old = greeg_index::snapshot::gen_dir(m.epoch);
+    assert!(m2.retired.iter().any(|r| r.name == old));
+    assert!(t.dir.join(&old).exists());
+    assert!(greeg_index::snapshot::expire_retired(&t.dir) > 0);
+    assert!(!t.dir.join(&old).exists());
     let idx = Index::open(&t.dir).unwrap();
     assert_eq!(idx.deltas.len(), 0);
     assert_eq!(ids_for(&idx, "helper_omega"), ["src/util/helper.rs"]);
@@ -456,7 +466,7 @@ fn truncated_delta_fails_open() {
     .unwrap();
     let ch = check(&idx, &t.root);
     fresh::apply(&idx, &t.root, &ch).unwrap();
-    let p = t.dir.join("delta/0001.bin");
+    let p = t.dir.join(idx.manifest.delta(1));
     let good = fs::read(&p).unwrap();
     assert!(Index::open(&t.dir).is_ok());
 
@@ -542,7 +552,7 @@ fn apply_skips_when_manifest_moved() {
     );
     let m = read_manifest(&t.dir).unwrap();
     assert_eq!(m.deltas, 1);
-    assert!(!t.dir.join("delta/0002.bin").exists());
+    assert!(!t.dir.join(m.delta(2)).exists());
     let idx = Index::open(&t.dir).unwrap();
     assert_eq!(idx.live_count(), 4);
 
@@ -560,7 +570,7 @@ fn apply_skips_when_manifest_moved() {
     assert_eq!(fresh::apply(&stale, &t.root, &ch).unwrap(), 0);
     let m = read_manifest(&t.dir).unwrap();
     assert_eq!((m.generation, m.deltas), (m2.generation, 0));
-    assert!(!t.dir.join("delta").exists());
+    assert!(!t.dir.join(m.delta(1)).exists());
     assert!(m.phase2, "a stale writer must not revert the phase");
     let idx = Index::open(&t.dir).unwrap();
     assert_eq!(ids_for(&idx, "beta beta"), ["lib/thing.py"]);

@@ -1,24 +1,30 @@
 //! On-disk layouts. All integers little-endian. Every file starts with a
 //! 48-byte header: magic "GREEG\0\0\0", format u32, component u8, 3 reserved,
-//! payload length u64, epoch u64, sequence u32, 12 reserved (the last five
-//! fields zero until snapshots use them). Fixed-width tables are 8-byte aligned so they can be
-//! viewed as `&[u32]`/`&[u64]` straight from the mmap.
+//! payload length u64, epoch u64, sequence u32, 12 reserved. The epoch and
+//! sequence name the snapshot the file belongs to (`snapshot.rs`): its
+//! build and its publication within the build. Fixed-width tables are
+//! 8-byte aligned so they can be viewed as `&[u32]`/`&[u64]` straight from
+//! the mmap.
 //!
-//! files.<gen>.bin
+//! Every build writes into `g-<epoch>/` inside the layout directory:
+//! `<kind>.<seq>.bin` for base components (seq 1 from phase 1, 2 from phase
+//! 2) and `d-NNNN.bin` for delta segments, never renamed over.
+//!
+//! files.<seq>.bin
 //!   u32 n_files, u32 n_dirs, u32 arena_len, u32 pad
 //!   FileRec[n_files]   (56 bytes each)
 //!   DirRec[n_dirs]     (32 bytes each)
 //!   arena bytes (paths, relative, '/'-separated), padded to 8
 //!   u32 n_huge, u32 n_hidden, u32 huge[n_huge], u32 hidden[n_hidden]   (segment-local ids, padded to 8)
 //!
-//! grams.<gen>.bin
+//! grams.<seq>.bin
 //!   u32 n_grams, u32 pad, u64 postings_len
 //!   u32 keys[n_grams]        sorted
 //!   u32 counts[n_grams]      documents per gram
 //!   u64 offsets[n_grams + 1] into postings
 //!   postings bytes           roaring portable serialization per gram
 //!
-//! symbols.<gen>.bin
+//! symbols.<seq>.bin
 //!   u32 n_files, u32 n_syms, u32 n_names, u32 n_super, u32 n_tokens, u32 n_tok_names, u32 arena_len, u32 tok_arena_len
 //!   u32 sym_off[n_files + 1]        CSR: symbols of file f are syms[sym_off[f]..sym_off[f+1]]
 //!   SymRec[n_syms]                  (40 bytes each, file order, start order within a file)
@@ -33,23 +39,23 @@
 //!   u32 tok_names[n_tok_names]      name ids per token
 //!   every array is padded to 8 bytes
 //!
-//! spans.<gen>.bin
+//! spans.<seq>.bin
 //!   u32 n_files, u32 n_nc, u32 n_imp, u32 arena_len
 //!   u32 nc_off[n_files + 1]; NcRec[n_nc] (8 bytes: start, end | kind << 30)
 //!   u32 imp_off[n_files + 1]; ImpRec[n_imp] (20 bytes)
 //!   u8 arena (raw module strings)
 //!
-//! graph.<gen>.bin
+//! graph.<seq>.bin
 //!   u32 n_files, u32 n_edges, u32 pad, u32 pad
 //!   u32 out_off[n_files + 1]; u32 out_to[n_edges]; u16 out_w[n_edges]
 //!   u32 in_off[n_files + 1];  u32 in_from[n_edges]
 //!   f32 rank[n_files]
 //!
-//! words.<gen>.bin: word dictionary + postings (`words.rs`)
+//! words.<seq>.bin: word dictionary + postings (`words.rs`)
 //!
-//! skipped.<gen>.bin: what the walk left out (`skipped.rs`)
+//! skipped.<seq>.bin: what the walk left out (`skipped.rs`)
 //!
-//! delta/NNNN.bin: u32 first_id, n_files, files_len, grams_len, symbols_len,
+//! d-NNNN.bin (header sequence N): u32 first_id, n_files, files_len, grams_len, symbols_len,
 //! spans_len, graph_len, words_len (32 bytes), then the sections in that order
 //! (same layouts; FileRec ids are absolute: first_id + local offset), plus a
 //! tombstone bitmap of superseded ids at the end.
@@ -188,32 +194,73 @@ pub struct ImpRec {
     pub info: u16,
 }
 
-pub fn write_header(w: &mut impl Write, comp: u8, payload_len: u64) -> Result<()> {
+/// The snapshot a component belongs to: its build's epoch and its
+/// publication sequence (a delta's number for a delta and its record).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Ident {
+    pub epoch: u64,
+    pub seq: u32,
+}
+
+pub fn write_header(w: &mut impl Write, comp: u8, id: Ident, payload_len: u64) -> Result<()> {
     let mut h = [0u8; HEADER_LEN];
     h[..8].copy_from_slice(MAGIC);
     h[8..12].copy_from_slice(&crate::FORMAT_VERSION.to_le_bytes());
     h[12] = comp;
     h[16..24].copy_from_slice(&payload_len.to_le_bytes());
+    h[24..32].copy_from_slice(&id.epoch.to_le_bytes());
+    h[32..36].copy_from_slice(&id.seq.to_le_bytes());
     w.write_all(&h)?;
     Ok(())
 }
 
+/// `check_header`, and the header names snapshot `id` and the payload ends
+/// the file: a component of another build or publication is refused.
+pub fn check_ident(bytes: &[u8], comp: u8, id: Ident) -> Result<&[u8]> {
+    check_ident_header(bytes, bytes.len() as u64, comp, id)?;
+    Ok(&bytes[HEADER_LEN..])
+}
+
+/// `check_ident` from the header alone, for a file of `file_len` bytes.
+pub fn check_ident_header(h: &[u8], file_len: u64, comp: u8, id: Ident) -> Result<()> {
+    let len = fields(h, comp)?;
+    let epoch = u64::from_le_bytes(h[24..32].try_into().unwrap());
+    let seq = u32::from_le_bytes(h[32..36].try_into().unwrap());
+    if (Ident { epoch, seq }) != id {
+        bail!(
+            "component of snapshot {epoch:016x}.{seq}, want {:016x}.{}",
+            id.epoch,
+            id.seq
+        );
+    }
+    match file_len.checked_sub(HEADER_LEN as u64) {
+        Some(n) if n == len => Ok(()),
+        Some(n) if n > len => bail!("index file longer than its header says"),
+        _ => bail!("truncated index file"),
+    }
+}
+
 pub fn check_header(bytes: &[u8], comp: u8) -> Result<&[u8]> {
-    if bytes.len() < HEADER_LEN || &bytes[..8] != MAGIC {
-        bail!("not a greeg index file");
-    }
-    let fmt = u32::from_le_bytes(bytes[8..12].try_into().unwrap());
-    if fmt != crate::FORMAT_VERSION {
-        bail!("index format {fmt} != {}", crate::FORMAT_VERSION);
-    }
-    if bytes[12] != comp {
-        bail!("wrong component {} (want {comp})", bytes[12]);
-    }
-    let len = u64::from_le_bytes(bytes[16..24].try_into().unwrap()) as usize;
+    let len = fields(bytes, comp)? as usize;
     if bytes.len() < HEADER_LEN + len {
         bail!("truncated index file");
     }
     Ok(&bytes[HEADER_LEN..HEADER_LEN + len])
+}
+
+/// Magic, format and component of a header; its payload length.
+fn fields(h: &[u8], comp: u8) -> Result<u64> {
+    if h.len() < HEADER_LEN || &h[..8] != MAGIC {
+        bail!("not a greeg index file");
+    }
+    let fmt = u32::from_le_bytes(h[8..12].try_into().unwrap());
+    if fmt != crate::FORMAT_VERSION {
+        bail!("index format {fmt} != {}", crate::FORMAT_VERSION);
+    }
+    if h[12] != comp {
+        bail!("wrong component {} (want {comp})", h[12]);
+    }
+    Ok(u64::from_le_bytes(h[16..24].try_into().unwrap()))
 }
 
 fn pad8(v: &mut Vec<u8>) {
@@ -431,20 +478,26 @@ pub fn tmp_path(path: &Path) -> std::path::PathBuf {
 }
 
 /// Write a component file atomically (unique temp + rename).
-pub fn write_atomic(path: &Path, comp: u8, body: &[u8]) -> Result<()> {
-    write_atomic_with(path, comp, body, true)
+pub fn write_atomic(path: &Path, comp: u8, id: Ident, body: &[u8]) -> Result<()> {
+    write_atomic_with(path, comp, id, body, true)
 }
 
 /// `write_atomic` with the fsync optional. Base components are published
 /// durably (a build is seconds anyway); a delta segment skips it because
 /// `F_FULLFSYNC` costs 4–5 ms of every post-edit query on APFS, and a delta
 /// torn by a crash fails `Index::open` and triggers a rebuild (ARCHITECTURE.md).
-pub fn write_atomic_with(path: &Path, comp: u8, body: &[u8], durable: bool) -> Result<()> {
+pub fn write_atomic_with(
+    path: &Path,
+    comp: u8,
+    id: Ident,
+    body: &[u8],
+    durable: bool,
+) -> Result<()> {
     let tmp = tmp_path(path);
     {
         let file = crate::create_private(&tmp)?;
         let mut f = std::io::BufWriter::with_capacity(1 << 20, file);
-        write_header(&mut f, comp, body.len() as u64)?;
+        write_header(&mut f, comp, id, body.len() as u64)?;
         f.write_all(body)?;
         f.flush()?;
         if durable {
