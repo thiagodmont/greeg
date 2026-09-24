@@ -326,8 +326,15 @@ pub struct Capture {
     pub racy: Option<blake3::Hash>,
 }
 
+/// Lets tests act while a file is being read, by its name.
 #[cfg(test)]
-pub(crate) static READ_HOOK: Mutex<Option<fn(&Path)>> = Mutex::new(None);
+fn read_hook(path: &Path) {
+    if path.ends_with("changes-during-read.txt") {
+        fs::write(path, "omega\n").unwrap();
+    } else if path.ends_with("slow-read.txt") {
+        std::thread::sleep(std::time::Duration::from_millis(60));
+    }
+}
 
 /// Read `path` (at most `MAX_FILE + 1` bytes) into `buf`, sized from the
 /// walk's size so the read needs one allocation and no probing.
@@ -336,18 +343,17 @@ fn read_file(path: &Path, walk: &Stamp, buf: &mut Vec<u8>) -> Option<Capture> {
     buf.clear();
     buf.reserve((walk.size as usize).min(MAX_FILE as usize + 1) + 1);
     let f = crate::open_regular(path).ok()?;
+    let started = now_ns();
     let before = Stamp::of(&f.metadata().ok()?);
     (&f).take(MAX_FILE + 1).read_to_end(buf).ok()?;
     #[cfg(test)]
-    if let Some(hook) = *READ_HOOK.lock().unwrap() {
-        hook(path);
-    }
+    read_hook(path);
     let after = Stamp::of(&f.metadata().ok()?);
     // the inode is compared only on the one descriptor: a path's stat and a
     // descriptor's can disagree on it where inode numbers are not kept, and
     // a replacement since the walk moves the ctime anyway
     let changed = !before.same(&after, false) || !before.same(walk, true);
-    let racy = !changed && before.racy(now_ns());
+    let racy = !changed && before.racy(started);
     Some(Capture {
         stamp: before,
         changed,
@@ -847,7 +853,8 @@ pub fn wants_symbols(rel: &str, flags: u16) -> bool {
 }
 
 /// Read + extract one file for stage B. The flag says the file no longer
-/// matches `recorded`, the stamp its phase-1 record holds.
+/// matches `recorded`, the stamp its phase-1 record holds, or was read too
+/// soon for its stamp to tell.
 pub fn extract_symbols(
     path: &Path,
     rel: &str,
@@ -857,11 +864,12 @@ pub fn extract_symbols(
     let Some(read) = read_file(path, recorded, buf) else {
         return (None, true);
     };
+    let recheck = read.changed || read.racy.is_some();
     greeg_lang::transcode_utf16(buf);
     if buf.len() as u64 > MAX_FILE || buf[..buf.len().min(8192)].contains(&0) {
-        return (None, read.changed);
+        return (None, recheck);
     }
-    (Some(symbols_of_bytes(rel, buf)), read.changed)
+    (Some(symbols_of_bytes(rel, buf)), recheck)
 }
 
 fn symbols_of_bytes(rel: &str, src: &[u8]) -> FileExtract {
@@ -1470,6 +1478,29 @@ mod tests {
     }
 
     #[test]
+    fn a_read_that_started_too_soon_after_a_write_is_racy_however_long_it_takes() {
+        let d = temp("slow");
+        let f = d.join("slow-read.txt");
+        fs::write(&f, "alpha\n").unwrap();
+        let walk = Stamp::of(&fs::symlink_metadata(&f).unwrap());
+        // the hook sleeps past the trust window while the file is read
+        let c = read_file(&f, &walk, &mut Vec::new()).unwrap();
+        assert!(!c.changed && c.racy.is_some());
+        let _ = fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn symbols_read_too_soon_after_a_write_are_rechecked() {
+        let d = temp("symbols");
+        let f = d.join("a.rs");
+        fs::write(&f, "fn alpha() {}\n").unwrap();
+        let recorded = Stamp::of(&fs::symlink_metadata(&f).unwrap());
+        let (ex, recheck) = extract_symbols(&f, "a.rs", &recorded, &mut Vec::new());
+        assert!(ex.is_some() && recheck);
+        let _ = fs::remove_dir_all(&d);
+    }
+
+    #[test]
     fn a_walk_stamp_that_differs_only_in_inode_is_not_a_change() {
         let d = temp("walk-ino");
         let f = d.join("a.txt");
@@ -1491,19 +1522,13 @@ mod tests {
 
     #[test]
     fn a_file_changed_while_it_is_indexed_is_rechecked() {
-        fn hook(path: &Path) {
-            if path.ends_with("changes-during-read.txt") {
-                fs::write(path, "omega\n").unwrap();
-            }
-        }
         let d = temp("during");
         let root = d.join("tree");
         let dir = d.join("index");
         fs::create_dir_all(root.join(".git")).unwrap();
         fs::write(root.join("changes-during-read.txt"), "alpha\n").unwrap();
         fs::write(root.join("steady.txt"), "steady\n").unwrap();
-        *READ_HOOK.lock().unwrap() = Some(hook);
-        let built = build(
+        build(
             &root,
             &dir,
             &BuildOpts {
@@ -1512,9 +1537,8 @@ mod tests {
                 phase1_only: true,
                 ..Default::default()
             },
-        );
-        *READ_HOOK.lock().unwrap() = None;
-        built.unwrap();
+        )
+        .unwrap();
         let idx = crate::Index::open(&dir).unwrap();
         let marked: Vec<&str> = idx
             .live_files()

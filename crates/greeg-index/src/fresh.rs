@@ -285,8 +285,8 @@ fn classify(ch: &mut Changes, id: u32, rel: &str, rec: &FileRec, s: Option<Stamp
 /// not keep inode numbers.
 const NO_INO_MIN: usize = 16;
 
-/// Classify every stat'ed file. When most of them differ from their records
-/// only by inode or device, the file system does not keep inode numbers (some
+/// Classify every stat'ed file. When most of the `indexed` files differ from
+/// their records only by inode or device, the file system does not keep inode numbers (some
 /// network and FUSE mounts): the check stops comparing them rather than
 /// re-extract the tree every time, and `apply` records `stamp_mode = "no-ino"`.
 fn classify_all(
@@ -294,6 +294,7 @@ fn classify_all(
     mut no_ino: bool,
     files: &[(u32, &str, &FileRec)],
     st: Vec<Option<Stamp>>,
+    indexed: usize,
 ) -> bool {
     if !no_ino {
         let moved = files
@@ -301,7 +302,7 @@ fn classify_all(
             .zip(&st)
             .filter(|(f, s)| s.is_some_and(|s| s.moved_only(&f.2.stamp())))
             .count();
-        if moved >= NO_INO_MIN && moved * 2 > files.len() {
+        if moved >= NO_INO_MIN && moved * 2 > indexed {
             no_ino = true;
             ch.no_ino = true;
         }
@@ -323,7 +324,7 @@ pub fn check_stat(idx: &Index, root: &Path, threads: usize) -> Changes {
         ..Default::default()
     };
     let st = stat_many(root, &k.files, |f| f.1, fs::FileType::is_file, threads);
-    let no_ino = classify_all(&mut ch, idx.no_ino(), &k.files, st);
+    let no_ino = classify_all(&mut ch, idx.no_ino(), &k.files, st, k.files.len());
     let dirs: Vec<(&str, Stamp)> = k.dirs.iter().map(|(p, m)| (*p, *m)).collect();
     let ds = stat_many(root, &dirs, |d| d.0, fs::FileType::is_dir, threads);
     let mut changed_dirs: Vec<(String, Stamp)> = Vec::new();
@@ -464,7 +465,7 @@ pub fn check_fsevents(idx: &Index, root: &Path, threads: usize) -> Option<Change
         .copied()
         .collect();
     let st = stat_many(root, &files, |f| f.1, fs::FileType::is_file, threads);
-    classify_all(&mut ch, idx.no_ino(), &files, st);
+    classify_all(&mut ch, idx.no_ino(), &files, st, k.files.len());
     relist_dirs(root, &k, &changed_dirs, &mut ch);
     ch.ms = t.elapsed().as_secs_f64() * 1e3;
     Some(ch)
@@ -676,7 +677,8 @@ mod tests {
             &mut ch,
             false,
             &files,
-            (0..20).map(|i| Some(stamp(i + 100))).collect()
+            (0..20).map(|i| Some(stamp(i + 100))).collect(),
+            20
         ));
         assert!(ch.no_ino && ch.modified.is_empty());
 
@@ -685,12 +687,24 @@ mod tests {
         let st = (0..20)
             .map(|i| Some(stamp(if i < 3 { i + 100 } else { i })))
             .collect();
-        assert!(!classify_all(&mut ch, false, &files, st));
+        assert!(!classify_all(&mut ch, false, &files, st, 20));
         assert!(!ch.no_ino);
         assert_eq!(
             ch.modified.iter().map(|m| m.0).collect::<Vec<_>>(),
             [0, 1, 2]
         );
+
+        // a subset of the index, as FSEvents stats, is weighed against the
+        // whole of it: moved inodes there are replacements
+        let mut ch = Changes::default();
+        assert!(!classify_all(
+            &mut ch,
+            false,
+            &files,
+            (0..20).map(|i| Some(stamp(i + 100))).collect(),
+            100
+        ));
+        assert!(!ch.no_ino && ch.modified.len() == 20);
 
         // a recheck mark is a change even with an identical stamp
         let mut marked = recs.clone();
@@ -706,6 +720,7 @@ mod tests {
             false,
             &files,
             (0..20).map(|i| Some(stamp(i))).collect(),
+            20,
         );
         assert_eq!(ch.modified.iter().map(|m| m.0).collect::<Vec<_>>(), [5]);
     }

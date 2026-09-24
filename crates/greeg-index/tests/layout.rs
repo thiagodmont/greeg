@@ -167,13 +167,14 @@ fn layout_digest(t: &Tmp) -> String {
 }
 
 /// Binaries of two layouts must never share an index directory, so a change
-/// to what a build or refresh writes needs a new `FORMAT_VERSION`. Each
-/// version's digest of the fixture is recorded here.
+/// to what a build or refresh writes needs a new `FORMAT_VERSION`. The
+/// current version's digest of the fixture is recorded here; every component
+/// header holds the version, so digests of two versions never match.
 #[test]
 fn layout_fingerprint_matches_format_version() {
     // SAFETY: the only test in this binary, and no thread has started yet.
     unsafe { std::env::set_var("GREEG_DEBUG_FIXED_STAMPS", "1") };
-    const LAYOUTS: &[(u32, &str)] = &[(6, "c0ff84dcd8ad9d18"), (7, "f896972b698270a7")];
+    const LAYOUT: (u32, &str) = (7, "f896972b698270a7");
     let t = fingerprint_tree();
     let digest = layout_digest(&t);
     assert_eq!(
@@ -182,19 +183,13 @@ fn layout_fingerprint_matches_format_version() {
         "the fixture build is not reproducible"
     );
     let v = greeg_index::FORMAT_VERSION;
-    match LAYOUTS.iter().find(|(n, _)| *n == v) {
-        Some((_, recorded)) => assert_eq!(
-            *recorded,
-            digest,
-            "what a build or refresh writes changed: if the layout changed, bump \
-             FORMAT_VERSION and record ({}, \"{digest}\"); if only extracted \
-             content changed within the same layout, re-record ({v}, \"{digest}\")",
-            v + 1
-        ),
-        None => panic!("record ({v}, \"{digest}\") in LAYOUTS"),
-    }
-    assert!(
-        LAYOUTS.iter().all(|(n, d)| *n == v || *d != digest),
-        "this layout was already recorded under another version"
+    assert_eq!(LAYOUT.0, v, "record ({v}, \"{digest}\") as LAYOUT");
+    assert_eq!(
+        LAYOUT.1,
+        digest,
+        "what a build or refresh writes changed: if the layout changed, bump \
+         FORMAT_VERSION and record ({}, \"...\"); if only extracted content \
+         changed within the same layout, re-record ({v}, \"{digest}\")",
+        v + 1
     );
 }

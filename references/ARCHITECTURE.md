@@ -390,8 +390,8 @@ to keep it there.
   asks the kernel's persistent log which directories changed since then, and
   rescans only those. About 12 ms for a 200-file change set.
 * **Everywhere else**: a parallel `lstat` of every known file, comparing its
-  whole stamp (size, mtime, ctime, inode and device), plus directory mtimes and
-  inodes to catch additions and deletions.
+  whole stamp (size, mtime, ctime, inode and device), plus directory mtimes,
+  inodes and devices to catch additions and deletions.
   41 ms for 66k files. Below about 8,000 files this beats FSEvents, whose
   stream setup costs ~11 ms no matter how small the tree.
 * **Back-to-back calls**: a manifest verified in the last 100 ms is trusted, so
@@ -414,16 +414,17 @@ digest existed has none and is not checked until its next full build
 A file's stamp is taken from the open descriptor before it is read, and
 checked again after: a file that changed during the read, or since the walk
 saw it, is marked and re-extracted by the next check. So is a file that
-symbol extraction finds changed since the grams were read. A stamp written less than
-20 ms (2 s on file systems with whole-second timestamps) before the read could
+symbol extraction finds changed since the grams were read, or reads too soon
+to tell. A stamp written less than 20 ms (2 s on file systems with
+whole-second timestamps) before the read started could
 survive a later write unchanged; a build re-reads such files once the window
 has passed and keeps the mark only if the bytes differ, and a delta does the
 same when the wait is under 25 ms.
 
 Restoring an edited file's mtime still moves its ctime, and an editor's
 save-by-rename brings a new inode, so both are seen. On file systems that do
-not keep inode numbers (some network and FUSE mounts), a check that finds most
-files changed only in inode switches the index to `stamp_mode: "no-ino"`, and
+not keep inode numbers (some network and FUSE mounts), a check that finds more
+than half of the indexed files changed only in inode switches the index to `stamp_mode: "no-ino"`, and
 `greeg doctor` says so: an atomic replace that keeps size, mtime and ctime is
 then missed. Metadata is not proof of equal bytes; `--no-index` scans the tree
 when that matters.
