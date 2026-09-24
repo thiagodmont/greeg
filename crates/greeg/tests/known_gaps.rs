@@ -701,6 +701,31 @@ fn a_fifo_replacing_an_indexed_file_does_not_block_the_search() {
     assert_eq!((o.status.code(), stdout(&o)), (Some(1), String::new()));
 }
 
+#[cfg(unix)]
+#[test]
+#[ignore = "known gap: reads follow a symlink that replaces an indexed file's directory"]
+fn a_symlinked_ancestor_directory_is_not_followed() {
+    let f = Fixture::with_filler(&[("src/a.rs", "fn plain() {}\n")]);
+    f.indexed();
+    let outside = f.base.join("outside");
+    w(&outside.join("a.rs"), "fn ancestorneedle() {}\n");
+    fs::remove_dir_all(f.root.join("src")).unwrap();
+    std::os::unix::fs::symlink(&outside, f.root.join("src")).unwrap();
+    std::thread::sleep(PAST_FRESHNESS_WINDOW);
+    for args in [
+        &["--fresh", "stat", "--budget", "0", "ancestorneedle"][..],
+        &["--fresh", "stat", "def", "ancestorneedle"],
+    ] {
+        assert_eq!(f.scan(args).status.code(), Some(1), "{args:?}");
+        let o = f.run(args);
+        assert_eq!(
+            (o.status.code(), stdout(&o).contains("ancestorneedle")),
+            (Some(1), false),
+            "{args:?}: {o:?}"
+        );
+    }
+}
+
 #[test]
 #[ignore = "known gap: freshness compares only size and mtime"]
 fn a_same_size_edit_with_restored_mtime_is_visible() {
@@ -777,6 +802,24 @@ fn a_resolver_config_edit_is_not_answered_from_stale_edges() {
         (Some(0), Some(1)),
         "{o:?}"
     );
+}
+
+#[test]
+#[ignore = "known gap: graph verbs exit 2 while a rebuild runs"]
+fn graph_verbs_wait_for_a_short_rebuild() {
+    let f = Fixture::with_filler(&[
+        ("a.rs", "pub fn alpha() {}\n"),
+        ("b.rs", "pub fn bravo() {}\n"),
+    ]);
+    f.indexed();
+    // an ignore-input change needs a rebuild; this tree's is well under the
+    // wait, so the answer must come from the new index, not exit 2
+    w(&f.root.join(".git/info/exclude"), "b.rs\n");
+    std::thread::sleep(PAST_FRESHNESS_WINDOW);
+    let o = f.run(&["--fresh", "stat", "map", "."]);
+    assert_eq!(o.status.code(), Some(0), "{o:?}");
+    let out = stdout(&o);
+    assert!(out.contains("a.rs") && !out.contains("b.rs"), "{out}");
 }
 
 #[test]

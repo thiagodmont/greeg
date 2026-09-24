@@ -575,6 +575,8 @@ binary digests. No process-wide result cache is retained between renders.
 `bench/parity.py` checks that greeg's match set equals ripgrep's across every
 corpus and query family, in both indexed and scan mode. `bench/soak.py` fires
 randomized queries at randomized edits.
+`bench/index_costs.py` compares two binaries' build, disk, RSS, open,
+freshness and post-edit refresh costs on disposable corpus snapshots.
 
 Results and method: [BENCH.md](BENCH.md). Usage statistics: [STATS.md](STATS.md).
 Raw results live in [`bench/results/`](../bench/results/). For measurements on
