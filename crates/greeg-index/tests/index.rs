@@ -8,6 +8,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
 
+const HDR: usize = greeg_index::format::HEADER_LEN;
+
 struct Tmp {
     root: PathBuf,
     dir: PathBuf,
@@ -457,7 +459,7 @@ fn truncated_delta_fails_open() {
 
     // section length past the end of the payload
     let mut bad = good.clone();
-    bad[16 + 8..16 + 12].copy_from_slice(&u32::MAX.to_le_bytes());
+    bad[HDR + 8..HDR + 12].copy_from_slice(&u32::MAX.to_le_bytes());
     fs::write(&p, &bad).unwrap();
     assert!(
         Index::open(&t.dir).is_err(),
@@ -466,8 +468,8 @@ fn truncated_delta_fails_open() {
 
     // a section length that overflows into the tombstone bitmap
     let mut bad = good.clone();
-    let gl = u32::from_le_bytes(good[16 + 12..16 + 16].try_into().unwrap());
-    bad[16 + 12..16 + 16].copy_from_slice(&(gl + 8).to_le_bytes());
+    let gl = u32::from_le_bytes(good[HDR + 12..HDR + 16].try_into().unwrap());
+    bad[HDR + 12..HDR + 16].copy_from_slice(&(gl + 8).to_le_bytes());
     fs::write(&p, &bad).unwrap();
     assert!(
         Index::open(&t.dir).is_err(),
@@ -574,4 +576,93 @@ fn apply_skips_when_manifest_moved() {
     let after = read_manifest(&t.dir).unwrap();
     assert_eq!(after.generation, before.generation);
     assert_eq!(after.verified_unix_ms, before.verified_unix_ms);
+}
+
+/// Set every file's and then every directory's modification time, so two
+/// builds of the tree write the same bytes.
+fn pin_times(dir: &Path) {
+    let t = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000);
+    for e in fs::read_dir(dir).unwrap() {
+        let p = e.unwrap().path();
+        if p.is_dir() {
+            pin_times(&p);
+        } else {
+            fs::File::options()
+                .write(true)
+                .open(&p)
+                .unwrap()
+                .set_modified(t)
+                .unwrap();
+        }
+    }
+    fs::File::open(dir).unwrap().set_modified(t).unwrap();
+}
+
+/// Every component a build writes, and the manifest's field names.
+fn layout_digest(t: &Tmp) -> String {
+    pin_times(&t.root);
+    let _ = fs::remove_dir_all(&t.dir);
+    build(
+        &t.root,
+        &t.dir,
+        &BuildOpts {
+            reader_threads: 1,
+            ..opts()
+        },
+    )
+    .unwrap();
+    let mut names: Vec<String> = fs::read_dir(&t.dir)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().into_string().unwrap())
+        .filter(|n| n.ends_with(".bin"))
+        .collect();
+    names.sort();
+    let mut h = blake3::Hasher::new();
+    for n in &names {
+        h.update(n.as_bytes());
+        h.update(&fs::read(t.dir.join(n)).unwrap());
+    }
+    let m: serde_json::Value =
+        serde_json::from_slice(&fs::read(t.dir.join("manifest")).unwrap()).unwrap();
+    let mut keys: Vec<&String> = m.as_object().unwrap().keys().collect();
+    keys.sort();
+    for k in keys {
+        h.update(k.as_bytes());
+    }
+    h.finalize().to_hex()[..16].to_string()
+}
+
+/// A changed layout needs a new `FORMAT_VERSION`: binaries of two layouts must
+/// never share an index directory. Record the digest of each version here.
+#[test]
+fn layout_fingerprint_matches_format_version() {
+    const LAYOUTS: &[(u32, &str)] = &[(6, "8d12b950c450468d")];
+    let t = tree();
+    let digest = layout_digest(&t);
+    assert_eq!(
+        digest,
+        layout_digest(&t),
+        "the fixture build is not reproducible"
+    );
+    match LAYOUTS
+        .iter()
+        .find(|(v, _)| *v == greeg_index::FORMAT_VERSION)
+    {
+        Some((_, recorded)) => assert_eq!(
+            *recorded,
+            digest,
+            "the index layout changed: bump FORMAT_VERSION and record ({}, \"{digest}\")",
+            greeg_index::FORMAT_VERSION + 1
+        ),
+        None => panic!(
+            "record ({}, \"{digest}\") in LAYOUTS",
+            greeg_index::FORMAT_VERSION
+        ),
+    }
+    assert!(
+        LAYOUTS
+            .iter()
+            .all(|(v, d)| *v == greeg_index::FORMAT_VERSION || *d != digest),
+        "this layout was already recorded under another version"
+    );
 }

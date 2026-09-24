@@ -838,3 +838,107 @@ fn output_failure_overrides_an_exact_match() {
     assert_eq!(output.status.code(), Some(2));
     assert!(!output.stderr.is_empty());
 }
+
+// ---------------------------------------------------------------------------
+// index identity
+// ---------------------------------------------------------------------------
+
+/// Every file under `dir` outside `skip`, relative path → bytes.
+fn files_under(dir: &Path, skip: &[&Path]) -> Vec<(PathBuf, Vec<u8>)> {
+    let mut out = Vec::new();
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        for e in fs::read_dir(&d).unwrap().flatten() {
+            let p = e.path();
+            if skip.iter().any(|s| p.starts_with(s)) {
+                continue;
+            }
+            if p.is_dir() {
+                stack.push(p);
+            } else {
+                out.push((
+                    p.strip_prefix(dir).unwrap().to_path_buf(),
+                    fs::read(&p).unwrap(),
+                ));
+            }
+        }
+    }
+    out.sort();
+    out
+}
+
+fn generation(layout: &Path) -> u64 {
+    let m: serde_json::Value =
+        serde_json::from_slice(&fs::read(layout.join("manifest")).unwrap()).unwrap();
+    m["generation"].as_u64().unwrap()
+}
+
+/// Releases before 0.8 keep their index at the top of the directory. This
+/// layout lives in its own `v<N>/` beside it and never touches those files, so
+/// an old and a new binary on one repository neither rebuild nor delete each
+/// other's index.
+#[test]
+fn an_older_layout_in_the_same_directory_is_left_alone() {
+    let f = fixture();
+    w(&f.index.join("manifest"), r#"{"format":5,"generation":3}"#);
+    w(
+        &f.index.join("files.3.bin"),
+        "an older release's file table",
+    );
+    w(&f.index.join("grams.2.bin"), "an older generation");
+    w(&f.index.join("delta/0001.bin"), "an older delta");
+    let layout = greeg_index::format_dir(&f.index);
+    let session = f.index.join("session");
+    let before = files_under(&f.index, &[&layout, &session]);
+    f.indexed();
+    let built = generation(&layout);
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    let args = ["--fresh", "stat", "--budget", "0", "load_config"];
+    let scanned = pairs(&f.out(&["--no-index", "--budget", "0", "load_config"]));
+    assert_eq!(pairs(&f.out(&args)), scanned);
+    assert_eq!(pairs(&f.out(&args)), scanned);
+    assert_eq!(generation(&layout), built, "a query rebuilt the index");
+    assert_eq!(files_under(&f.index, &[&layout, &session]), before);
+    let owner = fs::read_to_string(layout.join("OWNER")).unwrap();
+    assert_eq!(
+        owner,
+        format!(
+            "greeg {} {}\n",
+            env!("CARGO_PKG_VERSION"),
+            greeg_index::FORMAT_VERSION
+        )
+    );
+}
+
+/// An index directory shared by two roots (`--index-dir`) answers only for
+/// the root it was built for, even with freshness checks off.
+#[test]
+fn an_index_built_for_another_root_is_not_used() {
+    let a = fixture();
+    a.indexed();
+    let b = fixture();
+    w(&b.root.join("src/only_b.rs"), "fn bravo_only() {}\n");
+    let o = Command::new(BIN)
+        .args([
+            "--no-session",
+            "--fresh",
+            "none",
+            "--budget",
+            "0",
+            "bravo_only",
+        ])
+        .arg("--index-dir")
+        .arg(&a.index)
+        .current_dir(&b.root)
+        .env("GREEG_STATS", "0")
+        .output()
+        .unwrap();
+    assert_eq!(
+        (
+            o.status.code(),
+            String::from_utf8_lossy(&o.stdout).into_owned()
+        ),
+        (Some(0), "src/only_b.rs:1:fn bravo_only() {}\n".into()),
+        "{o:?}"
+    );
+}

@@ -465,10 +465,7 @@ fn run_index(
     quiet: bool,
     refresh: bool,
 ) -> Result<()> {
-    let dir = match index_dir {
-        Some(d) => d,
-        None => greeg_index::index_dir_for(&root)?,
-    };
+    let dir = greeg_index::index_dir(&root, index_dir.as_deref())?;
     if refresh {
         return greeg_query::indexed::refresh_now(
             &root,

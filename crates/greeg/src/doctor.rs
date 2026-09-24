@@ -58,10 +58,7 @@ pub fn run(c: &Common) -> Result<()> {
     )?;
     let canon = std::fs::canonicalize(&root).unwrap_or(root.clone());
     writeln!(w, "root      {}", canon.display())?;
-    let dir = match &c.index_dir {
-        Some(d) => d.clone(),
-        None => greeg_index::index_dir_for(&root)?,
-    };
+    let dir = greeg_index::index_dir(&root, c.index_dir.as_deref())?;
     let mut advice: Vec<String> = Vec::new();
     let building = dir.join("BUILDING").exists();
     let manifest = greeg_index::read_manifest(&dir);
@@ -242,7 +239,7 @@ pub fn run(c: &Common) -> Result<()> {
         writeln!(w, "extra     {}", parts.join(" · "))?;
     }
     // sessions
-    let sdir = dir.join("session");
+    let sdir = greeg_index::repo_of(&dir).join("session");
     let (n, bytes) = std::fs::read_dir(&sdir)
         .map(|rd| {
             rd.flatten()

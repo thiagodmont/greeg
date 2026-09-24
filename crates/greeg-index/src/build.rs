@@ -432,6 +432,7 @@ where
 pub fn build(root: &Path, dir: &Path, opts: &BuildOpts) -> Result<Manifest> {
     let t0 = Instant::now();
     crate::create_private_dir(dir)?;
+    crate::write_owner(dir)?;
     let fsevents_id = greeg_fsevents_id();
     // before the walk, so a change made during it shows up at the next check
     let ignore_inputs = crate::ignores::digest(root);
@@ -594,6 +595,7 @@ pub fn build(root: &Path, dir: &Path, opts: &BuildOpts) -> Result<Manifest> {
     let m = Manifest {
         format: crate::FORMAT_VERSION,
         root: root.to_string_lossy().into_owned(),
+        root_id: crate::RootId::of(root).unwrap_or_default(),
         generation,
         phase1: true,
         phase2: false,

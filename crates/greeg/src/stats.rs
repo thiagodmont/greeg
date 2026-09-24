@@ -2322,13 +2322,14 @@ impl Greeg {
         })
     }
 
-    /// Index directory for `cwd`: the live one, or this build's own.
+    /// Index directory for `cwd`: the live one, or the directory given to
+    /// another build as `GREEG_INDEX_DIR` (it keeps its own layout inside).
     fn index_dir(&self, cwd: &Path) -> Result<PathBuf> {
         match &self.index_base {
             None => greeg_index::index_dir_for(cwd),
             Some(base) => {
                 let real = std::fs::canonicalize(cwd).unwrap_or_else(|_| cwd.to_path_buf());
-                let hex = blake3::hash(real.to_string_lossy().as_bytes()).to_hex();
+                let hex = blake3::hash(real.as_os_str().as_encoded_bytes()).to_hex();
                 Ok(base.join(&hex[..16]))
             }
         }
@@ -2341,10 +2342,17 @@ impl Greeg {
                 .ok()
                 .and_then(|d| greeg_index::read_manifest(&d))
                 .is_some(),
-            // another build's format: its manifest is not ours to parse
-            Some(_) => self
-                .index_dir(cwd)
-                .is_ok_and(|d| d.join("manifest").is_file()),
+            // another build's format: its manifest is not ours to parse, and
+            // it sits at the top level (before 0.8) or in a `v<N>/` directory
+            Some(_) => self.index_dir(cwd).is_ok_and(|d| {
+                d.join("manifest").is_file()
+                    || std::fs::read_dir(&d).is_ok_and(|rd| {
+                        rd.flatten().any(|e| {
+                            e.file_name().to_string_lossy().starts_with('v')
+                                && e.path().join("manifest").is_file()
+                        })
+                    })
+            }),
         }
     }
 }

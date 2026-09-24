@@ -89,6 +89,11 @@ impl Fixture {
         c
     }
 
+    /// This layout's index files, inside the chosen index directory.
+    fn layout(&self) -> PathBuf {
+        greeg_index::format_dir(&self.index)
+    }
+
     fn run(&self, args: &[&str]) -> Output {
         self.command()
             .args(args)
@@ -631,7 +636,7 @@ fn symbol_verbs_find_definitions_in_selected_skipped_files() {
 fn an_index_without_a_skipped_record_is_not_trusted_to_cover_a_request() {
     let f = skipping_fixture();
     f.indexed();
-    let manifest = f.index.join("manifest");
+    let manifest = f.layout().join("manifest");
     let mut m: serde_json::Value = serde_json::from_slice(&fs::read(&manifest).unwrap()).unwrap();
     m.as_object_mut().unwrap().remove("skipped");
     fs::write(&manifest, m.to_string()).unwrap();
@@ -828,7 +833,7 @@ fn a_corrupted_dictionary_never_gives_an_authoritative_empty_answer() {
     let f = Fixture::new(&[("a.txt", "alpha_unique\n")]);
     f.indexed();
     let mut mutated = 0;
-    for entry in fs::read_dir(&f.index).unwrap() {
+    for entry in fs::read_dir(f.layout()).unwrap() {
         let p = entry.unwrap().path();
         let name = p.file_name().unwrap().to_string_lossy().into_owned();
         if name.starts_with("words") && name.ends_with(".bin") {
@@ -891,7 +896,7 @@ fn detached_builds_use_the_explicit_index_dir() {
         .output()
         .unwrap();
     assert_eq!(o.status.code(), Some(0), "{o:?}");
-    let manifest = f.index.join("manifest");
+    let manifest = f.layout().join("manifest");
     let deadline = Instant::now() + Duration::from_secs(10);
     while !manifest.exists() && Instant::now() < deadline {
         std::thread::sleep(Duration::from_millis(50));
@@ -955,7 +960,7 @@ fn index_files_are_private_under_a_permissive_umask() {
         .arg("edited");
     assert_eq!(permissive(c).status.code(), Some(0));
     // wait for the detached refresh to publish the delta and finish
-    let published = || f.index.join("delta").exists() && !f.index.join("REFRESHING").exists();
+    let published = || f.layout().join("delta").exists() && !f.layout().join("REFRESHING").exists();
     let deadline = Instant::now() + Duration::from_secs(30);
     while !published() && Instant::now() < deadline {
         std::thread::sleep(Duration::from_millis(50));

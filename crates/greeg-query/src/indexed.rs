@@ -12,7 +12,7 @@ use greeg_index::format::{NONE, SymRec};
 use greeg_index::fresh::{self, Mode as Fresh};
 use greeg_index::index::SymId;
 use greeg_index::symtab::kind_from_code;
-use greeg_index::{Index, index_dir_for, lock, plan, read_manifest};
+use greeg_index::{Index, RootId, lock, plan, read_manifest};
 use greeg_lang::sym::SYM_OBJ_MEMBER;
 use greeg_lang::{DefKind, FileFlags, Lang};
 use grep_searcher::{BinaryDetection, SearcherBuilder};
@@ -92,8 +92,9 @@ pub fn spawn_build_now(root: &Path, dir: &Path, refresh: bool) {
     let Ok(root_abs) = fs::canonicalize(root) else {
         return;
     };
-    // The markers above live in `dir`; the work must publish there too.
-    let Ok(dir_abs) = std::path::absolute(dir) else {
+    // The markers above live in `dir`; the work must publish there too
+    // (`--index-dir` names the repository directory that holds it).
+    let Ok(dir_abs) = std::path::absolute(greeg_index::repo_of(dir)) else {
         return;
     };
     let mut cmd = std::process::Command::new(exe);
@@ -151,6 +152,9 @@ fn refresh_inner(root: &Path, dir: &Path, threads: usize) -> Result<()> {
     let Ok(idx) = Index::open(dir) else {
         return Ok(()); // no index: the query queued a build
     };
+    if !built_for(&idx, root) {
+        return Ok(());
+    }
     let mode = fresh::explicit_mode(&idx);
     let Some(ch) = fresh::check(&idx, root, mode, threads.clamp(1, 4)) else {
         return Ok(());
@@ -164,6 +168,12 @@ fn refresh_inner(root: &Path, dir: &Path, threads: usize) -> Result<()> {
     Ok(())
 }
 
+/// Whether `idx` was built for `root`: a directory shared by two roots
+/// (`--index-dir`) never answers for the other one.
+fn built_for(idx: &Index, root: &Path) -> bool {
+    RootId::of(root).is_some_and(|r| r == idx.manifest.root_id)
+}
+
 /// Generation + 1 of the index this process last opened through `open_fresh`
 /// (0 = none), so `mark_corrupt` can tell the manifest that failed from one a
 /// rebuild published since.
@@ -175,12 +185,8 @@ static OPENED_GEN: AtomicU64 = AtomicU64::new(0);
 /// failure is left alone (a process that never opened an index deletes
 /// unconditionally, e.g. after a SIGBUS re-exec).
 pub fn mark_corrupt(o: &Options) {
-    let dir = match &o.index_dir {
-        Some(d) => d.clone(),
-        None => match index_dir_for(&o.root) {
-            Ok(d) => d,
-            Err(_) => return,
-        },
+    let Ok(dir) = greeg_index::index_dir(&o.root, o.index_dir.as_deref()) else {
+        return;
     };
     let Ok(_lock) = lock::writer(&dir) else {
         return;
@@ -285,13 +291,10 @@ fn open_fresh_with(
     defer: bool,
     before_apply: &mut dyn FnMut(),
 ) -> Result<Option<Opened>> {
-    let dir = match &o.index_dir {
-        Some(d) => d.clone(),
-        None => index_dir_for(&o.root)?,
-    };
+    let dir = greeg_index::index_dir(&o.root, o.index_dir.as_deref())?;
     let mut idx = match Index::open(&dir) {
-        Ok(i) => i,
-        Err(_) => {
+        Ok(i) if built_for(&i, &o.root) => i,
+        _ => {
             spawn_build(&o.root, &dir);
             return Ok(None);
         }
@@ -828,7 +831,7 @@ mod tests {
         let base = std::env::temp_dir().join(format!("greeg-open-fresh-{}", std::process::id()));
         let _ = fs::remove_dir_all(&base);
         let root = base.join("tree");
-        let dir = base.join("index");
+        let dir = greeg_index::format_dir(&base.join("index"));
         fs::create_dir_all(root.join("src")).unwrap();
         fs::create_dir_all(root.join(".git")).unwrap();
         fs::write(root.join("src/main.rs"), "fn main() { helper_alpha(); }\n").unwrap();
@@ -854,7 +857,7 @@ mod tests {
         .unwrap();
         let o = Options {
             root: root.clone(),
-            index_dir: Some(dir.clone()),
+            index_dir: Some(greeg_index::repo_of(&dir).to_path_buf()),
             fresh: Fresh::Stat,
             ..Default::default()
         };
@@ -922,7 +925,7 @@ mod tests {
         let base = std::env::temp_dir().join(format!("greeg-deferred-{}", std::process::id()));
         let _ = fs::remove_dir_all(&base);
         let root = base.join("tree");
-        let dir = base.join("index");
+        let dir = greeg_index::format_dir(&base.join("index"));
         fs::create_dir_all(root.join("src")).unwrap();
         fs::create_dir_all(root.join(".git")).unwrap();
         fs::write(root.join("src/main.rs"), "fn main() { helper_alpha(); }\n").unwrap();
@@ -951,7 +954,7 @@ mod tests {
         .unwrap();
         let o = Options {
             root: root.clone(),
-            index_dir: Some(dir.clone()),
+            index_dir: Some(greeg_index::repo_of(&dir).to_path_buf()),
             fresh: Fresh::Stat,
             pattern: "omega".to_string(),
             ..Default::default()
@@ -1009,7 +1012,7 @@ mod tests {
         let base = std::env::temp_dir().join(format!("greeg-words-{}", std::process::id()));
         let _ = fs::remove_dir_all(&base);
         let root = base.join("tree");
-        let dir = base.join("index");
+        let dir = greeg_index::format_dir(&base.join("index"));
         fs::create_dir_all(root.join("src")).unwrap();
         fs::create_dir_all(root.join(".git")).unwrap();
         fs::write(root.join("src/a.rs"), "fn alpha() {}\n").unwrap();
@@ -1033,7 +1036,7 @@ mod tests {
         .unwrap();
         let o = Options {
             root: root.clone(),
-            index_dir: Some(dir.clone()),
+            index_dir: Some(greeg_index::repo_of(&dir).to_path_buf()),
             fresh: Fresh::None,
             pattern: "alpha".to_string(),
             word: true,
@@ -1095,7 +1098,7 @@ mod tests {
         let base = std::env::temp_dir().join(format!("greeg-delta-words-{}", std::process::id()));
         let _ = fs::remove_dir_all(&base);
         let root = base.join("tree");
-        let dir = base.join("index");
+        let dir = greeg_index::format_dir(&base.join("index"));
         fs::create_dir_all(root.join("src")).unwrap();
         fs::create_dir_all(root.join(".git")).unwrap();
         fs::write(root.join("src/main.rs"), "fn main() { helper_alpha(); }\n").unwrap();
@@ -1126,7 +1129,7 @@ mod tests {
 
         let o = Options {
             root: root.clone(),
-            index_dir: Some(dir.clone()),
+            index_dir: Some(greeg_index::repo_of(&dir).to_path_buf()),
             fresh: Fresh::None,
             pattern: "zeta_new".to_string(),
             word: true,
@@ -1192,7 +1195,7 @@ mod tests {
             std::env::temp_dir().join(format!("greeg-refresh-marker-{}", std::process::id()));
         let _ = fs::remove_dir_all(&base);
         let root = base.join("tree");
-        let dir = base.join("index");
+        let dir = greeg_index::format_dir(&base.join("index"));
         fs::create_dir_all(root.join("src")).unwrap();
         fs::create_dir_all(root.join(".git")).unwrap();
         for i in 0..60 {
@@ -1262,7 +1265,7 @@ mod tests {
             std::env::temp_dir().join(format!("greeg-explicit-ignored-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&base);
         let root = base.join("tree");
-        let dir = base.join("index");
+        let dir = greeg_index::format_dir(&base.join("index"));
         std::fs::create_dir_all(root.join("src")).unwrap();
         std::fs::create_dir_all(root.join("vendor")).unwrap();
         std::fs::create_dir_all(root.join(".git")).unwrap();
@@ -1282,7 +1285,7 @@ mod tests {
         .unwrap();
         let o = Options {
             root: root.clone(),
-            index_dir: Some(dir.clone()),
+            index_dir: Some(greeg_index::repo_of(&dir).to_path_buf()),
             fresh: greeg_index::fresh::Mode::None,
             pattern: "needle_xyz".into(),
             ..Default::default()
