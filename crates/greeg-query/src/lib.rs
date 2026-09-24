@@ -718,9 +718,13 @@ impl Sink for CollectSink<'_> {
                     .unwrap_or(bytes.len());
                 let l = &bytes[line_off..le];
                 let (lms, lme) = (mat.start() - line_off, mat.end().min(le) - line_off);
-                let is_def = greeg_lang::defs::def_name_on_line(self.lang, l)
-                    .map(|(ns, ne)| ns < lme && lms < ne)
-                    .unwrap_or(false);
+                let is_def = greeg_lang::defs::is_def_name_on_line(
+                    self.lang,
+                    l,
+                    lms,
+                    lme,
+                    greeg_lang::defs::line_code(self.lang, l),
+                );
                 if is_def {
                     self.defs_kept += 1;
                 }
@@ -1385,12 +1389,16 @@ fn noncode_kind(k: SpanKind) -> HitKind {
     }
 }
 
-/// Kind of an occurrence outside comments and strings, from its line.
-fn classify_code(lang: Lang, line: &[u8], ms: usize, me: usize) -> HitKind {
-    if let Some((ns, ne)) = greeg_lang::defs::def_name_on_line(lang, line)
-        && ns < me
-        && ms < ne
-    {
+/// Kind of an occurrence outside comments and strings, from its line;
+/// `in_code` tells which of its offsets are code.
+fn classify_code(
+    lang: Lang,
+    line: &[u8],
+    ms: usize,
+    me: usize,
+    in_code: impl Fn(usize) -> bool,
+) -> HitKind {
+    if greeg_lang::defs::is_def_name_on_line(lang, line, ms, me, in_code) {
         return HitKind::Def;
     }
     kind_by_context(lang, line, ms, me, 0, line)
@@ -1433,7 +1441,8 @@ impl<'s> ScanKinds<'s> {
             return noncode_kind(sp.kind);
         }
         let me = (me as usize).min(le);
-        classify_code(self.lang, &src[ls..le], ms as usize - ls, me - ls)
+        let in_code = |i: usize| lexed.span_at((ls + i) as u32).is_none();
+        classify_code(self.lang, &src[ls..le], ms as usize - ls, me - ls, in_code)
     }
 }
 
@@ -2393,6 +2402,15 @@ mod tests {
         assert_eq!(h.subs.len(), sink.max_per_line, "{h:?}");
         assert_eq!(h.kind, Some(HitKind::Call));
         assert_eq!(&src[h.subs[h.primary].0 as usize..][..3], b"n()");
+    }
+
+    #[test]
+    fn a_definition_after_a_multiline_string_closes_is_a_definition() {
+        let src: &[u8] = b"let s = \"a\nb\"; mod m { fn inner() {} }\n";
+        let ms = src.windows(5).position(|w| w == b"inner").unwrap() as u32;
+        let ls = src.iter().position(|&b| b == b'\n').unwrap() as u32 + 1;
+        let kinds = ScanKinds::new(Lang::Rust, src, src.len());
+        assert_eq!(kinds.kind(ms, ms + 5, ls), HitKind::Def);
     }
 
     #[test]
