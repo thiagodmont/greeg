@@ -574,7 +574,8 @@ static REEXEC: std::sync::OnceLock<(Vec<std::ffi::CString>, Argv)> = std::sync::
 
 /// SIGBUS means an mmapped index file was truncated underneath us. Re-exec the
 /// same command with `--no-index --after-sigbus` (execv is async-signal-safe):
-/// the answer comes from a scan and the index is rebuilt.
+/// the answer comes from a scan and the index is rebuilt. The flags go first,
+/// where no `--` can turn them into patterns or paths.
 extern "C" fn on_sigbus(_: libc::c_int) {
     if let Some((_, argv)) = REEXEC.get() {
         unsafe {
@@ -586,7 +587,8 @@ extern "C" fn on_sigbus(_: libc::c_int) {
 
 fn install_sigbus_guard() {
     let args: Vec<std::ffi::OsString> = std::env::args_os().collect();
-    if args.iter().any(|a| a == "--after-sigbus") || args.iter().any(|a| a == "--no-index") {
+    let flags = args.iter().skip(1).take_while(|a| *a != "--");
+    if flags.clone().any(|a| a == "--after-sigbus") || flags.clone().any(|a| a == "--no-index") {
         return;
     }
     let Ok(exe) = std::env::current_exe() else {
@@ -598,13 +600,16 @@ fn install_sigbus_guard() {
         return;
     };
     cs.push(e);
-    for a in args.iter().skip(1) {
-        if let Ok(c) = std::ffi::CString::new(a.as_bytes()) {
-            cs.push(c);
-        }
-    }
     cs.push(std::ffi::CString::new("--no-index").unwrap());
     cs.push(std::ffi::CString::new("--after-sigbus").unwrap());
+    for a in args.iter().skip(1) {
+        // an argument holding NUL cannot be passed on: without it the re-run
+        // would answer a different query
+        let Ok(c) = std::ffi::CString::new(a.as_bytes()) else {
+            return;
+        };
+        cs.push(c);
+    }
     let mut ptrs: Vec<*const libc::c_char> = cs.iter().map(|c| c.as_ptr()).collect();
     ptrs.push(std::ptr::null());
     let _ = REEXEC.set((cs, Argv(ptrs)));

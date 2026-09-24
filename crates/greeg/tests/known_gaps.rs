@@ -275,6 +275,22 @@ fn a_definition_after_many_uses_is_shown_by_both_backends() {
 }
 
 #[test]
+fn a_rerun_after_sigbus_keeps_arguments_after_a_double_dash() {
+    let f = Fixture::new(&[("a.txt", "-dashneedle here\n")]);
+    f.indexed();
+    let o = f
+        .command()
+        .env("GREEG_DEBUG_SIGBUS", "1")
+        .args(["--no-session", "--index-dir"])
+        .arg(&f.index)
+        .args(["--", "-dashneedle"])
+        .output()
+        .unwrap();
+    assert_eq!(o.status.code(), Some(0), "{o:?}");
+    assert!(stdout(&o).contains("a.txt"), "{o:?}");
+}
+
+#[test]
 fn scan_excludes_header_marked_generated_files() {
     let f = Fixture::new(&[(
         "src/auto.rs",
