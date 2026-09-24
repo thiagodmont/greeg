@@ -150,7 +150,7 @@ mod tests {
         };
         let r = scan(&o, b"a\nb\nxa\n".to_vec()).unwrap();
         assert_eq!(r.stats.total_hits, 2);
-        assert_eq!(r.files[0].rel, STDIN_NAME);
+        assert_eq!(r.files[0].rel, STDIN_NAME.as_bytes());
         assert_eq!(
             r.files[0].hits.iter().map(|h| h.line).collect::<Vec<_>>(),
             vec![1, 3]

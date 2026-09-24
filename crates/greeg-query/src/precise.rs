@@ -27,7 +27,7 @@ pub fn apply(r: &mut ScanResult, rep: &Report) {
         let Some(src) = f.source().map(|s| s.bytes.clone()) else {
             continue;
         };
-        let Some(parsed) = sym::parse(f.lang, sym::is_tsx(&f.rel), &src) else {
+        let Some(parsed) = sym::parse(f.lang, sym::is_tsx(&f.rel_text()), &src) else {
             continue;
         };
         for h in &mut f.hits {

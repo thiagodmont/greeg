@@ -320,7 +320,8 @@ impl Source {
 
 #[derive(Clone, Debug)]
 pub struct FileResult {
-    pub rel: String,
+    /// Root-relative path bytes (`greeg_index::rel`).
+    pub rel: Vec<u8>,
     pub path: PathBuf,
     pub lang: Lang,
     pub flags: FileFlags,
@@ -347,9 +348,13 @@ pub struct FileResult {
 }
 
 impl FileResult {
+    /// `rel` as text to read (`greeg_index::rel::display`).
+    pub fn rel_text(&self) -> std::borrow::Cow<'_, str> {
+        greeg_index::rel::display(&self.rel)
+    }
     pub(crate) fn empty() -> FileResult {
         FileResult {
-            rel: String::new(),
+            rel: Vec::new(),
             path: PathBuf::new(),
             lang: Lang::None,
             flags: FileFlags::default(),
@@ -761,27 +766,29 @@ impl Sink for CollectSink<'_> {
     }
 }
 
-fn near_weight(rel: &str, near: &[String]) -> f32 {
+/// `near` holds paths as `--near` gives them or as a session keeps them
+/// (`greeg_index::rel::key`); both are compared as bytes.
+fn near_weight(rel: &[u8], near: &[String]) -> f32 {
+    use greeg_index::rel::{as_path, from_key, parent};
     if near.is_empty() {
         return 1.0;
     }
-    let dir = rel.rsplit_once('/').map(|(d, _)| d).unwrap_or("");
+    let dir = parent(rel);
     let mut best = 0.7f32;
     for n in near {
-        let n = n.trim_end_matches('/');
-        let ndir = if Path::new(n).extension().is_some() {
-            n.rsplit_once('/').map(|(d, _)| d).unwrap_or("")
+        let n = from_key(n);
+        let mut n = n.as_slice();
+        while let [rest @ .., b'/'] = n {
+            n = rest;
+        }
+        let ndir = if as_path(n).extension().is_some() {
+            parent(n)
         } else {
             n
         };
-        if rel.starts_with(n) || dir == ndir || (ndir.is_empty() && !rel.contains('/')) {
+        if rel.starts_with(n) || dir == ndir || (ndir.is_empty() && !rel.contains(&b'/')) {
             return 1.0;
         }
-        let parent = |d: &str| {
-            d.rsplit_once('/')
-                .map(|(p, _)| p.to_string())
-                .unwrap_or_default()
-        };
         if parent(dir) == parent(ndir) {
             best = best.max(0.85);
         }
@@ -798,6 +805,12 @@ const MOCK_SEGMENTS: &[&str] = &[
     "fake",
     "fakes",
 ];
+
+/// `greeg_lang::path_flags` of a path's bytes; names that are not UTF-8
+/// are read as `greeg_index::rel::display` shows them.
+pub(crate) fn path_flags_of(rel: &[u8]) -> FileFlags {
+    path_flags(&greeg_index::rel::display(rel))
+}
 
 /// A path with a `mock`/`stub`/`fake` directory or file stem: demoted like tests.
 pub fn is_mock_path(rel: &str) -> bool {
@@ -833,8 +846,8 @@ pub(crate) fn loc_weight(flags: FileFlags, rel: &str, all: bool) -> f32 {
 
 /// File prior: location × near. (Recency from mtime is not used: every file
 /// of a fresh clone is "today".)
-pub(crate) fn file_prior(flags: FileFlags, rel: &str, o: &Options) -> f32 {
-    loc_weight(flags, rel, o.all) * 0.8 * near_weight(rel, &o.near)
+pub(crate) fn file_prior(flags: FileFlags, rel: &[u8], o: &Options) -> f32 {
+    loc_weight(flags, &greeg_index::rel::display(rel), o.all) * 0.8 * near_weight(rel, &o.near)
 }
 
 /// Last whitespace-delimited identifier at the end of `head`, if `head` ends with one.
@@ -1536,7 +1549,7 @@ pub(crate) fn excluded_by_flags(o: &Options, flags: FileFlags) -> bool {
 pub(crate) fn process_file(
     cx: &Ctx,
     path: &Path,
-    rel: String,
+    rel: Vec<u8>,
     searcher: &mut Searcher,
     buf: &mut Vec<u8>,
     kind_of: Option<SpanKindOf>,
@@ -1547,7 +1560,7 @@ pub(crate) fn process_file(
     let mut flags = FileFlags::default();
     let need_path_flags = !o.all && (o.no_tests || o.no_vendored || o.no_generated);
     if need_path_flags {
-        flags = path_flags(&rel);
+        flags = path_flags_of(&rel);
         if excluded_by_flags(o, flags) {
             return None;
         }
@@ -1634,7 +1647,7 @@ pub(crate) fn process_file(
     let t_cls = Instant::now();
     // Only matched files pay for flags, metadata and classification.
     if !need_path_flags {
-        flags = path_flags(&rel);
+        flags = path_flags_of(&rel);
     }
     flags.0 |= content_flags(&body[..body.len().min(65536)], src.len() as u64).0;
     if flags.has(FileFlags::BINARY) {
@@ -1676,7 +1689,12 @@ pub(crate) fn process_file(
             if std::env::var_os("GREEG_DEBUG").is_some() {
                 eprintln!(
                     "greeg: offset mismatch in {} line {} ls={} le={} ms={} me={}",
-                    rel, lh.line, ls, le, ms, me
+                    greeg_index::rel::display(&rel),
+                    lh.line,
+                    ls,
+                    le,
+                    ms,
+                    me
                 );
             }
             continue;
@@ -1846,7 +1864,7 @@ pub fn refine_file(f: &mut FileResult) {
     if std::env::var_os("GREEG_DEBUG").is_some() {
         eprintln!(
             "refine {} full={} window={} read={}us lex={}us outline={}us defs={}",
-            f.rel,
+            f.rel_text(),
             full.len(),
             window.len(),
             read_us,
@@ -2074,11 +2092,7 @@ fn scan_once(o: &Options, bounds: &ScanBounds) -> Result<ScanResult> {
             }
             let p = e.path();
             cx.stats.walked.fetch_add(1, Relaxed);
-            let rel = p
-                .strip_prefix(root)
-                .unwrap_or(p)
-                .to_string_lossy()
-                .replace('\\', "/");
+            let rel = greeg_index::rel::of(root, p);
             if let Some(fr) = process_file(cx, p, rel, &mut searcher, &mut buf, None) {
                 let n = cx.stats.matched.fetch_add(1, Relaxed) + 1;
                 local.v.push(fr);
@@ -2309,6 +2323,14 @@ pub fn scan(o: &Options) -> Result<ScanResult> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn a_session_focus_on_a_non_utf8_path_is_near_its_directory() {
+        let focus = vec![greeg_index::rel::key(b"d\xfe/x.rs").into_owned()];
+        assert_eq!(near_weight(b"d\xfe/y.rs", &focus), 1.0);
+        assert_eq!(near_weight(b"other/deep/z.rs", &focus), 0.7);
+        assert_eq!(near_weight(b"src/a.rs", &["src/b.rs".to_string()]), 1.0);
+    }
+
     fn opts(pattern: &str) -> Options {
         Options {
             pattern: pattern.to_string(),
@@ -2502,7 +2524,7 @@ mod tests {
         process_file(
             &cx,
             path,
-            path.file_name().unwrap().to_string_lossy().to_string(),
+            path.file_name().unwrap().as_encoded_bytes().to_vec(),
             &mut searcher,
             &mut buf,
             None,

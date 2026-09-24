@@ -61,6 +61,19 @@ snapshots use them). A `manifest` (JSON) names the current generation of each.
 publish a whole new set while readers still hold the old one, and the manifest
 says which generation is current.
 
+Paths are the bytes of each name below the root, joined by `/`, the only
+separator on Unix: a backslash or a byte that is not UTF-8 is part of a name
+and is never converted, in the file table, the `skipped` record, freshness
+checks or scans. `--budget 0`, `-l` and `-c` write paths byte for byte, as
+ripgrep does, so each can be opened again. ripgrep-shaped JSON gives a path
+as `{"text"}` when it is UTF-8 and as `{"bytes"}` (base64) otherwise; greeg's
+own JSON fields give the string, or `{"bytes"}`. Ranked headers and verb text
+show invalid UTF-8 and control bytes as `\xNN`, and path heuristics (test,
+vendored and generated flags) read that form. Sessions keep the UTF-8 path,
+or a NUL and the bytes in hex. A file whose path is not UTF-8 resolves no
+imports of its own, and resolution by path never reaches it, since no import
+can spell its path; a Kotlin import resolves by package and still can.
+
 Two choices here were deliberate.
 
 **Postings are per file, not per position.** A positional index (which byte
@@ -125,9 +138,8 @@ already mapped an old generation keeps a valid view until it exits.
    are read from disk next to the candidates, listed by the `skipped` record.
    `--hidden`, `--no-ignore`, a glob that would enter a skipped directory, a
    hidden or ignored directory named on the command line, a directory whose
-   entries could not be listed exactly (a read error or a name that is not
-   UTF-8), and an index built before the record existed are answered by a
-   scan. `map` refuses them.
+   entries could not be listed (a read error), and an index built before the
+   record existed are answered by a scan. `map` refuses them.
 3. **Verify.** A pool of reader threads reads candidates in *prior order*
    (best files first) and matches them with the real regex engine. Ordering by
    prior means the budget can stop early and still hold the best hits.

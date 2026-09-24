@@ -36,7 +36,9 @@ fn fold_read(path: &Path) -> Option<Vec<u8>> {
 
 fn files_of(root: &Path) -> Vec<PathBuf> {
     let (w, _) = walk(root).unwrap();
-    w.into_iter().map(|f| root.join(f.rel)).collect()
+    w.into_iter()
+        .map(|f| root.join(greeg_index::rel::as_path(&f.rel)))
+        .collect()
 }
 
 // ---------------------------------------------------------------- weights

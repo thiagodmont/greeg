@@ -86,6 +86,7 @@ fn fingerprint_tree() -> Tmp {
             "def gamma():\n    \"\"\"gamma\"\"\"\n    return 1\n",
         ),
         ("notes.txt", "plain delta text\n"),
+        ("docs\\a\\b.txt", "a backslash is part of the name\n"),
         (".hidden.txt", "hidden\n"),
         ("out/gen.txt", "ignored\n"),
         (".gitignore", "out/\n"),
@@ -174,7 +175,7 @@ fn layout_digest(t: &Tmp) -> String {
 fn layout_fingerprint_matches_format_version() {
     // SAFETY: the only test in this binary, and no thread has started yet.
     unsafe { std::env::set_var("GREEG_DEBUG_FIXED_STAMPS", "1") };
-    const LAYOUT: (u32, &str) = (7, "f896972b698270a7");
+    const LAYOUT: (u32, &str) = (8, "b4c166b63ac32a5e");
     let t = fingerprint_tree();
     let digest = layout_digest(&t);
     assert_eq!(

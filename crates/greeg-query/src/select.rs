@@ -6,6 +6,7 @@
 use crate::Options;
 use anyhow::Result;
 use greeg_index::Index;
+use greeg_index::rel::as_path;
 use greeg_index::skipped::{DIR, IGNORED, UNKNOWN};
 use greeg_lang::FileFlags;
 use ignore::overrides::Override;
@@ -24,13 +25,13 @@ pub(crate) enum Reach {
 pub(crate) struct Selection<'a> {
     o: &'a Options,
     /// Root-relative positional paths; empty selects the whole root.
-    paths: Vec<String>,
+    paths: Vec<Vec<u8>>,
     overrides: Option<Override>,
     types: Option<Types>,
 }
 
 impl<'a> Selection<'a> {
-    pub(crate) fn new(o: &'a Options, paths: Vec<String>) -> Result<Self> {
+    pub(crate) fn new(o: &'a Options, paths: Vec<Vec<u8>>) -> Result<Self> {
         let overrides = if o.globs.is_empty() {
             None
         } else {
@@ -53,7 +54,7 @@ impl<'a> Selection<'a> {
         })
     }
 
-    pub(crate) fn paths(&self) -> &[String] {
+    pub(crate) fn paths(&self) -> &[Vec<u8>] {
         &self.paths
     }
 
@@ -73,13 +74,13 @@ impl<'a> Selection<'a> {
     /// Does the request reach a skipped entry (`greeg_index::skipped`)?
     /// ripgrep checks an override glob before ignore rules and hidden names,
     /// and a type after ignore rules but before hidden names.
-    pub(crate) fn reaches(&self, rel: &str, bits: u8) -> Reach {
+    pub(crate) fn reaches(&self, rel: &[u8], bits: u8) -> Reach {
         if bits & UNKNOWN != 0 {
-            // children not listed exactly: whatever the request selects there
-            let inside = |p: &String| {
+            // children not listed: whatever the request selects there
+            let inside = |p: &Vec<u8>| {
                 rel.is_empty()
                     || p.is_empty()
-                    || p.starts_with(rel) && p.as_bytes().get(rel.len()) == Some(&b'/')
+                    || p.starts_with(rel) && p.get(rel.len()) == Some(&b'/')
             };
             let overlaps =
                 crate::indexed::path_allowed(rel, &self.paths) || self.paths.iter().any(inside);
@@ -90,10 +91,14 @@ impl<'a> Selection<'a> {
                 && self
                     .overrides
                     .as_ref()
-                    .is_some_and(|ov| ov.matched(rel, true).is_whitelist());
+                    .is_some_and(|ov| ov.matched(as_path(rel), true).is_whitelist());
             return if walked { Reach::Dir } else { Reach::No };
         }
-        let by_glob = match self.overrides.as_ref().map(|ov| ov.matched(rel, false)) {
+        let by_glob = match self
+            .overrides
+            .as_ref()
+            .map(|ov| ov.matched(as_path(rel), false))
+        {
             Some(m) if m.is_ignore() => return Reach::No,
             Some(m) => m.is_whitelist(),
             None => false,
@@ -102,8 +107,8 @@ impl<'a> Selection<'a> {
             && self
                 .types
                 .as_ref()
-                .is_some_and(|t| t.matched(rel, false).is_whitelist());
-        if (by_glob || by_type) && self.selects(rel, greeg_lang::path_flags(rel)) {
+                .is_some_and(|t| t.matched(as_path(rel), false).is_whitelist());
+        if (by_glob || by_type) && self.selects(rel, crate::path_flags_of(rel)) {
             Reach::File
         } else {
             Reach::No
@@ -119,7 +124,7 @@ impl<'a> Selection<'a> {
         &self,
         idx: &Index,
         pending: Option<&greeg_index::fresh::Changes>,
-    ) -> Option<Vec<String>> {
+    ) -> Option<Vec<Vec<u8>>> {
         if self.o.hidden || self.o.no_ignore {
             return None;
         }
@@ -148,21 +153,21 @@ impl<'a> Selection<'a> {
     /// override glob decides first (a whitelist wins over types) and ignore
     /// globs also apply to every ancestor directory, as the walker would
     /// prune them; then the exclusion flags.
-    pub(crate) fn selects(&self, rel: &str, flags: FileFlags) -> bool {
+    pub(crate) fn selects(&self, rel: &[u8], flags: FileFlags) -> bool {
         if !crate::indexed::path_allowed(rel, &self.paths) {
             return false;
         }
         let mut decided = false;
         if let Some(ov) = &self.overrides {
-            let m = ov.matched(rel, false);
+            let m = ov.matched(as_path(rel), false);
             if m.is_ignore() {
                 return false;
             }
             decided = m.is_whitelist();
             let mut end = 0;
-            while let Some(k) = rel[end..].find('/') {
+            while let Some(k) = rel[end..].iter().position(|&b| b == b'/') {
                 end += k;
-                if ov.matched(&rel[..end], true).is_ignore() {
+                if ov.matched(as_path(&rel[..end]), true).is_ignore() {
                     return false;
                 }
                 end += 1;
@@ -170,7 +175,7 @@ impl<'a> Selection<'a> {
         }
         if !decided
             && let Some(t) = &self.types
-            && t.matched(rel, false).is_ignore()
+            && t.matched(as_path(rel), false).is_ignore()
         {
             return false;
         }
@@ -179,7 +184,7 @@ impl<'a> Selection<'a> {
 
     /// A selected, searchable file's prior order: source 0, demoted 2,
     /// minified 3.
-    pub(crate) fn admit(&self, rel: &str, flags: FileFlags) -> Option<u8> {
+    pub(crate) fn admit(&self, rel: &[u8], flags: FileFlags) -> Option<u8> {
         if flags.has(FileFlags::BINARY) || !self.selects(rel, flags) {
             return None;
         }
@@ -204,10 +209,10 @@ mod tests {
             ..Default::default()
         };
         let whole = Selection::new(&o, Vec::new()).unwrap();
-        assert_eq!(whole.reaches("src", UNKNOWN), Reach::Dir);
-        let docs = Selection::new(&o, vec!["docs".into()]).unwrap();
-        assert_eq!(docs.reaches("src", UNKNOWN), Reach::No);
-        assert_eq!(docs.reaches("", UNKNOWN), Reach::Dir);
-        assert_eq!(docs.reaches("docs/a", UNKNOWN), Reach::Dir);
+        assert_eq!(whole.reaches(b"src", UNKNOWN), Reach::Dir);
+        let docs = Selection::new(&o, vec![b"docs".to_vec()]).unwrap();
+        assert_eq!(docs.reaches(b"src", UNKNOWN), Reach::No);
+        assert_eq!(docs.reaches(b"", UNKNOWN), Reach::Dir);
+        assert_eq!(docs.reaches(b"docs/a", UNKNOWN), Reach::Dir);
     }
 }

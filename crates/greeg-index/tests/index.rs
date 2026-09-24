@@ -200,14 +200,17 @@ fn ids_for(idx: &Index, pat: &str) -> Vec<String> {
     let mut v: Vec<String> = idx
         .candidates(&q)
         .iter()
-        .map(|id| idx.path(id).unwrap().to_string())
+        .map(|id| text(idx.path(id).unwrap()).to_string())
         .collect();
     v.sort();
     v
 }
 
 fn live_paths(idx: &Index) -> Vec<String> {
-    let mut v: Vec<String> = idx.live_files().map(|(_, r, _)| r.to_string()).collect();
+    let mut v: Vec<String> = idx
+        .live_files()
+        .map(|(_, r, _)| text(r).to_string())
+        .collect();
     v.sort();
     v
 }
@@ -233,7 +236,7 @@ fn build_open_delta_tombstone_roundtrip() {
             "src/util/helper.rs"
         ]
     );
-    assert!(idx.tracked_files().any(|(_, r, _)| r == ".gitignore"));
+    assert!(idx.tracked_files().any(|(_, r, _)| r == b".gitignore"));
     assert_eq!(idx.live_count(), 4);
     assert_eq!(
         ids_for(&idx, "helper_alpha"),
@@ -297,7 +300,7 @@ fn stat_mode_add_delete_rename() {
     fs::create_dir_all(t.root.join("newdir/deep")).unwrap();
     fs::write(t.root.join("newdir/deep/z.py"), "zeta_zeta = 1\n").unwrap();
     let ch = check(&idx, &t.root);
-    let mut added: Vec<&str> = ch.added.iter().map(|w| w.rel.as_str()).collect();
+    let mut added: Vec<&str> = ch.added.iter().map(|w| text(&w.rel)).collect();
     added.sort();
     assert_eq!(added, ["newdir/deep/z.py", "src/extra.rs"]);
     assert_eq!(ch.added_dirs.len(), 2);
@@ -325,7 +328,7 @@ fn stat_mode_add_delete_rename() {
     let ch = check(&idx, &t.root);
     assert_eq!(ch.deleted.len(), 1);
     assert_eq!(
-        ch.added.iter().map(|w| w.rel.as_str()).collect::<Vec<_>>(),
+        ch.added.iter().map(|w| text(&w.rel)).collect::<Vec<_>>(),
         ["src/moved.rs"]
     );
     fresh::apply(&idx, &t.root, &ch).unwrap();
@@ -337,7 +340,7 @@ fn stat_mode_add_delete_rename() {
     let ch = check(&idx, &t.root);
     assert_eq!(ch.deleted.len(), 1);
     assert_eq!(
-        ch.added.iter().map(|w| w.rel.as_str()).collect::<Vec<_>>(),
+        ch.added.iter().map(|w| text(&w.rel)).collect::<Vec<_>>(),
         ["renamed/deep/z.py"]
     );
     fresh::apply(&idx, &t.root, &ch).unwrap();
@@ -397,7 +400,7 @@ fn ignore_file_edits_force_rebuild() {
     build(&t.root, &t.dir, &opts()).unwrap();
     let idx = Index::open(&t.dir).unwrap();
     assert_eq!(live_paths(&idx), ["README.md", "src/main.rs"]);
-    assert!(idx.tracked_files().any(|(_, r, _)| r == "src/.ignore"));
+    assert!(idx.tracked_files().any(|(_, r, _)| r == b"src/.ignore"));
 
     // delete it again
     fs::remove_file(t.root.join("src/.ignore")).unwrap();
@@ -423,7 +426,7 @@ fn huge_files_stay_candidates() {
     let idx = Index::open(&t.dir).unwrap();
     let rec = idx
         .live_files()
-        .find(|(_, r, _)| *r == "src/blob.rs")
+        .find(|(_, r, _)| *r == b"src/blob.rs")
         .map(|(_, _, rec)| *rec)
         .unwrap();
     assert!(greeg_lang::FileFlags(rec.flags).has(greeg_lang::FileFlags::HUGE));
@@ -506,7 +509,7 @@ fn case_insensitive_long_s_stays_candidate() {
         let mut v: Vec<String> = idx
             .candidates(&q)
             .iter()
-            .map(|id| idx.path(id).unwrap().to_string())
+            .map(|id| text(idx.path(id).unwrap()).to_string())
             .collect();
         v.sort();
         v
@@ -576,4 +579,8 @@ fn apply_skips_when_manifest_moved() {
     let after = read_manifest(&t.dir).unwrap();
     assert_eq!(after.generation, before.generation);
     assert_eq!(after.verified_unix_ms, before.verified_unix_ms);
+}
+
+fn text(b: &[u8]) -> &str {
+    std::str::from_utf8(b).unwrap()
 }

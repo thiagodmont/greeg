@@ -2,14 +2,16 @@
 //! published (stat pass, or FSEvents history on macOS), and apply changes as
 //! a delta segment plus tombstones.
 
-use crate::build::{Noted, Stamp, WalkedDir, WalkedFile, build_delta, rel_to, walker_noting};
+use crate::build::{Noted, Stamp, WalkedDir, WalkedFile, build_delta, walker_noting};
 use crate::format::{self, FileRec, NONE, is_ignore_file};
+use crate::rel::{self, as_path, parent as parent_of};
 use crate::skipped;
 use crate::{Index, now_ms, read_manifest, write_manifest};
 use anyhow::Result;
 use hashbrown::{HashMap, HashSet};
 use roaring::RoaringBitmap;
 use std::fs;
+use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
@@ -42,7 +44,7 @@ pub struct Changes {
     /// existing dirs whose mtime moved (recorded so the next check is quiet)
     pub touched_dirs: Vec<WalkedDir>,
     /// The skipped children of every directory listed again (`skipped.rs`).
-    pub skipped: Vec<(String, skipped::Children)>,
+    pub skipped: Vec<(Vec<u8>, skipped::Children)>,
     /// An ignore file was added, modified or deleted: the ignore rules of its
     /// subtree must be re-evaluated (full rebuild; `needs_rebuild`).
     pub ignore_changed: bool,
@@ -83,33 +85,31 @@ pub const VERIFY_WRITE_MS: u64 = 1000;
 
 struct Known<'a> {
     // (id, rel, rec)
-    files: Vec<(u32, &'a str, &'a FileRec)>,
+    files: Vec<(u32, &'a [u8], &'a FileRec)>,
     // dir rel -> stamp (latest record wins)
-    dirs: HashMap<&'a str, Stamp>,
-}
-
-fn parent_of(rel: &str) -> &str {
-    rel.rsplit_once('/').map(|(d, _)| d).unwrap_or("")
+    dirs: HashMap<&'a [u8], Stamp>,
 }
 
 impl<'a> Known<'a> {
     /// Known child names (files and dirs) of each directory in `dirs`, in one
     /// pass over the file table.
-    fn children_of<'d>(&self, dirs: &'d [(String, Stamp)]) -> HashMap<&'d str, HashSet<&'a str>> {
-        let mut out: HashMap<&'d str, HashSet<&'a str>> = dirs
+    fn children_of<'d>(
+        &self,
+        dirs: &'d [(Vec<u8>, Stamp)],
+    ) -> HashMap<&'d [u8], HashSet<&'a [u8]>> {
+        let mut out: HashMap<&'d [u8], HashSet<&'a [u8]>> = dirs
             .iter()
-            .map(|(d, _)| (d.as_str(), HashSet::new()))
+            .map(|(d, _)| (d.as_slice(), HashSet::new()))
             .collect();
-        for (_, rel, _) in &self.files {
-            let (d, n) = rel.rsplit_once('/').unwrap_or(("", rel));
-            if let Some(set) = out.get_mut(d) {
-                set.insert(n);
+        for (_, r, _) in &self.files {
+            if let Some(set) = out.get_mut(parent_of(r)) {
+                set.insert(rel::file_name(r));
             }
         }
         for d in self.dirs.keys() {
-            let (parent, name) = d.rsplit_once('/').unwrap_or(("", d));
+            let name = rel::file_name(d);
             if !name.is_empty()
-                && let Some(set) = out.get_mut(parent)
+                && let Some(set) = out.get_mut(parent_of(d))
             {
                 set.insert(name);
             }
@@ -121,7 +121,7 @@ impl<'a> Known<'a> {
 fn known(idx: &Index) -> Known<'_> {
     let mut files = Vec::with_capacity(idx.base.n_files as usize);
     files.extend(idx.tracked_files());
-    let mut dirs: HashMap<&str, Stamp> = HashMap::with_capacity(idx.base.files().dirs.len());
+    let mut dirs: HashMap<&[u8], Stamp> = HashMap::with_capacity(idx.base.files().dirs.len());
     for (_, seg) in idx.segments() {
         let fv = seg.files();
         for d in fv.dirs {
@@ -137,7 +137,7 @@ fn known(idx: &Index) -> Known<'_> {
 fn stat_many<T: Sync>(
     root: &Path,
     items: &[T],
-    rel: impl Fn(&T) -> &str + Sync,
+    rel: impl Fn(&T) -> &[u8] + Sync,
     kind: fn(&fs::FileType) -> bool,
     threads: usize,
 ) -> Vec<Option<Stamp>> {
@@ -154,7 +154,7 @@ fn stat_many<T: Sync>(
             let rel = &rel;
             sc.spawn(move || {
                 for (o, it) in part.iter_mut().zip(items) {
-                    *o = fs::symlink_metadata(root.join(rel(it)))
+                    *o = fs::symlink_metadata(root.join(as_path(rel(it))))
                         .ok()
                         .filter(|md| kind(&md.file_type()))
                         .map(|md| Stamp::of(&md));
@@ -167,11 +167,11 @@ fn stat_many<T: Sync>(
 
 /// List a directory with ignore rules (one level), returning (name, is_dir,
 /// stamp) for subdirectories and regular files, and what it skipped.
-fn list_dir(root: &Path, rel: &str) -> (Vec<(String, bool, Stamp)>, skipped::Children) {
-    let abs = if rel.is_empty() {
+fn list_dir(root: &Path, dir: &[u8]) -> (Vec<(Vec<u8>, bool, Stamp)>, skipped::Children) {
+    let abs = if dir.is_empty() {
         root.to_path_buf()
     } else {
-        root.join(rel)
+        root.join(as_path(dir))
     };
     let noted = Noted::default();
     let mut kept = HashSet::new();
@@ -185,37 +185,37 @@ fn list_dir(root: &Path, rel: &str) -> (Vec<(String, bool, Stamp)>, skipped::Chi
         if e.depth() == 0 {
             continue;
         }
-        kept.insert(rel_to(root, e.path()));
+        kept.insert(rel::of(root, e.path()));
         let Some(ft) = e.file_type() else { continue };
         if !ft.is_dir() && !ft.is_file() {
             continue;
         }
         let Ok(md) = e.metadata() else { continue };
-        let name = e.file_name().to_string_lossy().into_owned();
+        let name = e.file_name().as_bytes().to_vec();
         out.push((name, ft.is_dir(), Stamp::of(&md)));
     }
     let noted = noted_rels(root, &noted);
-    let kept: HashSet<&str> = kept.iter().map(String::as_str).collect();
-    let hidden: HashSet<&str> = noted.iter().map(String::as_str).collect();
-    let skipped = skipped::list(root, &[rel], &kept, &hidden)
+    let kept: HashSet<&[u8]> = kept.iter().map(Vec::as_slice).collect();
+    let hidden: HashSet<&[u8]> = noted.iter().map(Vec::as_slice).collect();
+    let skipped = skipped::list(root, &[dir], &kept, &hidden)
         .pop()
         .map(|(_, kids)| kids)
         .unwrap_or_default();
     (out, skipped)
 }
 
-fn noted_rels(root: &Path, noted: &Noted) -> Vec<String> {
+fn noted_rels(root: &Path, noted: &Noted) -> Vec<Vec<u8>> {
     noted
         .lock()
         .unwrap()
         .iter()
-        .map(|p| rel_to(root, p))
+        .map(|p| rel::of(root, p))
         .collect()
 }
 
 /// Recursively walk a new directory (ignore rules honoured) into added files/dirs.
-fn walk_new_dir(root: &Path, rel: &str, dir_id: u32, ch: &mut Changes) {
-    let abs = root.join(rel);
+fn walk_new_dir(root: &Path, dir: &[u8], dir_id: u32, ch: &mut Changes) {
+    let abs = root.join(as_path(dir));
     let noted = Noted::default();
     let mut kept = HashSet::new();
     let mut walked = Vec::new();
@@ -225,7 +225,7 @@ fn walk_new_dir(root: &Path, rel: &str, dir_id: u32, ch: &mut Changes) {
         .flatten()
     {
         let Ok(md) = e.metadata() else { continue };
-        let r = rel_to(root, e.path());
+        let r = rel::of(root, e.path());
         kept.insert(r.clone());
         if e.file_type().map(|t| t.is_dir()).unwrap_or(false) {
             walked.push(r.clone());
@@ -245,16 +245,16 @@ fn walk_new_dir(root: &Path, rel: &str, dir_id: u32, ch: &mut Changes) {
         }
     }
     let noted = noted_rels(root, &noted);
-    let kept: HashSet<&str> = kept.iter().map(String::as_str).collect();
-    let hidden: HashSet<&str> = noted.iter().map(String::as_str).collect();
-    let dirs: Vec<&str> = walked.iter().map(String::as_str).collect();
+    let kept: HashSet<&[u8]> = kept.iter().map(Vec::as_slice).collect();
+    let hidden: HashSet<&[u8]> = noted.iter().map(Vec::as_slice).collect();
+    let dirs: Vec<&[u8]> = walked.iter().map(Vec::as_slice).collect();
     ch.skipped
         .extend(skipped::list(root, &dirs, &kept, &hidden));
 }
 
 /// Record the stat outcome of one known file. A record marked for a recheck
 /// counts as modified whatever its stamp says.
-fn classify(ch: &mut Changes, id: u32, rel: &str, rec: &FileRec, s: Option<Stamp>, no_ino: bool) {
+fn classify(ch: &mut Changes, id: u32, rel: &[u8], rec: &FileRec, s: Option<Stamp>, no_ino: bool) {
     match s {
         None => {
             if is_ignore_file(rel) {
@@ -271,7 +271,7 @@ fn classify(ch: &mut Changes, id: u32, rel: &str, rec: &FileRec, s: Option<Stamp
             ch.modified.push((
                 id,
                 WalkedFile {
-                    rel: rel.to_string(),
+                    rel: rel.to_vec(),
                     stamp: st,
                     dir: rec.dir,
                 },
@@ -292,7 +292,7 @@ const NO_INO_MIN: usize = 16;
 fn classify_all(
     ch: &mut Changes,
     mut no_ino: bool,
-    files: &[(u32, &str, &FileRec)],
+    files: &[(u32, &[u8], &FileRec)],
     st: Vec<Option<Stamp>>,
     indexed: usize,
 ) -> bool {
@@ -325,13 +325,13 @@ pub fn check_stat(idx: &Index, root: &Path, threads: usize) -> Changes {
     };
     let st = stat_many(root, &k.files, |f| f.1, fs::FileType::is_file, threads);
     let no_ino = classify_all(&mut ch, idx.no_ino(), &k.files, st, k.files.len());
-    let dirs: Vec<(&str, Stamp)> = k.dirs.iter().map(|(p, m)| (*p, *m)).collect();
+    let dirs: Vec<(&[u8], Stamp)> = k.dirs.iter().map(|(p, m)| (*p, *m)).collect();
     let ds = stat_many(root, &dirs, |d| d.0, fs::FileType::is_dir, threads);
-    let mut changed_dirs: Vec<(String, Stamp)> = Vec::new();
+    let mut changed_dirs: Vec<(Vec<u8>, Stamp)> = Vec::new();
     for ((rel, old), s) in dirs.iter().zip(ds) {
         match s {
             None => {}
-            Some(st) if !st.same_dir(old, no_ino) => changed_dirs.push((rel.to_string(), st)),
+            Some(st) if !st.same_dir(old, no_ino) => changed_dirs.push((rel.to_vec(), st)),
             _ => {}
         }
     }
@@ -341,30 +341,26 @@ pub fn check_stat(idx: &Index, root: &Path, threads: usize) -> Changes {
 }
 
 /// Re-list changed directories to find additions (files and subdirectories).
-fn relist_dirs(root: &Path, k: &Known, changed_dirs: &[(String, Stamp)], ch: &mut Changes) {
+fn relist_dirs(root: &Path, k: &Known, changed_dirs: &[(Vec<u8>, Stamp)], ch: &mut Changes) {
     if changed_dirs.is_empty() {
         return;
     }
     let kids = k.children_of(changed_dirs);
-    let dir_ids: HashMap<&str, u32> = k.files.iter().map(|f| (parent_of(f.1), f.2.dir)).collect();
-    for (rel, new_stamp) in changed_dirs {
+    let dir_ids: HashMap<&[u8], u32> = k.files.iter().map(|f| (parent_of(f.1), f.2.dir)).collect();
+    for (dir, new_stamp) in changed_dirs {
         ch.touched_dirs.push(WalkedDir {
-            rel: rel.clone(),
+            rel: dir.clone(),
             stamp: *new_stamp,
         });
-        let known_kids = kids.get(rel.as_str());
-        let dir_id = *dir_ids.get(rel.as_str()).unwrap_or(&0);
-        let (listed, skipped) = list_dir(root, rel);
-        ch.skipped.push((rel.clone(), skipped));
+        let known_kids = kids.get(dir.as_slice());
+        let dir_id = *dir_ids.get(dir.as_slice()).unwrap_or(&0);
+        let (listed, skipped) = list_dir(root, dir);
+        ch.skipped.push((dir.clone(), skipped));
         for (name, is_dir, stamp) in listed {
             if known_kids.map(|s| s.contains(&name[..])).unwrap_or(false) {
                 continue;
             }
-            let child_rel = if rel.is_empty() {
-                name.clone()
-            } else {
-                format!("{rel}/{name}")
-            };
+            let child_rel = rel::join(dir, &name);
             if is_dir {
                 walk_new_dir(root, &child_rel, dir_id, ch);
             } else {
@@ -396,9 +392,10 @@ pub fn check_fsevents(idx: &Index, root: &Path, threads: usize) -> Option<Change
     let t = Instant::now();
     let fsevents_id = current_fsevents_id();
     let abs_root = fs::canonicalize(root).ok()?;
-    let root_s = abs_root.to_string_lossy().into_owned();
+    // a root that is not UTF-8 cannot be named to FSEvents: the stat pass runs
+    let root_s = abs_root.to_str()?;
     let dirs =
-        greeg_fsevents::changed_dirs_since(idx.manifest.fsevents_id, &root_s, FSEVENTS_CUTOFF)?;
+        greeg_fsevents::changed_dirs_since(idx.manifest.fsevents_id, root_s, FSEVENTS_CUTOFF)?;
     let mut ch = Changes {
         method: "fsevents",
         fsevents_id,
@@ -410,46 +407,48 @@ pub fn check_fsevents(idx: &Index, root: &Path, threads: usize) -> Option<Change
     }
     let k = known(idx);
     // relative dir set
-    let mut rels: HashSet<String> = HashSet::new();
-    for d in dirs {
-        let d = d.trim_end_matches('/');
-        let r = if d.len() > root_s.len() {
-            d[root_s.len()..].trim_start_matches('/').to_string()
-        } else {
-            String::new()
-        };
+    let mut rels: HashSet<Vec<u8>> = HashSet::new();
+    for d in &dirs {
+        let mut d = d.as_slice();
+        while let [rest @ .., b'/'] = d {
+            d = rest;
+        }
+        let mut r: &[u8] = d.get(root_s.len()..).unwrap_or_default();
+        while let [b'/', rest @ ..] = r {
+            r = rest;
+        }
         // events on paths outside the index (ignored dirs) still matter when they are
         // new: their parent appears too, so only known dirs and the root are listed.
-        rels.insert(r);
+        rels.insert(r.to_vec());
     }
     // known dirs whose entry list moved: a rename or removal of a subdirectory
     // reports only the parent, so every known file below it is re-stat'd too
     let mut changed_dirs = Vec::new();
-    let mut moved: HashSet<&str> = HashSet::new();
+    let mut moved: HashSet<&[u8]> = HashSet::new();
     for r in &rels {
-        if let Some(old) = k.dirs.get(r.as_str())
+        if let Some(old) = k.dirs.get(r.as_slice())
             && let Ok(md) = fs::symlink_metadata(if r.is_empty() {
                 abs_root.clone()
             } else {
-                abs_root.join(r)
+                abs_root.join(as_path(r))
             })
         {
             let st = Stamp::of(&md);
             if !st.same_dir(old, idx.no_ino()) {
                 changed_dirs.push((r.clone(), st));
-                moved.insert(r.as_str());
+                moved.insert(r.as_slice());
             }
         }
     }
-    let under_moved = |rel: &str| -> bool {
+    let under_moved = |rel: &[u8]| -> bool {
         if moved.is_empty() {
             return false;
         }
-        if moved.contains("") {
+        if moved.contains(&b""[..]) {
             return true;
         }
         let mut end = rel.len();
-        while let Some(k) = rel[..end].rfind('/') {
+        while let Some(k) = rel[..end].iter().rposition(|&b| b == b'/') {
             if moved.contains(&rel[..k]) {
                 return true;
             }
@@ -458,7 +457,7 @@ pub fn check_fsevents(idx: &Index, root: &Path, threads: usize) -> Option<Change
         false
     };
     // stat files whose parent dir changed, or that live below a dir whose entries moved
-    let files: Vec<(u32, &str, &FileRec)> = k
+    let files: Vec<(u32, &[u8], &FileRec)> = k
         .files
         .iter()
         .filter(|f| rels.contains(parent_of(f.1)) || under_moved(f.1))
@@ -665,10 +664,10 @@ mod tests {
             ..bytemuck::Zeroable::zeroed()
         };
         let recs: Vec<FileRec> = (0..20).map(rec).collect();
-        let files: Vec<(u32, &str, &FileRec)> = recs
+        let files: Vec<(u32, &[u8], &FileRec)> = recs
             .iter()
             .enumerate()
-            .map(|(i, r)| (i as u32, "f", r))
+            .map(|(i, r)| (i as u32, &b"f"[..], r))
             .collect();
 
         // every inode moved and nothing else: inode numbers are not kept
@@ -709,10 +708,10 @@ mod tests {
         // a recheck mark is a change even with an identical stamp
         let mut marked = recs.clone();
         marked[5].stamp_flags = format::STAMP_RECHECK;
-        let files: Vec<(u32, &str, &FileRec)> = marked
+        let files: Vec<(u32, &[u8], &FileRec)> = marked
             .iter()
             .enumerate()
-            .map(|(i, r)| (i as u32, "f", r))
+            .map(|(i, r)| (i as u32, &b"f"[..], r))
             .collect();
         let mut ch = Changes::default();
         classify_all(
@@ -754,15 +753,16 @@ mod tests {
         build(&root, &dir, &opts).unwrap();
         assert!(!dir.join(&before.manifest.skipped).exists());
         let sk = before.skipped().expect("record kept by the open index");
-        assert!(sk.entries().any(|(rel, _)| rel == ".hidden.rs"));
+        assert!(sk.entries().any(|(rel, _)| rel == b".hidden.rs"));
         let _ = fs::remove_dir_all(&base);
     }
 
     fn id_of(idx: &Index, rel: &str) -> u32 {
+        let rel = rel.as_bytes();
         idx.live_files()
             .find(|(_, r, _)| *r == rel)
             .map(|(id, _, _)| id)
-            .unwrap_or_else(|| panic!("{rel} not live"))
+            .unwrap_or_else(|| panic!("{rel:?} not live"))
     }
 
     fn edit_and_apply(idx: &Index, root: &Path, dir: &Path) -> Index {

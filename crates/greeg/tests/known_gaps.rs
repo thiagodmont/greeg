@@ -885,7 +885,6 @@ fn a_corrupted_dictionary_never_gives_an_authoritative_empty_answer() {
 
 #[cfg(unix)]
 #[test]
-#[ignore = "known gap: paths are converted lossily and backslashes become separators"]
 fn a_backslash_in_a_file_name_is_preserved() {
     let f = Fixture::new(&[("a\\b.txt", "pathneedle\n")]);
     f.indexed();

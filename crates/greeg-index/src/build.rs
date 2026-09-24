@@ -18,6 +18,7 @@ use hashbrown::{HashMap, HashSet};
 use rayon::prelude::*;
 use roaring::RoaringBitmap;
 use std::fs;
+use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -138,14 +139,14 @@ pub(crate) fn now_ns() -> i64 {
 
 #[derive(Clone, Debug)]
 pub struct WalkedFile {
-    pub rel: String,
+    pub rel: Vec<u8>,
     pub stamp: Stamp,
     pub dir: u32,
 }
 
 #[derive(Clone, Debug)]
 pub struct WalkedDir {
-    pub rel: String,
+    pub rel: Vec<u8>,
     pub stamp: Stamp,
 }
 
@@ -168,23 +169,15 @@ pub(crate) fn walker_noting(path: &Path, noted: Option<Noted>) -> ignore::WalkBu
         if e.depth() == 0 {
             return true;
         }
-        let name = e.file_name().to_string_lossy();
-        let keep = !name.starts_with('.')
-            || (e.file_type().map(|t| t.is_file()).unwrap_or(false) && is_ignore_file(&name));
+        let name = e.file_name().as_bytes();
+        let keep = !name.starts_with(b".")
+            || (e.file_type().map(|t| t.is_file()).unwrap_or(false) && is_ignore_file(name));
         if !keep && let Some(n) = &noted {
             n.lock().unwrap().push(e.path().to_path_buf());
         }
         keep
     });
     wb
-}
-
-/// Root-relative, '/'-separated.
-pub(crate) fn rel_to(root: &Path, p: &Path) -> String {
-    p.strip_prefix(root)
-        .unwrap_or(p)
-        .to_string_lossy()
-        .replace('\\', "/")
 }
 
 /// Walk `root` with the same ignore semantics as scan mode; returns files and
@@ -205,13 +198,13 @@ pub fn walk_with_skipped(
 )> {
     let noted = Noted::default();
     let (files, dirs) = walk_noting(root, Some(noted.clone()))?;
-    let noted: Vec<String> = noted
+    let noted: Vec<Vec<u8>> = noted
         .lock()
         .unwrap()
         .iter()
-        .map(|p| rel_to(root, p))
+        .map(|p| crate::rel::of(root, p))
         .collect();
-    let kept: Vec<String> = files
+    let kept: Vec<Vec<u8>> = files
         .iter()
         .map(|f| f.rel.clone())
         .chain(dirs.iter().map(|d| d.rel.clone()))
@@ -219,9 +212,9 @@ pub fn walk_with_skipped(
     let n_files = files.len();
     let root = root.to_path_buf();
     let listing = std::thread::spawn(move || {
-        let hidden: HashSet<&str> = noted.iter().map(String::as_str).collect();
-        let dirs: Vec<&str> = kept[n_files..].iter().map(String::as_str).collect();
-        let kept: HashSet<&str> = kept.iter().map(String::as_str).collect();
+        let hidden: HashSet<&[u8]> = noted.iter().map(Vec::as_slice).collect();
+        let dirs: Vec<&[u8]> = kept[n_files..].iter().map(Vec::as_slice).collect();
+        let kept: HashSet<&[u8]> = kept.iter().map(Vec::as_slice).collect();
         let mut skipped = Skipped::default();
         skipped.update(&crate::skipped::list(&root, &dirs, &kept, &hidden));
         skipped
@@ -230,7 +223,7 @@ pub fn walk_with_skipped(
 }
 
 fn walk_noting(root: &Path, noted: Option<Noted>) -> Result<(Vec<WalkedFile>, Vec<WalkedDir>)> {
-    type Files = Vec<(String, Stamp)>;
+    type Files = Vec<(Vec<u8>, Stamp)>;
     let out: Mutex<(Files, Vec<WalkedDir>)> =
         Mutex::new((Vec::with_capacity(4096), Vec::with_capacity(512)));
     struct Local<'a> {
@@ -261,12 +254,7 @@ fn walk_noting(root: &Path, noted: Option<Noted>) -> Result<(Vec<WalkedFile>, Ve
             let Ok(e) = entry else {
                 return ignore::WalkState::Continue;
             };
-            let rel = e
-                .path()
-                .strip_prefix(root)
-                .unwrap_or(e.path())
-                .to_string_lossy()
-                .replace('\\', "/");
+            let rel = crate::rel::of(root, e.path());
             let Ok(md) = e.metadata() else {
                 return ignore::WalkState::Continue;
             };
@@ -288,17 +276,15 @@ fn walk_noting(root: &Path, noted: Option<Noted>) -> Result<(Vec<WalkedFile>, Ve
     files.sort_by(|a, b| a.0.cmp(&b.0));
     dirs.sort_by(|a, b| a.rel.cmp(&b.rel));
     let files: Vec<WalkedFile> = {
-        let dir_index: HashMap<&str, u32> = dirs
+        let dir_index: HashMap<&[u8], u32> = dirs
             .iter()
             .enumerate()
-            .map(|(i, d)| (d.rel.as_str(), i as u32))
+            .map(|(i, d)| (d.rel.as_slice(), i as u32))
             .collect();
         files
             .into_iter()
             .map(|(rel, stamp)| {
-                let dir = *dir_index
-                    .get(rel.rsplit_once('/').map(|(d, _)| d).unwrap_or(""))
-                    .unwrap_or(&0);
+                let dir = *dir_index.get(crate::rel::parent(&rel)).unwrap_or(&0);
                 WalkedFile { rel, stamp, dir }
             })
             .collect()
@@ -374,7 +360,7 @@ pub(crate) fn recorded(walk: &Stamp, read: Option<&Capture>, walked_ns: i64) -> 
 
 pub(crate) fn file_rec(
     (path_off, path_len): (u32, u16),
-    rel: &str,
+    rel: &[u8],
     dir: u32,
     flags: u16,
     rank: u16,
@@ -383,7 +369,7 @@ pub(crate) fn file_rec(
     FileRec {
         path_off,
         path_len,
-        lang: Lang::from_path(Path::new(rel)).code(),
+        lang: Lang::from_path(crate::rel::as_path(rel)).code(),
         stamp_flags,
         dir,
         flags,
@@ -442,7 +428,7 @@ const DELTA_RACY_WAIT: i64 = 25_000_000;
 /// Read one file and extract its grams and flags. `buf` and `dd` are reused.
 pub fn extract_file(
     path: &Path,
-    rel: &str,
+    rel: &[u8],
     walk: &Stamp,
     buf: &mut Vec<u8>,
     dd: &mut Dedup,
@@ -455,14 +441,14 @@ pub fn extract_file(
 /// gram extraction so a second extractor (symbols) needs no second read.
 fn extract_file_with<T: Default>(
     path: &Path,
-    rel: &str,
+    rel: &[u8],
     walk: &Stamp,
     buf: &mut Vec<u8>,
     dd: &mut Dedup,
     grams: &mut Vec<u32>,
-    hook: impl FnOnce(&str, &[u8]) -> T,
+    hook: impl FnOnce(&[u8], &[u8]) -> T,
 ) -> (Extracted, T) {
-    let mut flags = path_flags(rel);
+    let mut flags = path_flags(&crate::rel::display(rel));
     grams.clear();
     if walk.size > MAX_FILE {
         flags.set(FileFlags::HUGE);
@@ -673,7 +659,7 @@ pub fn build(root: &Path, dir: &Path, opts: &BuildOpts) -> Result<Manifest> {
                     // words come from the unfolded bytes (case-sensitive keys),
                     // deduplicated per file by the last id pushed
                     let (ex, ()) = extract_file_with(
-                        &root_buf.join(&w.rel),
+                        &root_buf.join(crate::rel::as_path(&w.rel)),
                         &w.rel,
                         &w.stamp,
                         &mut buf,
@@ -732,7 +718,7 @@ pub fn build(root: &Path, dir: &Path, opts: &BuildOpts) -> Result<Manifest> {
     let mut again = Vec::new();
     for (id, _, c) in &mut flags_sorted {
         if let Some(c) = c {
-            let path = root.join(&walked[*id as usize].rel);
+            let path = root.join(crate::rel::as_path(&walked[*id as usize].rel));
             settle_racy(&path, c, BUILD_RACY_WAIT, &mut again);
         }
     }
@@ -846,8 +832,8 @@ pub fn quantize_rank(r: f32) -> u16 {
 }
 
 /// Should this file go through stage B?
-pub fn wants_symbols(rel: &str, flags: u16) -> bool {
-    Lang::from_path(Path::new(rel)).has_grammar()
+pub fn wants_symbols(rel: &[u8], flags: u16) -> bool {
+    Lang::from_path(crate::rel::as_path(rel)).has_grammar()
         && !FileFlags(flags)
             .has(FileFlags::BINARY | FileFlags::HUGE | FileFlags::MINIFIED | FileFlags::LOCKFILE)
 }
@@ -857,7 +843,7 @@ pub fn wants_symbols(rel: &str, flags: u16) -> bool {
 /// soon for its stamp to tell.
 pub fn extract_symbols(
     path: &Path,
-    rel: &str,
+    rel: &[u8],
     recorded: &Stamp,
     buf: &mut Vec<u8>,
 ) -> (Option<FileExtract>, bool) {
@@ -872,9 +858,9 @@ pub fn extract_symbols(
     (Some(symbols_of_bytes(rel, buf)), recheck)
 }
 
-fn symbols_of_bytes(rel: &str, src: &[u8]) -> FileExtract {
-    let lang = Lang::from_path(Path::new(rel));
-    let ex = sym::extract(lang, sym::is_tsx(rel), src);
+fn symbols_of_bytes(rel: &[u8], src: &[u8]) -> FileExtract {
+    let lang = Lang::from_path(crate::rel::as_path(rel));
+    let ex = sym::extract(lang, sym::is_tsx(&crate::rel::display(rel)), src);
     FileExtract::from_extract(ex, src)
 }
 
@@ -910,7 +896,12 @@ fn phase2(
                     let rec = ft.files[i as usize].stamp();
                     (
                         i,
-                        extract_symbols(&root_buf.join(&w.rel), &w.rel, &rec, buf),
+                        extract_symbols(
+                            &root_buf.join(crate::rel::as_path(&w.rel)),
+                            &w.rel,
+                            &rec,
+                            buf,
+                        ),
                     )
                 },
             )
@@ -934,11 +925,12 @@ fn phase2(
         }
         by_file[i as usize] = ex;
     }
-    // resolve imports → graph
+    // resolve imports → graph; a path that is not UTF-8 is never named by
+    // an import, so it neither resolves nor is resolved
     let rels: Vec<(u32, &str)> = walked
         .iter()
         .enumerate()
-        .map(|(i, w)| (i as u32, w.rel.as_str()))
+        .filter_map(|(i, w)| Some((i as u32, std::str::from_utf8(&w.rel).ok()?)))
         .collect();
     let kt = by_file.iter().enumerate().filter_map(|(i, ex)| {
         let ex = ex.as_ref()?;
@@ -952,11 +944,15 @@ fn phase2(
     let mut targets: Vec<Vec<u32>> = vec![Vec::new(); ft.files.len()];
     for (i, ex) in by_file.iter().enumerate() {
         let Some(ex) = ex else { continue };
-        let lang = Lang::from_path(Path::new(&walked[i].rel));
-        let ctx = resolver.file_ctx(lang, &walked[i].rel);
+        let Ok(rel) = std::str::from_utf8(&walked[i].rel) else {
+            targets[i] = vec![NONE; ex.imports.len()];
+            continue;
+        };
+        let lang = Lang::from_path(Path::new(rel));
+        let ctx = resolver.file_ctx(lang, rel);
         let mut t = Vec::with_capacity(ex.imports.len());
         for im in &ex.imports {
-            let ids = resolver.resolve_with(lang, &walked[i].rel, &ctx, im);
+            let ids = resolver.resolve_with(lang, rel, &ctx, im);
             t.push(ids.first().copied().unwrap_or(NONE));
             let w = (im.names.len().max(1) * 10).min(u16::MAX as usize) as u16;
             for id in ids {
@@ -1136,7 +1132,7 @@ pub fn build_delta(
         let id = first_id + i as u32;
         // one read serves both extractors: symbols see the unfolded bytes, then grams
         let (ex, fx) = extract_file_with(
-            &root.join(&w.rel),
+            &root.join(crate::rel::as_path(&w.rel)),
             &w.rel,
             &w.stamp,
             &mut buf,
@@ -1144,7 +1140,7 @@ pub fn build_delta(
             &mut grams,
             |rel, src| {
                 push_words_map(&mut wmap, src, id);
-                let flags = path_flags(rel).0
+                let flags = path_flags(&crate::rel::display(rel)).0
                     | content_flags(&src[..src.len().min(65536)], src.len() as u64).0;
                 if wants_symbols(rel, flags) {
                     Some(symbols_of_bytes(rel, src))
@@ -1176,7 +1172,12 @@ pub fn build_delta(
         extracts.push(fx);
         let mut read = ex.read;
         if let Some(c) = &mut read {
-            settle_racy(&root.join(&w.rel), c, DELTA_RACY_WAIT, &mut again);
+            settle_racy(
+                &root.join(crate::rel::as_path(&w.rel)),
+                c,
+                DELTA_RACY_WAIT,
+                &mut again,
+            );
         }
         let at = ft.intern(&w.rel);
         let rec = file_rec(
@@ -1195,73 +1196,73 @@ pub fn build_delta(
         .iter()
         .flatten()
         .any(|fx| !fx.imports.is_empty() || fx.package.is_some());
-    let targets: Vec<Vec<u32>> = if needs_resolver {
-        let mut rels: Vec<(u32, &str)> =
-            Vec::with_capacity(idx.base.n_files as usize + files.len());
-        rels.extend(
-            idx.live_files()
-                .filter(|(id, _, _)| !tomb.contains(*id))
-                .map(|(id, rel, _)| (id, rel)),
-        );
-        rels.extend(
-            files
+    let targets: Vec<Vec<u32>> =
+        if needs_resolver {
+            let mut rels: Vec<(u32, &str)> =
+                Vec::with_capacity(idx.base.n_files as usize + files.len());
+            rels.extend(
+                idx.live_files()
+                    .filter(|(id, _, _)| !tomb.contains(*id))
+                    .filter_map(|(id, rel, _)| Some((id, std::str::from_utf8(rel).ok()?))),
+            );
+            rels.extend(files.iter().enumerate().filter_map(|(i, w)| {
+                Some((first_id + i as u32, std::str::from_utf8(&w.rel).ok()?))
+            }));
+            let kt = extracts.iter().enumerate().filter_map(|(i, ex)| {
+                let ex = ex.as_ref()?;
+                let pkg = ex.package.as_deref()?;
+                Some((
+                    first_id + i as u32,
+                    pkg,
+                    ex.top_level_names().collect::<Vec<_>>(),
+                ))
+            });
+            let resolver = Resolver::new(root, &rels, kt);
+            let kt_base = KotlinBase::new(idx, tomb, &extracts);
+            extracts
                 .iter()
                 .enumerate()
-                .map(|(i, w)| (first_id + i as u32, w.rel.as_str())),
-        );
-        let kt = extracts.iter().enumerate().filter_map(|(i, ex)| {
-            let ex = ex.as_ref()?;
-            let pkg = ex.package.as_deref()?;
-            Some((
-                first_id + i as u32,
-                pkg,
-                ex.top_level_names().collect::<Vec<_>>(),
-            ))
-        });
-        let resolver = Resolver::new(root, &rels, kt);
-        let kt_base = KotlinBase::new(idx, tomb, &extracts);
-        extracts
-            .iter()
-            .enumerate()
-            .map(|(i, ex)| {
-                let Some(ex) = ex else {
-                    return Vec::new();
-                };
-                let rel = files[i].rel.as_str();
-                let lang = Lang::from_path(Path::new(rel));
-                let ctx = resolver.file_ctx(lang, rel);
-                let me = first_id + i as u32;
-                let mut t = Vec::with_capacity(ex.imports.len());
-                for im in &ex.imports {
-                    let mut ids = resolver.resolve_with(lang, rel, &ctx, im);
-                    if ids.is_empty() && lang == Lang::Kotlin {
-                        ids = kt_base.resolve(&im.module, im.wildcard, me);
+                .map(|(i, ex)| {
+                    let Some(ex) = ex else {
+                        return Vec::new();
+                    };
+                    let Ok(rel) = std::str::from_utf8(&files[i].rel) else {
+                        return vec![NONE; ex.imports.len()];
+                    };
+                    let lang = Lang::from_path(Path::new(rel));
+                    let ctx = resolver.file_ctx(lang, rel);
+                    let me = first_id + i as u32;
+                    let mut t = Vec::with_capacity(ex.imports.len());
+                    for im in &ex.imports {
+                        let mut ids = resolver.resolve_with(lang, rel, &ctx, im);
+                        if ids.is_empty() && lang == Lang::Kotlin {
+                            ids = kt_base.resolve(&im.module, im.wildcard, me);
+                        }
+                        t.push(ids.first().copied().unwrap_or(NONE));
+                        let w = (im.names.len().max(1) * 10).min(u16::MAX as usize) as u16;
+                        for id in ids {
+                            dg.add(i as u32, id, w);
+                        }
                     }
-                    t.push(ids.first().copied().unwrap_or(NONE));
-                    let w = (im.names.len().max(1) * 10).min(u16::MAX as usize) as u16;
-                    for id in ids {
-                        dg.add(i as u32, id, w);
+                    if lang == Lang::Kotlin
+                        && let Some(pkg) = &ex.package
+                    {
+                        for id in resolver.kotlin_package_peers(pkg, me) {
+                            dg.add(i as u32, id, 1);
+                        }
+                        for id in kt_base.peers(pkg, me) {
+                            dg.add(i as u32, id, 1);
+                        }
                     }
-                }
-                if lang == Lang::Kotlin
-                    && let Some(pkg) = &ex.package
-                {
-                    for id in resolver.kotlin_package_peers(pkg, me) {
-                        dg.add(i as u32, id, 1);
-                    }
-                    for id in kt_base.peers(pkg, me) {
-                        dg.add(i as u32, id, 1);
-                    }
-                }
-                t
-            })
-            .collect()
-    } else {
-        extracts
-            .iter()
-            .map(|ex| vec![NONE; ex.as_ref().map(|f| f.imports.len()).unwrap_or(0)])
-            .collect()
-    };
+                    t
+                })
+                .collect()
+        } else {
+            extracts
+                .iter()
+                .map(|ex| vec![NONE; ex.as_ref().map(|f| f.imports.len()).unwrap_or(0)])
+                .collect()
+        };
     for (i, ex) in extracts.iter().enumerate() {
         pb.add_file(i as u32, ex.as_ref(), &targets[i]);
     }
@@ -1343,8 +1344,8 @@ impl<'a> KotlinBase<'a> {
         let wanted = extracts.iter().flatten().any(|fx| fx.package.is_some());
         let files = if wanted {
             idx.live_files()
-                .filter(|(id, rel, _)| !tomb.contains(*id) && rel.ends_with(".kt"))
-                .map(|(id, rel, _)| (id, rel))
+                .filter(|(id, rel, _)| !tomb.contains(*id) && rel.ends_with(b".kt"))
+                .filter_map(|(id, rel, _)| Some((id, std::str::from_utf8(rel).ok()?)))
                 .collect()
         } else {
             Vec::new()
@@ -1390,6 +1391,7 @@ impl<'a> KotlinBase<'a> {
                         && self
                             .idx
                             .path(id)
+                            .and_then(|rel| std::str::from_utf8(rel).ok())
                             .map(|rel| rel.ends_with(".kt") && Self::dir_matches(rel, &pkg_path))
                             .unwrap_or(false)
                 })
@@ -1495,7 +1497,7 @@ mod tests {
         let f = d.join("a.rs");
         fs::write(&f, "fn alpha() {}\n").unwrap();
         let recorded = Stamp::of(&fs::symlink_metadata(&f).unwrap());
-        let (ex, recheck) = extract_symbols(&f, "a.rs", &recorded, &mut Vec::new());
+        let (ex, recheck) = extract_symbols(&f, b"a.rs", &recorded, &mut Vec::new());
         assert!(ex.is_some() && recheck);
         let _ = fs::remove_dir_all(&d);
     }
@@ -1540,19 +1542,19 @@ mod tests {
         )
         .unwrap();
         let idx = crate::Index::open(&dir).unwrap();
-        let marked: Vec<&str> = idx
+        let marked: Vec<&[u8]> = idx
             .live_files()
             .filter(|(_, _, r)| r.stamp_flags & format::STAMP_RECHECK != 0)
             .map(|(_, rel, _)| rel)
             .collect();
-        assert_eq!(marked, ["changes-during-read.txt"]);
+        assert_eq!(marked, [b"changes-during-read.txt"]);
         let ch = crate::fresh::check(&idx, &root, crate::fresh::Mode::Stat, 1).unwrap();
         assert_eq!(
             ch.modified
                 .iter()
-                .map(|m| m.1.rel.as_str())
+                .map(|m| m.1.rel.as_slice())
                 .collect::<Vec<_>>(),
-            ["changes-during-read.txt"]
+            [b"changes-during-read.txt"]
         );
         let _ = fs::remove_dir_all(&d);
     }

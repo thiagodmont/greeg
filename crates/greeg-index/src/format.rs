@@ -224,9 +224,11 @@ fn pad8(v: &mut Vec<u8>) {
 
 /// Ignore files are tracked for freshness (an edit re-evaluates the ignore
 /// rules) but, like every hidden file, never searched.
-pub fn is_ignore_file(rel: &str) -> bool {
-    let name = rel.rsplit_once('/').map(|(_, n)| n).unwrap_or(rel);
-    matches!(name, ".gitignore" | ".ignore" | ".rgignore")
+pub fn is_ignore_file(rel: &[u8]) -> bool {
+    matches!(
+        crate::rel::file_name(rel),
+        b".gitignore" | b".ignore" | b".rgignore"
+    )
 }
 
 /// In-memory file table used while building and when writing deltas.
@@ -242,13 +244,13 @@ pub struct FileTable {
 }
 
 impl FileTable {
-    pub fn intern(&mut self, s: &str) -> (u32, u16) {
+    pub fn intern(&mut self, s: &[u8]) -> (u32, u16) {
         let off = self.arena.len() as u32;
-        self.arena.extend_from_slice(s.as_bytes());
+        self.arena.extend_from_slice(s);
         (off, s.len().min(u16::MAX as usize) as u16)
     }
     /// Append a file record, classifying it into the huge/hidden lists.
-    pub fn push_file(&mut self, rel: &str, rec: FileRec) {
+    pub fn push_file(&mut self, rel: &[u8], rec: FileRec) {
         let id = self.files.len() as u32;
         if greeg_lang::FileFlags(rec.flags).has(greeg_lang::FileFlags::HUGE) {
             self.huge.push(id);
@@ -337,17 +339,12 @@ impl<'a> FilesView<'a> {
             hidden,
         })
     }
-    pub fn path(&self, f: &FileRec) -> &'a str {
-        std::str::from_utf8(
-            &self.arena[f.path_off as usize..f.path_off as usize + f.path_len as usize],
-        )
-        .unwrap_or("")
+    /// The root-relative path's bytes (`rel`).
+    pub fn path(&self, f: &FileRec) -> &'a [u8] {
+        &self.arena[f.path_off as usize..f.path_off as usize + f.path_len as usize]
     }
-    pub fn dir_path(&self, d: &DirRec) -> &'a str {
-        std::str::from_utf8(
-            &self.arena[d.path_off as usize..d.path_off as usize + d.path_len as usize],
-        )
-        .unwrap_or("")
+    pub fn dir_path(&self, d: &DirRec) -> &'a [u8] {
+        &self.arena[d.path_off as usize..d.path_off as usize + d.path_len as usize]
     }
 }
 

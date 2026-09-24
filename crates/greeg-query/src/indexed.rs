@@ -17,6 +17,7 @@ use greeg_lang::sym::SYM_OBJ_MEMBER;
 use greeg_lang::{DefKind, FileFlags, Lang};
 use grep_searcher::{BinaryDetection, SearcherBuilder};
 use std::fs;
+use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering::Relaxed};
@@ -199,17 +200,15 @@ pub fn mark_corrupt(o: &Options) {
     spawn_build(&o.root, &dir);
 }
 
-pub(crate) fn path_allowed(rel: &str, paths: &[String]) -> bool {
+pub(crate) fn path_allowed(rel: &[u8], paths: &[Vec<u8>]) -> bool {
     if paths.is_empty() {
         return true;
     }
     paths.iter().any(|p| {
         p.is_empty()
-            || p == "."
+            || p == b"."
             || rel == p
-            || (rel.len() > p.len()
-                && rel.starts_with(p.as_str())
-                && rel.as_bytes()[p.len()] == b'/')
+            || (rel.len() > p.len() && rel.starts_with(p) && rel[p.len()] == b'/')
     })
 }
 
@@ -217,7 +216,7 @@ pub(crate) fn path_allowed(rel: &str, paths: &[String]) -> bool {
 /// normalized textually; absolute paths and paths with `..` are canonicalized
 /// against the root. `None` means the path is outside the root (or cannot be
 /// resolved): the caller answers that query from a scan.
-pub fn rel_of(root: &Path, p: &Path) -> Option<String> {
+pub fn rel_of(root: &Path, p: &Path) -> Option<Vec<u8>> {
     use std::path::Component;
     let simple = p.is_relative()
         && !p.components().any(|c| {
@@ -227,19 +226,19 @@ pub fn rel_of(root: &Path, p: &Path) -> Option<String> {
             )
         });
     if simple {
-        let parts: Vec<String> = p
+        let parts: Vec<&[u8]> = p
             .components()
             .filter_map(|c| match c {
-                Component::Normal(s) => Some(s.to_string_lossy().into_owned()),
+                Component::Normal(s) => Some(s.as_bytes()),
                 _ => None,
             })
             .collect();
-        return Some(parts.join("/"));
+        return Some(parts.join(&b'/'));
     }
     let root_c = fs::canonicalize(root).ok()?;
     let pc = fs::canonicalize(p).ok()?;
     let rel = pc.strip_prefix(&root_c).ok()?;
-    Some(rel.to_string_lossy().replace('\\', "/"))
+    Some(rel.as_os_str().as_bytes().to_vec())
 }
 
 /// Result of opening the index for a query.
@@ -418,7 +417,7 @@ pub(crate) fn try_index(cx: &Ctx, threads: usize, t0: Instant) -> Result<Option<
     // are searched from disk below with scan-mode classification, their
     // indexed versions leave the candidates, and the delta is published after
     // the output by the detached refresh `open_fresh_deferred` queued
-    let mut extras: Vec<(String, u32)> = Vec::new(); // (rel, superseded id or NONE)
+    let mut extras: Vec<(Vec<u8>, u32)> = Vec::new(); // (rel, superseded id or NONE)
     if let Some(ch) = &op.pending {
         for (id, w) in &ch.modified {
             cands.remove(*id);
@@ -434,10 +433,10 @@ pub(crate) fn try_index(cx: &Ctx, threads: usize, t0: Instant) -> Result<Option<
     }
 
     // filters: paths, globs, types, flag exclusions
-    let mut paths: Vec<String> = Vec::with_capacity(o.paths.len());
+    let mut paths: Vec<Vec<u8>> = Vec::with_capacity(o.paths.len());
     // ripgrep prints paths as given: an absolute (or `..`) positional path is
     // shown as that prefix plus the remainder, not root-relative
-    let mut display: Vec<Option<String>> = Vec::with_capacity(o.paths.len());
+    let mut display: Vec<Option<Vec<u8>>> = Vec::with_capacity(o.paths.len());
     for p in &o.paths {
         match rel_of(&o.root, p) {
             Some(rel) => {
@@ -461,15 +460,19 @@ pub(crate) fn try_index(cx: &Ctx, threads: usize, t0: Instant) -> Result<Option<
                 {
                     return Ok(None);
                 }
-                let given = p.to_string_lossy();
-                let given = given.trim_end_matches('/');
+                let mut given = p.as_os_str().as_bytes();
+                while let [rest @ .., b'/'] = given {
+                    given = rest;
+                }
+                let mut plain = given;
+                while let [b'.', b'/', rest @ ..] = plain {
+                    plain = rest;
+                }
                 display.push(
-                    if given.trim_start_matches("./") == rel
-                        || rel.is_empty() && matches!(given, "." | "")
-                    {
+                    if plain == rel.as_slice() || rel.is_empty() && matches!(given, b"." | b"") {
                         None
                     } else {
-                        Some(given.to_string())
+                        Some(given.to_vec())
                     },
                 );
                 paths.push(rel);
@@ -484,7 +487,7 @@ pub(crate) fn try_index(cx: &Ctx, threads: usize, t0: Instant) -> Result<Option<
         return Ok(None);
     };
     extras.extend(also.into_iter().map(|rel| (rel, NONE)));
-    let display_rel = |rel: &str| -> Option<String> {
+    let display_rel = |rel: &[u8]| -> Option<Vec<u8>> {
         let paths = sel.paths();
         let i = paths
             .iter()
@@ -493,24 +496,24 @@ pub(crate) fn try_index(cx: &Ctx, threads: usize, t0: Instant) -> Result<Option<
         Some(if rel == paths[i] {
             d.clone()
         } else if paths[i].is_empty() {
-            format!("{d}/{rel}")
+            greeg_index::rel::join(d, rel)
         } else {
-            format!("{d}/{}", &rel[paths[i].len() + 1..])
+            greeg_index::rel::join(d, &rel[paths[i].len() + 1..])
         })
     };
     // (prio, id or NONE for a changed file read from disk, superseded id, rel)
-    let mut entries: Vec<(u8, u32, u32, &str)> =
+    let mut entries: Vec<(u8, u32, u32, &[u8])> =
         Vec::with_capacity(cands.len() as usize + extras.len());
     for id in cands.iter() {
         let Some(rec) = idx.rec(id) else { continue };
-        let rel = idx.path(id).unwrap_or("");
+        let rel = idx.path(id).unwrap_or_default();
         if let Some(prio) = sel.admit(rel, FileFlags(rec.flags)) {
             entries.push((prio, id, NONE, rel));
         }
     }
     for (rel, prev) in &extras {
-        if let Some(prio) = sel.admit(rel, greeg_lang::path_flags(rel)) {
-            entries.push((prio, NONE, *prev, rel.as_str()));
+        if let Some(prio) = sel.admit(rel, crate::path_flags_of(rel)) {
+            entries.push((prio, NONE, *prev, rel.as_slice()));
         }
     }
     entries.sort_unstable_by(|a, b| a.0.cmp(&b.0).then(a.3.cmp(b.3)));
@@ -559,7 +562,7 @@ pub(crate) fn try_index(cx: &Ctx, threads: usize, t0: Instant) -> Result<Option<
                     }
                     let (_, id, prev, rel) = &entries[i];
                     let changed = *id == NONE;
-                    let path: PathBuf = root.join(rel);
+                    let path: PathBuf = root.join(greeg_index::rel::as_path(rel));
                     // an indexed file classifies from its span tables; one
                     // without them, like a changed file, by the scan rules
                     let spans = if use_spans && !changed {
@@ -581,7 +584,7 @@ pub(crate) fn try_index(cx: &Ctx, threads: usize, t0: Instant) -> Result<Option<
                             cx
                         },
                         &path,
-                        rel.to_string(),
+                        rel.to_vec(),
                         &mut searcher,
                         &mut buf,
                         by_index.as_ref().map(|f| f as crate::SpanKindOf),
@@ -902,7 +905,7 @@ mod tests {
                 .idx
                 .candidates(&q)
                 .iter()
-                .map(|id| op.idx.path(id).unwrap().to_string())
+                .map(|id| String::from_utf8(op.idx.path(id).unwrap().to_vec()).unwrap())
                 .collect();
             v.sort();
             v
@@ -1020,8 +1023,9 @@ mod tests {
             pattern: "omega".to_string(),
             ..Default::default()
         };
-        let rels =
-            |r: &ScanResult| -> Vec<String> { r.files.iter().map(|f| f.rel.clone()).collect() };
+        let rels = |r: &ScanResult| -> Vec<String> {
+            r.files.iter().map(|f| f.rel_text().into_owned()).collect()
+        };
         let r = crate::scan(&o).unwrap();
         assert_eq!(r.stats.source, "index");
         assert_eq!(rels(&r), ["src/lib.rs"]);
@@ -1103,8 +1107,9 @@ mod tests {
             word: true,
             ..Default::default()
         };
-        let rels =
-            |r: &ScanResult| -> Vec<String> { r.files.iter().map(|f| f.rel.clone()).collect() };
+        let rels = |r: &ScanResult| -> Vec<String> {
+            r.files.iter().map(|f| f.rel_text().into_owned()).collect()
+        };
         let r = crate::scan(&o).unwrap();
         assert!(
             r.stats.plan.starts_with("words [\"alpha\"]"),
@@ -1196,8 +1201,9 @@ mod tests {
             word: true,
             ..Default::default()
         };
-        let rels =
-            |r: &ScanResult| -> Vec<String> { r.files.iter().map(|f| f.rel.clone()).collect() };
+        let rels = |r: &ScanResult| -> Vec<String> {
+            r.files.iter().map(|f| f.rel_text().into_owned()).collect()
+        };
         let r = crate::scan(&o).unwrap();
         assert!(r.stats.plan.starts_with("words"), "{}", r.stats.plan);
         assert_eq!(
@@ -1308,14 +1314,14 @@ mod tests {
 
     #[test]
     fn path_allowed_prefixes() {
-        let p = vec!["tokio/src".to_string()];
-        assert!(path_allowed("tokio/src/lib.rs", &p));
-        assert!(path_allowed("tokio/src", &p));
-        assert!(!path_allowed("tokio/src-old/lib.rs", &p));
-        assert!(!path_allowed("tokio-util/src/lib.rs", &p));
-        assert!(path_allowed("anything", &[]));
-        assert!(path_allowed("anything", &[".".to_string()]));
-        assert!(path_allowed("anything", &[String::new()]));
+        let p = vec![b"tokio/src".to_vec()];
+        assert!(path_allowed(b"tokio/src/lib.rs", &p));
+        assert!(path_allowed(b"tokio/src", &p));
+        assert!(!path_allowed(b"tokio/src-old/lib.rs", &p));
+        assert!(!path_allowed(b"tokio-util/src/lib.rs", &p));
+        assert!(path_allowed(b"anything", &[]));
+        assert!(path_allowed(b"anything", &[b".".to_vec()]));
+        assert!(path_allowed(b"anything", &[Vec::new()]));
     }
 
     #[test]
@@ -1371,9 +1377,9 @@ mod tests {
         assert_eq!(r.stats.total_hits, 1);
         assert_eq!(r.rung, Rung::Exact);
         assert!(
-            r.files[0].rel.ends_with("vendor/dep.rs"),
+            r.files[0].rel.ends_with(b"vendor/dep.rs"),
             "{}",
-            r.files[0].rel
+            r.files[0].rel_text()
         );
         let _ = std::fs::remove_dir_all(&base);
     }
@@ -1385,26 +1391,26 @@ mod tests {
         fs::write(dir.join("src/sync/a.rs"), "x").unwrap();
         assert_eq!(
             rel_of(&dir, &dir.join("src/sync")).as_deref(),
-            Some("src/sync")
+            Some(&b"src/sync"[..])
         );
         assert_eq!(
             rel_of(&dir, &dir.join("src/sync/a.rs")).as_deref(),
-            Some("src/sync/a.rs")
+            Some(&b"src/sync/a.rs"[..])
         );
-        assert_eq!(rel_of(&dir, &dir).as_deref(), Some(""));
+        assert_eq!(rel_of(&dir, &dir).as_deref(), Some(&b""[..]));
         assert_eq!(
             rel_of(&dir, Path::new("./src/sync/")).as_deref(),
-            Some("src/sync")
+            Some(&b"src/sync"[..])
         );
         assert_eq!(
             rel_of(&dir, Path::new("src/sync")).as_deref(),
-            Some("src/sync")
+            Some(&b"src/sync"[..])
         );
-        assert_eq!(rel_of(&dir, Path::new(".")).as_deref(), Some(""));
+        assert_eq!(rel_of(&dir, Path::new(".")).as_deref(), Some(&b""[..]));
         // outside the root (or nonexistent): scan mode
         assert_eq!(rel_of(&dir, &std::env::temp_dir()), None);
         assert_eq!(rel_of(&dir, &dir.join("missing/../nowhere")), None);
         let abs = rel_of(&dir, &dir.join("src/sync")).unwrap();
-        assert!(path_allowed("src/sync/a.rs", &[abs]));
+        assert!(path_allowed(b"src/sync/a.rs", &[abs]));
     }
 }

@@ -108,7 +108,7 @@ fn kind_counts(r: &ScanResult) -> Vec<(HitKind, usize)> {
 
 /// A file is demoted for layout purposes: flagged, or on a mock/stub path.
 pub fn demoted(f: &FileResult, all: bool) -> bool {
-    !all && (f.flags.demoted() || is_mock_path(&f.rel))
+    !all && (f.flags.demoted() || is_mock_path(&f.rel_text()))
 }
 
 /// Group name of a demoted file (`test`, `vendored`, `generated`, `mock`).
@@ -122,7 +122,7 @@ pub fn demote_group(f: &FileResult) -> &'static str {
         .has(FileFlags::GENERATED | FileFlags::MINIFIED | FileFlags::LOCKFILE)
     {
         "generated"
-    } else if is_mock_path(&f.rel) {
+    } else if is_mock_path(&f.rel_text()) {
         "mock"
     } else {
         "demoted"
@@ -142,13 +142,14 @@ fn is_demoted_dir(dir: &str) -> bool {
 /// depth 1 and splits every group holding more than a fifth of the hits, so
 /// `tokio/src/sync 300  tokio/src/runtime 200` rather than `tokio 900`.
 fn areas(r: &ScanResult) -> Vec<(String, usize)> {
+    let texts: Vec<_> = r.files.iter().map(|f| f.rel_text()).collect();
     let dirs: Vec<(Vec<&str>, usize)> = r
         .files
         .iter()
-        .map(|f| {
+        .zip(&texts)
+        .map(|(f, rel)| {
             (
-                f.rel
-                    .rsplit_once('/')
+                rel.rsplit_once('/')
                     .map(|(d, _)| d.split('/').collect::<Vec<_>>())
                     .unwrap_or_default(),
                 f.total,
@@ -339,7 +340,7 @@ fn per_hit(r: &ScanResult, fi: usize, hi: usize) -> usize {
 }
 
 fn header_cost(r: &ScanResult, fi: usize) -> usize {
-    tokens::path(r.files[fi].rel.as_bytes()) + 2 + MORE_COST
+    tokens::path(r.files[fi].rel_text().as_bytes()) + 2 + MORE_COST
 }
 
 /// The pattern is a bare identifier searched literally and case-sensitively, so
@@ -444,7 +445,7 @@ pub fn shape(r: &mut ScanResult) -> Report {
             }
             let est: usize = files
                 .iter()
-                .map(|sf| tokens::path(r.files[sf.file].rel.as_bytes()) + 2)
+                .map(|sf| tokens::path(&r.files[sf.file].rel) + 2)
                 .sum();
             footer.files_shown = files.len();
             footer.hits_shown = files.iter().map(|s| s.more).sum();
@@ -1214,7 +1215,7 @@ mod tests {
             41,
             "-l lists every file regardless of the budget"
         );
-        assert_eq!(r.files[rep.files[0].file].rel, "src/lib.rs");
+        assert_eq!(r.files[rep.files[0].file].rel, b"src/lib.rs");
         let mut r = result(
             r.files.clone(),
             Options {
@@ -1223,8 +1224,8 @@ mod tests {
             },
         );
         let rep = shape(&mut r);
-        assert_eq!(r.files[rep.files[0].file].rel, "src/lib.rs");
-        assert_eq!(r.files[rep.files[1].file].rel, "tests/t00.rs");
+        assert_eq!(r.files[rep.files[0].file].rel, b"src/lib.rs");
+        assert_eq!(r.files[rep.files[1].file].rel, b"tests/t00.rs");
     }
 
     #[test]

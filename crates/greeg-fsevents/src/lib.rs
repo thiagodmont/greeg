@@ -124,7 +124,7 @@ mod imp {
     }
 
     struct State {
-        dirs: Vec<String>,
+        dirs: Vec<Vec<u8>>,
         done: bool,
         unreliable: bool,
     }
@@ -155,9 +155,8 @@ mod imp {
             {
                 st.unreliable = true;
             }
-            let p = unsafe { CStr::from_ptr(*paths.add(i)) }
-                .to_string_lossy()
-                .into_owned();
+            // the path's bytes: a name that is not UTF-8 must still match the index
+            let p = unsafe { CStr::from_ptr(*paths.add(i)) }.to_bytes().to_vec();
             st.dirs.push(p);
         }
     }
@@ -170,9 +169,9 @@ mod imp {
         }
     }
 
-    /// Directories (absolute, trailing slash) with events since `id`.
-    /// `None` when the log could not be read reliably within `cutoff`.
-    pub fn changed_dirs_since(id: u64, root: &str, cutoff: Duration) -> Option<Vec<String>> {
+    /// Directories (absolute path bytes, trailing slash) with events since
+    /// `id`. `None` when the log could not be read reliably within `cutoff`.
+    pub fn changed_dirs_since(id: u64, root: &str, cutoff: Duration) -> Option<Vec<Vec<u8>>> {
         let a = api()?;
         let mut st = State {
             dirs: Vec::new(),
@@ -240,6 +239,6 @@ pub fn changed_dirs_since(
     _id: u64,
     _root: &str,
     _cutoff: std::time::Duration,
-) -> Option<Vec<String>> {
+) -> Option<Vec<Vec<u8>>> {
     None
 }

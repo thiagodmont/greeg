@@ -157,7 +157,7 @@ impl Segment {
             .files
             .get(id.checked_sub(self.first_id)? as usize)
     }
-    pub fn path(&self, id: u32) -> Option<&str> {
+    pub fn path(&self, id: u32) -> Option<&[u8]> {
         self.rec(id).map(|r| self.files.path(r))
     }
     /// Every searchable id of the segment (tracked-only files excluded).
@@ -472,7 +472,8 @@ impl Index {
         )
     }
 
-    pub fn path(&self, id: u32) -> Option<&str> {
+    /// The file's root-relative path bytes (`crate::rel`).
+    pub fn path(&self, id: u32) -> Option<&[u8]> {
         self.segment_for(id)?.path(id)
     }
     pub fn rec(&self, id: u32) -> Option<&FileRec> {
@@ -487,7 +488,7 @@ impl Index {
     }
 
     /// Is `rel` a directory the index walked?
-    pub fn has_dir(&self, rel: &str) -> bool {
+    pub fn has_dir(&self, rel: &[u8]) -> bool {
         self.segments().any(|(_, seg)| {
             let fv = seg.files();
             fv.dirs.iter().any(|d| fv.dir_path(d) == rel)
@@ -599,7 +600,7 @@ impl Index {
     }
 
     /// Iterate live (id, rel path, rec) in id order.
-    pub fn live_files(&self) -> impl Iterator<Item = (u32, &str, &FileRec)> + '_ {
+    pub fn live_files(&self) -> impl Iterator<Item = (u32, &[u8], &FileRec)> + '_ {
         self.live().into_iter().filter_map(move |id| {
             let seg = self.segment_for(id)?;
             let rec = seg.rec(id)?;
@@ -609,7 +610,7 @@ impl Index {
 
     /// Iterate every tracked, non-tombstoned file including tracked-only ones
     /// (ignore files), for the freshness check.
-    pub fn tracked_files(&self) -> impl Iterator<Item = (u32, &str, &FileRec)> + '_ {
+    pub fn tracked_files(&self) -> impl Iterator<Item = (u32, &[u8], &FileRec)> + '_ {
         self.segments().flat_map(move |(_, seg)| {
             let fv = seg.files();
             fv.files.iter().enumerate().filter_map(move |(i, rec)| {
@@ -985,7 +986,8 @@ impl Index {
                 }
                 let rest = &arena[after..pe];
                 let ok = if sep == b'.' {
-                    !rest.contains(&b'/') && Lang::from_path(Path::new(fv.path(r))).has_grammar()
+                    !rest.contains(&b'/')
+                        && Lang::from_path(crate::rel::as_path(fv.path(r))).has_grammar()
                 } else {
                     matches!(
                         &rest[1..],
