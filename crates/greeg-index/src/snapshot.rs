@@ -25,6 +25,9 @@ pub const ORPHAN_MS: u64 = 10 * 60_000;
 pub const MAX_REMOVALS: usize = 64;
 /// `Index::open` attempts while the snapshot keeps changing under it.
 pub const OPEN_ATTEMPTS: usize = 3;
+/// Retired builds kept whatever their age, so a burst of rebuilds does not
+/// hold a copy of the index per rebuild; a reader that loses one retries.
+pub const RETIRED_BUILDS: usize = 2;
 
 /// A published snapshot: the build, its publication, and the deltas on it.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -153,7 +156,19 @@ pub fn retire(
         name,
         since_ms: now_ms,
     }));
-    (keep, due.into_iter().map(|r| r.name).collect())
+    let mut due: Vec<String> = due.into_iter().map(|r| r.name).collect();
+    let builds: Vec<String> = keep
+        .iter()
+        .filter(|r| is_gen_dir(&r.name))
+        .map(|r| r.name.clone())
+        .collect();
+    // the oldest builds past the cap go now, with what was retired inside them
+    let excess = &builds[..builds.len().saturating_sub(RETIRED_BUILDS)];
+    let within = |name: &str| excess.iter().any(|b| name.split('/').next() == Some(b));
+    let (gone, keep): (Vec<Retired>, Vec<Retired>) =
+        keep.into_iter().partition(|r| within(&r.name));
+    due.extend(gone.into_iter().map(|r| r.name));
+    (keep, due)
 }
 
 /// A name cleanup may touch: inside a build directory of this layout, and
@@ -269,6 +284,29 @@ mod tests {
         assert_eq!(
             keep.iter().map(|r| r.name.as_str()).collect::<Vec<_>>(),
             ["g-0000000000000002/files.1.bin", "g-0000000000000003"]
+        );
+    }
+
+    #[test]
+    fn only_the_newest_retired_builds_wait_out_their_grace_period() {
+        let mut retired = Vec::new();
+        for e in 1..=4u64 {
+            let new = [gen_dir(e), format!("{}/files.1.bin", gen_dir(e))];
+            let (keep, due) = retire(&retired, new, 1_000);
+            retired = keep;
+            if e == 4 {
+                assert_eq!(due, [gen_dir(2), format!("{}/files.1.bin", gen_dir(2))]);
+            }
+        }
+        let names: Vec<&str> = retired.iter().map(|r| r.name.as_str()).collect();
+        assert_eq!(
+            names,
+            [
+                "g-0000000000000003",
+                "g-0000000000000003/files.1.bin",
+                "g-0000000000000004",
+                "g-0000000000000004/files.1.bin",
+            ]
         );
     }
 

@@ -130,7 +130,9 @@ What a publication supersedes (the previous build's directory, phase 1's file
 table, a delta's replaced skipped record) is listed as retired in the manifest
 and deleted once 30 s have passed, time for a reader that read an older
 manifest to open it, by the next publication or freshness check that updates
-the manifest, so an idle index does not keep two builds on disk. A build also removes what no manifest names
+the manifest, so an idle index does not keep two builds on disk. At most two
+retired builds wait out their grace period; a burst of rebuilds removes older
+ones at once, and a reader that loses one retries. A build also removes what no manifest names
 and is older than 10 minutes: build directories and temporary files of writers
 that died, and spill directories (`scratch-<pid>`) of processes that are gone.
 Cleanup touches only those names, at most 64 per publication.
