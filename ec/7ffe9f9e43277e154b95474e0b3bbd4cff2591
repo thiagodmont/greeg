@@ -1,0 +1,56 @@
+crates/greeg/src/main.rs
+  s_b1057b2933cdb0::t_61c3dd28b75d41 468
+crates/greeg/tests/known_gaps.rs
+  s_b1057b2933cdb0::t_549aa2996ace74 92-96,639,836,899,963
+crates/greeg-index/src/format.rs
+  s_b1057b2933cdb0::t_bbcfe30ea5e158 2-4,66-67,156-161,166,169,173-174,176
+crates/greeg-query/src/verbs.rs
+  s_b1057b2933cdb0::t_69f048fba38469 1573,1609
+crates/greeg-index/src/build.rs
+  s_b1057b2933cdb0::t_bbcfe30ea5e158 435,598
+README.md
+  s_b1057b2933cdb0::t_4d748a0a6dd012 241-243
+references/ARCHITECTURE.md
+  s_b1057b2933cdb0::t_4d748a0a6dd012 26-40,43-45
+crates/greeg-query/src/indexed.rs
+  s_b1057b2933cdb0::t_61c3dd28b75d41 15,95-97,155-157,171-176,188-189,294,296-297
+  s_b1057b2933cdb0::t_69f048fba38469 834,860,928,957,1015,1039,1101,1132,1198,1268,1288
+crates/greeg-index/tests/index.rs
+  s_b1057b2933cdb0::t_d4adc298aae316 11-12
+  s_b1057b2933cdb0::t_9d02833e51c367 639
+  s_b1057b2933cdb0::t_3937955914a40e 580-638,640-641,647-651,654-668
+  s_b1057b2933cdb0::t_506901e699e0f0 642-646,652-653
+  s_b1057b2933cdb0::t_26ba5767f33ccb 462,471-472
+crates/greeg-index/src/lib.rs
+  s_b1057b2933cdb0::t_bbcfe30ea5e158 29-32,89-90,92-94,138-149,151-160,174-177,197-234,237-238
+  s_b1057b2933cdb0::t_549aa2996ace74 150,235-236
+  s_b1057b2933cdb0::t_e07678846dc9ef 183-191,196,318-332
+  s_b1057b2933cdb0::t_2900d41152ab04 333
+crates/greeg/tests/cli.rs
+  s_b1057b2933cdb0::t_506901e699e0f0 859-862,884-887,922-929,937-940
+  s_b1057b2933cdb0::t_8f788cd947aa3f 841-858,863-883,888-921,930-936,941-944
+crates/greeg-query/src/session.rs
+  s_b1057b2933cdb0::t_61c3dd28b75d41 162-164
+crates/greeg/src/stats.rs
+  s_b1057b2933cdb0::t_61c3dd28b75d41 2332
+  s_b1057b2933cdb0::t_466beb85843a73 2325-2326,2345-2355
+crates/greeg/src/doctor.rs
+  s_b1057b2933cdb0::t_61c3dd28b75d41 61
+  s_b1057b2933cdb0::t_506901e699e0f0 242
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "ec7ffe9f9e43277e154b95474e0b3bbd4cff2591",
+  "prompts": {},
+  "sessions": {
+    "s_b1057b2933cdb0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0aa73425-0ec9-4b76-ae94-35b6bdff17bb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
