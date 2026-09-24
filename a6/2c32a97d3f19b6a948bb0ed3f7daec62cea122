@@ -1,0 +1,74 @@
+crates/greeg-index/src/snapshot.rs
+  s_b1057b2933cdb0::t_7f1f14cdfc2dcd 130-131
+  s_b1057b2933cdb0::t_e26e15e5ac7abe 240-250
+  s_b1057b2933cdb0::t_f717548776c9ee 126-129,279-286
+  s_b1057b2933cdb0::t_2f9429a144c8ab 1-125,132-198,202-239,251-278,287-290
+  s_b1057b2933cdb0::t_1e45db5e889cc2 199-201
+crates/greeg-index/tests/layout.rs
+  s_b1057b2933cdb0::t_6bee10556d580e 186
+  s_b1057b2933cdb0::t_9d45932157ed6a 148-150,155
+  s_b1057b2933cdb0::t_f717548776c9ee 151-154
+crates/greeg-index/tests/snapshot.rs
+  s_b1057b2933cdb0::t_f1bfbd0a563b3c 231,236,246
+  s_b1057b2933cdb0::t_f717548776c9ee 111-113,224-226,265-269
+  s_b1057b2933cdb0::t_f348e36e1b856f 119,230,248
+  s_b1057b2933cdb0::t_75669ef8f6d6ea 1-6,8-110,114-118,120-223,227-229,232-235,237-245,247,249-264,270-272
+  s_b1057b2933cdb0::t_90375e25f636fd 7
+  s_b1057b2933cdb0::t_ef3a834e4eb004 273-296
+crates/greeg-index/src/build.rs
+  s_b1057b2933cdb0::t_7f1f14cdfc2dcd 129
+  s_b1057b2933cdb0::t_f717548776c9ee 774,776,781,783,788,790,800-803,1064,1066,1072,1074
+  s_b1057b2933cdb0::t_55f2770507a663 11,747-750,754-772,796-799,804-807,811,833,836
+  s_b1057b2933cdb0::t_22d8da2095646c 1049,1051-1053,1056-1062,1069-1070,1077-1091,1106
+  s_b1057b2933cdb0::t_8c48a1fced2e2b 853-857,865-875
+  s_b1057b2933cdb0::t_ab35a2e0f8cc68 876
+crates/greeg-index/src/fresh.rs
+  s_b1057b2933cdb0::t_f726c73caecd24 520,598-601,605,607,611-612,614-616,618-619,630
+  s_b1057b2933cdb0::t_3ba92b20f80989 553-555,557
+  s_b1057b2933cdb0::t_e26e15e5ac7abe 760,762
+crates/greeg-index/src/lib.rs
+  s_b1057b2933cdb0::t_7f1f14cdfc2dcd 20,97,99-108
+  s_b1057b2933cdb0::t_4262320f32e612 34
+crates/greeg/tests/known_gaps.rs
+  s_b1057b2933cdb0::t_e26e15e5ac7abe 986-989
+references/ARCHITECTURE.md
+  s_b1057b2933cdb0::t_eadb091a3a4790 131-133
+  s_b1057b2933cdb0::t_d82f5cca9f7bfd 46-48,52-66,121-130,134-136,409,558-560
+crates/greeg-index/src/skipped.rs
+  s_b1057b2933cdb0::t_f726c73caecd24 7-8,110-111
+crates/greeg-query/src/indexed.rs
+  s_b1057b2933cdb0::t_ad1903a9e49438 24
+  s_b1057b2933cdb0::t_c4c379cafe7384 14,175-177,180-181,183-184,192-193,195,343
+crates/greeg-index/tests/index.rs
+  s_b1057b2933cdb0::t_9d45932157ed6a 6
+  s_b1057b2933cdb0::t_6e7f4aa5ba7205 141,146-149,151-152,161,283,287-288,291-296,469,555,573
+  s_b1057b2933cdb0::t_f717548776c9ee 142-145
+crates/greeg-index/src/external.rs
+  s_b1057b2933cdb0::t_c4c379cafe7384 524-525,532
+crates/greeg-index/src/format.rs
+  s_b1057b2933cdb0::t_748ffd28f59010 3-7,9-13,20,27,42,48,54,56,58,197-205,211-212,217-219,229-235,240,481-482,489-495,500
+  s_b1057b2933cdb0::t_bd3b7f8a160658 220-228,236-239,241,244-253,256,260-261,263
+  s_b1057b2933cdb0::t_5f36b0b821fc5e 242
+crates/greeg-index/src/index.rs
+  s_b1057b2933cdb0::t_bd3b7f8a160658 396-397
+  s_b1057b2933cdb0::t_f717548776c9ee 54-59,389-390,395,404-405,929-932
+  s_b1057b2933cdb0::t_298df4e10a393a 40-48,53,60-64,297-299,322-325,327-352,356-388,391-394,398-402,406-407,414-418,438,444-450,496-499,506,924-928
+crates/greeg/src/doctor.rs
+  s_b1057b2933cdb0::t_0cc4bf523a7e31 66-68,70-71,73-78,80
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "a62c32a97d3f19b6a948bb0ed3f7daec62cea122",
+  "prompts": {},
+  "sessions": {
+    "s_b1057b2933cdb0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0aa73425-0ec9-4b76-ae94-35b6bdff17bb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
