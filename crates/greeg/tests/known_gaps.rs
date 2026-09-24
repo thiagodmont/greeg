@@ -983,7 +983,10 @@ fn index_files_are_private_under_a_permissive_umask() {
         .arg("edited");
     assert_eq!(permissive(c).status.code(), Some(0));
     // wait for the detached refresh to publish the delta and finish
-    let published = || f.layout().join("delta").exists() && !f.layout().join("REFRESHING").exists();
+    let published = || {
+        greeg_index::read_manifest(&f.layout()).is_some_and(|m| m.deltas > 0)
+            && !f.layout().join("REFRESHING").exists()
+    };
     let deadline = Instant::now() + Duration::from_secs(30);
     while !published() && Instant::now() < deadline {
         std::thread::sleep(Duration::from_millis(50));

@@ -8,6 +8,7 @@ use crate::format::{self, DirRec, FileRec, FileTable, NONE, is_ignore_file};
 use crate::gram::{Dedup, fold_buf};
 use crate::resolve::Resolver;
 use crate::skipped::Skipped;
+use crate::snapshot;
 use crate::symtab::{DeltaGraphBuilder, FileExtract, GraphBuilder, SpanBuilder, SymBuilder};
 use crate::words;
 use crate::{Manifest, now_ms, read_manifest, write_manifest};
@@ -125,7 +126,7 @@ impl Stamp {
 
 /// `GREEG_DEBUG_FIXED_STAMPS=1` records no change time, inode or device, so
 /// the layout fingerprint test gets the same bytes on every machine.
-fn fixed_identity() -> bool {
+pub(crate) fn fixed_identity() -> bool {
     static FIXED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *FIXED.get_or_init(|| std::env::var_os("GREEG_DEBUG_FIXED_STAMPS").is_some())
 }
@@ -743,39 +744,71 @@ pub fn build(root: &Path, dir: &Path, opts: &BuildOpts) -> Result<Manifest> {
         ft.dirs.push(dir_rec(at, &d.stamp));
     }
 
-    // publish under the writer lock: components, then the manifest, and only
-    // then the previous generation and its deltas (readers that opened the old
-    // manifest keep valid maps; readers that open the new one ignore delta/)
+    // publish under the writer lock into this build's own directory:
+    // components, then the manifest; the previous build's directory, deltas
+    // included, is retired (`snapshot.rs`), so readers of the old manifest
+    // can still open all of it
     let lock = crate::lock::writer(dir)?;
     let previous = read_manifest(dir);
     let generation = previous.as_ref().map(|m| m.generation + 1).unwrap_or(1);
+    let epoch = snapshot::new_epoch(previous.as_ref(), generation);
+    crate::create_private_dir(&dir.join(snapshot::gen_dir(epoch)))?;
+    let mut m = Manifest {
+        format: crate::FORMAT_VERSION,
+        epoch,
+        seq: snapshot::SEQ_PHASE1,
+        components: snapshot::Components {
+            files: snapshot::SEQ_PHASE1,
+            grams: snapshot::SEQ_PHASE1,
+            words: snapshot::SEQ_PHASE1,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let id = format::Ident {
+        epoch,
+        seq: snapshot::SEQ_PHASE1,
+    };
+    let at = |comp: u8| dir.join(m.named(comp, snapshot::SEQ_PHASE1));
     format::write_atomic(
-        &dir.join(format!("grams.{generation}.bin")),
+        &at(format::COMP_GRAMS),
         format::COMP_GRAMS,
+        id,
         &grams_bytes,
     )?;
     drop(grams_bytes);
     format::write_atomic(
-        &dir.join(format!("words.{generation}.bin")),
+        &at(format::COMP_WORDS),
         format::COMP_WORDS,
+        id,
         &words_bytes,
     )?;
     drop(words_bytes);
     format::write_atomic(
-        &dir.join(format!("files.{generation}.bin")),
+        &at(format::COMP_FILES),
         format::COMP_FILES,
+        id,
         &ft.serialize(),
     )?;
     let skipped = skipped
         .join()
         .map_err(|_| anyhow::anyhow!("listing skipped entries panicked"))?;
-    let skipped_name = format!("skipped.{generation}.bin");
-    skipped.write(&dir.join(&skipped_name))?;
-    let m = Manifest {
-        format: crate::FORMAT_VERSION,
+    let skipped_name = m.named(format::COMP_SKIPPED, snapshot::SEQ_PHASE1);
+    skipped.write(&dir.join(&skipped_name), id)?;
+    let now = now_ms();
+    let (retired, due) = snapshot::retire(
+        previous
+            .as_ref()
+            .map(|p| &p.retired[..])
+            .unwrap_or_default(),
+        previous.iter().map(|p| snapshot::gen_dir(p.epoch)),
+        now,
+    );
+    m = Manifest {
         root: root.to_string_lossy().into_owned(),
         root_id,
         generation,
+        retired,
         phase1: true,
         phase2: false,
         symbols: 0,
@@ -797,11 +830,10 @@ pub fn build(root: &Path, dir: &Path, opts: &BuildOpts) -> Result<Manifest> {
         skipped: skipped_name,
         // the file system does not change with a rebuild
         stamp_mode: previous.map(|m| m.stamp_mode).unwrap_or_default(),
+        ..m
     };
     write_manifest(dir, &m)?;
-    // a fresh build supersedes deltas and older generations
-    let _ = fs::remove_dir_all(dir.join("delta"));
-    remove_stale(dir, &["grams.", "words.", "files.", "skipped."], generation);
+    snapshot::clean(dir, &m, &due, true, now);
     drop(lock);
     if !opts.quiet {
         eprintln!(
@@ -818,12 +850,28 @@ pub fn build(root: &Path, dir: &Path, opts: &BuildOpts) -> Result<Manifest> {
             crate::fmt_bytes(m.peak_rss)
         );
     }
+    AFTER_PHASE1.with(|h| {
+        if let Some(f) = h.borrow_mut().as_mut() {
+            f()
+        }
+    });
     if opts.phase1_only {
         return Ok(m);
     }
-    let mut m = m;
     phase2(root, dir, &mut ft, &walked, &mut m, opts)?;
     Ok(m)
+}
+
+thread_local! {
+    static AFTER_PHASE1: std::cell::RefCell<Option<Box<dyn FnMut()>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Run `f` between the two publications of every build on this thread: a
+/// reader racing phase 2 in tests.
+#[doc(hidden)]
+pub fn after_phase1_on_this_thread(f: Option<Box<dyn FnMut()>>) {
+    AFTER_PHASE1.with(|h| *h.borrow_mut() = f);
 }
 
 /// Quantize a normalized rank (0..=1) into the file table.
@@ -876,7 +924,6 @@ fn phase2(
     opts: &BuildOpts,
 ) -> Result<()> {
     let t0 = Instant::now();
-    let generation = m.generation;
     let cores = std::thread::available_parallelism()
         .map(|n| n.get())
         .unwrap_or(4);
@@ -999,33 +1046,49 @@ fn phase2(
     let Some(cur) = read_manifest(dir) else {
         bail!("manifest vanished during phase 2")
     };
-    if cur.generation != generation {
+    if cur.epoch != m.epoch {
         bail!(
-            "index generation {} superseded by {} during phase 2",
-            generation,
-            cur.generation
+            "index build {:016x} superseded by {:016x} during phase 2",
+            m.epoch,
+            cur.epoch
         );
     }
+    // new names beside phase 1's: a reader of the phase-1 manifest keeps
+    // its own file table
+    let id = format::Ident {
+        epoch: m.epoch,
+        seq: snapshot::SEQ_PHASE2,
+    };
+    let at = |comp: u8| dir.join(m.named(comp, snapshot::SEQ_PHASE2));
     format::write_atomic(
-        &dir.join(format!("symbols.{generation}.bin")),
+        &at(format::COMP_SYMBOLS),
         format::COMP_SYMBOLS,
+        id,
         &sym_body,
     )?;
+    format::write_atomic(&at(format::COMP_SPANS), format::COMP_SPANS, id, &span_body)?;
+    format::write_atomic(&at(format::COMP_GRAPH), format::COMP_GRAPH, id, &graph_body)?;
     format::write_atomic(
-        &dir.join(format!("spans.{generation}.bin")),
-        format::COMP_SPANS,
-        &span_body,
-    )?;
-    format::write_atomic(
-        &dir.join(format!("graph.{generation}.bin")),
-        format::COMP_GRAPH,
-        &graph_body,
-    )?;
-    format::write_atomic(
-        &dir.join(format!("files.{generation}.bin")),
+        &at(format::COMP_FILES),
         format::COMP_FILES,
+        id,
         &ft.serialize(),
     )?;
+    let now = now_ms();
+    let (retired, due) = snapshot::retire(
+        &cur.retired,
+        cur.component(format::COMP_FILES).map(|(name, _)| name),
+        now,
+    );
+    m.retired = retired;
+    m.seq = snapshot::SEQ_PHASE2;
+    m.components = snapshot::Components {
+        files: snapshot::SEQ_PHASE2,
+        symbols: snapshot::SEQ_PHASE2,
+        spans: snapshot::SEQ_PHASE2,
+        graph: snapshot::SEQ_PHASE2,
+        ..cur.components
+    };
     m.deltas = cur.deltas;
     m.tombstones = cur.tombstones;
     m.skipped = cur.skipped;
@@ -1040,7 +1103,7 @@ fn phase2(
     // the high-water mark spans both phases, so this only ever grows
     m.peak_rss = m.peak_rss.max(crate::peak_rss_bytes().unwrap_or(0));
     write_manifest(dir, m)?;
-    remove_stale(dir, &["symbols.", "spans.", "graph."], generation);
+    snapshot::clean(dir, m, &due, false, now);
     drop(lock);
     if !opts.quiet {
         eprintln!(
@@ -1061,29 +1124,6 @@ fn phase2(
         );
     }
     Ok(())
-}
-
-/// Delete component files of other generations (and leftover temp files).
-fn remove_stale(dir: &Path, prefixes: &[&str], generation: u32) {
-    let keep = format!(".{generation}.");
-    if let Ok(rd) = fs::read_dir(dir) {
-        for e in rd.flatten() {
-            let name = e.file_name().to_string_lossy().into_owned();
-            let stale_bin = prefixes.iter().any(|p| name.starts_with(p))
-                && name.ends_with(".bin")
-                && !name.contains(&keep);
-            let stale_tmp = name.ends_with(".tmp")
-                && e.metadata()
-                    .and_then(|m| m.modified())
-                    .ok()
-                    .and_then(|t| t.elapsed().ok())
-                    .map(|d| d.as_secs() > 600)
-                    .unwrap_or(false);
-            if stale_bin || stale_tmp {
-                let _ = fs::remove_file(e.path());
-            }
-        }
-    }
 }
 
 fn greeg_fsevents_id() -> u64 {

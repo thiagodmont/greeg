@@ -4,8 +4,8 @@
 //! ignored file, and a type select a hidden one), so a query checks this
 //! record before trusting the index to cover the request.
 //!
-//! skipped.<gen>.bin (build) and delta/NNNN.skipped (a refresh that changed
-//! it); the manifest names the current one.
+//! skipped.1.bin (build) and d-NNNN.skipped (a refresh that changed it), in
+//! the build's directory; the manifest names the current one.
 //!   u32 n, then n × (u8 bits, u32 len, path bytes), sorted by path
 
 use crate::format::{self, is_ignore_file};
@@ -107,8 +107,8 @@ impl Skipped {
         Ok(s)
     }
 
-    pub fn write(&self, path: &Path) -> Result<()> {
-        format::write_atomic_with(path, format::COMP_SKIPPED, &self.serialize(), false)
+    pub fn write(&self, path: &Path, id: format::Ident) -> Result<()> {
+        format::write_atomic_with(path, format::COMP_SKIPPED, id, &self.serialize(), false)
     }
 
     /// A record file's contents; `None` when it is not a valid record.

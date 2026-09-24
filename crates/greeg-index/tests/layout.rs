@@ -145,6 +145,14 @@ fn layout_digest(t: &Tmp) -> String {
     }
     let mut m: serde_json::Map<String, serde_json::Value> =
         serde_json::from_slice(&fs::read(t.dir.join("manifest")).unwrap()).unwrap();
+    // when an entry was retired is a time; what was retired is layout
+    let retired = m.get_mut("retired").expect("manifest has no retired");
+    for r in retired.as_array_mut().unwrap() {
+        r.as_object_mut()
+            .unwrap()
+            .remove("since_ms")
+            .expect("retired entry has no since_ms");
+    }
     for volatile in [
         "root",
         "root_id",
@@ -175,7 +183,7 @@ fn layout_digest(t: &Tmp) -> String {
 fn layout_fingerprint_matches_format_version() {
     // SAFETY: the only test in this binary, and no thread has started yet.
     unsafe { std::env::set_var("GREEG_DEBUG_FIXED_STAMPS", "1") };
-    const LAYOUT: (u32, &str) = (8, "b4c166b63ac32a5e");
+    const LAYOUT: (u32, &str) = (9, "db8c9d554fb42d59");
     let t = fingerprint_tree();
     let digest = layout_digest(&t);
     assert_eq!(
