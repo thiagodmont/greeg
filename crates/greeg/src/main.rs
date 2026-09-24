@@ -9,6 +9,7 @@ mod verbs_out;
 
 use anyhow::Result;
 use clap::{ArgAction, Args, CommandFactory, Parser, Subcommand};
+use greeg_query::outcome::Outcome;
 use greeg_query::shape::{Layout, Report, ShownFile};
 use greeg_query::{HitKind, MatchingPolicy, Mode, Options, ScanResult};
 use std::io::{BufWriter, Write};
@@ -1021,26 +1022,18 @@ fn run() -> Result<()> {
             s.cpu_classify_ms
         );
     }
-    // C14: exit 0 only when the pattern itself matched under the user's flags
-    let exit = if result.stats.total_hits == 0 || result.rung != greeg_query::Rung::Exact {
-        1
-    } else {
-        0
-    };
-    stats::record_run(stats::RunInfo {
-        verb: "search",
-        scan_ms: Some(t_scan.as_secs_f64() * 1e3),
-        shape_ms: Some(t_shape.as_secs_f64() * 1e3),
-        source: Some(result.stats.source.to_string()),
-        hits: Some(result.stats.total_hits),
-        files: Some(result.stats.files_matched),
-        exit,
-    });
-    if exit != 0 {
-        greeg_query::indexed::flush_pending_build();
-        std::process::exit(1);
-    }
-    Ok(())
+    verbs_out::finish_run(
+        stats::RunInfo {
+            verb: "search",
+            scan_ms: Some(t_scan.as_secs_f64() * 1e3),
+            shape_ms: Some(t_shape.as_secs_f64() * 1e3),
+            source: Some(result.stats.source.to_string()),
+            hits: Some(result.stats.total_hits),
+            files: Some(result.stats.files_matched),
+            exit: 0,
+        },
+        &Outcome::of_search(&result, report.footer.hits_shown),
+    )
 }
 
 fn run_stats(
@@ -1165,17 +1158,14 @@ fn run_stdin(c: &Common, mut opts: Options, fmt: Fmt) -> Result<()> {
     let mut result = greeg_query::stdin::scan(&opts, data)?;
     let report = greeg_query::shape::shape(&mut result);
     emit(c, &result, &report, Fmt { stdin: true, ..fmt })?;
-    let exit = if result.stats.total_hits == 0 { 1 } else { 0 };
-    stats::record_run(stats::RunInfo {
-        verb: "search",
-        hits: Some(result.stats.total_hits),
-        exit,
-        ..Default::default()
-    });
-    if exit != 0 {
-        std::process::exit(1);
-    }
-    Ok(())
+    verbs_out::finish_run(
+        stats::RunInfo {
+            verb: "search",
+            hits: Some(result.stats.total_hits),
+            ..Default::default()
+        },
+        &Outcome::of_search(&result, report.footer.hits_shown),
+    )
 }
 
 /// Write the answer: JSON records, or the text body plus the footer (stdout;
@@ -1985,7 +1975,8 @@ fn render_json(w: &mut impl Write, r: &ScanResult, rep: &Report) -> Result<()> {
             "demoted_files":ft.demoted_files,"demoted_hits":ft.demoted_hits,"skipped_binary":ft.skipped_binary,"skipped_huge":ft.skipped_huge,
             "rung":ft.rung.name(),"rung_names":match &ft.rung { greeg_query::Rung::SplitTokens(v) | greeg_query::Rung::Fuzzy(v) => v.clone(), _ => vec![] },"ignored_only":ft.ignored_only,"est_tokens":ft.est_tokens,"elapsed_ms":ft.elapsed_ms,"hints":ft.hints,
             "related":rep.related.iter().map(|(n,c)| json!([n, c])).collect::<Vec<_>>(),
-            "layout":format!("{:?}", rep.layout).to_lowercase()
+            "layout":format!("{:?}", rep.layout).to_lowercase(),
+            "outcome":verbs_out::outcome_json(&Outcome::of_search(r, ft.hits_shown))
         }}),
     )?;
     writeln!(w)?;

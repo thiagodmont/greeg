@@ -173,8 +173,13 @@ fallback because the current symbol and word indexes can truncate them.
 Existing indexed symbol/module results are retained; the fallback costs a
 scan of the selected files.
 
-File searches exit 0 for exact hits, 1 for no exact hits (including
-discovery-only answers), and 2 for errors, including output-write failures.
+File searches and the search verbs (`def`, `refs`, `callers`, `impls`,
+`impact`) exit 0 for exact hits, 1 for no exact hits (including answers a
+relaxed rung found), and 2 for errors, including output-write failures such
+as a closed pipe. One typed outcome decides the status in every format:
+eligible results (`total`), results shown, the rung, the source and the
+freshness check. JSON footers carry it as an `outcome` object with the exit
+status it implies; `complete` is false only when a budget left results out.
 Stdin always uses exact matching and rejects explicit discovery. JSON keeps
 its existing summary/footer records on a miss, without match records.
 
@@ -466,7 +471,8 @@ those near-misses become the answer instead.
 
 `--json` keeps ripgrep's JSON Lines schema exactly, adding `kind`, `symbol`,
 `file_flags` and `score` to match records, plus `facets` and `footer` record
-types.
+types. Every search and search-verb footer has the `outcome` object described
+under [When nothing matches](#when-nothing-matches).
 
 ## Languages
 

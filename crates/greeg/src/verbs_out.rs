@@ -6,6 +6,7 @@ use crate::{Common, chain_str, container_of, fmt_n};
 use anyhow::Result;
 use greeg_lang::sym::{SYM_EXPORTED, SYM_HAS_DOC, SYM_TEST};
 use greeg_lang::{DefKind, FileFlags};
+use greeg_query::outcome::Outcome;
 use greeg_query::verbs::{self, DefEntry};
 use greeg_query::{HitKind, Options};
 use serde_json::json;
@@ -24,13 +25,45 @@ fn ms(c: &Common, elapsed: f64) -> String {
     }
 }
 
-/// Flush a JSON answer; an empty one exits 1, like its text form.
-fn finish_json(mut w: impl Write, verb: &'static str, found: bool) -> Result<()> {
+/// The `outcome` object of a JSON footer.
+pub(crate) fn outcome_json(o: &Outcome) -> serde_json::Value {
+    json!({"exit":o.exit_code(),"exact":o.exact(),"rung":o.rung.name(),"total":o.total,"shown":o.shown,
+        "complete":o.complete(),"source":o.source,"fresh":o.fresh,"deferred":o.deferred})
+}
+
+/// End an answer in any format: flush it, record the run, and exit with the
+/// outcome's status.
+pub(crate) fn finish(mut w: impl Write, verb: &'static str, o: &Outcome) -> Result<()> {
     w.flush()?;
-    if !found {
-        crate::stats::exit_no_hits(verb);
+    finish_run(
+        crate::stats::RunInfo {
+            verb,
+            hits: Some(o.total),
+            source: Some(o.source.to_string()),
+            ..Default::default()
+        },
+        o,
+    )
+}
+
+/// Record the run with the outcome's status; exit when it is not 0.
+pub(crate) fn finish_run(mut info: crate::stats::RunInfo, o: &Outcome) -> Result<()> {
+    let exit = o.exit_code();
+    info.exit = exit;
+    crate::stats::record_run(info);
+    if exit != 0 {
+        greeg_query::indexed::flush_pending_build();
+        std::process::exit(exit);
     }
     Ok(())
+}
+
+fn relaxed_note(rung: &greeg_query::Rung) -> String {
+    if *rung != greeg_query::Rung::Exact {
+        format!(" · matched {}", rung.describe())
+    } else {
+        String::new()
+    }
 }
 
 fn parse_def_kind(s: &str) -> Result<DefKind> {
@@ -250,6 +283,14 @@ pub fn run_def(
         from = s.focus();
     }
     let r = verbs::def(o, name, &from, want)?;
+    let oc = Outcome {
+        total: r.total,
+        shown: r.entries.len(),
+        rung: r.rung.clone(),
+        source: r.source,
+        fresh: r.fresh,
+        deferred: 0,
+    };
     let mut w = out();
     if c.json {
         for e in &r.entries {
@@ -260,10 +301,10 @@ pub fn run_def(
         }
         serde_json::to_writer(
             &mut w,
-            &json!({"type":"footer","data":{"verb":"def","name":r.name,"shown":r.entries.len(),"total":r.total,"source":r.source,"rung":r.rung.name(),"suggestions":r.suggestions,"elapsed_ms":r.elapsed_ms}}),
+            &json!({"type":"footer","data":{"verb":"def","name":r.name,"shown":r.entries.len(),"total":r.total,"source":r.source,"rung":r.rung.name(),"suggestions":r.suggestions,"elapsed_ms":r.elapsed_ms,"outcome":outcome_json(&oc)}}),
         )?;
         writeln!(w)?;
-        return finish_json(w, "def", !r.entries.is_empty());
+        return finish(w, "def", &oc);
     }
     if r.entries.is_empty() {
         writeln!(w, "def {}  no definition found ({})", r.name, r.source)?;
@@ -272,14 +313,9 @@ pub fn run_def(
         } else {
             writeln!(w, "next: greeg {name} --kind def | greeg -i {name}")?;
         }
-        w.flush()?;
-        crate::stats::exit_no_hits("def");
+        return finish(w, "def", &oc);
     }
-    let rung = if r.rung != greeg_query::Rung::Exact {
-        format!(" · matched {}", r.rung.describe())
-    } else {
-        String::new()
-    };
+    let rung = relaxed_note(&r.rung);
     writeln!(
         w,
         "def {}  {} of {} definitions{} · {}{}",
@@ -335,8 +371,7 @@ pub fn run_def(
             r.name, r.name, top.rel
         )?;
     }
-    w.flush()?;
-    Ok(())
+    finish(w, "def", &oc)
 }
 
 pub fn run_show(c: &Common, o: &Options, locs: &[(String, u32)]) -> Result<()> {
@@ -455,8 +490,10 @@ pub fn run_refs(c: &Common, o: &Options, name: &str) -> Result<()> {
             serde_json::to_writer(&mut w, &v)?;
             writeln!(w)?;
         }
+        let mut shown = 0;
         for (k, v) in &nonempty {
             for &(fi, hi) in v.iter().take(share_of(v.len())) {
+                shown += 1;
                 let f = &s.files[fi];
                 let h = &f.hits[hi];
                 serde_json::to_writer(
@@ -468,21 +505,16 @@ pub fn run_refs(c: &Common, o: &Options, name: &str) -> Result<()> {
         }
         serde_json::to_writer(
             &mut w,
-            &json!({"type":"footer","data":{"verb":"refs","name":name,"hits_total":s.stats.total_hits,"files_total":s.stats.files_matched,"by_kind":nonempty.iter().map(|(k,v)| json!([k.name(), v.len()])).collect::<Vec<_>>(),"resolved":r.resolved,"classified":r.classified,"rung":s.rung.name(),"source":s.stats.source,"elapsed_ms":s.stats.elapsed_ms}}),
+            &json!({"type":"footer","data":{"verb":"refs","name":name,"hits_total":s.stats.total_hits,"files_total":s.stats.files_matched,"by_kind":nonempty.iter().map(|(k,v)| json!([k.name(), v.len()])).collect::<Vec<_>>(),"resolved":r.resolved,"classified":r.classified,"rung":s.rung.name(),"source":s.stats.source,"elapsed_ms":s.stats.elapsed_ms,"outcome":outcome_json(&Outcome::of_search(s, shown))}}),
         )?;
         writeln!(w)?;
-        return finish_json(w, "refs", s.stats.total_hits > 0);
+        return finish(w, "refs", &Outcome::of_search(s, shown));
     }
     if s.stats.total_hits == 0 {
         writeln!(w, "refs {name}  no references ({})", s.stats.source)?;
-        w.flush()?;
-        crate::stats::exit_no_hits("refs");
+        return finish(w, "refs", &Outcome::of_search(s, 0));
     }
-    let rung = if s.rung != greeg_query::Rung::Exact {
-        format!(" · matched {}", s.rung.describe())
-    } else {
-        String::new()
-    };
+    let rung = relaxed_note(&s.rung);
     writeln!(
         w,
         "refs {}  {} hits · {} files{}{} · {}{}",
@@ -560,8 +592,7 @@ pub fn run_refs(c: &Common, o: &Options, name: &str) -> Result<()> {
         shown,
         fmt_n(s.stats.total_hits)
     )?;
-    w.flush()?;
-    Ok(())
+    finish(w, "refs", &Outcome::of_search(s, shown))
 }
 
 pub fn run_callers(c: &Common, o: &Options, name: &str, depth: usize) -> Result<()> {
@@ -571,6 +602,12 @@ pub fn run_callers(c: &Common, o: &Options, name: &str, depth: usize) -> Result<
         usize::MAX
     } else {
         (o.budget / 22).max(5)
+    };
+    // an answer counts calling functions
+    let oc = Outcome {
+        total: r.callers.len(),
+        shown: r.callers.len().min(limit),
+        ..r.outcome.clone()
     };
     if c.json {
         for cl in r.callers.iter().take(limit) {
@@ -582,23 +619,23 @@ pub fn run_callers(c: &Common, o: &Options, name: &str, depth: usize) -> Result<
         }
         serde_json::to_writer(
             &mut w,
-            &json!({"type":"footer","data":{"verb":"callers","name":r.name,"callers":r.callers.len(),"call_sites":r.total_hits,"files":r.files,"source":r.source,"rung":r.rung.name(),"elapsed_ms":r.elapsed_ms}}),
+            &json!({"type":"footer","data":{"verb":"callers","name":r.name,"callers":r.callers.len(),"call_sites":r.total_hits,"files":r.files,"source":r.source,"rung":r.rung.name(),"elapsed_ms":r.elapsed_ms,"outcome":outcome_json(&oc)}}),
         )?;
         writeln!(w)?;
-        return finish_json(w, "callers", !r.callers.is_empty());
+        return finish(w, "callers", &oc);
     }
     if r.callers.is_empty() {
         writeln!(w, "callers {}  no call sites ({})", r.name, r.source)?;
-        w.flush()?;
-        crate::stats::exit_no_hits("callers");
+        return finish(w, "callers", &oc);
     }
     writeln!(
         w,
-        "callers {}  {} call sites in {} functions · {} files · {}{}",
+        "callers {}  {} call sites in {} functions · {} files{} · {}{}",
         r.name,
         fmt_n(r.total_hits),
         fmt_n(r.callers.len()),
         fmt_n(r.files),
+        relaxed_note(&r.rung),
         r.source,
         ms(c, r.elapsed_ms)
     )?;
@@ -657,8 +694,7 @@ pub fn run_callers(c: &Common, o: &Options, name: &str, depth: usize) -> Result<
             r.callers.len() - limit
         )?;
     }
-    w.flush()?;
-    Ok(())
+    finish(w, "callers", &oc)
 }
 
 pub fn run_impls(c: &Common, o: &Options, name: &str) -> Result<()> {
@@ -668,6 +704,17 @@ pub fn run_impls(c: &Common, o: &Options, name: &str) -> Result<()> {
         usize::MAX
     } else {
         (o.budget / 30).max(5)
+    };
+    let oc = Outcome {
+        total: r.direct_total + r.extras_total,
+        shown: r.direct.len().min(limit)
+            + r.extras
+                .len()
+                .min(if c.json { limit } else { limit / 2 + 1 }),
+        rung: greeg_query::Rung::Exact,
+        source: r.source,
+        fresh: r.fresh,
+        deferred: 0,
     };
     if c.json {
         for e in r.direct.iter().take(limit) {
@@ -686,15 +733,14 @@ pub fn run_impls(c: &Common, o: &Options, name: &str) -> Result<()> {
         }
         serde_json::to_writer(
             &mut w,
-            &json!({"type":"footer","data":{"verb":"impls","name":r.name,"direct":r.direct_total,"extras":r.extras_total,"source":r.source,"elapsed_ms":r.elapsed_ms}}),
+            &json!({"type":"footer","data":{"verb":"impls","name":r.name,"direct":r.direct_total,"extras":r.extras_total,"source":r.source,"elapsed_ms":r.elapsed_ms,"outcome":outcome_json(&oc)}}),
         )?;
         writeln!(w)?;
-        return finish_json(w, "impls", !(r.direct.is_empty() && r.extras.is_empty()));
+        return finish(w, "impls", &oc);
     }
     if r.direct.is_empty() && r.extras.is_empty() {
         writeln!(w, "impls {}  none found ({})", r.name, r.source)?;
-        w.flush()?;
-        crate::stats::exit_no_hits("impls");
+        return finish(w, "impls", &oc);
     }
     writeln!(
         w,
@@ -723,8 +769,7 @@ pub fn run_impls(c: &Common, o: &Options, name: &str) -> Result<()> {
         let extras: Vec<&DefEntry> = r.extras.iter().take(limit / 2 + 1).collect();
         write_def_groups(&mut w, &extras, true, false, c.chain, None)?;
     }
-    w.flush()?;
-    Ok(())
+    finish(w, "impls", &oc)
 }
 
 pub fn run_outline(c: &Common, o: &Options, file: &str, imports: bool) -> Result<()> {
@@ -972,6 +1017,13 @@ pub fn run_map(c: &Common, o: &Options, dir: &str) -> Result<()> {
 
 pub fn run_impact(c: &Common, o: &Options, name: &str) -> Result<()> {
     let r = verbs::impact(o, name)?;
+    // an answer counts referring files
+    let files = r.will_break.len() + r.may_break.len() + r.review.len();
+    let oc = Outcome {
+        total: files,
+        shown: files,
+        ..r.outcome.clone()
+    };
     let mut w = out();
     let per_group = if o.budget == 0 {
         usize::MAX
@@ -1032,20 +1084,25 @@ pub fn run_impact(c: &Common, o: &Options, name: &str) -> Result<()> {
             "total_hits":r.total_hits,"elapsed_ms":r.elapsed_ms}}),
         )?;
         writeln!(w)?;
-        return finish_json(w, "impact", r.total_hits > 0);
+        serde_json::to_writer(
+            &mut w,
+            &json!({"type":"footer","data":{"verb":"impact","name":r.name,"files":files,"total_hits":r.total_hits,"elapsed_ms":r.elapsed_ms,"outcome":outcome_json(&oc)}}),
+        )?;
+        writeln!(w)?;
+        return finish(w, "impact", &oc);
     }
     if r.total_hits == 0 {
         writeln!(w, "impact {}  no references found", r.name)?;
-        w.flush()?;
-        crate::stats::exit_no_hits("impact");
+        return finish(w, "impact", &oc);
     }
     writeln!(
         w,
-        "impact {}  {} hits · {} files · {} definitions{}",
+        "impact {}  {} hits · {} files · {} definitions{}{}",
         r.name,
         fmt_n(r.total_hits),
-        r.will_break.len() + r.may_break.len() + r.review.len(),
+        files,
         r.defs.len(),
+        relaxed_note(&r.outcome.rung),
         ms(c, r.elapsed_ms)
     )?;
     let defs: Vec<&DefEntry> = r.defs.iter().take(3).collect();
@@ -1104,6 +1161,5 @@ pub fn run_impact(c: &Common, o: &Options, name: &str) -> Result<()> {
             }
         }
     }
-    w.flush()?;
-    Ok(())
+    finish(w, "impact", &oc)
 }

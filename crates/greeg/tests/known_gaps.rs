@@ -291,6 +291,100 @@ fn a_rerun_after_sigbus_keeps_arguments_after_a_double_dash() {
 }
 
 #[test]
+fn a_relaxed_answer_exits_1_in_every_search_verb() {
+    let f = Fixture::new(&[(
+        "a.rs",
+        "pub fn load_config() {}\nfn b() { load_config(); }\n",
+    )]);
+    f.indexed();
+    for verb in [
+        vec![],
+        vec!["def"],
+        vec!["refs"],
+        vec!["callers"],
+        vec!["impact"],
+    ] {
+        for name in ["load_confiq", "LOAD_CONFIG"] {
+            let mut args = verb.clone();
+            args.push(name);
+            let o = f.run(&args);
+            // the relaxed answer is still printed, and says what matched
+            assert_eq!(o.status.code(), Some(1), "{args:?}: {o:?}");
+            let out = stdout(&o);
+            assert!(
+                out.contains("load_config") || out.contains("matched "),
+                "{args:?}: {o:?}"
+            );
+        }
+        let mut args = verb.clone();
+        args.push("load_config");
+        assert_eq!(f.run(&args).status.code(), Some(0), "{args:?}");
+    }
+}
+
+#[test]
+fn json_footers_carry_one_outcome() {
+    let f = Fixture::new(&[(
+        "a.rs",
+        "pub fn load_config() {}\nfn b() { load_config(); }\n",
+    )]);
+    f.indexed();
+    for args in [
+        vec!["load_config", "--json"],
+        vec!["def", "load_config", "--json"],
+        vec!["refs", "load_config", "--json"],
+        vec!["callers", "load_config", "--json"],
+        vec!["impls", "Nothing", "--json"],
+        vec!["impact", "load_config", "--json"],
+    ] {
+        let o = f.run(&args);
+        let footer: serde_json::Value = stdout(&o)
+            .lines()
+            .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
+            .rfind(|v| v["type"] == "footer")
+            .unwrap_or_else(|| panic!("{args:?}: {o:?}"));
+        let oc = &footer["data"]["outcome"];
+        assert_eq!(oc["exit"], o.status.code().unwrap(), "{args:?}: {footer}");
+        assert!(
+            oc["total"].as_u64().unwrap() >= oc["shown"].as_u64().unwrap(),
+            "{footer}"
+        );
+        assert_eq!(oc["complete"], oc["total"] == oc["shown"], "{footer}");
+        for k in ["exact", "rung", "source", "fresh"] {
+            assert!(!oc[k].is_null(), "{args:?}: {k} in {footer}");
+        }
+    }
+}
+
+#[test]
+fn output_that_cannot_be_written_fails_in_every_format() {
+    let body: String = (0..5000)
+        .map(|i| format!("fn f{i}() {{ needle(); }}\n"))
+        .collect();
+    let f = Fixture::new(&[("a.rs", &body)]);
+    f.indexed();
+    for args in [
+        vec!["needle", "--budget", "0"],
+        vec!["needle", "--json"],
+        vec!["-n", "needle"],
+        vec!["refs", "needle", "--budget", "0"],
+    ] {
+        let mut c = f.command();
+        c.args(&args)
+            .args(["--no-session", "--index-dir"])
+            .arg(&f.index)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped());
+        let mut child = c.spawn().unwrap();
+        drop(child.stdout.take());
+        let o = child.wait_with_output().unwrap();
+        // an answer that was not delivered is never reported as success
+        assert_eq!(o.status.code(), Some(2), "{args:?}: {o:?}");
+        assert!(!o.stderr.is_empty(), "{args:?}: {o:?}");
+    }
+}
+
+#[test]
 fn scan_excludes_header_marked_generated_files() {
     let f = Fixture::new(&[(
         "src/auto.rs",

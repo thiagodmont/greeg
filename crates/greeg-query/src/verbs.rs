@@ -4,6 +4,7 @@
 //! `map`, which needs the symbol table.
 
 use crate::indexed::{self, defs_of};
+use crate::outcome::Outcome;
 use crate::select::Selection;
 use crate::{DefSummary, HitKind, Mode, Options, Rung, ScanResult, scan};
 use anyhow::{Context, Result, bail};
@@ -743,6 +744,8 @@ pub struct Caller {
 }
 
 pub struct CallersResult {
+    /// Of the call-site search; the caller renders it per function.
+    pub outcome: Outcome,
     pub name: String,
     pub callers: Vec<Caller>,
     pub total_hits: usize,
@@ -846,6 +849,7 @@ pub fn callers(o: &Options, name: &str, depth: usize) -> Result<CallersResult> {
         }
     }
     Ok(CallersResult {
+        outcome: Outcome::of_search(&r, 0),
         name: name.to_string(),
         files: r.files.len(),
         callers,
@@ -867,6 +871,7 @@ pub struct ImplsResult {
     pub extras: Vec<DefEntry>,
     pub extras_total: usize,
     pub source: &'static str,
+    pub fresh: &'static str,
     pub elapsed_ms: f64,
 }
 
@@ -880,6 +885,7 @@ pub fn impls(o: &Options, name: &str) -> Result<ImplsResult> {
     let mut direct = Vec::new();
     let mut direct_total = 0;
     let mut source = "scan";
+    let mut fresh = "";
     let mut have: Vec<(String, u32)> = Vec::new();
     let sel = Selection::new(o, Vec::new())?;
     if o.use_index
@@ -890,6 +896,7 @@ pub fn impls(o: &Options, name: &str) -> Result<ImplsResult> {
     {
         let idx = &op.idx;
         source = "index";
+        fresh = op.fresh_method;
         let mut cache: BTreeMap<String, Vec<u8>> = BTreeMap::new();
         // rank every eligible implementation before reading any source
         let mut found: Vec<(f32, SymId)> = idx
@@ -1045,6 +1052,7 @@ pub fn impls(o: &Options, name: &str) -> Result<ImplsResult> {
         extras,
         extras_total,
         source,
+        fresh,
         elapsed_ms: t0.elapsed().as_secs_f64() * 1e3,
     })
 }
@@ -1470,6 +1478,8 @@ pub struct ImpactFile {
 }
 
 pub struct ImpactResult {
+    /// Of the reference search the impact is read from.
+    pub outcome: Outcome,
     pub name: String,
     pub defs: Vec<DefEntry>,
     pub will_break: Vec<ImpactFile>,
@@ -1535,6 +1545,7 @@ pub fn impact(o: &Options, name: &str) -> Result<ImpactResult> {
     co.fresh = greeg_index::fresh::Mode::None; // `refs` already ran the check
     let callers = callers(&co, name, 2)?;
     Ok(ImpactResult {
+        outcome: Outcome::of_search(&r.scan, 0),
         name: name.to_string(),
         defs: r.defs,
         will_break: will,
