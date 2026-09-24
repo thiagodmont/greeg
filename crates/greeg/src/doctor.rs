@@ -137,6 +137,12 @@ pub fn run(c: &Common) -> Result<()> {
                 m.tombstones,
                 ago(m.verified_unix_ms)
             )?;
+            if m.stamp_mode == greeg_index::STAMP_NO_INO {
+                writeln!(
+                    w,
+                    "          freshness ignores inode numbers: this file system does not keep them, so an atomic replace that keeps size, mtime and ctime goes unseen"
+                )?;
+            }
             if m.deltas >= 12 {
                 advice.push(format!("{} delta segments: a rebuild will be triggered at 16; `greeg index` compacts now", m.deltas));
             }

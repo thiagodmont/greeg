@@ -732,7 +732,6 @@ fn a_symlinked_ancestor_directory_is_not_followed() {
 }
 
 #[test]
-#[ignore = "known gap: freshness compares only size and mtime"]
 fn a_same_size_edit_with_restored_mtime_is_visible() {
     let f = Fixture::with_filler(&[("a.txt", "alpha_unique\n")]);
     f.indexed();
@@ -745,6 +744,31 @@ fn a_same_size_edit_with_restored_mtime_is_visible() {
         .unwrap()
         .set_modified(mtime)
         .unwrap();
+    std::thread::sleep(PAST_FRESHNESS_WINDOW);
+    let o = f.run(&["--fresh", "stat", "--budget", "0", "bravo_unique"]);
+    assert_eq!(
+        (o.status.code(), stdout(&o)),
+        (Some(0), "a.txt:1:bravo_unique\n".into())
+    );
+}
+
+/// An editor's save-by-rename brings a new inode even when size and mtime
+/// match the old file.
+#[test]
+fn an_atomic_replace_with_the_same_size_and_mtime_is_visible() {
+    let f = Fixture::with_filler(&[("a.txt", "alpha_unique\n")]);
+    f.indexed();
+    let path = f.root.join("a.txt");
+    let mtime = fs::metadata(&path).unwrap().modified().unwrap();
+    let tmp = f.root.join("a.txt.new");
+    fs::write(&tmp, "bravo_unique\n").unwrap();
+    fs::File::options()
+        .write(true)
+        .open(&tmp)
+        .unwrap()
+        .set_modified(mtime)
+        .unwrap();
+    fs::rename(&tmp, &path).unwrap();
     std::thread::sleep(PAST_FRESHNESS_WINDOW);
     let o = f.run(&["--fresh", "stat", "--budget", "0", "bravo_unique"]);
     assert_eq!(

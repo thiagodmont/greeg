@@ -6,8 +6,8 @@
 //!
 //! files.<gen>.bin
 //!   u32 n_files, u32 n_dirs, u32 arena_len, u32 pad
-//!   FileRec[n_files]   (32 bytes each)
-//!   DirRec[n_dirs]     (16 bytes each)
+//!   FileRec[n_files]   (56 bytes each)
+//!   DirRec[n_dirs]     (32 bytes each)
 //!   arena bytes (paths, relative, '/'-separated), padded to 8
 //!   u32 n_huge, u32 n_hidden, u32 huge[n_huge], u32 hidden[n_hidden]   (segment-local ids, padded to 8)
 //!
@@ -79,19 +79,42 @@ pub const DELTA_HEADER: usize = 32;
 
 pub const NONE: u32 = u32::MAX;
 
+const _: () = assert!(size_of::<FileRec>() == 56 && size_of::<DirRec>() == 32);
+
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
 pub struct FileRec {
     pub path_off: u32,
     pub path_len: u16,
     pub lang: u8,
-    pub flags8: u8,
-    pub size: u64,
-    pub mtime_ns: i64,
+    /// `STAMP_*` bits.
+    pub stamp_flags: u8,
     pub dir: u32,
     pub flags: u16,
     /// Quantized PageRank (0 = unknown, else 1..=65535 linear in rank_norm).
     pub rank: u16,
+    pub size: u64,
+    pub mtime_ns: i64,
+    pub ctime_ns: i64,
+    pub ino: u64,
+    pub dev: u64,
+}
+
+/// The recorded stamp may not describe the indexed bytes (the file changed
+/// while it was read, or too soon after for its timestamps to tell): the next
+/// check re-extracts it.
+pub const STAMP_RECHECK: u8 = 1;
+
+impl FileRec {
+    pub fn stamp(&self) -> crate::build::Stamp {
+        crate::build::Stamp {
+            size: self.size,
+            mtime_ns: self.mtime_ns,
+            ctime_ns: self.ctime_ns,
+            ino: self.ino,
+            dev: self.dev,
+        }
+    }
 }
 
 #[repr(C)]
@@ -101,6 +124,19 @@ pub struct DirRec {
     pub path_len: u16,
     pub pad: u16,
     pub mtime_ns: i64,
+    pub ino: u64,
+    pub dev: u64,
+}
+
+impl DirRec {
+    pub fn stamp(&self) -> crate::build::Stamp {
+        crate::build::Stamp {
+            mtime_ns: self.mtime_ns,
+            ino: self.ino,
+            dev: self.dev,
+            ..Default::default()
+        }
+    }
 }
 
 #[repr(C)]
@@ -224,8 +260,8 @@ impl FileTable {
     }
     pub fn serialize(&self) -> Vec<u8> {
         let mut body = Vec::with_capacity(
-            self.files.len() * 32
-                + self.dirs.len() * 16
+            self.files.len() * size_of::<FileRec>()
+                + self.dirs.len() * size_of::<DirRec>()
                 + self.arena.len()
                 + 48
                 + (self.huge.len() + self.hidden.len()) * 4,
@@ -266,13 +302,13 @@ impl<'a> FilesView<'a> {
         let arena_len = u32::from_le_bytes(body[8..12].try_into().unwrap()) as usize;
         let mut off = 16;
         let fb = body
-            .get(off..off + n_files * 32)
+            .get(off..off + n_files * size_of::<FileRec>())
             .context("files table truncated")?;
-        off += n_files * 32;
+        off += n_files * size_of::<FileRec>();
         let db = body
-            .get(off..off + n_dirs * 16)
+            .get(off..off + n_dirs * size_of::<DirRec>())
             .context("dirs table truncated")?;
-        off += n_dirs * 16;
+        off += n_dirs * size_of::<DirRec>();
         let arena = body.get(off..off + arena_len).context("arena truncated")?;
         off = (off + arena_len + 7) & !7;
         let counts = body.get(off..off + 8).context("id lists truncated")?;

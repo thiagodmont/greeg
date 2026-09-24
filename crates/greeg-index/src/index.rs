@@ -296,6 +296,11 @@ impl Index {
         crate::RootId::of(root).is_some_and(|r| r == self.manifest.root_id)
     }
 
+    /// Freshness ignores inode numbers on this index's file system.
+    pub fn no_ino(&self) -> bool {
+        self.manifest.stamp_mode == crate::STAMP_NO_INO
+    }
+
     pub fn open(dir: &Path) -> Result<Index> {
         let manifest = read_manifest(dir).context("no usable index manifest")?;
         if !manifest.phase1 {

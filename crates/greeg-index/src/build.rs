@@ -58,22 +58,95 @@ impl Default for BuildOpts {
     }
 }
 
+/// What a stat says about a file: its size, modification and change times,
+/// inode and device. An edit that restores the size and mtime still moves the
+/// ctime, and an atomic replace brings a new inode.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Stamp {
+    pub size: u64,
+    pub mtime_ns: i64,
+    pub ctime_ns: i64,
+    pub ino: u64,
+    pub dev: u64,
+}
+
+impl Stamp {
+    pub fn of(md: &fs::Metadata) -> Stamp {
+        if fixed_identity() {
+            return Stamp {
+                size: md.len(),
+                mtime_ns: md.mtime() * 1_000_000_000 + md.mtime_nsec(),
+                ..Default::default()
+            };
+        }
+        Stamp {
+            size: md.len(),
+            mtime_ns: md.mtime() * 1_000_000_000 + md.mtime_nsec(),
+            ctime_ns: md.ctime() * 1_000_000_000 + md.ctime_nsec(),
+            ino: md.ino(),
+            dev: md.dev(),
+        }
+    }
+
+    /// Equal, ignoring the inode and device when `no_ino`.
+    pub fn same(&self, o: &Stamp, no_ino: bool) -> bool {
+        self.size == o.size
+            && self.mtime_ns == o.mtime_ns
+            && self.ctime_ns == o.ctime_ns
+            && (no_ino || (self.ino == o.ino && self.dev == o.dev))
+    }
+
+    /// A directory's entry list is unchanged: same mtime and (unless
+    /// `no_ino`) the same directory.
+    pub fn same_dir(&self, o: &Stamp, no_ino: bool) -> bool {
+        self.mtime_ns == o.mtime_ns && (no_ino || (self.ino == o.ino && self.dev == o.dev))
+    }
+
+    /// Differs only in inode or device.
+    pub fn moved_only(&self, o: &Stamp) -> bool {
+        self.same(o, true) && !self.same(o, false)
+    }
+
+    /// From when a write can no longer keep these timestamps: 20 ms after the
+    /// later of mtime and ctime for sub-second timestamps (coarse kernel
+    /// clocks), 2 s when the file system records whole seconds.
+    pub fn trusted_from(&self) -> i64 {
+        let whole = self.mtime_ns % 1_000_000_000 == 0 && self.ctime_ns % 1_000_000_000 == 0;
+        let window = if whole { 2_000_000_000 } else { 20_000_000 };
+        self.mtime_ns.max(self.ctime_ns) + window
+    }
+
+    /// Read at `read_ns`, too soon for a later write to show in the stamp.
+    pub fn racy(&self, read_ns: i64) -> bool {
+        read_ns < self.trusted_from()
+    }
+}
+
+/// `GREEG_DEBUG_FIXED_STAMPS=1` records no change time, inode or device, so
+/// the layout fingerprint test gets the same bytes on every machine.
+fn fixed_identity() -> bool {
+    static FIXED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *FIXED.get_or_init(|| std::env::var_os("GREEG_DEBUG_FIXED_STAMPS").is_some())
+}
+
+pub(crate) fn now_ns() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos() as i64)
+        .unwrap_or(0)
+}
+
 #[derive(Clone, Debug)]
 pub struct WalkedFile {
     pub rel: String,
-    pub size: u64,
-    pub mtime_ns: i64,
+    pub stamp: Stamp,
     pub dir: u32,
 }
 
 #[derive(Clone, Debug)]
 pub struct WalkedDir {
     pub rel: String,
-    pub mtime_ns: i64,
-}
-
-pub(crate) fn mtime_ns(md: &fs::Metadata) -> i64 {
-    md.mtime() * 1_000_000_000 + md.mtime_nsec()
+    pub stamp: Stamp,
 }
 
 /// A walker with scan-mode semantics (hidden skipped, ignore rules honoured)
@@ -157,7 +230,7 @@ pub fn walk_with_skipped(
 }
 
 fn walk_noting(root: &Path, noted: Option<Noted>) -> Result<(Vec<WalkedFile>, Vec<WalkedDir>)> {
-    type Files = Vec<(String, u64, i64)>;
+    type Files = Vec<(String, Stamp)>;
     let out: Mutex<(Files, Vec<WalkedDir>)> =
         Mutex::new((Vec::with_capacity(4096), Vec::with_capacity(512)));
     struct Local<'a> {
@@ -200,9 +273,9 @@ fn walk_noting(root: &Path, noted: Option<Noted>) -> Result<(Vec<WalkedFile>, Ve
             match e.file_type() {
                 Some(t) if t.is_dir() => local.d.push(WalkedDir {
                     rel,
-                    mtime_ns: mtime_ns(&md),
+                    stamp: Stamp::of(&md),
                 }),
-                Some(t) if t.is_file() => local.f.push((rel, md.len(), mtime_ns(&md))),
+                Some(t) if t.is_file() => local.f.push((rel, Stamp::of(&md))),
                 _ => {}
             }
             if local.f.len() + local.d.len() >= 512 {
@@ -222,16 +295,11 @@ fn walk_noting(root: &Path, noted: Option<Noted>) -> Result<(Vec<WalkedFile>, Ve
             .collect();
         files
             .into_iter()
-            .map(|(rel, size, mt)| {
+            .map(|(rel, stamp)| {
                 let dir = *dir_index
                     .get(rel.rsplit_once('/').map(|(d, _)| d).unwrap_or(""))
                     .unwrap_or(&0);
-                WalkedFile {
-                    rel,
-                    size,
-                    mtime_ns: mt,
-                    dir,
-                }
+                WalkedFile { rel, stamp, dir }
             })
             .collect()
     };
@@ -242,30 +310,145 @@ fn walk_noting(root: &Path, noted: Option<Noted>) -> Result<(Vec<WalkedFile>, Ve
 pub struct Extracted {
     pub flags: FileFlags,
     pub grams: Vec<u32>,
+    /// What the read saw; `None` when the file was not read.
+    pub read: Option<Capture>,
+}
+
+/// The stamp of a file as it was read: taken from the open descriptor before
+/// the read, so it describes the bytes indexed.
+#[derive(Clone, Copy, Debug)]
+pub struct Capture {
+    pub stamp: Stamp,
+    /// The file changed during the read, or since the walk saw it.
+    pub changed: bool,
+    /// The stamp was too recent to trust (`Stamp::racy`): the hash of the
+    /// bytes read, for a build to verify once the timestamps have moved on.
+    pub racy: Option<blake3::Hash>,
+}
+
+/// Lets tests act while a file is being read, by its name.
+#[cfg(test)]
+fn read_hook(path: &Path) {
+    if path.ends_with("changes-during-read.txt") {
+        fs::write(path, "omega\n").unwrap();
+    } else if path.ends_with("slow-read.txt") {
+        std::thread::sleep(std::time::Duration::from_millis(60));
+    }
 }
 
 /// Read `path` (at most `MAX_FILE + 1` bytes) into `buf`, sized from the
-/// walk's `size` so the read needs one allocation and no probing.
-fn read_file(path: &Path, size: u64, buf: &mut Vec<u8>) -> bool {
+/// walk's size so the read needs one allocation and no probing.
+fn read_file(path: &Path, walk: &Stamp, buf: &mut Vec<u8>) -> Option<Capture> {
     use std::io::Read;
     buf.clear();
-    buf.reserve((size as usize).min(MAX_FILE as usize + 1) + 1);
-    let Ok(f) = crate::open_regular(path) else {
-        return false;
-    };
-    f.take(MAX_FILE + 1).read_to_end(buf).is_ok()
+    buf.reserve((walk.size as usize).min(MAX_FILE as usize + 1) + 1);
+    let f = crate::open_regular(path).ok()?;
+    let started = now_ns();
+    let before = Stamp::of(&f.metadata().ok()?);
+    (&f).take(MAX_FILE + 1).read_to_end(buf).ok()?;
+    #[cfg(test)]
+    read_hook(path);
+    let after = Stamp::of(&f.metadata().ok()?);
+    // the inode is compared only on the one descriptor: a path's stat and a
+    // descriptor's can disagree on it where inode numbers are not kept, and
+    // a replacement since the walk moves the ctime anyway
+    let changed = !before.same(&after, false) || !before.same(walk, true);
+    let racy = !changed && before.racy(started);
+    Some(Capture {
+        stamp: before,
+        changed,
+        racy: racy.then(|| blake3::hash(buf)),
+    })
 }
+
+/// The stamp and `STAMP_*` flags to record for a file the walk saw as
+/// `walk`. A file that was not read keeps the walk's stamp, checked against
+/// `walked_ns`, a time no later than the walk's stat.
+pub(crate) fn recorded(walk: &Stamp, read: Option<&Capture>, walked_ns: i64) -> (Stamp, u8) {
+    let (stamp, recheck) = match read {
+        Some(c) => (c.stamp, c.changed || c.racy.is_some()),
+        None => (*walk, walk.racy(walked_ns)),
+    };
+    (stamp, if recheck { format::STAMP_RECHECK } else { 0 })
+}
+
+pub(crate) fn file_rec(
+    (path_off, path_len): (u32, u16),
+    rel: &str,
+    dir: u32,
+    flags: u16,
+    rank: u16,
+    (stamp, stamp_flags): (Stamp, u8),
+) -> FileRec {
+    FileRec {
+        path_off,
+        path_len,
+        lang: Lang::from_path(Path::new(rel)).code(),
+        stamp_flags,
+        dir,
+        flags,
+        rank,
+        size: stamp.size,
+        mtime_ns: stamp.mtime_ns,
+        ctime_ns: stamp.ctime_ns,
+        ino: stamp.ino,
+        dev: stamp.dev,
+    }
+}
+
+pub(crate) fn dir_rec((path_off, path_len): (u32, u16), stamp: &Stamp) -> DirRec {
+    DirRec {
+        path_off,
+        path_len,
+        pad: 0,
+        mtime_ns: stamp.mtime_ns,
+        ino: stamp.ino,
+        dev: stamp.dev,
+    }
+}
+
+/// Settle a racy capture (`Capture::racy`): once its timestamps can no
+/// longer be reused, re-read the file and clear the doubt when its stamp and
+/// bytes still match what was indexed; otherwise it stays `changed`, for the
+/// next check to re-extract. Waits at most `max_wait_ns`; a longer wait (a
+/// file system with whole-second timestamps, inside a query) leaves the
+/// capture racy.
+fn settle_racy(path: &Path, c: &mut Capture, max_wait_ns: i64, buf: &mut Vec<u8>) {
+    use std::io::Read;
+    let Some(hash) = c.racy else { return };
+    let wait = c.stamp.trusted_from() - now_ns();
+    if wait > max_wait_ns {
+        return;
+    }
+    if wait > 0 {
+        std::thread::sleep(std::time::Duration::from_nanos(wait as u64));
+    }
+    let same = (|| {
+        let f = crate::open_regular(path).ok()?;
+        let now = Stamp::of(&f.metadata().ok()?);
+        buf.clear();
+        (&f).take(MAX_FILE + 1).read_to_end(buf).ok()?;
+        Some(now.same(&c.stamp, true) && blake3::hash(buf) == hash)
+    })()
+    .unwrap_or(false);
+    c.changed |= !same;
+    c.racy = None;
+}
+
+/// A build waits out whole-second timestamps too; a query's delta does not.
+const BUILD_RACY_WAIT: i64 = 2_000_000_000;
+const DELTA_RACY_WAIT: i64 = 25_000_000;
 
 /// Read one file and extract its grams and flags. `buf` and `dd` are reused.
 pub fn extract_file(
     path: &Path,
     rel: &str,
-    size: u64,
+    walk: &Stamp,
     buf: &mut Vec<u8>,
     dd: &mut Dedup,
     grams: &mut Vec<u32>,
 ) -> Extracted {
-    extract_file_with(path, rel, size, buf, dd, grams, |_, _| ()).0
+    extract_file_with(path, rel, walk, buf, dd, grams, |_, _| ()).0
 }
 
 /// `extract_file`, calling `hook(rel, bytes)` on the unfolded content before
@@ -273,7 +456,7 @@ pub fn extract_file(
 fn extract_file_with<T: Default>(
     path: &Path,
     rel: &str,
-    size: u64,
+    walk: &Stamp,
     buf: &mut Vec<u8>,
     dd: &mut Dedup,
     grams: &mut Vec<u32>,
@@ -281,21 +464,25 @@ fn extract_file_with<T: Default>(
 ) -> (Extracted, T) {
     let mut flags = path_flags(rel);
     grams.clear();
-    if size > MAX_FILE {
+    if walk.size > MAX_FILE {
         flags.set(FileFlags::HUGE);
         return (
             Extracted {
                 flags,
                 grams: Vec::new(),
+                read: None,
             },
             T::default(),
         );
     }
-    if is_ignore_file(rel) || !read_file(path, size, buf) {
+    // ignore files are read only for their stamp: they are never searched
+    let read = read_file(path, walk, buf);
+    if read.is_none() || is_ignore_file(rel) {
         return (
             Extracted {
                 flags,
                 grams: Vec::new(),
+                read,
             },
             T::default(),
         );
@@ -308,6 +495,7 @@ fn extract_file_with<T: Default>(
             Extracted {
                 flags,
                 grams: Vec::new(),
+                read,
             },
             T::default(),
         );
@@ -319,6 +507,7 @@ fn extract_file_with<T: Default>(
         Extracted {
             flags,
             grams: std::mem::take(grams),
+            read,
         },
         t,
     )
@@ -438,6 +627,7 @@ pub fn build(root: &Path, dir: &Path, opts: &BuildOpts) -> Result<Manifest> {
     let fsevents_id = greeg_fsevents_id();
     // before the walk, so a change made during it shows up at the next check
     let ignore_inputs = crate::ignores::digest(root);
+    let walked_ns = now_ns();
     let (walked, dirs, skipped) = walk_with_skipped(root)?;
     let walk_ms = t0.elapsed().as_secs_f64() * 1e3;
 
@@ -446,7 +636,7 @@ pub fn build(root: &Path, dir: &Path, opts: &BuildOpts) -> Result<Manifest> {
         .build()?;
     let root_buf = root.to_path_buf();
     let source_bytes = std::sync::atomic::AtomicU64::new(0);
-    type Flags = Vec<(u32, u16)>;
+    type Flags = Vec<(u32, u16, Option<Capture>)>;
     // Postings accumulate against a byte budget shared across the workers and
     // spill to sorted segments when it is reached (`external.rs`, which
     // carries the measurements). A tree that never reaches it never spills
@@ -485,7 +675,7 @@ pub fn build(root: &Path, dir: &Path, opts: &BuildOpts) -> Result<Manifest> {
                     let (ex, ()) = extract_file_with(
                         &root_buf.join(&w.rel),
                         &w.rel,
-                        w.size,
+                        &w.stamp,
                         &mut buf,
                         &mut dd,
                         &mut grams,
@@ -499,7 +689,7 @@ pub fn build(root: &Path, dir: &Path, opts: &BuildOpts) -> Result<Manifest> {
                         sink.push(&g, id);
                     }
                     grams = ex.grams;
-                    fl.push((id, ex.flags.0));
+                    fl.push((id, ex.flags.0, ex.read));
                     // only ever between files: a file's postings must not be
                     // split across a spill, or the per-file dedup breaks
                     sink.spill_if_full()?;
@@ -538,40 +728,41 @@ pub fn build(root: &Path, dir: &Path, opts: &BuildOpts) -> Result<Manifest> {
     // file table
     let mut ft = FileTable::default();
     let mut flags_sorted = flags_by_id;
-    flags_sorted.sort_unstable_by_key(|(id, _)| *id);
+    flags_sorted.sort_unstable_by_key(|(id, _, _)| *id);
+    let mut again = Vec::new();
+    for (id, _, c) in &mut flags_sorted {
+        if let Some(c) = c {
+            let path = root.join(&walked[*id as usize].rel);
+            settle_racy(&path, c, BUILD_RACY_WAIT, &mut again);
+        }
+    }
     for (i, w) in walked.iter().enumerate() {
-        let (off, len) = ft.intern(&w.rel);
-        let flags = flags_sorted.get(i).map(|(_, f)| *f).unwrap_or(0);
-        ft.push_file(
+        let at = ft.intern(&w.rel);
+        let (flags, read) = flags_sorted
+            .get(i)
+            .map(|(_, f, r)| (*f, r.as_ref()))
+            .unwrap_or((0, None));
+        let rec = file_rec(
+            at,
             &w.rel,
-            FileRec {
-                path_off: off,
-                path_len: len,
-                lang: Lang::from_path(Path::new(&w.rel)).code(),
-                flags8: 0,
-                size: w.size,
-                mtime_ns: w.mtime_ns,
-                dir: w.dir,
-                flags,
-                rank: 0,
-            },
+            w.dir,
+            flags,
+            0,
+            recorded(&w.stamp, read, walked_ns),
         );
+        ft.push_file(&w.rel, rec);
     }
     for d in &dirs {
-        let (off, len) = ft.intern(&d.rel);
-        ft.dirs.push(DirRec {
-            path_off: off,
-            path_len: len,
-            pad: 0,
-            mtime_ns: d.mtime_ns,
-        });
+        let at = ft.intern(&d.rel);
+        ft.dirs.push(dir_rec(at, &d.stamp));
     }
 
     // publish under the writer lock: components, then the manifest, and only
     // then the previous generation and its deltas (readers that opened the old
     // manifest keep valid maps; readers that open the new one ignore delta/)
     let lock = crate::lock::writer(dir)?;
-    let generation = read_manifest(dir).map(|m| m.generation + 1).unwrap_or(1);
+    let previous = read_manifest(dir);
+    let generation = previous.as_ref().map(|m| m.generation + 1).unwrap_or(1);
     format::write_atomic(
         &dir.join(format!("grams.{generation}.bin")),
         format::COMP_GRAMS,
@@ -618,6 +809,8 @@ pub fn build(root: &Path, dir: &Path, opts: &BuildOpts) -> Result<Manifest> {
         tombstones: 0,
         ignore_inputs,
         skipped: skipped_name,
+        // the file system does not change with a rebuild
+        stamp_mode: previous.map(|m| m.stamp_mode).unwrap_or_default(),
     };
     write_manifest(dir, &m)?;
     // a fresh build supersedes deltas and older generations
@@ -659,21 +852,24 @@ pub fn wants_symbols(rel: &str, flags: u16) -> bool {
             .has(FileFlags::BINARY | FileFlags::HUGE | FileFlags::MINIFIED | FileFlags::LOCKFILE)
 }
 
-/// Read + extract one file for stage B.
+/// Read + extract one file for stage B. The flag says the file no longer
+/// matches `recorded`, the stamp its phase-1 record holds, or was read too
+/// soon for its stamp to tell.
 pub fn extract_symbols(
     path: &Path,
     rel: &str,
-    size: u64,
+    recorded: &Stamp,
     buf: &mut Vec<u8>,
-) -> Option<FileExtract> {
-    if !read_file(path, size, buf) {
-        return None;
-    }
+) -> (Option<FileExtract>, bool) {
+    let Some(read) = read_file(path, recorded, buf) else {
+        return (None, true);
+    };
+    let recheck = read.changed || read.racy.is_some();
     greeg_lang::transcode_utf16(buf);
     if buf.len() as u64 > MAX_FILE || buf[..buf.len().min(8192)].contains(&0) {
-        return None;
+        return (None, recheck);
     }
-    Some(symbols_of_bytes(rel, buf))
+    (Some(symbols_of_bytes(rel, buf)), recheck)
 }
 
 fn symbols_of_bytes(rel: &str, src: &[u8]) -> FileExtract {
@@ -704,16 +900,17 @@ fn phase2(
         .filter(|&i| wants_symbols(&walked[i].rel, ft.files[i].flags))
         .map(|i| i as u32)
         .collect();
-    let extracts: Vec<(u32, Option<FileExtract>)> = pool.install(|| {
+    let extracts: Vec<(u32, (Option<FileExtract>, bool))> = pool.install(|| {
         sym::warm();
         todo.par_iter()
             .map_init(
                 || Vec::<u8>::with_capacity(256 * 1024),
                 |buf, &i| {
                     let w = &walked[i as usize];
+                    let rec = ft.files[i as usize].stamp();
                     (
                         i,
-                        extract_symbols(&root_buf.join(&w.rel), &w.rel, w.size, buf),
+                        extract_symbols(&root_buf.join(&w.rel), &w.rel, &rec, buf),
                     )
                 },
             )
@@ -722,7 +919,11 @@ fn phase2(
     let parse_ms = t0.elapsed().as_secs_f64() * 1e3;
     let mut by_file: Vec<Option<FileExtract>> = (0..ft.files.len()).map(|_| None).collect();
     let mut fallbacks = 0u32;
-    for (i, ex) in extracts {
+    for (i, (ex, changed)) in extracts {
+        // parsed from other bytes than the phase-1 record describes
+        if changed {
+            ft.files[i as usize].stamp_flags |= format::STAMP_RECHECK;
+        }
         if let Some(ex) = &ex {
             if !ex.tree_sitter {
                 fallbacks += 1;
@@ -915,7 +1116,11 @@ pub fn build_delta(
     dirs: &[WalkedDir],
     tomb: &RoaringBitmap,
 ) -> Result<Vec<u8>> {
+    // unread files (above the size cap) keep the check's stamp, judged
+    // against this time
+    let started_ns = now_ns();
     let mut buf = Vec::with_capacity(256 * 1024);
+    let mut again = Vec::new();
     let mut dd = Dedup::new();
     let mut grams = Vec::with_capacity(8192);
     let mut map: HashMap<u32, Vec<u32>> = HashMap::new();
@@ -933,7 +1138,7 @@ pub fn build_delta(
         let (ex, fx) = extract_file_with(
             &root.join(&w.rel),
             &w.rel,
-            w.size,
+            &w.stamp,
             &mut buf,
             &mut dd,
             &mut grams,
@@ -969,21 +1174,20 @@ pub fn build_delta(
         ranks.push(rank);
         sb.add_file(i as u32, fx.as_ref());
         extracts.push(fx);
-        let (off, len) = ft.intern(&w.rel);
-        ft.push_file(
+        let mut read = ex.read;
+        if let Some(c) = &mut read {
+            settle_racy(&root.join(&w.rel), c, DELTA_RACY_WAIT, &mut again);
+        }
+        let at = ft.intern(&w.rel);
+        let rec = file_rec(
+            at,
             &w.rel,
-            FileRec {
-                path_off: off,
-                path_len: len,
-                lang: Lang::from_path(Path::new(&w.rel)).code(),
-                flags8: 0,
-                size: w.size,
-                mtime_ns: w.mtime_ns,
-                dir: w.dir,
-                flags,
-                rank,
-            },
+            w.dir,
+            flags,
+            rank,
+            recorded(&w.stamp, read.as_ref(), started_ns),
         );
+        ft.push_file(&w.rel, rec);
     }
     // imports: resolve against live base files (minus this delta's tombstones)
     // plus the delta's own files, which shadow the versions they replace
@@ -1062,13 +1266,8 @@ pub fn build_delta(
         pb.add_file(i as u32, ex.as_ref(), &targets[i]);
     }
     for d in dirs {
-        let (off, len) = ft.intern(&d.rel);
-        ft.dirs.push(DirRec {
-            path_off: off,
-            path_len: len,
-            pad: 0,
-            mtime_ns: d.mtime_ns,
-        });
+        let at = ft.intern(&d.rel);
+        ft.dirs.push(dir_rec(at, &d.stamp));
     }
     let mut entries: Vec<(u32, u32, Vec<u8>)> = map
         .into_iter()
@@ -1212,4 +1411,149 @@ impl<'a> KotlinBase<'a> {
 
 pub fn root_of(p: &Path) -> PathBuf {
     p.to_path_buf()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A directory this test creates itself, never one left by another run.
+    fn temp(name: &str) -> std::path::PathBuf {
+        for n in 0.. {
+            let d =
+                std::env::temp_dir().join(format!("greeg-stamp-{name}-{}-{n}", std::process::id()));
+            match fs::create_dir(&d) {
+                Ok(()) => return d,
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(e) => panic!("create {}: {e}", d.display()),
+            }
+        }
+        unreachable!()
+    }
+
+    #[test]
+    fn stamps_too_recent_to_trust_depend_on_timestamp_resolution() {
+        let fine = Stamp {
+            mtime_ns: 5_000_000_123,
+            ctime_ns: 5_000_000_456,
+            ..Default::default()
+        };
+        assert!(fine.racy(5_010_000_000));
+        assert!(!fine.racy(5_030_000_000));
+        let whole = Stamp {
+            mtime_ns: 5_000_000_000,
+            ctime_ns: 5_000_000_000,
+            ..Default::default()
+        };
+        assert!(whole.racy(6_500_000_000));
+        assert!(!whole.racy(7_000_000_001));
+    }
+
+    #[test]
+    fn a_racy_capture_is_cleared_only_when_its_bytes_still_match() {
+        let d = temp("racy");
+        let p = d.join("a.txt");
+        let mut buf = Vec::new();
+        for (edit, changed) in [(false, false), (true, true)] {
+            fs::write(&p, "alpha\n").unwrap();
+            let walk = Stamp::of(&fs::symlink_metadata(&p).unwrap());
+            let mut c = read_file(&p, &walk, &mut buf).unwrap();
+            assert!(c.racy.is_some() && !c.changed, "just written");
+            if edit {
+                // same size, stamps put back: only the bytes tell
+                let mt = fs::metadata(&p).unwrap().modified().unwrap();
+                fs::write(&p, "bravo\n").unwrap();
+                fs::File::options()
+                    .write(true)
+                    .open(&p)
+                    .unwrap()
+                    .set_modified(mt)
+                    .unwrap();
+            }
+            settle_racy(&p, &mut c, BUILD_RACY_WAIT, &mut buf);
+            assert!(c.racy.is_none());
+            assert_eq!(c.changed, changed, "edited: {edit}");
+        }
+        let _ = fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn a_read_that_started_too_soon_after_a_write_is_racy_however_long_it_takes() {
+        let d = temp("slow");
+        let f = d.join("slow-read.txt");
+        fs::write(&f, "alpha\n").unwrap();
+        let walk = Stamp::of(&fs::symlink_metadata(&f).unwrap());
+        // the hook sleeps past the trust window while the file is read
+        let c = read_file(&f, &walk, &mut Vec::new()).unwrap();
+        assert!(!c.changed && c.racy.is_some());
+        let _ = fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn symbols_read_too_soon_after_a_write_are_rechecked() {
+        let d = temp("symbols");
+        let f = d.join("a.rs");
+        fs::write(&f, "fn alpha() {}\n").unwrap();
+        let recorded = Stamp::of(&fs::symlink_metadata(&f).unwrap());
+        let (ex, recheck) = extract_symbols(&f, "a.rs", &recorded, &mut Vec::new());
+        assert!(ex.is_some() && recheck);
+        let _ = fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn a_walk_stamp_that_differs_only_in_inode_is_not_a_change() {
+        let d = temp("walk-ino");
+        let f = d.join("a.txt");
+        fs::write(&f, "alpha\n").unwrap();
+        let walk = Stamp::of(&fs::symlink_metadata(&f).unwrap());
+        let mut buf = Vec::new();
+        let other_ino = Stamp {
+            ino: walk.ino + 1,
+            ..walk
+        };
+        assert!(!read_file(&f, &other_ino, &mut buf).unwrap().changed);
+        let other_size = Stamp {
+            size: walk.size + 1,
+            ..walk
+        };
+        assert!(read_file(&f, &other_size, &mut buf).unwrap().changed);
+        let _ = fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn a_file_changed_while_it_is_indexed_is_rechecked() {
+        let d = temp("during");
+        let root = d.join("tree");
+        let dir = d.join("index");
+        fs::create_dir_all(root.join(".git")).unwrap();
+        fs::write(root.join("changes-during-read.txt"), "alpha\n").unwrap();
+        fs::write(root.join("steady.txt"), "steady\n").unwrap();
+        build(
+            &root,
+            &dir,
+            &BuildOpts {
+                reader_threads: 1,
+                quiet: true,
+                phase1_only: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let idx = crate::Index::open(&dir).unwrap();
+        let marked: Vec<&str> = idx
+            .live_files()
+            .filter(|(_, _, r)| r.stamp_flags & format::STAMP_RECHECK != 0)
+            .map(|(_, rel, _)| rel)
+            .collect();
+        assert_eq!(marked, ["changes-during-read.txt"]);
+        let ch = crate::fresh::check(&idx, &root, crate::fresh::Mode::Stat, 1).unwrap();
+        assert_eq!(
+            ch.modified
+                .iter()
+                .map(|m| m.1.rel.as_str())
+                .collect::<Vec<_>>(),
+            ["changes-during-read.txt"]
+        );
+        let _ = fs::remove_dir_all(&d);
+    }
 }
