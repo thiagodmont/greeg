@@ -87,6 +87,21 @@ pub fn key(rel: &[u8]) -> Cow<'_, str> {
     }
 }
 
+/// The path a `key` stands for; any other text is taken as a path as it is.
+pub fn from_key(k: &str) -> Vec<u8> {
+    let decoded = k.strip_prefix('\0').and_then(|hex| {
+        (hex.len() % 2 == 0)
+            .then(|| {
+                (0..hex.len())
+                    .step_by(2)
+                    .map(|i| u8::from_str_radix(hex.get(i..i + 2)?, 16).ok())
+                    .collect::<Option<Vec<u8>>>()
+            })
+            .flatten()
+    });
+    decoded.unwrap_or_else(|| k.as_bytes().to_vec())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -118,5 +133,8 @@ mod tests {
         assert_eq!(key(b"a\nb"), "a\nb");
         assert_eq!(key(b"x\xff"), "\u{0}78ff");
         assert_ne!(key(b"x\xff"), key("x\u{fffd}".as_bytes()));
+        for p in [&b"d\xfe/x.rs"[..], b"a/b.rs", b""] {
+            assert_eq!(from_key(&key(p)), p);
+        }
     }
 }

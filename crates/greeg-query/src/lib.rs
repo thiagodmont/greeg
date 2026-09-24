@@ -766,27 +766,29 @@ impl Sink for CollectSink<'_> {
     }
 }
 
-fn near_weight(rel: &str, near: &[String]) -> f32 {
+/// `near` holds paths as `--near` gives them or as a session keeps them
+/// (`greeg_index::rel::key`); both are compared as bytes.
+fn near_weight(rel: &[u8], near: &[String]) -> f32 {
+    use greeg_index::rel::{as_path, from_key, parent};
     if near.is_empty() {
         return 1.0;
     }
-    let dir = rel.rsplit_once('/').map(|(d, _)| d).unwrap_or("");
+    let dir = parent(rel);
     let mut best = 0.7f32;
     for n in near {
-        let n = n.trim_end_matches('/');
-        let ndir = if Path::new(n).extension().is_some() {
-            n.rsplit_once('/').map(|(d, _)| d).unwrap_or("")
+        let n = from_key(n);
+        let mut n = n.as_slice();
+        while let [rest @ .., b'/'] = n {
+            n = rest;
+        }
+        let ndir = if as_path(n).extension().is_some() {
+            parent(n)
         } else {
             n
         };
-        if rel.starts_with(n) || dir == ndir || (ndir.is_empty() && !rel.contains('/')) {
+        if rel.starts_with(n) || dir == ndir || (ndir.is_empty() && !rel.contains(&b'/')) {
             return 1.0;
         }
-        let parent = |d: &str| {
-            d.rsplit_once('/')
-                .map(|(p, _)| p.to_string())
-                .unwrap_or_default()
-        };
         if parent(dir) == parent(ndir) {
             best = best.max(0.85);
         }
@@ -845,8 +847,7 @@ pub(crate) fn loc_weight(flags: FileFlags, rel: &str, all: bool) -> f32 {
 /// File prior: location × near. (Recency from mtime is not used: every file
 /// of a fresh clone is "today".)
 pub(crate) fn file_prior(flags: FileFlags, rel: &[u8], o: &Options) -> f32 {
-    use greeg_index::rel::{display, key};
-    loc_weight(flags, &display(rel), o.all) * 0.8 * near_weight(&key(rel), &o.near)
+    loc_weight(flags, &greeg_index::rel::display(rel), o.all) * 0.8 * near_weight(rel, &o.near)
 }
 
 /// Last whitespace-delimited identifier at the end of `head`, if `head` ends with one.
@@ -2321,6 +2322,14 @@ pub fn scan(o: &Options) -> Result<ScanResult> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_session_focus_on_a_non_utf8_path_is_near_its_directory() {
+        let focus = vec![greeg_index::rel::key(b"d\xfe/x.rs").into_owned()];
+        assert_eq!(near_weight(b"d\xfe/y.rs", &focus), 1.0);
+        assert_eq!(near_weight(b"other/deep/z.rs", &focus), 0.7);
+        assert_eq!(near_weight(b"src/a.rs", &["src/b.rs".to_string()]), 1.0);
+    }
 
     fn opts(pattern: &str) -> Options {
         Options {

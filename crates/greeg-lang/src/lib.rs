@@ -72,10 +72,16 @@ impl Lang {
         }
     }
     pub fn from_path(path: &Path) -> Lang {
-        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-        let ext = match name.rsplit_once('.') {
-            Some((_, e)) => e,
-            None => return Lang::None,
+        // by the extension alone: the rest of a name need not be UTF-8
+        let name = path
+            .file_name()
+            .map(|n| n.as_encoded_bytes())
+            .unwrap_or_default();
+        let Some(dot) = name.iter().rposition(|&b| b == b'.') else {
+            return Lang::None;
+        };
+        let Ok(ext) = std::str::from_utf8(&name[dot + 1..]) else {
+            return Lang::None;
         };
         match ext {
             "py" | "pyi" | "pyw" => Lang::Python,
@@ -468,6 +474,17 @@ pub fn read_text(path: impl AsRef<std::path::Path>) -> std::io::Result<Vec<u8>> 
 #[cfg(test)]
 mod flag_tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn the_language_comes_from_the_extension_whatever_the_name_holds() {
+        use std::os::unix::ffi::OsStrExt;
+        let p = |b: &[u8]| Lang::from_path(Path::new(std::ffi::OsStr::from_bytes(b)));
+        assert_eq!(p(b"src/caf\xff.rs"), Lang::Rust);
+        assert_eq!(p(b"d\xfe/a\\b.py"), Lang::Python);
+        assert_eq!(p(b"x.r\xffs"), Lang::None);
+        assert_eq!(p(b"Makefile"), Lang::None);
+    }
 
     /// Recorded tool output checked in for comparison is generated, not source.
     #[test]
