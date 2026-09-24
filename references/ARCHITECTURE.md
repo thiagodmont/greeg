@@ -413,8 +413,8 @@ digest existed has none and is not checked until its next full build
 
 A file's stamp is taken from the open descriptor before it is read, and
 checked again after: a file that changed during the read, or since the walk
-saw it, is marked and re-extracted by the next check. So is a file symbol
-extraction finds changed since the grams were read. A stamp written less than
+saw it, is marked and re-extracted by the next check. So is a file that
+symbol extraction finds changed since the grams were read. A stamp written less than
 20 ms (2 s on file systems with whole-second timestamps) before the read could
 survive a later write unchanged; a build re-reads such files once the window
 has passed and keeps the mark only if the bytes differ, and a delta does the

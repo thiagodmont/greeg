@@ -343,7 +343,10 @@ fn read_file(path: &Path, walk: &Stamp, buf: &mut Vec<u8>) -> Option<Capture> {
         hook(path);
     }
     let after = Stamp::of(&f.metadata().ok()?);
-    let changed = !before.same(&after, false) || !before.same(walk, false);
+    // the inode is compared only on the one descriptor: a path's stat and a
+    // descriptor's can disagree on it where inode numbers are not kept, and
+    // a replacement since the walk moves the ctime anyway
+    let changed = !before.same(&after, false) || !before.same(walk, true);
     let racy = !changed && before.racy(now_ns());
     Some(Capture {
         stamp: before,
@@ -419,7 +422,7 @@ fn settle_racy(path: &Path, c: &mut Capture, max_wait_ns: i64, buf: &mut Vec<u8>
         let now = Stamp::of(&f.metadata().ok()?);
         buf.clear();
         (&f).take(MAX_FILE + 1).read_to_end(buf).ok()?;
-        Some(now.same(&c.stamp, false) && blake3::hash(buf) == hash)
+        Some(now.same(&c.stamp, true) && blake3::hash(buf) == hash)
     })()
     .unwrap_or(false);
     c.changed |= !same;
@@ -1406,11 +1409,18 @@ pub fn root_of(p: &Path) -> PathBuf {
 mod tests {
     use super::*;
 
+    /// A directory this test creates itself, never one left by another run.
     fn temp(name: &str) -> std::path::PathBuf {
-        let d = std::env::temp_dir().join(format!("greeg-stamp-{name}-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&d);
-        fs::create_dir_all(&d).unwrap();
-        d
+        for n in 0.. {
+            let d =
+                std::env::temp_dir().join(format!("greeg-stamp-{name}-{}-{n}", std::process::id()));
+            match fs::create_dir(&d) {
+                Ok(()) => return d,
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(e) => panic!("create {}: {e}", d.display()),
+            }
+        }
+        unreachable!()
     }
 
     #[test]
@@ -1456,6 +1466,26 @@ mod tests {
             assert!(c.racy.is_none());
             assert_eq!(c.changed, changed, "edited: {edit}");
         }
+        let _ = fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn a_walk_stamp_that_differs_only_in_inode_is_not_a_change() {
+        let d = temp("walk-ino");
+        let f = d.join("a.txt");
+        fs::write(&f, "alpha\n").unwrap();
+        let walk = Stamp::of(&fs::symlink_metadata(&f).unwrap());
+        let mut buf = Vec::new();
+        let other_ino = Stamp {
+            ino: walk.ino + 1,
+            ..walk
+        };
+        assert!(!read_file(&f, &other_ino, &mut buf).unwrap().changed);
+        let other_size = Stamp {
+            size: walk.size + 1,
+            ..walk
+        };
+        assert!(read_file(&f, &other_size, &mut buf).unwrap().changed);
         let _ = fs::remove_dir_all(&d);
     }
 

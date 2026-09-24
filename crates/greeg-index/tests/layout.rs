@@ -20,12 +20,14 @@ impl Drop for Tmp {
     }
 }
 
+/// Pinned, so no environment setting (`GREEG_BUILD_BUDGET_MB`) changes the
+/// build's output.
 fn opts() -> BuildOpts {
     BuildOpts {
         reader_threads: 1,
         quiet: true,
         phase1_only: false,
-        ..Default::default()
+        posting_budget: 256 << 20,
     }
 }
 
@@ -56,7 +58,20 @@ fn pin_times(dir: &Path) {
 /// The fingerprint's own tree, separate from the fixtures other tests edit.
 /// Changing it changes every digest recorded below.
 fn fingerprint_tree() -> Tmp {
-    let base = std::env::temp_dir().join(format!("greeg-index-fingerprint-{}", std::process::id()));
+    // created here, so no file left by another run joins the fixture
+    let base = (0..)
+        .map(|n| {
+            std::env::temp_dir().join(format!(
+                "greeg-index-fingerprint-{}-{n}",
+                std::process::id()
+            ))
+        })
+        .find(|d| match fs::create_dir(d) {
+            Ok(()) => true,
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => false,
+            Err(e) => panic!("create {}: {e}", d.display()),
+        })
+        .unwrap();
     let root = base.join("tree");
     let dir = base.join("index");
     fs::create_dir_all(root.join(".git")).unwrap();
