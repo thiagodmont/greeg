@@ -195,7 +195,7 @@ fuzzy-name match. Ranked text keeps the discovery ladder. Use
 `--matching exact` to disable it there, or `--matching discover` to explicitly
 request relaxed results in another format. `--no-ladder` remains a spelling
 of `--matching exact`; use one or the other. Relaxed results still exit `1`
-and name the rung in the footer, in searches and symbol verbs alike. See [matching policies](references/ARCHITECTURE.md#when-nothing-matches).
+and name the rung: in the footer of a search, in the header of a symbol verb. See [matching policies](references/ARCHITECTURE.md#when-nothing-matches).
 
 And then the part grep can't do. Asking about *symbols* instead of *text*:
 
