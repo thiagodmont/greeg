@@ -1,0 +1,26 @@
+bench/test_index_costs.py
+  s_b1057b2933cdb0::t_1bf8fa3417d080 1-36
+README.md
+  s_b1057b2933cdb0::t_202a9525b4fa33 350-355
+references/ARCHITECTURE.md
+  s_b1057b2933cdb0::t_202a9525b4fa33 578-579
+bench/index_costs.py
+  s_b1057b2933cdb0::t_326be9095043a7 1-82,96-164,170-181,183,185-190,196-278
+  s_b1057b2933cdb0::t_c252fb6b9359b9 83-95,165-169,182,184,191-195
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "dfebac4fff92fd33819b4ce9c64058860a7f6e3c",
+  "prompts": {},
+  "sessions": {
+    "s_b1057b2933cdb0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0aa73425-0ec9-4b76-ae94-35b6bdff17bb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
