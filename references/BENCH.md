@@ -688,6 +688,68 @@ Same binaries, 151 pairs, on the two flagged cases and case_miss_files in both b
 
 [Raw samples, environment, and binary/corpus digests](../bench/results/raw-path-bytes-confirmation-2026-09-24-darwin-arm64.json). Reproduce: `python3 bench/matching.py BASELINE CANDIDATE --cases split_miss_unlimited fuzzy_miss_unlimited case_miss_files --runs 151 --tokens --output raw-path-bytes-confirmation-2026-09-24-darwin-arm64.json`.
 
+## Generation snapshots: exact-search regression (2026-09-24)
+
+Originating PR: [#34](https://github.com/thiagodmont/greeg/pull/34).
+
+v0.7.0 against the branch that opens whole index snapshots from per-build directories with identified components, bounded retry and deferred cleanup (format 9). All 34 cases keep their exit status and stdout (JSON compared without elapsed fields), token counts are unchanged, and every contract passes. Medians range from −12.2% to +6.7%. One flag: scan def_hit p95 only (+36.5%, median −6.9%); scan mode does not read the index. Index build, disk, open, freshness and post-edit costs on tokio, django, ktor and TypeScript-5.9 (bench/index_costs.py, against main) are in the PR. Load average was 7.8–10.6. The harness records no execution time; the result file was written at 2026-09-24T22:17:19Z.
+
+`greeg 0.7.0` → `greeg 0.7.0+3ebae948c.dirty`; 51 randomized pairs per case, 3 warmups on the same 256-file warm synthetic corpus. Contract checks passed: **30/30 → 30/30**. Cases above the 10% median / 20% p95 investigation thresholds: **1**.
+
+| Backend | Case | Median ms, before → after | p95 ms, before → after | Tokens, before → after |
+|---|---|---:|---:|---:|
+| scan | case miss files | 6.481 → 6.331 | 8.372 → 8.108 | 3 → 3 |
+| scan | word miss count | 6.452 → 6.386 | 8.084 → 8.171 | 3 → 3 |
+| scan | split miss unlimited | 6.422 → 6.420 | 8.242 → 8.920 | 3 → 3 |
+| scan | fuzzy miss unlimited | 7.042 → 7.001 | 8.544 → 8.487 | 3 → 3 |
+| scan | absent files | 6.484 → 6.427 | 8.882 → 7.467 | 3 → 3 |
+| scan | hit files | 9.567 → 8.402 | 32.322 → 35.658 | 55 → 55 |
+| scan | type files | 8.429 → 7.952 | 14.195 → 12.149 | 55 → 55 |
+| scan | glob files | 9.414 → 9.486 | 22.145 → 23.621 | 55 → 55 |
+| scan | hit count | 7.789 → 7.877 | 8.656 → 8.573 | 71 → 71 |
+| scan | hit unlimited | 7.894 → 7.912 | 8.523 → 8.572 | 295 → 295 |
+| scan | case miss json | 7.065 → 7.114 | 7.932 → 7.972 | 263 → 263 |
+| scan | hit json | 7.898 → 7.769 | 9.242 → 9.797 | 2734 → 2734 |
+| scan | def hit | 11.887 → 11.069 | 29.550 → 40.351 | 214 → 214 |
+| scan | def case hit | 8.794 → 8.901 | 14.299 → 12.827 | 214 → 214 |
+| scan | def case miss | 9.765 → 10.420 | 16.904 → 14.387 | 35 → 35 |
+| scan | ranked hit | 7.949 → 8.022 | 11.822 → 11.712 | 295 → 295 |
+| scan | ranked discovery | 11.679 → 11.795 | 16.904 → 17.498 | 308 → 308 |
+| index | case miss files | 8.101 → 7.907 | 10.909 → 11.472 | 3 → 3 |
+| index | word miss count | 7.791 → 7.664 | 9.732 → 10.120 | 3 → 3 |
+| index | split miss unlimited | 7.518 → 7.501 | 12.875 → 12.794 | 3 → 3 |
+| index | fuzzy miss unlimited | 7.593 → 7.390 | 11.345 → 11.883 | 3 → 3 |
+| index | absent files | 8.051 → 7.560 | 11.705 → 13.023 | 3 → 3 |
+| index | hit files | 7.291 → 7.360 | 9.052 → 8.648 | 55 → 55 |
+| index | type files | 7.625 → 7.565 | 8.568 → 8.828 | 55 → 55 |
+| index | glob files | 7.726 → 7.996 | 10.138 → 10.156 | 55 → 55 |
+| index | hit count | 7.431 → 7.377 | 8.874 → 8.898 | 71 → 71 |
+| index | hit unlimited | 6.839 → 7.071 | 7.733 → 7.904 | 295 → 295 |
+| index | case miss json | 6.762 → 6.868 | 7.169 → 7.369 | 265 → 265 |
+| index | hit json | 6.573 → 6.688 | 7.624 → 7.711 | 2736 → 2736 |
+| index | def hit | 6.530 → 6.597 | 8.876 → 9.290 | 254 → 254 |
+| index | def case hit | 6.660 → 6.792 | 8.355 → 8.334 | 278 → 278 |
+| index | def case miss | 7.160 → 6.943 | 9.531 → 8.803 | 35 → 35 |
+| index | ranked hit | 7.036 → 7.122 | 8.359 → 8.449 | 295 → 295 |
+| index | ranked discovery | 8.212 → 8.461 | 9.190 → 10.056 | 308 → 308 |
+
+[Raw samples, environment, and binary/corpus digests](../bench/results/generation-snapshots-2026-09-24-darwin-arm64.json). Reproduce: `python3 bench/matching.py BASELINE CANDIDATE --cases case_miss_files word_miss_count split_miss_unlimited fuzzy_miss_unlimited absent_files hit_files type_files glob_files hit_count hit_unlimited case_miss_json hit_json def_hit def_case_hit def_case_miss ranked_hit ranked_discovery --runs 51 --tokens --output generation-snapshots-2026-09-24-darwin-arm64.json`.
+
+## Generation snapshots: confirmation (2026-09-24)
+
+Originating PR: [#34](https://github.com/thiagodmont/greeg/pull/34).
+
+Same binaries, 151 pairs, on def_hit in both backends. Exit status and stdout are unchanged and the definition contract passes. The flag does not repeat: medians +0.7% (scan) and +0.6% (index), p95 −3.0% and +0.7%. Load average was 8.9–10.7. The harness records no execution time; the result file was written at 2026-09-24T22:17:52Z.
+
+`greeg 0.7.0` → `greeg 0.7.0+3ebae948c.dirty`; 151 randomized pairs per case, 3 warmups on the same 256-file warm synthetic corpus. Contract checks passed: **2/2 → 2/2**. Cases above the 10% median / 20% p95 investigation thresholds: **0**.
+
+| Backend | Case | Median ms, before → after | p95 ms, before → after | Tokens, before → after |
+|---|---|---:|---:|---:|
+| scan | def hit | 11.566 → 11.647 | 17.868 → 17.323 | 214 → 214 |
+| index | def hit | 6.960 → 7.003 | 7.732 → 7.786 | 254 → 254 |
+
+[Raw samples, environment, and binary/corpus digests](../bench/results/generation-snapshots-confirmation-2026-09-24-darwin-arm64.json). Reproduce: `python3 bench/matching.py BASELINE CANDIDATE --cases def_hit --runs 151 --tokens --output generation-snapshots-confirmation-2026-09-24-darwin-arm64.json`.
+
 JSON contracts compare match paths, lines, offsets, submatches, status, exact rung, and total hit counts with ripgrep. Repeat-output checks remove only elapsed fields; byte/token measurements retain them and use the first raw sample, so small JSON size differences reflect timing values. Definition checks compare paths and status on this controlled fixture, not general symbol-resolution accuracy.
 
 ## Hook contract: initial measurements
