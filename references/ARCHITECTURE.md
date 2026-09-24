@@ -43,23 +43,27 @@ instead and rebuilds.
 Every component is a flat, fixed-width table read through `mmap`, with no
 deserialization step, after a 48-byte header: magic `GREEG\0\0\0`, format
 u32, component u8, 3 reserved bytes, payload length u64, epoch u64, sequence
-u32 and 12 reserved bytes (epoch, sequence and the reserved bytes are zero until
-snapshots use them). A `manifest` (JSON) names the current generation of each.
+u32 and 12 reserved bytes. Each build writes its components into its own
+directory, `g-<epoch>/`, under a random 64-bit epoch; a `manifest` (JSON) names
+the current build and the file of each component.
 
 | File | Holds | Used for |
 |---|---|---|
-| `files.<gen>.bin` | path, stamp (size, mtime, ctime, inode, device), language, flags, rank | the file set, filters, ranking |
-| `grams.<gen>.bin` | trigram → roaring bitmap of file ids | candidates for any pattern |
-| `words.<gen>.bin` | whole word → roaring bitmap of file ids | candidates for identifier queries |
-| `symbols.<gen>.bin` | every definition: name, kind, file, span, parent, supertypes | `def`, `impls`, enclosing-symbol lookup |
-| `spans.<gen>.bin` | per file: definition, comment/string, and import ranges | classifying a hit in O(log n) |
-| `graph.<gen>.bin` | file import graph (both directions) + PageRank | `map`, ranking, reachability |
-| `delta/NNNN.bin` | the same layouts, for recently changed files | edits, without a rebuild |
-| `skipped.<gen>.bin` | hidden and ignored entries inside the walked directories (a refresh that changes them writes `delta/NNNN.skipped`) | deciding whether the index covers a request |
+| `files.<seq>.bin` | path, stamp (size, mtime, ctime, inode, device), language, flags, rank | the file set, filters, ranking |
+| `grams.<seq>.bin` | trigram → roaring bitmap of file ids | candidates for any pattern |
+| `words.<seq>.bin` | whole word → roaring bitmap of file ids | candidates for identifier queries |
+| `symbols.<seq>.bin` | every definition: name, kind, file, span, parent, supertypes | `def`, `impls`, enclosing-symbol lookup |
+| `spans.<seq>.bin` | per file: definition, comment/string, and import ranges | classifying a hit in O(log n) |
+| `graph.<seq>.bin` | file import graph (both directions) + PageRank | `map`, ranking, reachability |
+| `d-NNNN.bin` | the same layouts, for recently changed files | edits, without a rebuild |
+| `skipped.<seq>.bin` | hidden and ignored entries inside the walked directories (a refresh that changes them writes `d-NNNN.skipped`) | deciding whether the index covers a request |
 
-`<gen>` is the generation the component was written under. A rebuild can
-publish a whole new set while readers still hold the old one, and the manifest
-says which generation is current.
+`<seq>` is the publication that wrote the component: 1 for phase 1, 2 for
+phase 2, which writes a new file table with ranks beside the first. No file is
+ever renamed over, so the manifest a reader read names one whole snapshot. Every
+header carries the build's epoch and the component's sequence (a delta's is its
+number), and a reader checks them against the manifest, with the payload
+length: a delta or record of another build is never applied.
 
 Paths are the bytes of each name below the root, joined by `/`, the only
 separator on Unix: a backslash or a byte that is not UTF-8 is part of a name
@@ -114,9 +118,24 @@ PageRank, and republishes the file table with ranks.
 Between the two phases, queries already prune candidates with the grams, and
 fall back to a regex definition extractor for kinds.
 
-Publication is a single atomic `rename` per component followed by the manifest.
-Writers take an exclusive lock; **readers never lock**, and a reader that has
-already mapped an old generation keeps a valid view until it exits.
+Publication writes new files under new names, then renames the manifest over
+the old one. Writers take an exclusive lock; **readers never lock**. A reader
+opens every component the manifest names, the graph included (it is mapped
+on first use from the descriptor already open), before it uses any, and keeps
+that snapshot until it exits. If opening fails and the manifest has changed
+meanwhile, it opens the new snapshot, three attempts at most; otherwise the
+query scans and a rebuild is queued.
+
+What a publication supersedes (the previous build's directory, phase 1's file
+table, a delta's replaced skipped record) is listed as retired in the manifest
+and deleted once 30 s have passed, time for a reader that read an older
+manifest to open it, by the next publication or freshness check that updates
+the manifest, so an idle index does not keep two builds on disk. At most two
+retired builds wait out their grace period; a burst of rebuilds removes older
+ones at once, and a reader that loses one retries. A build also removes what no manifest names
+and is older than 10 minutes: build directories and temporary files of writers
+that died, and spill directories (`scratch-<pid>`) of processes that are gone.
+Cleanup touches only those names, at most 64 per publication.
 
 ## Answering a query
 
@@ -389,7 +408,7 @@ Statistics use the same private-directory rules (see `references/STATS.md`),
 except that a directory named by `GREEG_STATS_DIR` is refused rather than
 chmodded when other users can access it. New index directories are created
 `0700`, and every file greeg writes there `0600` whatever the umask: components,
-manifest, lock, deltas, spill files and markers. Existing directories, including
+manifest, lock, build directories, deltas, spill files and markers. Existing directories, including
 a caller-chosen `--index-dir`, are never chmodded, so an index built by an older
 release becomes private only as it is rebuilt.
 
@@ -538,7 +557,9 @@ changing its lengths can still produce a silent no-hit answer.
 A panic anywhere in the index path is caught, degrades to a scan, and queues a
 background rebuild. A corrupt posting list reads as "every file" and marks the
 index for rebuild; a superset is harmless, because verification runs the real
-matcher anyway. A truncated component fails to open and triggers a rebuild.
+matcher anyway. A truncated component fails to open and triggers a rebuild,
+unless the snapshot changed while it was opened. Marking an index corrupt
+removes the manifest only if it still names the snapshot the reader opened.
 A `SIGBUS` from a file truncated under an active mmap re-executes the same
 command with `--no-index`. A format-version mismatch rebuilds. There's no
 migration code, by design.

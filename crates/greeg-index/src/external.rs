@@ -521,14 +521,15 @@ pub fn stream_batches<K: Key>(
 }
 
 /// A directory for a build's spill segments, removed when the build ends —
-/// including when it ends by `?`.
+/// including when it ends by `?`. One a crash left behind is an orphan once
+/// its process is gone (`snapshot::clean`).
 pub struct Scratch {
     pub dir: PathBuf,
 }
 
 impl Scratch {
     pub fn new(index_dir: &Path) -> Result<Self> {
-        let dir = index_dir.join(format!("build-tmp.{}", std::process::id()));
+        let dir = index_dir.join(format!("scratch-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         crate::create_private_dir(&dir).with_context(|| format!("create {}", dir.display()))?;
         Ok(Scratch { dir })

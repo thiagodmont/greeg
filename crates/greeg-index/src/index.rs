@@ -37,14 +37,29 @@ pub struct Segment {
     corrupt: std::sync::atomic::AtomicBool,
 }
 
-fn mmap(path: &Path, advice: Advice) -> Result<Mmap> {
-    let f = fs::File::open(path).with_context(|| format!("open {}", path.display()))?;
-    // SAFETY: index files are published atomically and only replaced by rename;
-    // a truncation during read would SIGBUS, which the caller guards by not
-    // truncating in place (ARCHITECTURE.md).
-    let m = unsafe { Mmap::map(&f)? };
+fn open_file(path: &Path) -> Result<fs::File> {
+    fs::File::open(path).with_context(|| format!("open {}", path.display()))
+}
+
+fn map(f: &fs::File, advice: Advice) -> Result<Mmap> {
+    // SAFETY: index files are written once under a unique name and never
+    // modified in place (ARCHITECTURE.md); a truncation during read would
+    // SIGBUS, which nothing does.
+    let m = unsafe { Mmap::map(f)? };
     let _ = m.advise(advice);
     Ok(m)
+}
+
+/// Map a component of snapshot `id` and check its header against it.
+fn map_checked(
+    f: &fs::File,
+    comp: u8,
+    id: format::Ident,
+    advice: Advice,
+) -> Result<(Mmap, &'static [u8])> {
+    let m = map(f, advice)?;
+    let body = leak(format::check_ident(&m, comp, id)?);
+    Ok((m, body))
 }
 
 fn leak<'a>(b: &'a [u8]) -> &'static [u8] {
@@ -279,6 +294,9 @@ pub struct Index {
     pub base: Segment,
     pub deltas: Vec<Segment>,
     pub tomb: RoaringBitmap,
+    /// Opened with every other component, mapped on first use: a rebuild
+    /// that removes the file leaves this reader its snapshot's graph.
+    graph_file: Option<fs::File>,
     graph: OnceLock<Option<(Mmap, GraphView<'static>)>>,
     /// Delta file id → id of the version it superseded (from the delta graph sections).
     prev: HashMap<u32, u32>,
@@ -301,42 +319,103 @@ impl Index {
         self.manifest.stamp_mode == crate::STAMP_NO_INO
     }
 
+    /// Open the snapshot the manifest names. A snapshot published while this
+    /// runs (a component gone, or of another build) is retried, at most
+    /// `snapshot::OPEN_ATTEMPTS` times; a failure on a snapshot that did not
+    /// change is corruption.
     pub fn open(dir: &Path) -> Result<Index> {
-        let manifest = read_manifest(dir).context("no usable index manifest")?;
+        Self::open_with(dir, &mut || {})
+    }
+
+    /// `open`, running `between` after each manifest read: a racing writer in
+    /// tests.
+    #[doc(hidden)]
+    pub fn open_with(dir: &Path, between: &mut dyn FnMut()) -> Result<Index> {
+        let mut attempt = 0;
+        loop {
+            let manifest = read_manifest(dir).context("no usable index manifest")?;
+            let snap = manifest.snapshot();
+            between();
+            match Self::open_snapshot(dir, manifest) {
+                Ok(idx) => return Ok(idx),
+                Err(e) => {
+                    attempt += 1;
+                    let changed = read_manifest(dir).is_some_and(|m| m.snapshot() != snap);
+                    if !changed || attempt >= crate::snapshot::OPEN_ATTEMPTS {
+                        return Err(e);
+                    }
+                }
+            }
+        }
+    }
+
+    fn open_snapshot(dir: &Path, manifest: Manifest) -> Result<Index> {
         if !manifest.phase1 {
             bail!("index phase 1 not complete");
         }
-        let generation = manifest.generation;
+        // every component the manifest names is opened before any is used,
+        // so later removals cannot take part of the snapshot away
+        let open = |comp: u8| -> Result<Option<(fs::File, format::Ident)>> {
+            let Some((name, seq)) = manifest.component(comp) else {
+                return Ok(None);
+            };
+            let id = format::Ident {
+                epoch: manifest.epoch,
+                seq,
+            };
+            Ok(Some((open_file(&dir.join(name))?, id)))
+        };
+        let need = |c: Option<(fs::File, format::Ident)>, what: &str| {
+            c.with_context(|| format!("manifest names no {what}"))
+        };
+        let files_f = need(open(format::COMP_FILES)?, "file table")?;
+        let grams_f = need(open(format::COMP_GRAMS)?, "grams")?;
+        let words_f = need(open(format::COMP_WORDS)?, "words")?;
+        let (symbols_f, spans_f, graph_f) = if manifest.phase2 {
+            (
+                Some(need(open(format::COMP_SYMBOLS)?, "symbols")?),
+                Some(need(open(format::COMP_SPANS)?, "spans")?),
+                Some(need(open(format::COMP_GRAPH)?, "graph")?),
+            )
+        } else {
+            (None, None, None)
+        };
+        let delta_fs = (1..=manifest.deltas)
+            .map(|n| {
+                let p = dir.join(manifest.delta(n));
+                Ok((open_file(&p)?, p, n))
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let skipped_f =
+            crate::skipped::path(dir, &manifest.skipped).and_then(|p| open_file(&p).ok());
+        // the graph is mapped on first use: check its header now
+        let graph_file = match graph_f {
+            Some((f, id)) => {
+                let mut h = [0u8; format::HEADER_LEN];
+                std::os::unix::fs::FileExt::read_exact_at(&f, &mut h, 0).context("graph header")?;
+                format::check_ident_header(&h, f.metadata()?.len(), format::COMP_GRAPH, id)
+                    .context("graph")?;
+                Some(f)
+            }
+            None => None,
+        };
+
         // the file table is read for every candidate; postings are touched sparsely
-        let fmap = mmap(
-            &dir.join(format!("files.{generation}.bin")),
-            Advice::WillNeed,
-        )?;
-        let gmap = mmap(&dir.join(format!("grams.{generation}.bin")), Advice::Random)?;
-        let wmap = mmap(&dir.join(format!("words.{generation}.bin")), Advice::Random)?;
-        let fbody = leak(format::check_header(&fmap, format::COMP_FILES)?);
-        let gbody = leak(format::check_header(&gmap, format::COMP_GRAMS)?);
-        let wbody = leak(format::check_header(&wmap, format::COMP_WORDS)?);
+        let (fmap, fbody) =
+            map_checked(&files_f.0, format::COMP_FILES, files_f.1, Advice::WillNeed)?;
+        let (gmap, gbody) = map_checked(&grams_f.0, format::COMP_GRAMS, grams_f.1, Advice::Random)?;
+        let (wmap, wbody) = map_checked(&words_f.0, format::COMP_WORDS, words_f.1, Advice::Random)?;
         let files = FilesView::parse(fbody)?;
         let grams = GramsView::parse(gbody)?;
         let words = Some(WordsView::parse(wbody)?);
         let n = files.files.len() as u32;
         let mut maps = vec![fmap, gmap, wmap];
         let (mut symbols, mut spans) = (None, None);
-        if manifest.phase2 {
-            let smap = mmap(
-                &dir.join(format!("symbols.{generation}.bin")),
-                Advice::Random,
-            )?;
-            let pmap = mmap(&dir.join(format!("spans.{generation}.bin")), Advice::Random)?;
-            symbols = Some(SymbolsView::parse(leak(format::check_header(
-                &smap,
-                format::COMP_SYMBOLS,
-            )?))?);
-            spans = Some(SpansView::parse(leak(format::check_header(
-                &pmap,
-                format::COMP_SPANS,
-            )?))?);
+        if let (Some((sf, sid)), Some((pf, pid))) = (symbols_f, spans_f) {
+            let (smap, sbody) = map_checked(&sf, format::COMP_SYMBOLS, sid, Advice::Random)?;
+            let (pmap, pbody) = map_checked(&pf, format::COMP_SPANS, pid, Advice::Random)?;
+            symbols = Some(SymbolsView::parse(sbody)?);
+            spans = Some(SpansView::parse(pbody)?);
             maps.push(smap);
             maps.push(pmap);
         }
@@ -356,20 +435,19 @@ impl Index {
             hidden,
             corrupt: Default::default(),
         };
-        // only the deltas the manifest names, in order; stray files (from a
-        // superseded generation or an interrupted writer) are ignored
+        // only the deltas the manifest names, in order, each of this build
         let mut deltas = Vec::with_capacity(manifest.deltas as usize);
         let mut tomb = RoaringBitmap::new();
         let mut next = n;
         let mut prev_map: HashMap<u32, u32> = HashMap::new();
         let mut next_map: HashMap<u32, u32> = HashMap::new();
-        for i in 1..=manifest.deltas {
-            let p = dir.join("delta").join(format!("{i:04}.bin"));
-            let map = mmap(&p, Advice::WillNeed)?;
-            let body = leak(
-                format::check_header(&map, format::COMP_DELTA)
-                    .with_context(|| format!("delta {}", p.display()))?,
-            );
+        for (f, p, seq) in delta_fs {
+            let id = format::Ident {
+                epoch: manifest.epoch,
+                seq,
+            };
+            let (map, body) = map_checked(&f, format::COMP_DELTA, id, Advice::WillNeed)
+                .with_context(|| format!("delta {}", p.display()))?;
             let DeltaParts {
                 files,
                 grams,
@@ -415,14 +493,17 @@ impl Index {
                 corrupt: Default::default(),
             });
         }
-        let skipped = crate::skipped::path(dir, &manifest.skipped)
-            .and_then(|p| mmap(&p, Advice::Sequential).ok());
+        // a record of another build is not this snapshot's
+        let skipped = skipped_f
+            .and_then(|f| map(&f, Advice::Sequential).ok())
+            .filter(|m| m.get(24..32) == Some(&manifest.epoch.to_le_bytes()[..]));
         Ok(Index {
             dir: dir.to_path_buf(),
             manifest,
             base,
             deltas,
             tomb,
+            graph_file,
             graph: OnceLock::new(),
             prev: prev_map,
             next: next_map,
@@ -840,17 +921,18 @@ impl Index {
     pub fn graph(&self) -> Option<&GraphView<'_>> {
         self.graph
             .get_or_init(|| {
-                if !self.manifest.phase2 {
-                    return None;
-                }
-                let map = mmap(
-                    &self
-                        .dir
-                        .join(format!("graph.{}.bin", self.manifest.generation)),
+                let (_, seq) = self.manifest.component(format::COMP_GRAPH)?;
+                let id = format::Ident {
+                    epoch: self.manifest.epoch,
+                    seq,
+                };
+                let (map, body) = map_checked(
+                    self.graph_file.as_ref()?,
+                    format::COMP_GRAPH,
+                    id,
                     Advice::WillNeed,
                 )
                 .ok()?;
-                let body = leak(format::check_header(&map, format::COMP_GRAPH).ok()?);
                 let view = GraphView::parse(body).ok()?;
                 Some((map, view))
             })
