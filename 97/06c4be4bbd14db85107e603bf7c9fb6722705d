@@ -1,0 +1,42 @@
+crates/greeg-query/src/indexed.rs
+  s_b1057b2933cdb0::t_1e1451c706e5ea 15,155-157,292,334-338,920-943,946-977
+  s_b1057b2933cdb0::t_6d56e61e298a85 944-945
+  s_b1057b2933cdb0::t_b963118bcac1e9 978-979
+crates/greeg/src/stats.rs
+  s_b1057b2933cdb0::t_474ca8d7c1183c 2351-2355
+crates/greeg-index/src/build.rs
+  s_b1057b2933cdb0::t_474ca8d7c1183c 436-437,600
+  s_b1057b2933cdb0::t_f6ba7aee831ba9 14
+crates/greeg/tests/cli.rs
+  s_b1057b2933cdb0::t_8cd194d622cb4f 945-969
+references/ARCHITECTURE.md
+  s_b1057b2933cdb0::t_8cd194d622cb4f 26-28,44-47
+crates/greeg-index/tests/index.rs
+  s_b1057b2933cdb0::t_8cd194d622cb4f 613-616,618-621,656-659
+  s_b1057b2933cdb0::t_f23bd9cb316d72 601-612,617,622-635,638-640,643-655,660-673,675-681,683,685-700,702,707-709,713,720-721,725-728,730,733
+  s_b1057b2933cdb0::t_f98646cfc5aef5 712
+crates/greeg/src/main.rs
+  s_b1057b2933cdb0::t_474ca8d7c1183c 235-236,260,487-492
+crates/greeg-index/src/index.rs
+  s_b1057b2933cdb0::t_474ca8d7c1183c 293-298
+bench/index_costs.py
+  s_b1057b2933cdb0::t_8cd194d622cb4f 85-92,94-96
+bench/test_index_costs.py
+  s_b1057b2933cdb0::t_8cd194d622cb4f 48-52
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "9706c4be4bbd14db85107e603bf7c9fb6722705d",
+  "prompts": {},
+  "sessions": {
+    "s_b1057b2933cdb0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0aa73425-0ec9-4b76-ae94-35b6bdff17bb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
