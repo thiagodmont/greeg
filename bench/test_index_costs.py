@@ -1,7 +1,10 @@
 import sys
 import unittest
 
-from index_costs import change, edit_target, flagged, p95, sample, summary
+import tempfile
+from pathlib import Path
+
+from index_costs import change, edit_target, flagged, manifest_path, p95, sample, summary
 
 
 class IndexCostTests(unittest.TestCase):
@@ -31,6 +34,17 @@ class IndexCostTests(unittest.TestCase):
         self.assertLessEqual(cpu, wall)
         # a Python interpreter's peak RSS is some MB, whatever the platform's unit
         self.assertTrue(1 < rss < 1000, rss)
+
+    def test_the_manifest_is_found_in_either_layout(self):
+        with tempfile.TemporaryDirectory() as d:
+            old = Path(d, "old")
+            (old / "session").mkdir(parents=True)
+            (old / "manifest").write_text("{}")
+            self.assertEqual(manifest_path(old), old / "manifest")
+            new = Path(d, "new")
+            (new / "v6").mkdir(parents=True)
+            (new / "v6" / "manifest").write_text("{}")
+            self.assertEqual(manifest_path(new), new / "v6" / "manifest")
 
 
 if __name__ == "__main__":
