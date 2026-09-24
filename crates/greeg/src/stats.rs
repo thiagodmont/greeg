@@ -526,18 +526,6 @@ pub fn record_run(info: RunInfo) {
     }
 }
 
-/// A verb found nothing: record the run, then exit 1 like ripgrep.
-pub fn exit_no_hits(verb: &'static str) -> ! {
-    record_run(RunInfo {
-        verb,
-        hits: Some(0),
-        exit: 1,
-        ..Default::default()
-    });
-    greeg_query::indexed::flush_pending_build();
-    std::process::exit(1)
-}
-
 // ---------------------------------------------------------------- reading
 
 /// The last [`READ_BYTES`] of one file. Lines that fail to parse (a torn

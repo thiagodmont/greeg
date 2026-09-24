@@ -2,6 +2,7 @@
 //! the language layer, score it, and hand a `ScanResult` to `shape`.
 
 pub mod indexed;
+pub mod outcome;
 pub mod precise;
 mod select;
 pub mod session;

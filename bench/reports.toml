@@ -388,3 +388,11 @@ filename = "nested-definitions-review-2026-09-23-darwin-arm64.json"
 title = "Nested definitions: review fixes (2026-09-23)"
 pr = 27
 notes = "Merged main against the review fixes: sibling definitions after }, ; and a leading {, file-level code spans in scan mode, an allocation-free overlap check and brace depth as nested indentation. All 34 cases keep their exit status and stdout, and every contract passes. Medians range from −10.9% (scan hit_unlimited, faster) to +8.2%; the investigation thresholds apply to slowdowns only. One p95 flag: index hit_count +36.5% p95 with a −5.6% median, on the index path, which these changes do not touch. On tokio (21 pairs, measured separately), scan-mode def spawn_blocking fell from +6.4% to +0.7% wall (+3.8% CPU) with unchanged output. Load average was 4.4–9.6. The harness records no execution time; the result file was written at 2026-09-24T01:02:15Z."
+
+[[datasets]]
+id = "query_outcome"
+section = "matching_review"
+filename = "query-outcome-2026-09-23-darwin-arm64.json"
+title = "Typed query outcome: exact-search regression (2026-09-23)"
+pr = 28
+notes = "The nested-definitions branch (PR 27) against the branch that decides every search answer's exit status from one typed outcome and adds it to JSON footers. No case crosses a threshold. Text output and exit status are unchanged in all 30 text cases. The four JSON cases change only by the added footer outcome object: +35 to +45 o200k tokens per answer (hit_json 2699 → 2734/2736, case_miss_json 224 → 267/269), and their JSON contracts pass. Load average was 3.4–7.2. The harness records no execution time; the result file was written at 2026-09-24T00:52:52Z."
