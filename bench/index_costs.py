@@ -82,15 +82,18 @@ def tree_listing(path):
 
 
 def manifest_path(index):
-    """The manifest at the top of the index directory (releases before 0.8) or
-    in the one layout directory, `v<N>/`, a newer binary writes."""
+    """The manifest of the layout directory, `v<N>/`, a binary from 0.8 on
+    writes; a top-level one (releases before 0.8, which newer binaries leave
+    in place) only when there is none."""
+    found = sorted(p for p in Path(index).glob("v*/manifest") if p.parent.name[1:].isdigit())
+    if len(found) > 1:
+        raise RuntimeError(f"expected one layout manifest in {index}, found {found}")
+    if found:
+        return found[0]
     top = Path(index) / "manifest"
-    if top.exists():
-        return top
-    found = sorted(Path(index).glob("v*/manifest"))
-    if len(found) != 1:
-        raise RuntimeError(f"expected one manifest in {index}, found {found}")
-    return found[0]
+    if not top.exists():
+        raise RuntimeError(f"no manifest in {index}")
+    return top
 
 
 def settle(index, timeout=30.0):

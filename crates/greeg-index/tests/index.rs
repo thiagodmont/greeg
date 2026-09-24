@@ -598,71 +598,139 @@ fn pin_times(dir: &Path) {
     fs::File::open(dir).unwrap().set_modified(t).unwrap();
 }
 
-/// Every component a build writes, and the manifest's field names.
+/// The fingerprint's own tree, separate from the fixtures other tests edit.
+/// Changing it changes every digest recorded below.
+fn fingerprint_tree() -> Tmp {
+    let base = std::env::temp_dir().join(format!(
+        "greeg-index-fingerprint-{}-{}",
+        std::process::id(),
+        N.fetch_add(1, Ordering::Relaxed)
+    ));
+    let root = base.join("tree");
+    let dir = base.join("index");
+    fs::create_dir_all(root.join(".git")).unwrap();
+    for (name, body) in [
+        (
+            "src/lib.rs",
+            "pub mod util;\npub fn alpha() -> u32 {\n    util::beta()\n}\n",
+        ),
+        ("src/util.rs", "pub fn beta() -> u32 {\n    1 // beta\n}\n"),
+        (
+            "tools/run.py",
+            "def gamma():\n    \"\"\"gamma\"\"\"\n    return 1\n",
+        ),
+        ("notes.txt", "plain delta text\n"),
+        (".hidden.txt", "hidden\n"),
+        ("out/gen.txt", "ignored\n"),
+        (".gitignore", "out/\n"),
+    ] {
+        let p = root.join(name);
+        fs::create_dir_all(p.parent().unwrap()).unwrap();
+        fs::write(p, body).unwrap();
+    }
+    Tmp { root, dir, base }
+}
+
+/// Every file a build and then a refresh with one edit write, and the
+/// manifest without its machine- and time-dependent values.
 fn layout_digest(t: &Tmp) -> String {
-    pin_times(&t.root);
     let _ = fs::remove_dir_all(&t.dir);
-    build(
-        &t.root,
-        &t.dir,
-        &BuildOpts {
-            reader_threads: 1,
-            ..opts()
-        },
+    fs::write(
+        t.root.join("src/util.rs"),
+        "pub fn beta() -> u32 {\n    1 // beta\n}\n",
     )
     .unwrap();
-    let mut names: Vec<String> = fs::read_dir(&t.dir)
-        .unwrap()
-        .map(|e| e.unwrap().file_name().into_string().unwrap())
-        .filter(|n| n.ends_with(".bin"))
-        .collect();
-    names.sort();
-    let mut h = blake3::Hasher::new();
-    for n in &names {
-        h.update(n.as_bytes());
-        h.update(&fs::read(t.dir.join(n)).unwrap());
+    pin_times(&t.root);
+    let one = BuildOpts {
+        reader_threads: 1,
+        ..opts()
+    };
+    build(&t.root, &t.dir, &one).unwrap();
+    fs::write(
+        t.root.join("src/util.rs"),
+        "pub fn beta() -> u32 {\n    2 // beta, edited\n}\n",
+    )
+    .unwrap();
+    pin_times(&t.root);
+    let idx = Index::open(&t.dir).unwrap();
+    assert_eq!(
+        fresh::apply(&idx, &t.root, &check(&idx, &t.root)).unwrap(),
+        1
+    );
+    drop(idx);
+    let mut files = Vec::new();
+    let mut stack = vec![t.dir.clone()];
+    while let Some(d) = stack.pop() {
+        for e in fs::read_dir(&d).unwrap() {
+            let p = e.unwrap().path();
+            if p.is_dir() {
+                stack.push(p);
+            } else {
+                files.push(p.strip_prefix(&t.dir).unwrap().to_path_buf());
+            }
+        }
     }
-    let m: serde_json::Value =
+    files.sort();
+    let mut h = blake3::Hasher::new();
+    for f in &files {
+        let name = f.to_str().unwrap();
+        if matches!(name, "manifest" | "LOCK" | "OWNER") {
+            continue;
+        }
+        h.update(name.as_bytes());
+        h.update(&fs::read(t.dir.join(f)).unwrap());
+    }
+    let mut m: serde_json::Map<String, serde_json::Value> =
         serde_json::from_slice(&fs::read(t.dir.join("manifest")).unwrap()).unwrap();
-    let mut keys: Vec<&String> = m.as_object().unwrap().keys().collect();
-    keys.sort();
-    for k in keys {
+    for volatile in [
+        "root",
+        "root_id",
+        "built_unix_ms",
+        "build_ms",
+        "phase2_ms",
+        "peak_rss",
+        "fsevents_id",
+        "verified_unix_ms",
+        "ignore_inputs",
+    ] {
+        assert!(m.remove(volatile).is_some(), "manifest has no {volatile}");
+    }
+    let mut fields: Vec<_> = m.into_iter().collect();
+    fields.sort_by(|a, b| a.0.cmp(&b.0));
+    for (k, v) in fields {
         h.update(k.as_bytes());
+        h.update(v.to_string().as_bytes());
     }
     h.finalize().to_hex()[..16].to_string()
 }
 
-/// A changed layout needs a new `FORMAT_VERSION`: binaries of two layouts must
-/// never share an index directory. Record the digest of each version here.
+/// Binaries of two layouts must never share an index directory, so a change
+/// to what a build or refresh writes needs a new `FORMAT_VERSION`. Each
+/// version's digest of the fixture is recorded here.
 #[test]
 fn layout_fingerprint_matches_format_version() {
-    const LAYOUTS: &[(u32, &str)] = &[(6, "8d12b950c450468d")];
-    let t = tree();
+    const LAYOUTS: &[(u32, &str)] = &[(6, "c0ff84dcd8ad9d18")];
+    let t = fingerprint_tree();
     let digest = layout_digest(&t);
     assert_eq!(
         digest,
         layout_digest(&t),
         "the fixture build is not reproducible"
     );
-    match LAYOUTS
-        .iter()
-        .find(|(v, _)| *v == greeg_index::FORMAT_VERSION)
-    {
+    let v = greeg_index::FORMAT_VERSION;
+    match LAYOUTS.iter().find(|(n, _)| *n == v) {
         Some((_, recorded)) => assert_eq!(
             *recorded,
             digest,
-            "the index layout changed: bump FORMAT_VERSION and record ({}, \"{digest}\")",
-            greeg_index::FORMAT_VERSION + 1
+            "what a build or refresh writes changed: if the layout changed, bump \
+             FORMAT_VERSION and record ({}, \"{digest}\"); if only extracted \
+             content changed within the same layout, re-record ({v}, \"{digest}\")",
+            v + 1
         ),
-        None => panic!(
-            "record ({}, \"{digest}\") in LAYOUTS",
-            greeg_index::FORMAT_VERSION
-        ),
+        None => panic!("record ({v}, \"{digest}\") in LAYOUTS"),
     }
     assert!(
-        LAYOUTS
-            .iter()
-            .all(|(v, d)| *v == greeg_index::FORMAT_VERSION || *d != digest),
+        LAYOUTS.iter().all(|(n, d)| *n == v || *d != digest),
         "this layout was already recorded under another version"
     );
 }

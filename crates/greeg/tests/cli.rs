@@ -942,3 +942,28 @@ fn an_index_built_for_another_root_is_not_used() {
         "{o:?}"
     );
 }
+
+/// `greeg index --check` from another root refuses the index instead of
+/// publishing that root's changes into it.
+#[test]
+fn a_check_from_another_root_leaves_the_index_alone() {
+    let a = fixture();
+    a.indexed();
+    let layout = greeg_index::format_dir(&a.index);
+    let before = files_under(&layout, &[]);
+    let b = fixture();
+    w(&b.root.join("src/only_b.rs"), "fn bravo_only() {}\n");
+    let o = Command::new(BIN)
+        .args(["index", "--check", "--index-dir"])
+        .arg(&a.index)
+        .current_dir(&b.root)
+        .env("GREEG_STATS", "0")
+        .output()
+        .unwrap();
+    assert!(!o.status.success(), "{o:?}");
+    assert!(
+        String::from_utf8_lossy(&o.stderr).contains("built for another root"),
+        "{o:?}"
+    );
+    assert_eq!(files_under(&layout, &[]), before);
+}

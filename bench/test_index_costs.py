@@ -45,6 +45,11 @@ class IndexCostTests(unittest.TestCase):
             (new / "v6").mkdir(parents=True)
             (new / "v6" / "manifest").write_text("{}")
             self.assertEqual(manifest_path(new), new / "v6" / "manifest")
+            # an upgraded directory keeps the older release's files beside v6/
+            (new / "manifest").write_text("{}")
+            (new / "vendor").mkdir()
+            (new / "vendor" / "manifest").write_text("{}")
+            self.assertEqual(manifest_path(new), new / "v6" / "manifest")
 
 
 if __name__ == "__main__":

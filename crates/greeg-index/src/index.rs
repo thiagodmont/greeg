@@ -290,6 +290,12 @@ pub struct Index {
 }
 
 impl Index {
+    /// Whether this index was built for `root`: a directory shared by two
+    /// roots (`--index-dir`) never answers for, or takes changes from, the other.
+    pub fn built_for(&self, root: &Path) -> bool {
+        crate::RootId::of(root).is_some_and(|r| r == self.manifest.root_id)
+    }
+
     pub fn open(dir: &Path) -> Result<Index> {
         let manifest = read_manifest(dir).context("no usable index manifest")?;
         if !manifest.phase1 {

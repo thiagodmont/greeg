@@ -23,8 +23,9 @@ possibly match?** Everything else follows from that.
 
 ## What is on disk
 
-The index lives outside the repository, under `~/Library/Caches/greeg/<name>-<hash
-of the realpath's bytes>` on macOS or `$XDG_CACHE_HOME/greeg/…` elsewhere. It
+The index lives outside the repository, under
+`~/Library/Caches/greeg/<sanitized name>-<first 16 hex of the blake3 hash of the
+realpath's bytes>` on macOS or `$XDG_CACHE_HOME/greeg/…` elsewhere. It
 never dirties the working tree and survives `git clean`. `GREEG_INDEX_DIR` or
 `--index-dir` override that repository directory.
 
@@ -40,9 +41,10 @@ path's bytes, its device and inode), and a query from any other root scans
 instead and rebuilds.
 
 Every component is a flat, fixed-width table read through `mmap`, with no
-deserialization step, after a 48-byte header (magic, layout, component,
-length, and fields reserved for snapshots). A `manifest` (JSON) names the
-current generation of each.
+deserialization step, after a 48-byte header: magic `GREEG\0\0\0`, format
+u32, component u8, 3 reserved bytes, payload length u64, epoch u64, sequence
+u32 and 12 reserved bytes (epoch, sequence and the reserved bytes are zero until
+snapshots use them). A `manifest` (JSON) names the current generation of each.
 
 | File | Holds | Used for |
 |---|---|---|

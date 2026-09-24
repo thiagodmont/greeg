@@ -12,7 +12,7 @@ use greeg_index::format::{NONE, SymRec};
 use greeg_index::fresh::{self, Mode as Fresh};
 use greeg_index::index::SymId;
 use greeg_index::symtab::kind_from_code;
-use greeg_index::{Index, RootId, lock, plan, read_manifest};
+use greeg_index::{Index, lock, plan, read_manifest};
 use greeg_lang::sym::SYM_OBJ_MEMBER;
 use greeg_lang::{DefKind, FileFlags, Lang};
 use grep_searcher::{BinaryDetection, SearcherBuilder};
@@ -152,7 +152,9 @@ fn refresh_inner(root: &Path, dir: &Path, threads: usize) -> Result<()> {
     let Ok(idx) = Index::open(dir) else {
         return Ok(()); // no index: the query queued a build
     };
-    if !built_for(&idx, root) {
+    if !idx.built_for(root) {
+        drop(idx);
+        spawn_build_now(root, dir, false);
         return Ok(());
     }
     let mode = fresh::explicit_mode(&idx);
@@ -166,12 +168,6 @@ fn refresh_inner(root: &Path, dir: &Path, threads: usize) -> Result<()> {
     }
     fresh::apply(&idx, root, &ch).context("apply delta")?;
     Ok(())
-}
-
-/// Whether `idx` was built for `root`: a directory shared by two roots
-/// (`--index-dir`) never answers for the other one.
-fn built_for(idx: &Index, root: &Path) -> bool {
-    RootId::of(root).is_some_and(|r| r == idx.manifest.root_id)
 }
 
 /// Generation + 1 of the index this process last opened through `open_fresh`
@@ -293,7 +289,7 @@ fn open_fresh_with(
 ) -> Result<Option<Opened>> {
     let dir = greeg_index::index_dir(&o.root, o.index_dir.as_deref())?;
     let mut idx = match Index::open(&dir) {
-        Ok(i) if built_for(&i, &o.root) => i,
+        Ok(i) if i.built_for(&o.root) => i,
         _ => {
             spawn_build(&o.root, &dir);
             return Ok(None);
@@ -335,6 +331,11 @@ fn open_fresh_with(
         before_apply();
         let applied = fresh::apply(&idx, &o.root, &ch).context("apply delta")?;
         idx = Index::open(&dir)?;
+        // a build for another root may have published in between
+        if !idx.built_for(&o.root) {
+            spawn_build(&o.root, &dir);
+            return Ok(None);
+        }
         if applied > 0 || attempt > 0 {
             break;
         }
@@ -913,6 +914,66 @@ mod tests {
                 .unwrap()
                 .is_empty()
         );
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    /// A build for another root that publishes into a shared index
+    /// directory while this query refreshes must not answer it, even when
+    /// that root holds the same files with the same stamps.
+    #[test]
+    fn a_reopened_index_built_for_another_root_is_not_used() {
+        use greeg_index::build::{BuildOpts, build};
+        fn pin(dir: &Path) {
+            let t = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000);
+            for e in fs::read_dir(dir).unwrap() {
+                let p = e.unwrap().path();
+                if p.is_dir() {
+                    pin(&p);
+                } else {
+                    let f = fs::File::options().write(true).open(&p).unwrap();
+                    f.set_modified(t).unwrap();
+                }
+            }
+            fs::File::open(dir).unwrap().set_modified(t).unwrap();
+        }
+        let base = std::env::temp_dir().join(format!("greeg-other-root-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        let (a, b) = (base.join("a"), base.join("b"));
+        let dir = greeg_index::format_dir(&base.join("index"));
+        for root in [&a, &b] {
+            // sibling roots outside a repository: their ignore inputs agree,
+            // so only the root identity tells the two indexes apart
+            fs::create_dir_all(root.join("src")).unwrap();
+            for i in 0..60 {
+                fs::write(
+                    root.join(format!("src/f{i}.rs")),
+                    format!("pub fn filler_{i}() {{}}\n"),
+                )
+                .unwrap();
+            }
+            fs::write(root.join("src/main.rs"), "fn main() {}\n").unwrap();
+            pin(root);
+        }
+        let opts = BuildOpts {
+            reader_threads: 1,
+            quiet: true,
+            phase1_only: true,
+            ..Default::default()
+        };
+        build(&a, &dir, &opts).unwrap();
+        // the same edit in both trees, with the same stamps
+        for root in [&a, &b] {
+            fs::write(root.join("src/main.rs"), "fn main() { edited(); }\n").unwrap();
+            pin(root);
+        }
+        let o = Options {
+            root: a.clone(),
+            index_dir: Some(greeg_index::repo_of(&dir).to_path_buf()),
+            fresh: Fresh::Stat,
+            ..Default::default()
+        };
+        let mut race = || build(&b, &dir, &opts).map(|_| ()).unwrap();
+        assert!(open_fresh_with(&o, 1, false, &mut race).unwrap().is_none());
         let _ = fs::remove_dir_all(&base);
     }
 

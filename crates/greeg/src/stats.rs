@@ -2348,7 +2348,11 @@ impl Greeg {
                 d.join("manifest").is_file()
                     || std::fs::read_dir(&d).is_ok_and(|rd| {
                         rd.flatten().any(|e| {
-                            e.file_name().to_string_lossy().starts_with('v')
+                            let name = e.file_name();
+                            let name = name.to_string_lossy();
+                            name.strip_prefix('v').is_some_and(|n| {
+                                !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit())
+                            }) && e.path().is_dir()
                                 && e.path().join("manifest").is_file()
                         })
                     })
