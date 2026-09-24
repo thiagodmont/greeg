@@ -15,6 +15,7 @@ pub mod lock;
 pub mod plan;
 pub mod private;
 pub mod resolve;
+pub mod skipped;
 pub mod symtab;
 pub mod words;
 
@@ -121,6 +122,10 @@ pub struct Manifest {
     /// it was recorded: those are not checked until their next full build.
     #[serde(default)]
     pub ignore_inputs: String,
+    /// The `skipped` record for this index, relative to its directory. Empty
+    /// in manifests written before it was recorded: coverage is then unknown.
+    #[serde(default)]
+    pub skipped: String,
 }
 
 /// The user cache directory greeg owns: `~/Library/Caches/greeg` on macOS,

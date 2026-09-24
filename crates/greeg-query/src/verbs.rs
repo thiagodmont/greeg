@@ -4,6 +4,7 @@
 //! `map`, which needs the symbol table.
 
 use crate::indexed::{self, defs_of};
+use crate::select::Selection;
 use crate::{DefSummary, HitKind, Mode, Options, Rung, ScanResult, scan};
 use anyhow::{Context, Result, bail};
 use greeg_index::Index;
@@ -274,6 +275,50 @@ fn doc_first_line(t: &[u8]) -> String {
     String::new()
 }
 
+/// Implementations kept (and extras, a fifth of it) under a budget.
+const DESCRIBED_IMPLS: usize = 200;
+
+/// Definitions ranked on metadata before any is described (read for its
+/// signature); `--budget 0` describes them all.
+const DESCRIBED_DEFS: usize = 256;
+
+/// A definition's ranking score, from the index alone.
+fn def_score(idx: &Index, s: SymId, fid: u32, rel: &str, all: bool, reach: f32) -> f32 {
+    let Some(r) = idx.sym(s) else { return 0.0 };
+    let fflags = FileFlags(idx.rec(fid).map(|r| r.flags).unwrap_or(0));
+    let exported = if r.flags & SYM_EXPORTED != 0 {
+        1.0
+    } else {
+        0.85
+    };
+    // a declaration inside a function body is a closure, not the
+    // definition an agent asks for when a top-level one exists
+    let nested = if r.flags & SYM_OBJ_MEMBER != 0 {
+        // an object-literal member: usually an implementation of a typed member
+        0.6
+    } else if idx
+        .sym_parent(s)
+        .and_then(|p| idx.sym(p))
+        .is_some_and(|p| matches!(kind_from_code(p.kind), DefKind::Function | DefKind::Method))
+    {
+        0.7
+    } else {
+        1.0
+    };
+    kind_weight(r.kind)
+        * exported
+        * nested
+        * loc_w(fflags, rel, all)
+        * (0.6 + 0.4 * idx.rank(fid))
+        * reach
+}
+
+/// Does the request select the indexed file `fid`?
+fn selected(idx: &Index, sel: &Selection, fid: u32) -> bool {
+    idx.rec(fid)
+        .is_some_and(|r| sel.selects(idx.path(fid).unwrap_or(""), FileFlags(r.flags)))
+}
+
 fn kind_filter_ok(kinds: &[HitKind], _k: DefKind) -> bool {
     kinds.is_empty() || kinds.contains(&HitKind::Def)
 }
@@ -316,6 +361,7 @@ pub fn def(
         name: name.to_string(),
         ..Default::default()
     };
+    let sel = Selection::new(o, Vec::new())?;
     if o.use_index
         && let Some(op) = indexed::open_fresh(o, threads)?
         && op.idx.has_symbols()
@@ -323,10 +369,12 @@ pub fn def(
         && (name.is_ascii()
             || !op.idx.lookup(name).is_empty()
             || !op.idx.module_files(name, 1).is_empty())
+        && let Some(also) = sel.coverage(&op.idx, op.pending.as_ref())
     {
         let idx = &op.idx;
         res.source = "index";
         res.fresh = op.fresh_method;
+        let selected = |fid: u32| selected(idx, &sel, fid);
         let mut syms = idx.lookup(name);
         let fold_case =
             o.case_insensitive || (o.smart_case && !name.chars().any(|c| c.is_uppercase()));
@@ -337,9 +385,11 @@ pub fn def(
                 }
             }
         }
+        syms.retain(|s| selected(idx.sym_file(*s)));
         // the file that is the module: listed after every symbol; an agent
         // wants to open it when nothing else declares the name
-        let file_mods = idx.module_files(name, 64);
+        let mut file_mods = idx.module_files(name, usize::MAX);
+        file_mods.retain(|&f| selected(f));
         let mut rung = Rung::Exact;
         if syms.is_empty() && file_mods.is_empty() && o.matching == crate::MatchingPolicy::Discover
         {
@@ -368,70 +418,67 @@ pub fn def(
                 }
             }
             for a in &alts {
-                syms.extend(idx.lookup(a));
+                syms.extend(
+                    idx.lookup(a)
+                        .into_iter()
+                        .filter(|s| selected(idx.sym_file(*s))),
+                );
             }
             res.suggestions = alts;
         }
         res.rung = rung;
+        if let Some(wk) = want_kind {
+            syms.retain(|s| idx.sym(*s).is_some_and(|r| kind_from_code(r.kind) == wk));
+            if wk != DefKind::Module {
+                file_mods.clear();
+            }
+        }
         res.total = syms.len() + file_mods.len();
         let origins = origin_ids(idx, from);
-        let mut entries: Vec<DefEntry> = Vec::with_capacity(syms.len().min(64));
-        for s in syms.iter().take(256) {
-            let Some(r) = idx.sym(*s) else { continue };
-            let kind = kind_from_code(r.kind);
-            if let Some(wk) = want_kind
-                && wk != kind
-            {
-                continue;
-            }
-            let fid = idx.sym_file(*s);
+        // rank every eligible definition on metadata, then describe the best
+        // ones: all of them without a budget
+        let mut ranked: Vec<(f32, SymId, &str, u32, f32)> = syms
+            .iter()
+            .filter_map(|s| {
+                let r = idx.sym(*s)?;
+                let fid = idx.sym_file(*s);
+                let rel = idx.path(fid).unwrap_or("");
+                let rch = reach(idx, &origins, fid);
+                let score = def_score(idx, *s, fid, rel, o.all, rch);
+                Some((score, *s, rel, r.line, rch))
+            })
+            .collect();
+        ranked.sort_by(|a, b| {
+            b.0.partial_cmp(&a.0)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then(a.2.cmp(b.2))
+                .then(a.3.cmp(&b.3))
+        });
+        if o.budget != 0 {
+            ranked.truncate(DESCRIBED_DEFS);
+        }
+        let mut entries: Vec<DefEntry> = Vec::with_capacity(ranked.len() + file_mods.len());
+        for &(score, s, rel, _, rch) in &ranked {
+            let Some(r) = idx.sym(s) else { continue };
+            let fid = idx.sym_file(s);
             let rec = idx.rec(fid).context("file record")?;
-            let fflags = FileFlags(rec.flags);
-            let rel = idx.path(fid).unwrap_or("").to_string();
-            let rch = reach(idx, &origins, fid);
-            let kw = kind_weight(r.kind);
-            let exported = if r.flags & SYM_EXPORTED != 0 {
-                1.0
-            } else {
-                0.85
-            };
             let chain: Vec<(DefKind, String)> = idx
-                .sym_chain(*s)
+                .sym_chain(s)
                 .into_iter()
                 .map(|(k, n)| (kind_from_code(k), n.to_string()))
                 .collect();
             let chain = chain[..chain.len().saturating_sub(1)].to_vec();
-            // a declaration inside a function body is a closure, not the
-            // definition an agent asks for when a top-level one exists
-            let nested = if r.flags & SYM_OBJ_MEMBER != 0 {
-                // an object-literal member: usually an implementation of a typed member
-                0.6
-            } else if chain
-                .last()
-                .map(|(k, _)| matches!(k, DefKind::Function | DefKind::Method))
-                .unwrap_or(false)
-            {
-                0.7
-            } else {
-                1.0
-            };
-            let score = kw
-                * exported
-                * nested
-                * loc_w(fflags, &rel, o.all)
-                * (0.6 + 0.4 * idx.rank(fid))
-                * rch;
             entries.push(DefEntry {
-                rel,
+                rel: rel.to_string(),
                 line: r.line,
-                kind,
-                name: idx.sym_name(*s).to_string(),
+                kind: kind_from_code(r.kind),
+                name: idx.sym_name(s).to_string(),
                 chain,
                 signature: String::new(),
                 doc: None,
                 flags: r.flags,
-                file_flags: fflags,
-                supers: idx.sym_supers(*s).iter().map(|s| s.to_string()).collect(),
+                file_flags: FileFlags(rec.flags),
+                supers: idx.sym_supers(s).iter().map(|s| s.to_string()).collect(),
                 score,
                 reach: rch,
                 start: r.start,
@@ -441,9 +488,6 @@ pub fn def(
             });
         }
         for &fid in &file_mods {
-            if want_kind.is_some_and(|k| k != DefKind::Module) {
-                continue;
-            }
             let rec = idx.rec(fid).context("file record")?;
             let fflags = FileFlags(rec.flags);
             let rel = idx.path(fid).unwrap_or("").to_string();
@@ -468,6 +512,22 @@ pub fn def(
                 file_id: Some(fid),
                 file_module: true,
             });
+        }
+        // selected files the index skipped: found by the scan's definition rules
+        if !also.is_empty() {
+            let mut so = o.clone();
+            so.paths = also
+                .iter()
+                .map(|r| o.root.join(r))
+                .filter(|p| p.is_file())
+                .collect();
+            so.use_index = false;
+            so.matching = crate::MatchingPolicy::Exact;
+            if !so.paths.is_empty() {
+                let (found, _, _) = scan_defs(&so, name, want_kind)?;
+                res.total += found.len();
+                entries.extend(found);
+            }
         }
         entries.sort_by(|a, b| {
             b.score
@@ -525,6 +585,34 @@ pub fn def(
         return Ok(res);
     }
     // scan fallback: definition hits by regex
+    let (mut entries, rung, source) = scan_defs(o, name, want_kind)?;
+    res.source = source;
+    res.rung = rung;
+    res.total = entries.len();
+    entries.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then(a.rel.cmp(&b.rel))
+    });
+    let show = if o.budget == 0 {
+        entries.len()
+    } else {
+        (o.budget / 40).clamp(3, 40)
+    };
+    entries.truncate(show.max(1));
+    res.entries = entries;
+    res.elapsed_ms = t0.elapsed().as_secs_f64() * 1e3;
+    Ok(res)
+}
+
+/// Definitions of `name` found by a scan's definition rules, unsorted, with
+/// the rung and source that answered.
+fn scan_defs(
+    o: &Options,
+    name: &str,
+    want_kind: Option<DefKind>,
+) -> Result<(Vec<DefEntry>, Rung, &'static str)> {
     let mut so = o.clone();
     so.use_index &= name.is_ascii();
     so.pattern = name.to_string();
@@ -536,12 +624,11 @@ pub fn def(
     let mut r = scan(&so)?;
     let idxs: Vec<usize> = (0..r.files.len().min(200)).collect();
     crate::refine(&mut r, &idxs);
-    res.source = if r.stats.source == "index" {
+    let source = if r.stats.source == "index" {
         "index (phase 1)"
     } else {
         "scan"
     };
-    res.rung = r.rung.clone();
     let mut entries = Vec::new();
     for f in &r.files {
         for h in &f.hits {
@@ -588,22 +675,7 @@ pub fn def(
             });
         }
     }
-    res.total = entries.len();
-    entries.sort_by(|a, b| {
-        b.score
-            .partial_cmp(&a.score)
-            .unwrap_or(std::cmp::Ordering::Equal)
-            .then(a.rel.cmp(&b.rel))
-    });
-    let show = if o.budget == 0 {
-        entries.len()
-    } else {
-        (o.budget / 40).clamp(3, 40)
-    };
-    entries.truncate(show.max(1));
-    res.entries = entries;
-    res.elapsed_ms = t0.elapsed().as_secs_f64() * 1e3;
-    Ok(res)
+    Ok((entries, r.rung.clone(), source))
 }
 
 /// `greeg refs NAME`: a word-bounded search, classified, plus the fraction of
@@ -786,10 +858,14 @@ pub fn callers(o: &Options, name: &str, depth: usize) -> Result<CallersResult> {
 
 pub struct ImplsResult {
     pub name: String,
-    /// From the symbol table's supertype lists.
+    /// From the symbol table's supertype lists, best first.
     pub direct: Vec<DefEntry>,
+    /// Every eligible direct implementation (`direct` keeps the best
+    /// `DESCRIBED_IMPLS` unless the budget is unlimited).
+    pub direct_total: usize,
     /// Type-position hits on definition lines that the resolver did not tie to a supertype list.
     pub extras: Vec<DefEntry>,
+    pub extras_total: usize,
     pub source: &'static str,
     pub elapsed_ms: f64,
 }
@@ -802,16 +878,48 @@ pub fn impls(o: &Options, name: &str) -> Result<ImplsResult> {
         o.threads
     };
     let mut direct = Vec::new();
+    let mut direct_total = 0;
     let mut source = "scan";
     let mut have: Vec<(String, u32)> = Vec::new();
+    let sel = Selection::new(o, Vec::new())?;
     if o.use_index
         && let Some(op) = indexed::open_fresh(o, threads)?
         && op.idx.has_symbols()
+        // skipped files hold no symbols; the type-position scan below reads them
+        && sel.coverage(&op.idx, op.pending.as_ref()).is_some()
     {
         let idx = &op.idx;
         source = "index";
         let mut cache: BTreeMap<String, Vec<u8>> = BTreeMap::new();
-        for s in idx.implementors(name).into_iter().take(200) {
+        // rank every eligible implementation before reading any source
+        let mut found: Vec<(f32, SymId)> = idx
+            .implementors(name)
+            .into_iter()
+            .filter(|s| selected(idx, &sel, idx.sym_file(*s)))
+            .filter_map(|s| {
+                let r = idx.sym(s)?;
+                let fid = idx.sym_file(s);
+                let fflags = FileFlags(idx.rec(fid).map(|r| r.flags).unwrap_or(0));
+                let rel = idx.path(fid).unwrap_or("");
+                Some((
+                    kind_weight(r.kind) * loc_w(fflags, rel, o.all) * (0.6 + 0.4 * idx.rank(fid)),
+                    s,
+                ))
+            })
+            .collect();
+        direct_total = found.len();
+        found.sort_by(|a, b| {
+            b.0.partial_cmp(&a.0)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then(
+                    idx.path(idx.sym_file(a.1))
+                        .cmp(&idx.path(idx.sym_file(b.1))),
+                )
+        });
+        if o.budget != 0 {
+            found.truncate(DESCRIBED_IMPLS);
+        }
+        for (_, s) in found {
             let Some(r) = idx.sym(s) else { continue };
             let fid = idx.sym_file(s);
             let rel = idx.path(fid).unwrap_or("").to_string();
@@ -925,12 +1033,17 @@ pub fn impls(o: &Options, name: &str) -> Result<ImplsResult> {
                 .unwrap_or(std::cmp::Ordering::Equal)
                 .then(a.rel.cmp(&b.rel))
         });
-        extras.truncate(40);
+    }
+    let extras_total = extras.len();
+    if o.budget != 0 {
+        extras.truncate(DESCRIBED_IMPLS / 5);
     }
     Ok(ImplsResult {
         name: name.to_string(),
         direct,
+        direct_total,
         extras,
+        extras_total,
         source,
         elapsed_ms: t0.elapsed().as_secs_f64() * 1e3,
     })
@@ -1175,6 +1288,34 @@ pub struct MapResult {
     pub source: &'static str,
 }
 
+/// Count a file in its immediate subdirectory under `prefix`, if any.
+fn count_in_dir(
+    dirs: &mut BTreeMap<String, MapDir>,
+    prefix: &str,
+    rel: &str,
+    symbols: usize,
+    rank: f32,
+) {
+    let Some((sub, _)) = rel[prefix.len()..].split_once('/') else {
+        return;
+    };
+    let d = dirs
+        .entry(format!("{prefix}{sub}"))
+        .or_insert_with(|| MapDir {
+            rel: format!("{prefix}{sub}"),
+            files: 0,
+            symbols: 0,
+            rank: 0.0,
+            top_files: Vec::new(),
+        });
+    d.files += 1;
+    d.symbols += symbols;
+    d.rank = d.rank.max(rank);
+    if d.top_files.len() < 3 {
+        d.top_files.push(rel.to_string());
+    }
+}
+
 /// `greeg map [DIR]`: the most important files and subdirectories by PageRank.
 pub fn map(o: &Options, dir: &str) -> Result<MapResult> {
     let t0 = Instant::now();
@@ -1201,6 +1342,12 @@ pub fn map(o: &Options, dir: &str) -> Result<MapResult> {
     if !idx.has_symbols() {
         bail!("`map` needs the symbol table; the index build is still in phase 1");
     }
+    let sel = Selection::new(o, Vec::new())?;
+    let Some(also) = sel.coverage(idx, op.pending.as_ref()) else {
+        bail!(
+            "`map` summarizes the index, which cannot cover this request: --hidden, --no-ignore, a glob that selects a hidden or ignored directory, or an index still recording what it skips (retry in a moment)"
+        );
+    };
     let prefix = if dir.is_empty() {
         String::new()
     } else {
@@ -1210,35 +1357,17 @@ pub fn map(o: &Options, dir: &str) -> Result<MapResult> {
     let mut dirs: BTreeMap<String, MapDir> = BTreeMap::new();
     let mut symbols_total = 0usize;
     for (id, rel, rec) in idx.live_files() {
-        if !rel.starts_with(&prefix) {
+        let flags = FileFlags(rec.flags);
+        if !rel.starts_with(&prefix) || !sel.selects(rel, flags) {
             continue;
         }
-        let flags = FileFlags(rec.flags);
         let (first, syms) = idx
             .symbols_of(id)
             .unwrap_or((SymId { seg: 0, idx: 0 }, &[]));
         let n = syms.len();
         symbols_total += n;
         let rank = idx.rank(id);
-        // immediate subdirectory under `dir`
-        let rest = &rel[prefix.len()..];
-        if let Some((sub, _)) = rest.split_once('/') {
-            let d = dirs
-                .entry(format!("{prefix}{sub}"))
-                .or_insert_with(|| MapDir {
-                    rel: format!("{prefix}{sub}"),
-                    files: 0,
-                    symbols: 0,
-                    rank: 0.0,
-                    top_files: Vec::new(),
-                });
-            d.files += 1;
-            d.symbols += n;
-            d.rank = d.rank.max(rank);
-            if d.top_files.len() < 3 {
-                d.top_files.push(rel.to_string());
-            }
-        }
+        count_in_dir(&mut dirs, &prefix, rel, n, rank);
         if n == 0
             && !flags.has(FileFlags::PARSE_ERRORS)
             && !Lang::from_path(Path::new(rel)).has_grammar()
@@ -1289,6 +1418,21 @@ pub fn map(o: &Options, dir: &str) -> Result<MapResult> {
             flags,
             imported_by,
         });
+    }
+    // selected files the index skipped: no symbols or rank are known
+    for rel in also.iter().filter(|r| r.starts_with(&prefix)) {
+        count_in_dir(&mut dirs, &prefix, rel, 0, 0.0);
+        if Lang::from_path(Path::new(rel)).has_grammar() {
+            files.push(MapFile {
+                rel: rel.clone(),
+                rank: 0.0,
+                symbols: 0,
+                by_kind: Vec::new(),
+                top: Vec::new(),
+                flags: greeg_lang::path_flags(rel),
+                imported_by: 0,
+            });
+        }
     }
     let files_total = files.len();
     files.sort_by(|a, b| {

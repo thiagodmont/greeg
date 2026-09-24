@@ -46,6 +46,8 @@
 //!
 //! words.<gen>.bin: word dictionary + postings (`words.rs`)
 //!
+//! skipped.<gen>.bin: what the walk left out (`skipped.rs`)
+//!
 //! delta/NNNN.bin: u32 first_id, n_files, files_len, grams_len, symbols_len,
 //! spans_len, graph_len, words_len (32 bytes), then the sections in that order
 //! (same layouts; FileRec ids are absolute: first_id + local offset), plus a
@@ -70,6 +72,7 @@ pub const COMP_SYMBOLS: u8 = 5;
 pub const COMP_SPANS: u8 = 6;
 pub const COMP_GRAPH: u8 = 7;
 pub const COMP_WORDS: u8 = 8;
+pub const COMP_SKIPPED: u8 = 9;
 /// Delta segment header: eight u32 (first_id, n_files, six section lengths).
 pub const DELTA_HEADER: usize = 32;
 

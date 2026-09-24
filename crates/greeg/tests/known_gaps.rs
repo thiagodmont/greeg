@@ -133,7 +133,6 @@ fn def_paths(o: &Output) -> Vec<String> {
 }
 
 #[test]
-#[ignore = "known gap: indexed symbol verbs ignore request filters"]
 fn indexed_definitions_honor_request_filters() {
     let f = Fixture::new(&[
         ("src/lib.rs", "pub fn needle() {}\n"),
@@ -158,7 +157,41 @@ fn indexed_definitions_honor_request_filters() {
 }
 
 #[test]
-#[ignore = "known gap: kind filtering runs after the retained-hit cap"]
+fn indexed_implementors_and_map_honor_request_filters() {
+    let f = Fixture::new(&[
+        (
+            "src/lib.rs",
+            "pub trait Shape {}\npub struct A;\nimpl Shape for A {}\n",
+        ),
+        ("src/b.rs", "pub struct B;\nimpl crate::Shape for B {}\n"),
+        ("tests/t.rs", "pub struct T;\nimpl Shape for T {}\n"),
+    ]);
+    f.indexed();
+    for (flags, want) in [
+        (vec!["--no-tests"], vec!["src/b.rs", "src/lib.rs"]),
+        (vec!["-g", "!src/b.rs"], vec!["src/lib.rs", "tests/t.rs"]),
+    ] {
+        let mut args = vec!["impls", "Shape", "--json"];
+        args.extend(&flags);
+        let out = stdout(&f.run(&args));
+        let mut got: Vec<&str> = want.iter().copied().filter(|w| out.contains(w)).collect();
+        got.sort();
+        assert_eq!(got, want, "impls {flags:?}: {out}");
+        let excluded = ["src/b.rs", "src/lib.rs", "tests/t.rs"]
+            .into_iter()
+            .find(|p| !want.contains(p))
+            .unwrap();
+        assert!(!out.contains(excluded), "impls {flags:?}: {out}");
+
+        let mut args = vec!["map", "--json"];
+        args.extend(&flags);
+        let out = stdout(&f.run(&args));
+        assert!(!out.contains(excluded), "map {flags:?}: {out}");
+        assert!(want.iter().all(|w| out.contains(w)), "map {flags:?}: {out}");
+    }
+}
+
+#[test]
 fn kind_filters_apply_before_the_retained_hit_cap() {
     let late = format!("{}fn late() {{ marker(); }}\n", "// marker\n".repeat(70));
     let f = Fixture::new(&[("src/late.rs", &late)]);
@@ -177,7 +210,6 @@ fn kind_filters_apply_before_the_retained_hit_cap() {
 }
 
 #[test]
-#[ignore = "known gap: same-line mixed kinds are classified by the first occurrence"]
 fn a_call_after_a_same_line_comment_is_found() {
     let f = Fixture::new(&[("b.rs", "fn f() { /* target */ target(); }\n")]);
     f.indexed();
@@ -189,7 +221,6 @@ fn a_call_after_a_same_line_comment_is_found() {
 }
 
 #[test]
-#[ignore = "known gap: scan classification has no multiline comment state"]
 fn multiline_comment_text_is_not_a_call_in_scan_mode() {
     let f = Fixture::new(&[("a.rs", "/*\nneedle();\n*/\nfn f() {}\n")]);
     let call = f.scan(&["needle", "--kind", "call", "--budget", "0"]);
@@ -199,6 +230,48 @@ fn multiline_comment_text_is_not_a_call_in_scan_mode() {
     );
     let comment = f.scan(&["needle", "--kind", "comment", "--budget", "0"]);
     assert!(stdout(&comment).contains("a.rs:2:"), "{comment:?}");
+}
+
+#[test]
+fn kind_counts_and_multiline_noncode_agree_across_backends() {
+    let late = format!("{}fn late() {{ marker(); }}\n", "// marker\n".repeat(70));
+    let f = Fixture::new(&[
+        ("src/late.rs", &late),
+        (
+            "doc.py",
+            "def f():\n    \"\"\"\n    marker()\n    \"\"\"\n    marker()\n",
+        ),
+    ]);
+    f.indexed();
+    for (args, want) in [
+        (vec!["-c", "marker"], vec!["doc.py:2", "src/late.rs:71"]),
+        (
+            vec!["-c", "marker", "--kind", "call"],
+            vec!["doc.py:1", "src/late.rs:1"],
+        ),
+        (
+            vec!["-c", "marker", "--kind", "comment"],
+            vec!["src/late.rs:70"],
+        ),
+        (
+            vec!["-c", "marker", "--kind", "docstring"],
+            vec!["doc.py:1"],
+        ),
+    ] {
+        for o in [f.run(&args), f.scan(&args)] {
+            assert_eq!(listed(&o), want, "{args:?}: {o:?}");
+        }
+    }
+}
+
+#[test]
+fn a_definition_after_many_uses_is_shown_by_both_backends() {
+    let body = format!("{}fn marker() {{}}\n", "// marker\n".repeat(70));
+    let f = Fixture::new(&[("src/late.rs", &body)]);
+    f.indexed();
+    for o in [f.run(&["marker", "--json"]), f.scan(&["marker", "--json"])] {
+        assert!(stdout(&o).contains(r#""line_number":71"#), "{o:?}");
+    }
 }
 
 #[test]
@@ -234,15 +307,19 @@ fn filtered_hits_do_not_suggest_ignore_flags() {
         for o in [f.run(&args), f.scan(&args)] {
             assert_eq!(o.status.code(), Some(1), "{args:?}: {o:?}");
             assert!(!stdout(&o).contains("--no-ignore"), "{args:?}: {o:?}");
+            // the kind filter, not the ignore rules, removed the match
+            if args.contains(&"--kind") {
+                let all = format!("{}{}", stdout(&o), String::from_utf8_lossy(&o.stderr));
+                assert!(all.contains("none of the requested kinds"), "{o:?}");
+            }
         }
     }
 }
 
 #[test]
-#[ignore = "known gap: symbol verbs cap definitions at 256 even when unlimited"]
 fn unlimited_definitions_are_complete() {
     let body: String = (0..300)
-        .map(|i| format!("mod m{i} {{ pub fn crowded() {{}} }}\n"))
+        .map(|i| format!("mod m{i} {{\n    pub fn crowded() {{}}\n}}\n"))
         .collect();
     let f = Fixture::new(&[("many.rs", &body)]);
     f.indexed();
@@ -252,6 +329,43 @@ fn unlimited_definitions_are_complete() {
     ] {
         let defs = stdout(&o).matches(r#""type":"def""#).count();
         assert_eq!(defs, 300, "{}", stdout(&o).lines().last().unwrap_or(""));
+    }
+}
+
+#[test]
+fn unlimited_implementations_are_complete_and_totals_are_eligible() {
+    let body: String = (0..250)
+        .map(|i| format!("pub struct S{i};\nimpl Crowd for S{i} {{}}\n"))
+        .collect();
+    let f = Fixture::new(&[
+        ("src/lib.rs", "pub trait Crowd {}\n"),
+        ("src/many.rs", &body),
+    ]);
+    f.indexed();
+    let json = stdout(&f.run(&["impls", "Crowd", "--budget", "0", "--json"]));
+    assert_eq!(
+        json.matches(r#""confidence":"high""#).count(),
+        250,
+        "{json}"
+    );
+    assert!(json.contains(r#""direct":250"#), "{json}");
+    // a budget limits what is shown, never the total
+    let text = stdout(&f.run(&["impls", "Crowd"]));
+    assert!(text.contains("250 implementations"), "{text}");
+
+    // the total counts what the kind selects, not every definition of the name
+    let def = stdout(&f.run(&["def", "S7", "--def-kind", "struct", "--json"]));
+    assert!(def.contains(r#""total":1"#), "{def}");
+}
+
+#[test]
+#[ignore = "known gap: scan-mode definitions come from a line rule that sees one per line"]
+fn scan_definitions_nested_on_one_line_are_found() {
+    let f = Fixture::new(&[("one.rs", "mod m { pub fn nested() {} }\n")]);
+    f.indexed();
+    for o in [f.run(&["def", "nested"]), f.scan(&["def", "nested"])] {
+        assert_eq!(o.status.code(), Some(0), "{o:?}");
+        assert!(stdout(&o).contains("one.rs"), "{o:?}");
     }
 }
 
@@ -268,7 +382,6 @@ fn json_symbol_verbs_exit_1_without_results() {
 }
 
 #[test]
-#[ignore = "known gap: the index omits hidden files a request asks for"]
 fn hidden_files_requested_explicitly_are_found_through_the_index() {
     let f = Fixture::new(&[
         (".hidden.rs", "pub fn hiddenneedle() {}\n"),
@@ -289,6 +402,134 @@ fn hidden_files_requested_explicitly_are_found_through_the_index() {
         );
         assert!(stdout(&indexed).contains(".hidden.rs"), "{indexed:?}");
     }
+}
+
+/// Sorted `-l` output.
+fn listed(o: &Output) -> Vec<String> {
+    let mut v: Vec<String> = stdout(o).lines().map(str::to_string).collect();
+    v.sort();
+    v
+}
+
+fn skipping_fixture() -> Fixture {
+    Fixture::new(&[
+        (".gitignore", "target/\n*.log\nsrc/gen.rs\n.env\n"),
+        ("src/lib.rs", "fn a() { skipneedle(); }\n"),
+        ("src/gen.rs", "fn skipneedle() {}\n"),
+        (".hidden.rs", "fn skipneedle() {}\n"),
+        (".env", "skipneedle\n"),
+        ("x.log", "skipneedle\n"),
+        ("target/t.rs", "skipneedle\n"),
+        (".github/w.yml", "skipneedle\n"),
+    ])
+}
+
+const SKIPPING_REQUESTS: &[&[&str]] = &[
+    &[],
+    &["-g", "*.rs"],
+    &["-t", "rust"],
+    &["-g", "*.log"],
+    &["-g", ".env"],
+    &["-g", "*"],
+    &["-g", "!src/**"],
+    &["-t", "rust", "-g", "!.hidden.rs"],
+    &["target"],
+    &[".github"],
+    &["--hidden"],
+];
+
+fn assert_matches_scan(f: &Fixture, extra: &[&str]) {
+    for req in SKIPPING_REQUESTS {
+        let mut args = vec!["-l", "skipneedle"];
+        args.extend(*req);
+        let scanned = listed(&f.scan(&args));
+        assert_eq!(listed(&f.run(&args)), scanned, "{args:?}");
+        if extra.is_empty() {
+            continue;
+        }
+        // what was added after the build is found the same way
+        let mut args = vec!["-l", "addedneedle"];
+        args.extend(*req);
+        assert_eq!(listed(&f.run(&args)), listed(&f.scan(&args)), "{args:?}");
+    }
+    for want in extra {
+        let args = ["-l", "addedneedle", "-g", want];
+        assert_eq!(listed(&f.run(&args)), vec![want.to_string()], "{args:?}");
+    }
+}
+
+#[test]
+fn requests_that_select_skipped_files_answer_like_a_scan() {
+    let f = skipping_fixture();
+    f.indexed();
+    let expect = |args: &[&str], want: &[&str]| {
+        let mut a = vec!["-l", "skipneedle"];
+        a.extend(args);
+        assert_eq!(listed(&f.scan(&a)), want, "scan {a:?}");
+    };
+    // ripgrep: a positive glob selects hidden and ignored files, a type hidden ones
+    expect(&["-g", "*.rs"], &[".hidden.rs", "src/gen.rs", "src/lib.rs"]);
+    expect(&["-t", "rust"], &[".hidden.rs", "src/lib.rs"]);
+    expect(&["target"], &["target/t.rs"]);
+    assert_matches_scan(&f, &[]);
+
+    // skipped entries created after the build: first answered while the
+    // refresh is pending, then from the published delta
+    w(&f.root.join(".added.rs"), "fn addedneedle() {}\n");
+    w(&f.root.join("added.log"), "addedneedle\n");
+    std::thread::sleep(PAST_FRESHNESS_WINDOW);
+    assert_matches_scan(&f, &[".added.rs", "added.log"]);
+    std::thread::sleep(Duration::from_secs(1));
+    assert_matches_scan(&f, &[".added.rs", "added.log"]);
+}
+
+#[test]
+fn symbol_verbs_find_definitions_in_selected_skipped_files() {
+    let f = skipping_fixture();
+    f.indexed();
+    for args in [
+        vec!["def", "skipneedle", "-g", ".hidden.rs"],
+        vec!["def", "skipneedle", "-g", "src/gen.rs"],
+        vec!["def", "skipneedle", "--no-ignore"],
+    ] {
+        let o = f.run(&args);
+        assert_eq!(o.status.code(), Some(0), "{args:?}: {o:?}");
+        let want = if args.contains(&"--no-ignore") {
+            "src/gen.rs"
+        } else {
+            args[3]
+        };
+        assert!(stdout(&o).contains(want), "{args:?}: {o:?}");
+    }
+    // a type reaches the hidden file, not the ignored one; the index still
+    // answers for everything else
+    let def = stdout(&f.run(&["def", "skipneedle", "-t", "rust", "--budget", "0"]));
+    assert!(
+        def.contains(".hidden.rs") && !def.contains("src/gen.rs"),
+        "{def}"
+    );
+    let map = stdout(&f.run(&["map", "-t", "rust", "--json"]));
+    assert!(
+        map.contains(".hidden.rs") && !map.contains("src/gen.rs"),
+        "{map}"
+    );
+    let map = f.run(&["map", "--hidden"]);
+    assert_eq!(map.status.code(), Some(2), "{map:?}");
+}
+
+#[test]
+fn an_index_without_a_skipped_record_is_not_trusted_to_cover_a_request() {
+    let f = skipping_fixture();
+    f.indexed();
+    let manifest = f.index.join("manifest");
+    let mut m: serde_json::Value = serde_json::from_slice(&fs::read(&manifest).unwrap()).unwrap();
+    m.as_object_mut().unwrap().remove("skipped");
+    fs::write(&manifest, m.to_string()).unwrap();
+    let args = ["-l", "skipneedle", "-g", "*.rs"];
+    assert_eq!(
+        listed(&f.run(&args)),
+        [".hidden.rs", "src/gen.rs", "src/lib.rs"]
+    );
 }
 
 #[cfg(unix)]

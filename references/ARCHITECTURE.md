@@ -40,6 +40,7 @@ deserialization step. A `manifest` (JSON) names the current generation of each.
 | `spans.<gen>.bin` | per file: definition, comment/string, and import ranges | classifying a hit in O(log n) |
 | `graph.<gen>.bin` | file import graph (both directions) + PageRank | `map`, ranking, reachability |
 | `delta/NNNN.bin` | the same layouts, for recently changed files | edits, without a rebuild |
+| `skipped.<gen>.bin` | hidden and ignored entries inside the walked directories (a refresh that changes them writes `delta/NNNN.skipped`) | deciding whether the index covers a request |
 
 `<gen>` is the generation the component was written under. A rebuild can
 publish a whole new set while readers still hold the old one, and the manifest
@@ -99,10 +100,19 @@ already mapped an old generation keeps a valid view until it exits.
    `\w{5}\s+\w{5}`) plans a full scan over the file table, which still beats
    a walk.
 2. **Select candidates.** Roaring bitmap intersections in ascending
-   document-count order, with early exit on empty. Path filters become file-id
-   ranges (ids are assigned in sorted-path order, so `src/**` is one range),
-   type filters and flag filters are precomputed bitmaps. Tombstones are
-   subtracted, delta postings unioned.
+   document-count order, with early exit on empty. Tombstones are
+   subtracted, delta postings unioned. Each candidate then passes the
+   request's paths, globs, types and `--no-tests`-style flags, the same
+   selection the symbol verbs apply before counting and ranking.
+
+   The index holds only what a plain walk yields, but ripgrep lets a positive
+   glob select a hidden or ignored file, and a type a hidden one. Such files
+   are read from disk next to the candidates, listed by the `skipped` record.
+   `--hidden`, `--no-ignore`, a glob that would enter a skipped directory, a
+   hidden or ignored directory named on the command line, a directory whose
+   entries could not be listed exactly (a read error or a name that is not
+   UTF-8), and an index built before the record existed are answered by a
+   scan. `map` refuses them.
 3. **Verify.** A pool of reader threads reads candidates in *prior order*
    (best files first) and matches them with the real regex engine. Ordering by
    prior means the budget can stop early and still hold the best hits.
@@ -113,7 +123,16 @@ already mapped an old generation keeps a valid view until it exits.
    before → `member`, `: ` or `-> ` or `impl ` before → `type`, else `ident`.
    That's O(1) per hit, and right for the overwhelming majority of identifier
    hits. `--precise` re-parses the shown files and replaces the rule with real
-   node kinds.
+   node kinds. A file without span tables (a scan, or a file changed since
+   the build) takes its comment and string spans from lexing the file from
+   its start, so a line inside a block comment or docstring is classified
+   by what encloses it.
+
+   Under `--kind` every occurrence is classified while the file is searched,
+   and a line qualifies when any occurrence on it has a requested kind. That
+   happens before the per-file hit cap, the counts and `-l`'s early stop, so
+   a call after 70 commented mentions is still found and `-c` counts
+   qualifying lines.
 5. **Rank.** `kind × location × importance`. Definitions outrank calls outrank
    types outrank comments. Source files outrank tests, mocks, vendored and
    generated code, which are **demoted, never hidden**: the footer always says

@@ -856,10 +856,16 @@ fn hints(
 ) {
     let o = &r.opts;
     if r.stats.total_hits == 0 {
+        // hits of the requested kinds in ignored files are the actionable answer
         if let Some((files, hits)) = r.ignored_only {
             let more = if r.ignored_partial { "+" } else { "" };
             footer.hints.push(format!(
                 "{hits}{more} hits in {files}{more} ignored/hidden files: add --no-ignore --hidden"
+            ));
+        } else if !o.kinds.is_empty() && r.stats.total_unfiltered > 0 {
+            footer.hints.push(format!(
+                "{} matching lines, none of the requested kinds: drop --kind",
+                r.stats.total_unfiltered
             ));
         } else if o.matching == crate::MatchingPolicy::Discover {
             footer.hints.push(
@@ -1143,6 +1149,25 @@ mod tests {
             "shown {shown_min} unshown {unshown_max}"
         );
         assert!(rep.footer.hits_shown > 0 && rep.footer.hits_shown < 300);
+    }
+
+    #[test]
+    fn kind_filtered_empty_answers_prefer_hits_in_ignored_files() {
+        let o = Options {
+            pattern: "foo".into(),
+            kinds: vec![HitKind::Call],
+            ..Default::default()
+        };
+        let mut r = result(vec![], o);
+        r.stats.total_unfiltered = 4;
+        let hints = |r: &mut ScanResult| shape(r).footer.hints.join(" | ");
+        assert!(hints(&mut r).contains("none of the requested kinds"));
+        r.ignored_only = Some((2, 3));
+        let h = hints(&mut r);
+        assert!(
+            h.contains("--no-ignore --hidden") && !h.contains("requested kinds"),
+            "{h}"
+        );
     }
 
     #[test]

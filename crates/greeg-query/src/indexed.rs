@@ -446,6 +446,17 @@ pub(crate) fn try_index(cx: &Ctx, threads: usize, t0: Instant) -> Result<Option<
                 {
                     return Ok(None);
                 }
+                // likewise a hidden or ignored directory: the walk enters it
+                if p.is_dir()
+                    && !rel.is_empty()
+                    && !idx.has_dir(&rel)
+                    && !op
+                        .pending
+                        .as_ref()
+                        .is_some_and(|ch| ch.added_dirs.iter().any(|d| d.rel == rel))
+                {
+                    return Ok(None);
+                }
                 let given = p.to_string_lossy();
                 let given = given.trim_end_matches('/');
                 display.push(
@@ -462,7 +473,15 @@ pub(crate) fn try_index(cx: &Ctx, threads: usize, t0: Instant) -> Result<Option<
             None => return Ok(None), // outside the index root: scan mode answers this query
         }
     }
+    let sel = crate::select::Selection::new(o, paths)?;
+    // files the index skipped that this request selects are read from disk
+    // like changed ones; anything else it selects needs the scan
+    let Some(also) = sel.coverage(idx, op.pending.as_ref()) else {
+        return Ok(None);
+    };
+    extras.extend(also.into_iter().map(|rel| (rel, NONE)));
     let display_rel = |rel: &str| -> Option<String> {
+        let paths = sel.paths();
         let i = paths
             .iter()
             .position(|p| path_allowed(rel, std::slice::from_ref(p)))?;
@@ -475,75 +494,18 @@ pub(crate) fn try_index(cx: &Ctx, threads: usize, t0: Instant) -> Result<Option<
             format!("{d}/{}", &rel[paths[i].len() + 1..])
         })
     };
-    let overrides = if o.globs.is_empty() {
-        None
-    } else {
-        let mut ob = ignore::overrides::OverrideBuilder::new(&o.root);
-        for g in &o.globs {
-            ob.add(g)?;
-        }
-        Some(ob.build()?)
-    };
-    let types = if o.types.is_empty() && o.types_not.is_empty() {
-        None
-    } else {
-        Some(crate::build_types(o)?)
-    };
-    // ripgrep precedence: an override glob decides first (whitelist wins over
-    // types); ignore globs also apply to every ancestor directory, as the
-    // walker would prune them. Returns the prior order: source before demoted.
-    let admit = |rel: &str, flags: FileFlags| -> Option<u8> {
-        if !path_allowed(rel, &paths) {
-            return None;
-        }
-        let mut decided = false;
-        if let Some(ov) = &overrides {
-            let m = ov.matched(rel, false);
-            if m.is_ignore() {
-                return None;
-            }
-            decided = m.is_whitelist();
-            let mut end = 0;
-            while let Some(k) = rel[end..].find('/') {
-                end += k;
-                if ov.matched(&rel[..end], true).is_ignore() {
-                    return None;
-                }
-                end += 1;
-            }
-        }
-        if !decided
-            && let Some(t) = &types
-            && t.matched(rel, false).is_ignore()
-        {
-            return None;
-        }
-        if flags.has(FileFlags::BINARY) {
-            return None;
-        }
-        if crate::excluded_by_flags(o, flags) {
-            return None;
-        }
-        Some(if flags.has(FileFlags::MINIFIED) {
-            3
-        } else if flags.demoted() {
-            2
-        } else {
-            0
-        })
-    };
     // (prio, id or NONE for a changed file read from disk, superseded id, rel)
     let mut entries: Vec<(u8, u32, u32, &str)> =
         Vec::with_capacity(cands.len() as usize + extras.len());
     for id in cands.iter() {
         let Some(rec) = idx.rec(id) else { continue };
         let rel = idx.path(id).unwrap_or("");
-        if let Some(prio) = admit(rel, FileFlags(rec.flags)) {
+        if let Some(prio) = sel.admit(rel, FileFlags(rec.flags)) {
             entries.push((prio, id, NONE, rel));
         }
     }
     for (rel, prev) in &extras {
-        if let Some(prio) = admit(rel, greeg_lang::path_flags(rel)) {
+        if let Some(prio) = sel.admit(rel, greeg_lang::path_flags(rel)) {
             entries.push((prio, NONE, *prev, rel.as_str()));
         }
     }
@@ -594,12 +556,31 @@ pub(crate) fn try_index(cx: &Ctx, threads: usize, t0: Instant) -> Result<Option<
                     let (_, id, prev, rel) = &entries[i];
                     let changed = *id == NONE;
                     let path: PathBuf = root.join(rel);
+                    // an indexed file classifies from its span tables; one
+                    // without them, like a changed file, by the scan rules
+                    let spans = if use_spans && !changed {
+                        idx.symbols_of(*id)
+                    } else {
+                        None
+                    };
+                    let lang = Lang::from_path(&path);
+                    let fid = *id;
+                    let by_index = spans.map(|(_, syms)| {
+                        move |src: &[u8], ms: u32, me: u32, ls: u32| {
+                            classify_at(idx, fid, syms, lang, src, ms, me, ls).0
+                        }
+                    });
                     if let Some(mut fr) = process_file(
-                        if changed { cx_scan } else { cx },
+                        if changed || use_spans && spans.is_none() {
+                            cx_scan
+                        } else {
+                            cx
+                        },
                         &path,
                         rel.to_string(),
                         &mut searcher,
                         &mut buf,
+                        by_index.as_ref().map(|f| f as crate::SpanKindOf),
                     ) {
                         if !changed {
                             fr.file_id = Some(*id);
@@ -608,7 +589,7 @@ pub(crate) fn try_index(cx: &Ctx, threads: usize, t0: Instant) -> Result<Option<
                             fr.rel = d;
                         }
                         let t = Instant::now();
-                        if use_spans && !changed {
+                        if spans.is_some() {
                             classify_from_index(idx, *id, &mut fr, o, &buf);
                         }
                         // PageRank term of the prior: 0.8 was the
@@ -706,7 +687,16 @@ pub(crate) fn classify_from_index(
     let mut kinds = [0u32; 9];
     let mut hits: Vec<Hit> = Vec::with_capacity(f.hits.len());
     for mut h in f.hits.drain(..) {
-        let (kind, di) = classify_hit(idx, id, first, syms, f.lang, src, &h);
+        let (kind, di) = classify_at(
+            idx,
+            id,
+            syms,
+            f.lang,
+            src,
+            h.match_start,
+            h.match_end,
+            h.line_start,
+        );
         if !o.kinds.is_empty() && !o.kinds.contains(&kind) {
             continue;
         }
@@ -726,10 +716,6 @@ pub(crate) fn classify_from_index(
         h.score = kind.weight() * f.prior * crate::exact_boost(kind, h.exact);
         kinds[kind.idx()] += 1;
         hits.push(h);
-    }
-    if !o.kinds.is_empty() {
-        // C11: totals describe the filtered set; the unfiltered count stays in total_unfiltered
-        f.total = hits.len();
     }
     f.hits = hits;
     f.kinds = kinds;
@@ -764,17 +750,18 @@ pub(crate) fn classify_from_index(
     f.refined = true;
 }
 
-/// Kind and local definition index for one hit.
-fn classify_hit(
+/// Kind and local definition index for one occurrence, from the span tables.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn classify_at(
     idx: &Index,
     id: u32,
-    first: SymId,
     syms: &[SymRec],
     lang: Lang,
     src: &[u8],
-    h: &Hit,
+    ms: u32,
+    me: u32,
+    line_start: u32,
 ) -> (HitKind, Option<u32>) {
-    let (ms, me) = (h.match_start, h.match_end);
     if !lang.has_grammar() {
         return (HitKind::Ident, None);
     }
@@ -812,11 +799,10 @@ fn classify_hit(
     if idx.import_at(id, ms).is_some() {
         return (HitKind::Import, enclosing());
     }
-    let ls = h.line_start as usize;
+    let ls = line_start as usize;
     let le = memchr::memchr(b'\n', &src[ls..])
         .map(|k| ls + k)
         .unwrap_or(src.len());
-    let _ = first;
     (
         kind_by_context(
             lang,

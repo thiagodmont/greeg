@@ -7,13 +7,14 @@ use crate::external;
 use crate::format::{self, DirRec, FileRec, FileTable, NONE, is_ignore_file};
 use crate::gram::{Dedup, fold_buf};
 use crate::resolve::Resolver;
+use crate::skipped::Skipped;
 use crate::symtab::{DeltaGraphBuilder, FileExtract, GraphBuilder, SpanBuilder, SymBuilder};
 use crate::words;
 use crate::{Manifest, now_ms, read_manifest, write_manifest};
 use anyhow::{Result, bail};
 use greeg_lang::sym;
 use greeg_lang::{FileFlags, Lang, content_flags, path_flags};
-use hashbrown::HashMap;
+use hashbrown::{HashMap, HashSet};
 use rayon::prelude::*;
 use roaring::RoaringBitmap;
 use std::fs;
@@ -80,21 +81,82 @@ pub(crate) fn mtime_ns(md: &fs::Metadata) -> i64 {
 /// `.rgignore`) so the freshness check can see them change. They are stored
 /// as tracked-only (`FileTable::hidden`) and never searched.
 pub fn walker(path: &Path) -> ignore::WalkBuilder {
+    walker_noting(path, None)
+}
+
+/// Paths a walker saw and left out for their hidden name.
+pub(crate) type Noted = std::sync::Arc<Mutex<Vec<std::path::PathBuf>>>;
+
+/// `walker` that also records the hidden entries it leaves out in `noted`.
+/// The filter only sees entries no ignore rule excluded first.
+pub(crate) fn walker_noting(path: &Path, noted: Option<Noted>) -> ignore::WalkBuilder {
     let mut wb = ignore::WalkBuilder::new(path);
-    wb.hidden(false).filter_entry(|e| {
+    wb.hidden(false).filter_entry(move |e| {
         if e.depth() == 0 {
             return true;
         }
         let name = e.file_name().to_string_lossy();
-        !name.starts_with('.')
-            || (e.file_type().map(|t| t.is_file()).unwrap_or(false) && is_ignore_file(&name))
+        let keep = !name.starts_with('.')
+            || (e.file_type().map(|t| t.is_file()).unwrap_or(false) && is_ignore_file(&name));
+        if !keep && let Some(n) = &noted {
+            n.lock().unwrap().push(e.path().to_path_buf());
+        }
+        keep
     });
     wb
+}
+
+/// Root-relative, '/'-separated.
+pub(crate) fn rel_to(root: &Path, p: &Path) -> String {
+    p.strip_prefix(root)
+        .unwrap_or(p)
+        .to_string_lossy()
+        .replace('\\', "/")
 }
 
 /// Walk `root` with the same ignore semantics as scan mode; returns files and
 /// directories sorted by relative path, with the file's dir index resolved.
 pub fn walk(root: &Path) -> Result<(Vec<WalkedFile>, Vec<WalkedDir>)> {
+    walk_noting(root, None)
+}
+
+/// `walk` that also lists what it skipped inside the directories it walked.
+/// The listing runs on its own thread (it reads every directory again), so
+/// a build overlaps it with extraction; join the handle before publishing.
+pub fn walk_with_skipped(
+    root: &Path,
+) -> Result<(
+    Vec<WalkedFile>,
+    Vec<WalkedDir>,
+    std::thread::JoinHandle<Skipped>,
+)> {
+    let noted = Noted::default();
+    let (files, dirs) = walk_noting(root, Some(noted.clone()))?;
+    let noted: Vec<String> = noted
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|p| rel_to(root, p))
+        .collect();
+    let kept: Vec<String> = files
+        .iter()
+        .map(|f| f.rel.clone())
+        .chain(dirs.iter().map(|d| d.rel.clone()))
+        .collect();
+    let n_files = files.len();
+    let root = root.to_path_buf();
+    let listing = std::thread::spawn(move || {
+        let hidden: HashSet<&str> = noted.iter().map(String::as_str).collect();
+        let dirs: Vec<&str> = kept[n_files..].iter().map(String::as_str).collect();
+        let kept: HashSet<&str> = kept.iter().map(String::as_str).collect();
+        let mut skipped = Skipped::default();
+        skipped.update(&crate::skipped::list(&root, &dirs, &kept, &hidden));
+        skipped
+    });
+    Ok((files, dirs, listing))
+}
+
+fn walk_noting(root: &Path, noted: Option<Noted>) -> Result<(Vec<WalkedFile>, Vec<WalkedDir>)> {
     type Files = Vec<(String, u64, i64)>;
     let out: Mutex<(Files, Vec<WalkedDir>)> =
         Mutex::new((Vec::with_capacity(4096), Vec::with_capacity(512)));
@@ -115,7 +177,7 @@ pub fn walk(root: &Path) -> Result<(Vec<WalkedFile>, Vec<WalkedDir>)> {
             self.flush();
         }
     }
-    let wb = walker(root).build_parallel();
+    let wb = walker_noting(root, noted).build_parallel();
     wb.run(|| {
         let mut local = Local {
             f: Vec::new(),
@@ -373,7 +435,7 @@ pub fn build(root: &Path, dir: &Path, opts: &BuildOpts) -> Result<Manifest> {
     let fsevents_id = greeg_fsevents_id();
     // before the walk, so a change made during it shows up at the next check
     let ignore_inputs = crate::ignores::digest(root);
-    let (walked, dirs) = walk(root)?;
+    let (walked, dirs, skipped) = walk_with_skipped(root)?;
     let walk_ms = t0.elapsed().as_secs_f64() * 1e3;
 
     let pool = rayon::ThreadPoolBuilder::new()
@@ -524,6 +586,11 @@ pub fn build(root: &Path, dir: &Path, opts: &BuildOpts) -> Result<Manifest> {
         format::COMP_FILES,
         &ft.serialize(),
     )?;
+    let skipped = skipped
+        .join()
+        .map_err(|_| anyhow::anyhow!("listing skipped entries panicked"))?;
+    let skipped_name = format!("skipped.{generation}.bin");
+    skipped.write(&dir.join(&skipped_name))?;
     let m = Manifest {
         format: crate::FORMAT_VERSION,
         root: root.to_string_lossy().into_owned(),
@@ -546,11 +613,12 @@ pub fn build(root: &Path, dir: &Path, opts: &BuildOpts) -> Result<Manifest> {
         deltas: 0,
         tombstones: 0,
         ignore_inputs,
+        skipped: skipped_name,
     };
     write_manifest(dir, &m)?;
     // a fresh build supersedes deltas and older generations
     let _ = fs::remove_dir_all(dir.join("delta"));
-    remove_stale(dir, &["grams.", "words.", "files."], generation);
+    remove_stale(dir, &["grams.", "words.", "files.", "skipped."], generation);
     drop(lock);
     if !opts.quiet {
         eprintln!(
@@ -759,6 +827,7 @@ fn phase2(
     )?;
     m.deltas = cur.deltas;
     m.tombstones = cur.tombstones;
+    m.skipped = cur.skipped;
     m.verified_unix_ms = cur.verified_unix_ms;
     m.fsevents_id = cur.fsevents_id;
     m.phase2 = true;
