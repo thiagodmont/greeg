@@ -414,6 +414,76 @@ fn rust_mod_declaration(line: &[u8], name_end: usize) -> bool {
         .unwrap_or(false)
 }
 
+/// A definition that starts `seg` (indentation allowed): its kind and name
+/// range within `seg`.
+fn def_at(lang: Lang, res: &LangRes, seg: &[u8]) -> Option<(DefKind, usize, usize)> {
+    if !may_define(lang, seg) {
+        return None;
+    }
+    let caps = res.re.captures(seg)?;
+    if caps.get(0)?.start() != 0 {
+        return None;
+    }
+    let kind = res
+        .kinds
+        .iter()
+        .find_map(|(g, k)| caps.name(g).map(|_| *k))?;
+    let (ns, ne) = match NAME_GROUPS.iter().find_map(|g| caps.name(g)) {
+        Some(n) => unquoted(seg, n.start(), n.end()),
+        None => {
+            let g = res.kinds.iter().find_map(|(g, _)| caps.name(g))?;
+            (g.start(), g.end())
+        }
+    };
+    if kind == DefKind::Method && JS_KEYWORDS.iter().any(|k| k.as_bytes() == &seg[ns..ne]) {
+        return None;
+    }
+    if lang == Lang::Rust && kind == DefKind::Module && rust_mod_declaration(seg, ne) {
+        return None;
+    }
+    Some((kind, ns, ne))
+}
+
+/// Where a definition may start after the line's own start: just past each
+/// `{` in code, for brace-scoped languages (`mod m { pub fn x() {} }`).
+/// `in_code` says whether an offset within the line is outside comments and
+/// strings.
+fn nested_starts<'a>(
+    lang: Lang,
+    line: &'a [u8],
+    in_code: impl Fn(usize) -> bool + 'a,
+) -> impl Iterator<Item = usize> + 'a {
+    let braces = !lang.indent_scoped();
+    memchr::memchr_iter(b'{', line)
+        .filter(move |&i| braces && in_code(i))
+        .map(|i| i + 1)
+}
+
+/// Every definition name on `line`: the one starting it and any nested after
+/// a `{` on the same line. Used by scan mode before any outline exists.
+pub fn def_names_on_line(lang: Lang, line: &[u8]) -> Vec<(usize, usize)> {
+    let Some(res) = res_for(lang) else {
+        return Vec::new();
+    };
+    let mut out: Vec<(usize, usize)> = def_name_on_line(lang, line).into_iter().collect();
+    if !line[1.min(line.len())..].contains(&b'{') {
+        return out;
+    }
+    let lexed = if memchr::memchr3(b'"', b'\'', b'/', line).is_some()
+        || memchr::memchr2(b'#', b'`', line).is_some()
+    {
+        crate::lexer::lex(lang, line)
+    } else {
+        Lexed::default()
+    };
+    for seg in nested_starts(lang, line, |i| lexed.span_at(i as u32).is_none()) {
+        if let Some((_, ns, ne)) = def_at(lang, res, &line[seg..]) {
+            out.push((seg + ns, seg + ne));
+        }
+    }
+    out
+}
+
 /// Cheap per-line check: if `line` starts a definition, return the name range
 /// within the line. Used by scan mode before any file-level outline exists.
 pub fn def_name_on_line(lang: Lang, line: &[u8]) -> Option<(usize, usize)> {
@@ -460,61 +530,84 @@ pub fn outline(lang: Lang, src: &[u8], lexed: &Lexed) -> Outline {
         let line = &src[pos..le];
         let ls = pos;
         pos = le + 1;
-        if line.len() < 3 || !may_define(lang, line) {
+        if line.len() < 3 {
             continue;
         }
-        let Some(caps) = res.re.captures(line) else {
-            continue;
-        };
-        let m = caps.get(0).unwrap();
-        if m.start() != 0 {
-            continue;
-        }
-        // skip matches inside comments/strings (block comments spanning lines)
-        if let Some(sp) = lexed.span_at(ls as u32)
-            && (sp.kind != SpanKind::Docstring || lang != Lang::Rust)
-        {
-            continue;
-        }
-        let mut kind = None;
-        for (g, k) in &res.kinds {
-            if caps.name(g).is_some() {
-                kind = Some(*k);
-                break;
+        let mut nested: Vec<Def> = Vec::new();
+        // definitions nested after a `{` on this line
+        for seg in nested_starts(lang, line, |i| lexed.span_at((ls + i) as u32).is_none()) {
+            if let Some((kind, ns, ne)) = def_at(lang, res, &line[seg..]) {
+                nested.push(Def {
+                    name_start: (ls + seg + ns) as u32,
+                    name_end: (ls + seg + ne) as u32,
+                    start: (ls + seg) as u32,
+                    end: 0,
+                    line: line_no,
+                    indent: crate::indent_of(line).min(u16::MAX as usize) as u16,
+                    kind,
+                    parent: None,
+                });
             }
         }
-        let Some(kind) = kind else { continue };
-        let name = NAME_GROUPS.iter().find_map(|g| caps.name(g));
-        let (name_start, name_end) = match name {
-            Some(n) => unquoted(line, n.start(), n.end()),
-            None => {
-                let g = res.kinds.iter().find_map(|(g, _)| caps.name(g)).unwrap();
-                (g.start(), g.end())
+        'start: {
+            if !may_define(lang, line) {
+                break 'start;
             }
-        };
-        if kind == DefKind::Method {
-            let nm = &line[name_start..name_end];
-            if JS_KEYWORDS.iter().any(|k| k.as_bytes() == nm) {
-                continue;
+            let Some(caps) = res.re.captures(line) else {
+                break 'start;
+            };
+            let m = caps.get(0).unwrap();
+            if m.start() != 0 {
+                break 'start;
             }
+            // skip matches inside comments/strings (block comments spanning lines)
+            if let Some(sp) = lexed.span_at(ls as u32)
+                && (sp.kind != SpanKind::Docstring || lang != Lang::Rust)
+            {
+                break 'start;
+            }
+            let mut kind = None;
+            for (g, k) in &res.kinds {
+                if caps.name(g).is_some() {
+                    kind = Some(*k);
+                    break;
+                }
+            }
+            let Some(kind) = kind else { break 'start };
+            let name = NAME_GROUPS.iter().find_map(|g| caps.name(g));
+            let (name_start, name_end) = match name {
+                Some(n) => unquoted(line, n.start(), n.end()),
+                None => {
+                    let g = res.kinds.iter().find_map(|(g, _)| caps.name(g)).unwrap();
+                    (g.start(), g.end())
+                }
+            };
+            if kind == DefKind::Method {
+                let nm = &line[name_start..name_end];
+                if JS_KEYWORDS.iter().any(|k| k.as_bytes() == nm) {
+                    break 'start;
+                }
+            }
+            if lang == Lang::Rust && kind == DefKind::Module && rust_mod_declaration(line, name_end)
+            {
+                break 'start;
+            }
+            let indent = crate::indent_of(line);
+            if lang == Lang::Python && kind == DefKind::Constant && indent > 0 {
+                break 'start;
+            }
+            defs.push(Def {
+                name_start: (ls + name_start) as u32,
+                name_end: (ls + name_end) as u32,
+                start: ls as u32,
+                end: 0,
+                line: line_no,
+                indent: indent.min(u16::MAX as usize) as u16,
+                kind,
+                parent: None,
+            });
         }
-        if lang == Lang::Rust && kind == DefKind::Module && rust_mod_declaration(line, name_end) {
-            continue;
-        }
-        let indent = crate::indent_of(line);
-        if lang == Lang::Python && kind == DefKind::Constant && indent > 0 {
-            continue;
-        }
-        defs.push(Def {
-            name_start: (ls + name_start) as u32,
-            name_end: (ls + name_end) as u32,
-            start: ls as u32,
-            end: 0,
-            line: line_no,
-            indent: indent.min(u16::MAX as usize) as u16,
-            kind,
-            parent: None,
-        });
+        defs.append(&mut nested);
     }
     // ends
     if lang.indent_scoped() {
@@ -750,6 +843,36 @@ mod tests {
     /// Rust `mod x;` declares a module defined in another file: neither the
     /// outline nor the per-line scan check reports it as a definition, while
     /// `mod x {` (inline body) still is one.
+    #[test]
+    fn definitions_nested_after_a_brace_on_one_line_are_found() {
+        let names = |lang, line: &[u8]| -> Vec<String> {
+            def_names_on_line(lang, line)
+                .into_iter()
+                .map(|(s, e)| String::from_utf8_lossy(&line[s..e]).into_owned())
+                .collect()
+        };
+        assert_eq!(
+            names(Lang::Rust, b"mod m { pub fn nested() {} }"),
+            ["m", "nested"]
+        );
+        assert_eq!(names(Lang::Kotlin, b"class A { fun b() = 1 }"), ["A", "b"]);
+        assert_eq!(names(Lang::Rust, b"if x { foo() }"), Vec::<String>::new());
+        assert_eq!(
+            names(Lang::Rust, b"let s = \"{ fn nope() }\";"),
+            Vec::<String>::new()
+        );
+        assert_eq!(names(Lang::Python, b"class A: pass"), ["A"]);
+
+        let src = b"mod m { pub fn nested() {} }\n";
+        let ol = outline(Lang::Rust, src, &crate::lexer::lex(Lang::Rust, src));
+        let got: Vec<(&[u8], Option<u32>)> = ol
+            .defs
+            .iter()
+            .map(|d| (&src[d.name_start as usize..d.name_end as usize], d.parent))
+            .collect();
+        assert_eq!(got, [(&b"m"[..], None), (&b"nested"[..], Some(0))]);
+    }
+
     #[test]
     fn rust_mod_declaration_is_not_a_definition() {
         let src =

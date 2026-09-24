@@ -375,7 +375,6 @@ fn unlimited_implementations_are_complete_and_totals_are_eligible() {
 }
 
 #[test]
-#[ignore = "known gap: scan-mode definitions come from a line rule that sees one per line"]
 fn scan_definitions_nested_on_one_line_are_found() {
     let f = Fixture::new(&[("one.rs", "mod m { pub fn nested() {} }\n")]);
     f.indexed();

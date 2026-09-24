@@ -718,9 +718,9 @@ impl Sink for CollectSink<'_> {
                     .unwrap_or(bytes.len());
                 let l = &bytes[line_off..le];
                 let (lms, lme) = (mat.start() - line_off, mat.end().min(le) - line_off);
-                let is_def = greeg_lang::defs::def_name_on_line(self.lang, l)
-                    .map(|(ns, ne)| ns < lme && lms < ne)
-                    .unwrap_or(false);
+                let is_def = greeg_lang::defs::def_names_on_line(self.lang, l)
+                    .iter()
+                    .any(|&(ns, ne)| ns < lme && lms < ne);
                 if is_def {
                     self.defs_kept += 1;
                 }
@@ -1387,9 +1387,9 @@ fn noncode_kind(k: SpanKind) -> HitKind {
 
 /// Kind of an occurrence outside comments and strings, from its line.
 fn classify_code(lang: Lang, line: &[u8], ms: usize, me: usize) -> HitKind {
-    if let Some((ns, ne)) = greeg_lang::defs::def_name_on_line(lang, line)
-        && ns < me
-        && ms < ne
+    if greeg_lang::defs::def_names_on_line(lang, line)
+        .iter()
+        .any(|&(ns, ne)| ns < me && ms < ne)
     {
         return HitKind::Def;
     }
