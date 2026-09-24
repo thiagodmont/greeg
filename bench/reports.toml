@@ -412,3 +412,19 @@ filename = "index-layout-namespace-confirmation-2026-09-24-darwin-arm64.json"
 title = "Per-layout index directory and root identity: confirmation (2026-09-24)"
 pr = 31
 notes = "Same binaries, 151 pairs, on the flagged case and two other miss cases in both backends. Exit status and stdout are unchanged and every contract passes. The flag does not repeat: index word_miss_count +1.1% median, −5.9% p95. Medians range from −2.1% to +1.6%. Load average was 7.1–8.5. The harness records no execution time; the result file was written at 2026-09-24T15:59:05Z."
+
+[[datasets]]
+id = "file_stamps"
+section = "matching_review"
+filename = "file-stamps-2026-09-24-darwin-arm64.json"
+title = "Whole file stamps: exact-search regression (2026-09-24)"
+pr = 32
+notes = "v0.7.0 against the branch that records size, mtime, ctime, inode and device from the descriptor a file is read through (format 7). All 34 cases keep their exit status and stdout, and every contract passes. Medians range from −9.7% to +15.0%. Flags: scan word_miss_count +12.7% and scan type_files +15.0% median, scan glob_files and index absent_files p95 only; scan mode does not use stamps. Index build, disk, open, freshness and post-edit costs on tokio, django, ktor and TypeScript-5.9 (bench/index_costs.py) are in the PR. Load average was 5.0–10.4. The harness records no execution time; the result file was written at 2026-09-24T17:43:11Z."
+
+[[datasets]]
+id = "file_stamps_confirmation"
+section = "matching_review"
+filename = "file-stamps-confirmation-2026-09-24-darwin-arm64.json"
+title = "Whole file stamps: confirmation (2026-09-24)"
+pr = 32
+notes = "Same binaries, 151 pairs, on the four flagged cases in both backends. Exit status and stdout are unchanged and every contract passes. No flag repeats: medians range from −2.4% to +1.5%, p95 at most +9.7%. Load average was 8.3–11.8. The harness records no execution time; the result file was written at 2026-09-24T17:51:39Z."
