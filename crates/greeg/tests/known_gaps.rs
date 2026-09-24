@@ -373,6 +373,7 @@ fn output_that_cannot_be_written_fails_in_every_format() {
         c.args(&args)
             .args(["--no-session", "--index-dir"])
             .arg(&f.index)
+            .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped());
         let mut child = c.spawn().unwrap();
