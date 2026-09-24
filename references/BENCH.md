@@ -300,6 +300,100 @@ Same binaries, 151 pairs. Exit status and elapsed-normalized stdout are unchange
 
 [Raw samples, environment, and binary/corpus digests](../bench/results/query-selection-confirmation-2026-09-23-darwin-arm64.json). Reproduce: `python3 bench/matching.py BASELINE CANDIDATE --cases case_miss_files word_miss_count split_miss_unlimited fuzzy_miss_unlimited absent_files hit_files type_files glob_files hit_count hit_unlimited case_miss_json hit_json def_hit def_case_hit def_case_miss ranked_hit ranked_discovery --runs 151 --tokens --output query-selection-confirmation-2026-09-23-darwin-arm64.json`.
 
+## Nested definitions and SIGBUS re-run: exact-search regression (2026-09-23)
+
+Originating PR: [#27](https://github.com/thiagodmont/greeg/pull/27).
+
+Merged main against the branch that finds definitions nested after a brace on one line in scan mode and passes SIGBUS recovery flags before the user's arguments. All 34 cases keep their exit status and stdout, and every contract passes. One p95 flag: scan case_miss_json +21.6% p95 with a +0.3% median, on a query that classifies no definitions, measured while the load average reached 19.0. On tokio, scan-mode def spawn_blocking was measured separately (21 pairs) at +6.4% wall / +5.8% CPU with unchanged output. Load average was 7.7–19.0. The harness records no execution time; the result file was written at 2026-09-24T00:41:42Z.
+
+`greeg 0.6.0+3ec576860` → `greeg 0.6.0+44a5e3e4c`; 51 randomized pairs per case, 3 warmups on the same 256-file warm synthetic corpus. Contract checks passed: **30/30 → 30/30**. Cases above the 10% median / 20% p95 investigation thresholds: **1**.
+
+| Backend | Case | Median ms, before → after | p95 ms, before → after | Tokens, before → after |
+|---|---|---:|---:|---:|
+| scan | case miss files | 8.145 → 7.934 | 11.674 → 12.597 | 3 → 3 |
+| scan | word miss count | 7.002 → 7.229 | 8.031 → 8.063 | 3 → 3 |
+| scan | split miss unlimited | 6.408 → 6.488 | 7.934 → 8.068 | 3 → 3 |
+| scan | fuzzy miss unlimited | 6.564 → 6.423 | 8.287 → 8.555 | 3 → 3 |
+| scan | absent files | 7.648 → 7.460 | 10.980 → 11.008 | 3 → 3 |
+| scan | hit files | 6.032 → 6.057 | 7.470 → 7.660 | 55 → 55 |
+| scan | type files | 6.363 → 6.263 | 8.715 → 7.652 | 55 → 55 |
+| scan | glob files | 5.794 → 5.788 | 6.836 → 6.532 | 55 → 55 |
+| scan | hit count | 6.215 → 6.186 | 8.262 → 8.969 | 71 → 71 |
+| scan | hit unlimited | 6.564 → 6.594 | 7.489 → 8.256 | 295 → 295 |
+| scan | case miss json | 5.993 → 6.009 | 7.022 → 8.541 | 224 → 224 |
+| scan | hit json | 6.584 → 6.610 | 7.427 → 7.359 | 2699 → 2699 |
+| scan | def hit | 7.217 → 7.319 | 13.427 → 11.827 | 214 → 214 |
+| scan | def case hit | 8.024 → 7.954 | 13.814 → 11.507 | 214 → 214 |
+| scan | def case miss | 7.334 → 7.329 | 10.988 → 12.300 | 35 → 35 |
+| scan | ranked hit | 6.755 → 6.710 | 7.433 → 7.338 | 295 → 295 |
+| scan | ranked discovery | 9.777 → 10.004 | 11.978 → 11.579 | 308 → 308 |
+| index | case miss files | 5.717 → 5.621 | 8.264 → 7.957 | 3 → 3 |
+| index | word miss count | 5.530 → 5.453 | 7.540 → 7.306 | 3 → 3 |
+| index | split miss unlimited | 5.562 → 5.470 | 7.524 → 7.216 | 3 → 3 |
+| index | fuzzy miss unlimited | 6.112 → 5.840 | 7.350 → 7.741 | 3 → 3 |
+| index | absent files | 5.728 → 5.537 | 7.656 → 7.406 | 3 → 3 |
+| index | hit files | 5.530 → 5.535 | 8.370 → 8.232 | 55 → 55 |
+| index | type files | 5.968 → 5.922 | 8.688 → 9.845 | 55 → 55 |
+| index | glob files | 5.756 → 5.673 | 10.470 → 7.547 | 55 → 55 |
+| index | hit count | 6.151 → 6.113 | 12.097 → 10.994 | 71 → 71 |
+| index | hit unlimited | 7.464 → 7.624 | 14.234 → 13.306 | 295 → 295 |
+| index | case miss json | 6.880 → 6.915 | 8.795 → 8.640 | 228 → 224 |
+| index | hit json | 8.079 → 7.779 | 11.181 → 10.862 | 2699 → 2699 |
+| index | def hit | 5.593 → 5.608 | 7.157 → 7.483 | 254 → 254 |
+| index | def case hit | 5.893 → 5.992 | 7.962 → 7.645 | 278 → 278 |
+| index | def case miss | 6.622 → 6.698 | 8.169 → 7.843 | 35 → 35 |
+| index | ranked hit | 6.530 → 6.162 | 8.216 → 7.834 | 295 → 295 |
+| index | ranked discovery | 6.515 → 6.491 | 8.764 → 8.447 | 308 → 308 |
+
+[Raw samples, environment, and binary/corpus digests](../bench/results/nested-definitions-2026-09-23-darwin-arm64.json). Reproduce: `python3 bench/matching.py BASELINE CANDIDATE --cases case_miss_files word_miss_count split_miss_unlimited fuzzy_miss_unlimited absent_files hit_files type_files glob_files hit_count hit_unlimited case_miss_json hit_json def_hit def_case_hit def_case_miss ranked_hit ranked_discovery --runs 51 --tokens --output nested-definitions-2026-09-23-darwin-arm64.json`.
+
+## Nested definitions and SIGBUS re-run: confirmation (2026-09-23)
+
+Originating PR: [#27](https://github.com/thiagodmont/greeg/pull/27).
+
+Same binaries, 151 pairs. Exit status and elapsed-normalized stdout are unchanged in 34/34 cases, and every contract passes. Medians range from −2.3% to +2.3%. The case_miss_json flag does not repeat (+16.8% p95, +0.1% median). A different p95-only flag appears: scan hit_count +22.5% p95 with a −0.2% median; like the first, it did not show in the other run. Load average was 6.6–9.6. The harness records no execution time; the result file was written at 2026-09-24T00:44:41Z.
+
+`greeg 0.6.0+3ec576860` → `greeg 0.6.0+44a5e3e4c`; 151 randomized pairs per case, 3 warmups on the same 256-file warm synthetic corpus. Contract checks passed: **30/30 → 30/30**. Cases above the 10% median / 20% p95 investigation thresholds: **1**.
+
+| Backend | Case | Median ms, before → after | p95 ms, before → after | Tokens, before → after |
+|---|---|---:|---:|---:|
+| scan | case miss files | 5.926 → 5.932 | 6.743 → 7.092 | 3 → 3 |
+| scan | word miss count | 6.151 → 6.204 | 7.562 → 7.610 | 3 → 3 |
+| scan | split miss unlimited | 7.132 → 6.971 | 13.732 → 13.510 | 3 → 3 |
+| scan | fuzzy miss unlimited | 6.165 → 6.265 | 8.736 → 9.331 | 3 → 3 |
+| scan | absent files | 5.832 → 5.762 | 6.947 → 6.610 | 3 → 3 |
+| scan | hit files | 5.935 → 5.903 | 8.963 → 10.228 | 55 → 55 |
+| scan | type files | 6.103 → 6.107 | 9.284 → 9.557 | 55 → 55 |
+| scan | glob files | 5.871 → 5.884 | 9.395 → 9.105 | 55 → 55 |
+| scan | hit count | 6.089 → 6.080 | 7.434 → 9.110 | 71 → 71 |
+| scan | hit unlimited | 6.515 → 6.537 | 7.453 → 7.671 | 295 → 295 |
+| scan | case miss json | 5.932 → 5.939 | 7.964 → 9.299 | 224 → 224 |
+| scan | hit json | 6.766 → 6.699 | 7.592 → 7.875 | 2699 → 2695 |
+| scan | def hit | 7.293 → 7.282 | 8.091 → 8.415 | 214 → 214 |
+| scan | def case hit | 7.693 → 7.715 | 8.693 → 8.591 | 214 → 214 |
+| scan | def case miss | 6.914 → 6.889 | 9.660 → 9.946 | 35 → 35 |
+| scan | ranked hit | 6.592 → 6.582 | 7.486 → 7.550 | 295 → 295 |
+| scan | ranked discovery | 9.847 → 9.940 | 17.088 → 17.539 | 308 → 308 |
+| index | case miss files | 5.210 → 5.208 | 6.278 → 6.449 | 3 → 3 |
+| index | word miss count | 5.177 → 5.171 | 6.808 → 6.589 | 3 → 3 |
+| index | split miss unlimited | 5.358 → 5.356 | 6.897 → 7.142 | 3 → 3 |
+| index | fuzzy miss unlimited | 5.239 → 5.238 | 6.524 → 6.593 | 3 → 3 |
+| index | absent files | 5.096 → 5.094 | 6.843 → 6.904 | 3 → 3 |
+| index | hit files | 5.172 → 5.185 | 6.368 → 6.476 | 55 → 55 |
+| index | type files | 5.464 → 5.459 | 6.628 → 6.563 | 55 → 55 |
+| index | glob files | 5.321 → 5.342 | 6.886 → 6.551 | 55 → 55 |
+| index | hit count | 5.484 → 5.463 | 6.852 → 7.055 | 71 → 71 |
+| index | hit unlimited | 5.615 → 5.661 | 7.486 → 7.814 | 295 → 295 |
+| index | case miss json | 5.483 → 5.507 | 7.155 → 7.117 | 224 → 224 |
+| index | hit json | 5.693 → 5.676 | 7.272 → 7.379 | 2695 → 2695 |
+| index | def hit | 5.541 → 5.668 | 7.447 → 7.486 | 254 → 254 |
+| index | def case hit | 5.362 → 5.379 | 7.854 → 8.131 | 278 → 278 |
+| index | def case miss | 5.553 → 5.544 | 8.692 → 8.547 | 35 → 35 |
+| index | ranked hit | 5.435 → 5.449 | 7.276 → 7.079 | 295 → 295 |
+| index | ranked discovery | 6.112 → 6.133 | 7.741 → 7.529 | 308 → 308 |
+
+[Raw samples, environment, and binary/corpus digests](../bench/results/nested-definitions-confirmation-2026-09-23-darwin-arm64.json). Reproduce: `python3 bench/matching.py BASELINE CANDIDATE --cases case_miss_files word_miss_count split_miss_unlimited fuzzy_miss_unlimited absent_files hit_files type_files glob_files hit_count hit_unlimited case_miss_json hit_json def_hit def_case_hit def_case_miss ranked_hit ranked_discovery --runs 151 --tokens --output nested-definitions-confirmation-2026-09-23-darwin-arm64.json`.
+
 JSON contracts compare match paths, lines, offsets, submatches, status, exact rung, and total hit counts with ripgrep. Repeat-output checks remove only elapsed fields; byte/token measurements retain them and use the first raw sample, so small JSON size differences reflect timing values. Definition checks compare paths and status on this controlled fixture, not general symbol-resolution accuracy.
 
 ## Hook contract: initial measurements
