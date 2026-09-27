@@ -116,6 +116,7 @@ fn a_spilled_build_publishes_the_same_index_as_an_in_memory_one() {
             quiet: true,
             phase1_only: true,
             posting_budget: 1 << 30,
+            block: greeg_index::integrity::BLOCK,
         },
     )
     .unwrap();
@@ -128,6 +129,7 @@ fn a_spilled_build_publishes_the_same_index_as_an_in_memory_one() {
             phase1_only: true,
             // below the 64 KiB per-chunk floor, so every chunk spills
             posting_budget: 1,
+            block: greeg_index::integrity::BLOCK,
         },
     )
     .unwrap();
@@ -179,6 +181,7 @@ fn a_spilled_index_answers_the_same_candidates() {
             quiet: true,
             phase1_only: true,
             posting_budget: 1 << 30,
+            block: greeg_index::integrity::BLOCK,
         },
     )
     .unwrap();
@@ -190,6 +193,7 @@ fn a_spilled_index_answers_the_same_candidates() {
             quiet: true,
             phase1_only: true,
             posting_budget: 1,
+            block: greeg_index::integrity::BLOCK,
         },
     )
     .unwrap();

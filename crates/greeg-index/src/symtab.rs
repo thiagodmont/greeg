@@ -3,11 +3,13 @@
 //! serialized bytes. Layouts are documented in `format.rs`.
 
 use crate::format::{ImpRec, NONE, NcRec, SymRec};
+use crate::integrity::{Blocks, ok};
 use anyhow::{Context, Result, bail};
 use greeg_lang::DefKind;
 use greeg_lang::lexer::SpanKind;
 use greeg_lang::sym::{Extract, Import};
 use hashbrown::HashMap;
+use std::sync::Arc;
 
 pub const KIND_NAMES: [&str; 16] = [
     "fn",
@@ -404,25 +406,46 @@ impl SymBuilder {
     }
 }
 
+/// Zero-copy view over a serialized symbol table. Its accessors verify the
+/// bytes they read (`integrity.rs`): after a failed check they return
+/// nothing, and the index reads as corrupt.
 pub struct SymbolsView<'a> {
     pub n_files: u32,
-    pub sym_off: &'a [u32],
-    pub syms: &'a [SymRec],
-    pub supers: &'a [u32],
-    pub name_off: &'a [u32],
-    pub arena: &'a [u8],
-    pub by_name_off: &'a [u32],
-    pub by_name: &'a [u32],
-    pub tok_off: &'a [u32],
-    pub tok_arena: &'a [u8],
-    pub tok_names_off: &'a [u32],
-    pub tok_names: &'a [u32],
+    sym_off: &'a [u32],
+    syms: &'a [SymRec],
+    supers: &'a [u32],
+    name_off: &'a [u32],
+    arena: &'a [u8],
+    by_name_off: &'a [u32],
+    by_name: &'a [u32],
+    tok_off: &'a [u32],
+    tok_arena: &'a [u8],
+    tok_names_off: &'a [u32],
+    tok_names: &'a [u32],
+    blocks: Option<Arc<Blocks>>,
+}
+
+/// `s[range]`, verified; empty when out of range or unverified.
+fn part<'a, T>(blocks: &Option<Arc<Blocks>>, s: &'a [T], a: usize, b: usize) -> &'a [T] {
+    match s.get(a..b) {
+        Some(v) if ok(blocks, v) => v,
+        _ => &[],
+    }
+}
+
+/// `off[i]` and `off[i + 1]`, verified.
+fn bounds(blocks: &Option<Arc<Blocks>>, off: &[u32], i: usize) -> Option<(usize, usize)> {
+    let o = off.get(i..i + 2)?;
+    ok(blocks, o).then(|| (o[0] as usize, o[1] as usize))
 }
 
 impl<'a> SymbolsView<'a> {
-    pub fn parse(body: &'a [u8]) -> Result<Self> {
+    pub fn parse(body: &'a [u8], blocks: Option<Arc<Blocks>>) -> Result<Self> {
         if body.len() < 32 {
             bail!("short symbols section");
+        }
+        if !ok(&blocks, &body[..32]) {
+            bail!("symbols header does not match its digest");
         }
         let h: &[u32] = bytemuck::cast_slice(&body[..32]);
         let (n_files, n_syms, n_names, n_super, n_tokens, n_tok_names, arena_len, tok_arena_len) = (
@@ -466,6 +489,7 @@ impl<'a> SymbolsView<'a> {
             tok_arena,
             tok_names_off,
             tok_names,
+            blocks,
         })
     }
     pub fn n_names(&self) -> usize {
@@ -473,27 +497,41 @@ impl<'a> SymbolsView<'a> {
     }
     /// Symbols of a file (segment-local id) and the id of the first one.
     pub fn symbols_of(&self, file_local: u32) -> (u32, &'a [SymRec]) {
-        let f = file_local as usize;
-        if f + 1 >= self.sym_off.len() {
-            return (0, &[]);
+        match bounds(&self.blocks, self.sym_off, file_local as usize) {
+            Some((a, b)) => (a as u32, part(&self.blocks, self.syms, a, b)),
+            None => (0, &[]),
         }
-        let (a, b) = (self.sym_off[f] as usize, self.sym_off[f + 1] as usize);
-        (a as u32, &self.syms[a..b])
+    }
+    /// The symbol with segment-local id `idx`.
+    pub fn sym(&self, idx: u32) -> Option<&'a SymRec> {
+        part(&self.blocks, self.syms, idx as usize, idx as usize + 1).first()
+    }
+    /// Every symbol record, in id order.
+    pub fn all_syms(&self) -> &'a [SymRec] {
+        part(&self.blocks, self.syms, 0, self.syms.len())
     }
     pub fn name(&self, name_id: u32) -> &'a str {
-        let i = name_id as usize;
-        if i + 1 >= self.name_off.len() {
-            return "";
+        match bounds(&self.blocks, self.name_off, name_id as usize) {
+            Some((a, b)) => std::str::from_utf8(part(&self.blocks, self.arena, a, b)).unwrap_or(""),
+            None => "",
         }
-        std::str::from_utf8(&self.arena[self.name_off[i] as usize..self.name_off[i + 1] as usize])
-            .unwrap_or("")
     }
+    /// A failed check makes every later lookup unanswerable.
+    fn bad(&self) -> bool {
+        self.blocks.as_ref().is_some_and(|b| b.bad())
+    }
+    /// The id of `name`, found through verified names only: an absent name is
+    /// absent from the table the build wrote, or the index reads as corrupt.
     pub fn find_name(&self, name: &str) -> Option<u32> {
         let n = self.n_names();
         let (mut lo, mut hi) = (0usize, n);
         while lo < hi {
             let mid = (lo + hi) / 2;
-            match self.name(mid as u32).as_bytes().cmp(name.as_bytes()) {
+            let at = self.name(mid as u32);
+            if self.bad() {
+                return None;
+            }
+            match at.as_bytes().cmp(name.as_bytes()) {
                 std::cmp::Ordering::Less => lo = mid + 1,
                 std::cmp::Ordering::Greater => hi = mid,
                 std::cmp::Ordering::Equal => return Some(mid as u32),
@@ -522,40 +560,45 @@ impl<'a> SymbolsView<'a> {
         {
             hi += 1;
         }
+        if self.bad() {
+            return 0..0;
+        }
         lo as u32..hi as u32
     }
     /// Symbol ids with this name, best first.
     pub fn syms_named(&self, name_id: u32) -> &'a [u32] {
-        let i = name_id as usize;
-        if i + 1 >= self.by_name_off.len() {
-            return &[];
+        match bounds(&self.blocks, self.by_name_off, name_id as usize) {
+            Some((a, b)) => part(&self.blocks, self.by_name, a, b),
+            None => &[],
         }
-        &self.by_name[self.by_name_off[i] as usize..self.by_name_off[i + 1] as usize]
     }
     pub fn supers_of(&self, s: &SymRec) -> &'a [u32] {
-        let (a, b) = (
-            s.super_off as usize,
-            s.super_off as usize + s.super_len as usize,
-        );
-        self.supers.get(a..b).unwrap_or(&[])
+        let a = s.super_off as usize;
+        part(&self.blocks, self.supers, a, a + s.super_len as usize)
     }
     pub fn token(&self, i: usize) -> &'a str {
-        std::str::from_utf8(&self.tok_arena[self.tok_off[i] as usize..self.tok_off[i + 1] as usize])
-            .unwrap_or("")
+        match bounds(&self.blocks, self.tok_off, i) {
+            Some((a, b)) => {
+                std::str::from_utf8(part(&self.blocks, self.tok_arena, a, b)).unwrap_or("")
+            }
+            None => "",
+        }
     }
     pub fn find_token(&self, tok: &str) -> Option<&'a [u32]> {
         let n = self.tok_off.len().saturating_sub(1);
         let (mut lo, mut hi) = (0usize, n);
         while lo < hi {
             let mid = (lo + hi) / 2;
-            match self.token(mid).as_bytes().cmp(tok.as_bytes()) {
+            let at = self.token(mid);
+            if self.bad() {
+                return None;
+            }
+            match at.as_bytes().cmp(tok.as_bytes()) {
                 std::cmp::Ordering::Less => lo = mid + 1,
                 std::cmp::Ordering::Greater => hi = mid,
                 std::cmp::Ordering::Equal => {
-                    return Some(
-                        &self.tok_names[self.tok_names_off[mid] as usize
-                            ..self.tok_names_off[mid + 1] as usize],
-                    );
+                    let (a, b) = bounds(&self.blocks, self.tok_names_off, mid)?;
+                    return Some(part(&self.blocks, self.tok_names, a, b));
                 }
             }
         }
@@ -650,18 +693,23 @@ impl SpanBuilder {
     }
 }
 
+/// Zero-copy view over serialized spans; accessors verify what they read.
 pub struct SpansView<'a> {
-    pub nc_off: &'a [u32],
-    pub nc: &'a [NcRec],
-    pub imp_off: &'a [u32],
-    pub imps: &'a [ImpRec],
-    pub arena: &'a [u8],
+    nc_off: &'a [u32],
+    nc: &'a [NcRec],
+    imp_off: &'a [u32],
+    imps: &'a [ImpRec],
+    arena: &'a [u8],
+    blocks: Option<Arc<Blocks>>,
 }
 
 impl<'a> SpansView<'a> {
-    pub fn parse(body: &'a [u8]) -> Result<Self> {
+    pub fn parse(body: &'a [u8], blocks: Option<Arc<Blocks>>) -> Result<Self> {
         if body.len() < 16 {
             bail!("short spans section");
+        }
+        if !ok(&blocks, &body[..16]) {
+            bail!("spans header does not match its digest");
         }
         let h: &[u32] = bytemuck::cast_slice(&body[..16]);
         let (n_files, n_nc, n_imp, arena_len) =
@@ -684,27 +732,24 @@ impl<'a> SpansView<'a> {
             imp_off,
             imps,
             arena,
+            blocks,
         })
     }
     pub fn noncode_of(&self, file_local: u32) -> &'a [NcRec] {
-        let f = file_local as usize;
-        if f + 1 >= self.nc_off.len() {
-            return &[];
+        match bounds(&self.blocks, self.nc_off, file_local as usize) {
+            Some((a, b)) => part(&self.blocks, self.nc, a, b),
+            None => &[],
         }
-        &self.nc[self.nc_off[f] as usize..self.nc_off[f + 1] as usize]
     }
     pub fn imports_of(&self, file_local: u32) -> &'a [ImpRec] {
-        let f = file_local as usize;
-        if f + 1 >= self.imp_off.len() {
-            return &[];
+        match bounds(&self.blocks, self.imp_off, file_local as usize) {
+            Some((a, b)) => part(&self.blocks, self.imps, a, b),
+            None => &[],
         }
-        &self.imps[self.imp_off[f] as usize..self.imp_off[f + 1] as usize]
     }
     pub fn raw(&self, i: &ImpRec) -> &'a str {
-        std::str::from_utf8(
-            &self.arena[i.raw_off as usize..i.raw_off as usize + i.raw_len as usize],
-        )
-        .unwrap_or("")
+        let a = i.raw_off as usize;
+        std::str::from_utf8(part(&self.blocks, self.arena, a, a + i.raw_len as usize)).unwrap_or("")
     }
     /// Noncode span containing `off`, if any: (kind code, start, end).
     pub fn noncode_at(&self, file_local: u32, off: u32) -> Option<(u8, u32, u32)> {
@@ -1048,7 +1093,7 @@ mod tests {
         sb.add_file(0, None);
         sb.add_file(1, Some(&fx));
         let body = sb.finish(&|_| 0.5);
-        let v = SymbolsView::parse(&body).unwrap();
+        let v = SymbolsView::parse(&body, None).unwrap();
         assert_eq!(v.symbols_of(0).1.len(), 0);
         let (base, syms) = v.symbols_of(1);
         assert_eq!(base, 0);
@@ -1063,7 +1108,7 @@ mod tests {
         let mut sp = SpanBuilder::new(3);
         sp.add_file(1, Some(&fx), &[]);
         let pb = sp.finish();
-        let pv = SpansView::parse(&pb).unwrap();
+        let pv = SpansView::parse(&pb, None).unwrap();
         assert!(pv.noncode_of(1).is_empty());
         let mut g = GraphBuilder::new(3);
         g.add(0, 1, 1);

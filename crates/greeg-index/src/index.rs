@@ -1,6 +1,7 @@
 //! Read side: mmap the components and answer gram, symbol and span queries.
 
 use crate::format::{self, FileRec, FilesView, GramsView, ImpRec, NONE, SymRec};
+use crate::integrity::{self, Blocks};
 use crate::plan::Q;
 use crate::symtab::{DeltaGraphView, GraphView, SpansView, SymbolsView};
 use crate::words::WordsView;
@@ -13,7 +14,7 @@ use roaring::RoaringBitmap;
 use std::borrow::Cow;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 pub struct Segment {
     /// Maps backing the views below (self-referential by construction; never
@@ -35,6 +36,9 @@ pub struct Segment {
     /// Absolute ids of tracked-only files (ignore files): never candidates.
     hidden: RoaringBitmap,
     corrupt: std::sync::atomic::AtomicBool,
+    /// The blocks of its components verified as they are read
+    /// (`integrity.rs`); empty for a segment verified whole when opened.
+    blocks: Vec<Arc<Blocks>>,
 }
 
 fn open_file(path: &Path) -> Result<fs::File> {
@@ -50,16 +54,49 @@ fn map(f: &fs::File, advice: Advice) -> Result<Mmap> {
     Ok(m)
 }
 
-/// Map a component of snapshot `id` and check its header against it.
+/// Map a component of snapshot `id`, check its header against it and its
+/// trailer against the digest the manifest records for `name`. With
+/// `eager`, every block is verified now; otherwise as it is read. Returns
+/// the map, the body and its blocks.
 fn map_checked(
     f: &fs::File,
     comp: u8,
     id: format::Ident,
     advice: Advice,
-) -> Result<(Mmap, &'static [u8])> {
+    manifest: &Manifest,
+    name: &str,
+    eager: bool,
+) -> Result<(Mmap, &'static [u8], Arc<Blocks>)> {
     let m = map(f, advice)?;
-    let body = leak(format::check_ident(&m, comp, id)?);
-    Ok((m, body))
+    let parts = format::check_ident(&m, comp, id)?;
+    let (body, blocks) = verify(&parts, comp, manifest, name, eager)?;
+    Ok((m, body, blocks))
+}
+
+/// Check a component's trailer against the digest the manifest records for
+/// `name`, and with `eager` every block now.
+fn verify(
+    parts: &format::Parts<'_>,
+    comp: u8,
+    manifest: &Manifest,
+    name: &str,
+    eager: bool,
+) -> Result<(&'static [u8], Arc<Blocks>)> {
+    let (body, trailer) = (leak(parts.body), leak(parts.trailer));
+    let want = manifest
+        .roots
+        .get(name)
+        .with_context(|| format!("manifest records no digest for {name}"))?;
+    if integrity::root(trailer) != *want {
+        integrity::note_failed();
+        bail!("{name}: block digests do not match the manifest");
+    }
+    let blocks = Blocks::new(body, trailer, parts.block as usize);
+    if (eager || body.len() < integrity::EAGER_FILES && comp == format::COMP_FILES) && !blocks.all()
+    {
+        bail!("{name}: a block does not match its digest");
+    }
+    Ok((body, blocks))
 }
 
 fn leak<'a>(b: &'a [u8]) -> &'static [u8] {
@@ -113,20 +150,20 @@ fn parse_delta(body: &'static [u8]) -> Result<DeltaParts> {
     let wb = section(h[7], "words")?;
     let tb = body.get(off..).context("delta tombstones truncated")?;
     let tomb = RoaringBitmap::deserialize_from(tb).context("delta tombstone bitmap corrupt")?;
-    let files = FilesView::parse(fb)?;
-    if files.files.len() != h[1] {
+    let files = FilesView::parse(fb, None)?;
+    if files.len() != h[1] {
         bail!("delta file count mismatch");
     }
-    let grams = GramsView::parse(gb)?;
+    let grams = GramsView::parse(gb, None)?;
     let symbols = if sb.is_empty() {
         None
     } else {
-        Some(SymbolsView::parse(sb)?)
+        Some(SymbolsView::parse(sb, None)?)
     };
     let spans = if pb.is_empty() {
         None
     } else {
-        Some(SpansView::parse(pb)?)
+        Some(SpansView::parse(pb, None)?)
     };
     let dgraph = if db.is_empty() {
         None
@@ -140,7 +177,7 @@ fn parse_delta(body: &'static [u8]) -> Result<DeltaParts> {
     let words = if wb.is_empty() {
         None
     } else {
-        Some(WordsView::parse(wb)?)
+        Some(WordsView::parse(wb, None)?)
     };
     Ok(DeltaParts {
         files,
@@ -168,9 +205,7 @@ impl Segment {
         self.spans.as_ref()
     }
     pub fn rec(&self, id: u32) -> Option<&FileRec> {
-        self.files
-            .files
-            .get(id.checked_sub(self.first_id)? as usize)
+        self.files.rec(id.checked_sub(self.first_id)? as usize)
     }
     pub fn path(&self, id: u32) -> Option<&[u8]> {
         self.rec(id).map(|r| self.files.path(r))
@@ -195,7 +230,7 @@ impl Segment {
         let i = self.grams.find(key)?;
         let bytes = self.grams.posting_bytes(i);
         match RoaringBitmap::deserialize_from(bytes) {
-            Ok(bm) => Some((self.grams.counts[i], bm)),
+            Ok(bm) => Some((self.grams.count(i), bm)),
             Err(_) => {
                 self.corrupt
                     .store(true, std::sync::atomic::Ordering::Relaxed);
@@ -205,6 +240,7 @@ impl Segment {
     }
     pub fn corrupt(&self) -> bool {
         self.corrupt.load(std::sync::atomic::Ordering::Relaxed)
+            || self.blocks.iter().any(|b| b.bad())
     }
     /// Union of the word postings of `alts` (ARCHITECTURE.md); `None` when this
     /// segment has no word section. An absent word contributes nothing; an
@@ -239,7 +275,7 @@ impl Segment {
                 for x in v {
                     match x {
                         Q::Gram(g) => match self.grams.find(*g) {
-                            Some(i) => lists.push((self.grams.counts[i], *g)),
+                            Some(i) => lists.push((self.grams.count(i), *g)),
                             None => return Some(RoaringBitmap::new()),
                         },
                         other => subs.push(other),
@@ -298,6 +334,8 @@ pub struct Index {
     /// that removes the file leaves this reader its snapshot's graph.
     graph_file: Option<fs::File>,
     graph: OnceLock<Option<(Mmap, GraphView<'static>)>>,
+    /// The graph failed its check when first used.
+    graph_bad: std::sync::atomic::AtomicBool,
     /// Delta file id → id of the version it superseded (from the delta graph sections).
     prev: HashMap<u32, u32>,
     /// Superseded id → the delta file id that replaced it.
@@ -401,26 +439,69 @@ impl Index {
         };
 
         // the file table is read for every candidate; postings are touched sparsely
-        let (fmap, fbody) =
-            map_checked(&files_f.0, format::COMP_FILES, files_f.1, Advice::WillNeed)?;
-        let (gmap, gbody) = map_checked(&grams_f.0, format::COMP_GRAMS, grams_f.1, Advice::Random)?;
-        let (wmap, wbody) = map_checked(&words_f.0, format::COMP_WORDS, words_f.1, Advice::Random)?;
-        let files = FilesView::parse(fbody)?;
-        let grams = GramsView::parse(gbody)?;
-        let words = Some(WordsView::parse(wbody)?);
-        let n = files.files.len() as u32;
+        let named = |comp: u8| manifest.component(comp).map(|(n, _)| n).unwrap_or_default();
+        let (fmap, fbody, fblocks) = map_checked(
+            &files_f.0,
+            format::COMP_FILES,
+            files_f.1,
+            Advice::WillNeed,
+            &manifest,
+            &named(format::COMP_FILES),
+            false,
+        )?;
+        let (gmap, gbody, gblocks) = map_checked(
+            &grams_f.0,
+            format::COMP_GRAMS,
+            grams_f.1,
+            Advice::Random,
+            &manifest,
+            &named(format::COMP_GRAMS),
+            false,
+        )?;
+        let (wmap, wbody, wblocks) = map_checked(
+            &words_f.0,
+            format::COMP_WORDS,
+            words_f.1,
+            Advice::Random,
+            &manifest,
+            &named(format::COMP_WORDS),
+            false,
+        )?;
+        let files = FilesView::parse(fbody, Some(fblocks.clone()))?;
+        let grams = GramsView::parse(gbody, Some(gblocks.clone()))?;
+        let words = Some(WordsView::parse(wbody, Some(wblocks.clone()))?);
+        let n = files.len() as u32;
         let mut maps = vec![fmap, gmap, wmap];
+        let mut blocks = vec![fblocks, gblocks, wblocks];
         let (mut symbols, mut spans) = (None, None);
         if let (Some((sf, sid)), Some((pf, pid))) = (symbols_f, spans_f) {
-            let (smap, sbody) = map_checked(&sf, format::COMP_SYMBOLS, sid, Advice::Random)?;
-            let (pmap, pbody) = map_checked(&pf, format::COMP_SPANS, pid, Advice::Random)?;
-            symbols = Some(SymbolsView::parse(sbody)?);
-            spans = Some(SpansView::parse(pbody)?);
+            let (smap, sbody, sblocks) = map_checked(
+                &sf,
+                format::COMP_SYMBOLS,
+                sid,
+                Advice::Random,
+                &manifest,
+                &named(format::COMP_SYMBOLS),
+                false,
+            )?;
+            let (pmap, pbody, pblocks) = map_checked(
+                &pf,
+                format::COMP_SPANS,
+                pid,
+                Advice::Random,
+                &manifest,
+                &named(format::COMP_SPANS),
+                false,
+            )?;
+            symbols = Some(SymbolsView::parse(sbody, Some(sblocks.clone()))?);
+            spans = Some(SpansView::parse(pbody, Some(pblocks.clone()))?);
             maps.push(smap);
             maps.push(pmap);
+            blocks.push(sblocks);
+            blocks.push(pblocks);
         }
-        let huge = ids_bitmap(0, files.huge);
-        let hidden = ids_bitmap(0, files.hidden);
+        let huge = ids_bitmap(0, files.huge());
+        let hidden = ids_bitmap(0, files.hidden());
         let base = Segment {
             _maps: maps,
             files,
@@ -434,8 +515,10 @@ impl Index {
             huge,
             hidden,
             corrupt: Default::default(),
+            blocks,
         };
-        // only the deltas the manifest names, in order, each of this build
+        // only the deltas the manifest names, in order, each of this build;
+        // verified whole, as they are small and read at once
         let mut deltas = Vec::with_capacity(manifest.deltas as usize);
         let mut tomb = RoaringBitmap::new();
         let mut next = n;
@@ -446,8 +529,16 @@ impl Index {
                 epoch: manifest.epoch,
                 seq,
             };
-            let (map, body) = map_checked(&f, format::COMP_DELTA, id, Advice::WillNeed)
-                .with_context(|| format!("delta {}", p.display()))?;
+            let (map, body, _) = map_checked(
+                &f,
+                format::COMP_DELTA,
+                id,
+                Advice::WillNeed,
+                &manifest,
+                &manifest.delta(seq),
+                true,
+            )
+            .with_context(|| format!("delta {}", p.display()))?;
             let DeltaParts {
                 files,
                 grams,
@@ -464,7 +555,7 @@ impl Index {
                     p.display()
                 );
             }
-            let n = files.files.len() as u32;
+            let n = files.len() as u32;
             next = first_id + n;
             tomb |= t;
             if let Some(g) = &dgraph {
@@ -476,8 +567,8 @@ impl Index {
                     }
                 }
             }
-            let huge = ids_bitmap(first_id, files.huge);
-            let hidden = ids_bitmap(first_id, files.hidden);
+            let huge = ids_bitmap(first_id, files.huge());
+            let hidden = ids_bitmap(first_id, files.hidden());
             deltas.push(Segment {
                 _maps: vec![map],
                 files,
@@ -491,12 +582,29 @@ impl Index {
                 huge,
                 hidden,
                 corrupt: Default::default(),
+                blocks: Vec::new(),
             });
         }
-        // a record of another build is not this snapshot's
-        let skipped = skipped_f
-            .and_then(|f| map(&f, Advice::Sequential).ok())
-            .filter(|m| m.get(24..32) == Some(&manifest.epoch.to_le_bytes()[..]));
+        // the record this snapshot names, verified whole; without one the
+        // index's coverage is unknown and requests it would decide scan
+        let skipped = skipped_f.and_then(|f| {
+            let m = map(&f, Advice::Sequential).ok()?;
+            // a record's sequence is the publication that wrote it
+            let id = format::Ident {
+                epoch: manifest.epoch,
+                seq: u32::from_le_bytes(m.get(32..36)?.try_into().ok()?),
+            };
+            let parts = format::check_ident(&m, format::COMP_SKIPPED, id).ok()?;
+            verify(
+                &parts,
+                format::COMP_SKIPPED,
+                &manifest,
+                &manifest.skipped,
+                true,
+            )
+            .ok()?;
+            Some(m)
+        });
         Ok(Index {
             dir: dir.to_path_buf(),
             manifest,
@@ -505,6 +613,7 @@ impl Index {
             tomb,
             graph_file,
             graph: OnceLock::new(),
+            graph_bad: Default::default(),
             prev: prev_map,
             next: next_map,
             skipped,
@@ -572,7 +681,7 @@ impl Index {
     pub fn has_dir(&self, rel: &[u8]) -> bool {
         self.segments().any(|(_, seg)| {
             let fv = seg.files();
-            fv.dirs.iter().any(|d| fv.dir_path(d) == rel)
+            fv.dirs().iter().any(|d| fv.dir_path(d) == rel)
         })
     }
 
@@ -582,6 +691,7 @@ impl Index {
     /// Any segment hit an unreadable posting list during this query.
     pub fn corrupt(&self) -> bool {
         self.segments().any(|(_, s)| s.corrupt())
+            || self.graph_bad.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Live file ids matching the plan: (base ∪ deltas) minus tombstones.
@@ -639,22 +749,23 @@ impl Index {
         let finder = memchr::memmem::Finder::new(nb);
         let mut counts: HashMap<&[u8], usize> = HashMap::new();
         for (_, seg) in self.segments() {
-            let Some(wv) = seg.words.as_ref() else {
+            let Some((word_off, arena, wcounts)) = seg.words.as_ref().and_then(|w| w.dictionary())
+            else {
                 continue;
             };
-            for h in finder.find_iter(wv.arena) {
-                let Some(i) = wv.word_at_offset(h) else {
+            for h in finder.find_iter(arena) {
+                let Some(i) = crate::words::word_at_offset(word_off, h) else {
                     continue;
                 };
                 // the hit must lie inside this word, and the word must be longer
-                if h + nb.len() > wv.word_off[i + 1] as usize {
+                if h + nb.len() > word_off[i + 1] as usize {
                     continue;
                 }
-                let w = wv.word(i);
+                let w = &arena[word_off[i] as usize..word_off[i + 1] as usize];
                 if w == nb {
                     continue;
                 }
-                *counts.entry(w).or_default() += wv.counts[i] as usize;
+                *counts.entry(w).or_default() += wcounts[i] as usize;
             }
         }
         let mut v: Vec<(String, usize)> = counts
@@ -694,7 +805,7 @@ impl Index {
     pub fn tracked_files(&self) -> impl Iterator<Item = (u32, &[u8], &FileRec)> + '_ {
         self.segments().flat_map(move |(_, seg)| {
             let fv = seg.files();
-            fv.files.iter().enumerate().filter_map(move |(i, rec)| {
+            fv.recs().iter().enumerate().filter_map(move |(i, rec)| {
                 let id = seg.first_id + i as u32;
                 if self.tomb.contains(id) {
                     None
@@ -722,11 +833,7 @@ impl Index {
         ))
     }
     pub fn sym(&self, s: SymId) -> Option<&SymRec> {
-        self.segment(s.seg)
-            .symbols
-            .as_ref()?
-            .syms
-            .get(s.idx as usize)
+        self.segment(s.seg).symbols.as_ref()?.sym(s.idx)
     }
     pub fn sym_name(&self, s: SymId) -> &str {
         let seg = self.segment(s.seg);
@@ -788,8 +895,8 @@ impl Index {
                 continue;
             };
             for &idx in sv.syms_named(nid) {
-                let file = seg.first_id + sv.syms[idx as usize].file;
-                if !self.tomb.contains(file) {
+                let Some(r) = sv.sym(idx) else { continue };
+                if !self.tomb.contains(seg.first_id + r.file) {
                     out.push(SymId { seg: si, idx });
                 }
             }
@@ -814,7 +921,7 @@ impl Index {
             let Some(nid) = sv.find_name(name) else {
                 continue;
             };
-            for (idx, r) in sv.syms.iter().enumerate() {
+            for (idx, r) in sv.all_syms().iter().enumerate() {
                 if r.super_len > 0
                     && sv.supers_of(r).contains(&nid)
                     && !self.tomb.contains(seg.first_id + r.file)
@@ -926,13 +1033,21 @@ impl Index {
                     epoch: self.manifest.epoch,
                     seq,
                 };
-                let (map, body) = map_checked(
+                // verified whole, on first use
+                let checked = map_checked(
                     self.graph_file.as_ref()?,
                     format::COMP_GRAPH,
                     id,
                     Advice::WillNeed,
-                )
-                .ok()?;
+                    &self.manifest,
+                    &self.manifest.component(format::COMP_GRAPH)?.0,
+                    true,
+                );
+                let Ok((map, body, _)) = checked else {
+                    self.graph_bad
+                        .store(true, std::sync::atomic::Ordering::Relaxed);
+                    return None;
+                };
                 let view = GraphView::parse(body).ok()?;
                 Some((map, view))
             })
@@ -1042,7 +1157,7 @@ impl Index {
         let finder = memchr::memmem::Finder::new(nb);
         for (_, seg) in self.segments() {
             let fv = seg.files();
-            let arena = fv.arena;
+            let (arena, recs) = (fv.arena(), fv.recs());
             for h in finder.find_iter(arena) {
                 let after = h + nb.len();
                 let Some(&sep) = arena.get(after) else {
@@ -1054,11 +1169,11 @@ impl Index {
                 // the file record holding this offset (records are in path order,
                 // so their arena offsets ascend; directory paths between them fail
                 // the range check)
-                let i = fv.files.partition_point(|r| (r.path_off as usize) <= h);
+                let i = recs.partition_point(|r| (r.path_off as usize) <= h);
                 if i == 0 {
                     continue;
                 }
-                let r = &fv.files[i - 1];
+                let r = &recs[i - 1];
                 let (ps, pe) = (
                     r.path_off as usize,
                     r.path_off as usize + r.path_len as usize,

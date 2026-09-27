@@ -107,8 +107,17 @@ impl Skipped {
         Ok(s)
     }
 
-    pub fn write(&self, path: &Path, id: format::Ident) -> Result<()> {
-        format::write_atomic_with(path, format::COMP_SKIPPED, id, &self.serialize(), false)
+    /// Returns the trailer digest, for the manifest.
+    pub fn write(&self, path: &Path, id: format::Ident) -> Result<String> {
+        let block = crate::integrity::BLOCK;
+        format::write_atomic_with(
+            path,
+            format::COMP_SKIPPED,
+            id,
+            &self.serialize(),
+            block,
+            false,
+        )
     }
 
     /// A record file's contents; `None` when it is not a valid record.

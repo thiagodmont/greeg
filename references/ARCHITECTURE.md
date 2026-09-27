@@ -43,9 +43,11 @@ instead and rebuilds.
 Every component is a flat, fixed-width table read through `mmap`, with no
 deserialization step, after a 48-byte header: magic `GREEG\0\0\0`, format
 u32, component u8, 3 reserved bytes, payload length u64, epoch u64, sequence
-u32 and 12 reserved bytes. Each build writes its components into its own
-directory, `g-<epoch>/`, under a random 64-bit epoch; a `manifest` (JSON) names
-the current build and the file of each component.
+u32, block size u32 and 8 reserved bytes. A trailer follows the payload: an
+8-byte blake3 digest of each 16 KiB block. Each build writes its components
+into its own directory, `g-<epoch>/`, under a random 64-bit epoch; a
+`manifest` (JSON) names the current build, the file of each component and,
+in `roots`, the digest of each file's trailer.
 
 | File | Holds | Used for |
 |---|---|---|
@@ -64,6 +66,14 @@ ever renamed over, so the manifest a reader read names one whole snapshot. Every
 header carries the build's epoch and the component's sequence (a delta's is its
 number), and a reader checks them against the manifest, with the payload
 length: a delta or record of another build is never applied.
+
+A reader trusts no byte it has not checked against the build. Opening a
+component compares its trailer with the manifest's root. Deltas, `skipped`
+records, file tables under 4 MiB, and the graph at first use are then
+verified whole. The grams, words, symbols, spans and larger file tables
+are verified block by block as a query reads them, and each block once per
+process. This detects accidental corruption (a disk, a copy, a stray
+write), not a same-user adversary, who could rewrite the manifest too.
 
 Paths are the bytes of each name below the root, joined by `/`, the only
 separator on Unix: a backslash or a byte that is not UTF-8 is part of a name
@@ -577,13 +587,15 @@ coverage against your fixtures.
 ## When things go wrong
 
 The index is a cache, and the failures below end in a correct answer.
-Structural checks cover shape, not content: a dictionary mutated without
-changing its lengths can still produce a silent no-hit answer.
 
 A panic anywhere in the index path is caught, degrades to a scan, and queues a
-background rebuild. A corrupt posting list reads as "every file" and marks the
-index for rebuild; a superset is harmless, because verification runs the real
-matcher anyway. A truncated component fails to open and triggers a rebuild,
+background rebuild. A block whose digest does not match, a dictionary entry
+or posting list changed without changing its length included, marks the
+index corrupt: the query is answered again from a scan before anything is
+printed, a rebuild is queued, and no delta is published from it. A posting
+list that does not decode reads as "every file" and marks the index for
+rebuild; a superset is harmless, because verification runs the real matcher
+anyway. A truncated component fails to open and triggers a rebuild,
 unless the snapshot changed while it was opened. Marking an index corrupt
 marks the manifest unusable, only if it still names the snapshot the reader
 opened; the rebuild that follows retires that build like any other.

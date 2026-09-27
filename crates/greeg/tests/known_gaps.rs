@@ -957,26 +957,13 @@ fn a_graph_discloses_files_added_since_it_was_built() {
 }
 
 #[test]
-#[ignore = "known gap: a shape-valid dictionary corruption returns no hits"]
 fn a_corrupted_dictionary_never_gives_an_authoritative_empty_answer() {
     let f = Fixture::new(&[("a.txt", "alpha_unique\n")]);
     f.indexed();
-    let mut mutated = 0;
-    for entry in fs::read_dir(f.layout()).unwrap() {
-        let p = entry.unwrap().path();
-        let name = p.file_name().unwrap().to_string_lossy().into_owned();
-        if name.starts_with("words") && name.ends_with(".bin") {
-            let bytes = fs::read(&p).unwrap();
-            let Some(at) = bytes.windows(12).position(|w| w == b"alpha_unique") else {
-                continue;
-            };
-            let mut bytes = bytes;
-            bytes[at] = b'b';
-            fs::write(&p, bytes).unwrap();
-            mutated += 1;
-        }
-    }
-    assert!(mutated > 0, "no dictionary holds the word");
+    assert!(
+        mutate(&f, "words.", b"alpha_unique") > 0,
+        "no dictionary holds the word"
+    );
     let o = f.run(&["--budget", "0", "-w", "alpha_unique"]);
     assert_ne!(
         o.status.code(),
@@ -986,6 +973,111 @@ fn a_corrupted_dictionary_never_gives_an_authoritative_empty_answer() {
     if o.status.code() == Some(0) {
         assert_eq!(stdout(&o), "a.txt:1:alpha_unique\n");
     }
+}
+
+/// Flip the first byte of `needle` in every component named `prefix*.bin`
+/// of the current build; returns how many files changed.
+fn mutate(f: &Fixture, prefix: &str, needle: &[u8]) -> usize {
+    let mut mutated = 0;
+    for p in component_files(f, prefix) {
+        let mut bytes = fs::read(&p).unwrap();
+        let Some(at) = bytes.windows(needle.len()).position(|w| w == needle) else {
+            continue;
+        };
+        bytes[at] ^= 0x20;
+        fs::write(&p, bytes).unwrap();
+        mutated += 1;
+    }
+    mutated
+}
+
+/// The files `prefix*.bin` of the build the manifest names.
+fn component_files(f: &Fixture, prefix: &str) -> Vec<PathBuf> {
+    let m = greeg_index::read_manifest(&f.layout()).expect("an index");
+    let dir = f.layout().join(greeg_index::snapshot::gen_dir(m.epoch));
+    let mut v: Vec<PathBuf> = fs::read_dir(dir)
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .filter(|p| {
+            let name = p.file_name().unwrap().to_string_lossy();
+            name.starts_with(prefix) && name.ends_with(".bin")
+        })
+        .collect();
+    v.sort();
+    v
+}
+
+/// A posting list changed so that it still decodes, but names another file
+/// (`{0}` becomes `{1}`), lengths unchanged: the file still matches.
+#[test]
+fn a_corrupted_posting_list_never_removes_a_match() {
+    let f = Fixture::new(&[("a.txt", "alpha_unique beta\n"), ("b.txt", "gamma\n")]);
+    f.indexed();
+    let files = component_files(&f, "words.");
+    assert_eq!(files.len(), 1, "one word dictionary");
+    let mut bytes = fs::read(&files[0]).unwrap();
+    // the word section's layout (`words.rs`): the first posting is the first
+    // word's, alpha_unique's, a one-container roaring list whose single value
+    // follows its 16-byte descriptor
+    let u32_at = |b: &[u8], o: usize| u32::from_le_bytes(b[o..o + 4].try_into().unwrap()) as usize;
+    let body = 48;
+    let (n, arena) = (u32_at(&bytes, body), u32_at(&bytes, body + 4));
+    let mut off = 16 + (n + 1) * 4;
+    off = (off + arena + 7) & !7;
+    off = (off + n * 4 + 7) & !7;
+    let postings = body + off + (n + 1) * 8;
+    assert_eq!(
+        u32_at(&bytes, postings),
+        12346,
+        "a roaring list without runs"
+    );
+    assert_eq!(bytes[postings + 16], 0, "the list holds file 0");
+    bytes[postings + 16] = 1;
+    fs::write(&files[0], bytes).unwrap();
+    let o = f.run(&["--budget", "0", "-w", "alpha_unique"]);
+    assert_eq!(
+        (o.status.code(), stdout(&o)),
+        (Some(0), "a.txt:1:alpha_unique beta\n".to_string()),
+        "{o:?}"
+    );
+}
+
+/// A changed byte in a symbol name, lengths unchanged, never hides the
+/// definition.
+#[test]
+fn a_corrupted_symbol_name_never_hides_a_definition() {
+    let f = Fixture::new(&[("lib.rs", "pub fn alpha_helper() {}\n")]);
+    f.indexed();
+    assert!(
+        mutate(&f, "symbols.", b"alpha_helper") > 0,
+        "no symbol table holds the name"
+    );
+    let o = f.run(&["def", "alpha_helper"]);
+    assert_eq!(o.status.code(), Some(0), "{o:?}");
+    assert!(stdout(&o).contains("lib.rs"), "{o:?}");
+}
+
+/// `map` has no answer without the index: a graph that fails its check ends
+/// in exit 2 naming the rebuild, never a map from its bytes.
+#[test]
+fn a_corrupted_graph_is_never_mapped() {
+    let f = Fixture::new(&[
+        ("src/main.rs", "mod util;\nfn main() { util::helper(); }\n"),
+        ("src/util.rs", "pub fn helper() {}\n"),
+    ]);
+    f.indexed();
+    let graphs = component_files(&f, "graph.");
+    assert_eq!(graphs.len(), 1, "one graph");
+    let mut bytes = fs::read(&graphs[0]).unwrap();
+    let last = bytes.len() - 1;
+    // the trailer's last digest byte: the file keeps its shape
+    bytes[last] ^= 0x01;
+    fs::write(&graphs[0], bytes).unwrap();
+    let o = f.run(&["--json", "--fresh", "none", "map"]);
+    assert_eq!(o.status.code(), Some(2), "{o:?}");
+    let out = stdout(&o);
+    assert_eq!(out.lines().count(), 1, "{out}");
+    assert!(out.contains(r#""reason":"corrupt""#), "{out}");
 }
 
 #[cfg(unix)]

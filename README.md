@@ -330,7 +330,9 @@ it. See [`references/ARCHITECTURE.md`](references/ARCHITECTURE.md).
 
 **When something goes wrong**: a panic in the index path, a corrupt component
 or a truncated file all fall back to a scan-mode answer plus a background
-rebuild. You get a correct answer either way. Writers hold a lock and publish
+rebuild. Every component carries a digest per block, checked as it is read,
+so a changed byte is found before it can change an answer. You get a correct
+answer either way. Writers hold a lock and publish
 atomically; readers never lock.
 
 ## Development

@@ -1,10 +1,11 @@
 //! On-disk layouts. All integers little-endian. Every file starts with a
 //! 48-byte header: magic "GREEG\0\0\0", format u32, component u8, 3 reserved,
-//! payload length u64, epoch u64, sequence u32, 12 reserved. The epoch and
-//! sequence name the snapshot the file belongs to (`snapshot.rs`): its
-//! build and its publication within the build. Fixed-width tables are
-//! 8-byte aligned so they can be viewed as `&[u32]`/`&[u64]` straight from
-//! the mmap.
+//! payload length u64, epoch u64, sequence u32, block size u32, 8 reserved.
+//! The epoch and sequence name the snapshot the file belongs to
+//! (`snapshot.rs`): its build and its publication within the build. The
+//! payload is followed by its trailer, a digest per block (`integrity.rs`).
+//! Fixed-width tables are 8-byte aligned so they can be viewed as
+//! `&[u32]`/`&[u64]` straight from the mmap.
 //!
 //! Every build writes into `g-<epoch>/` inside the layout directory:
 //! `<kind>.<seq>.bin` for base components (seq 1 from phase 1, 2 from phase
@@ -63,10 +64,12 @@
 //! Writers (build publish, delta apply) hold an exclusive `flock` on `LOCK`;
 //! readers never lock (ARCHITECTURE.md).
 
+use crate::integrity::{Blocks, ok};
 use anyhow::{Context, Result, bail};
 use bytemuck::{Pod, Zeroable};
 use std::io::Write;
 use std::path::Path;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 pub const MAGIC: &[u8; 8] = b"GREEG\0\0\0";
@@ -202,7 +205,13 @@ pub struct Ident {
     pub seq: u32,
 }
 
-pub fn write_header(w: &mut impl Write, comp: u8, id: Ident, payload_len: u64) -> Result<()> {
+pub fn write_header(
+    w: &mut impl Write,
+    comp: u8,
+    id: Ident,
+    payload_len: u64,
+    block: u32,
+) -> Result<()> {
     let mut h = [0u8; HEADER_LEN];
     h[..8].copy_from_slice(MAGIC);
     h[8..12].copy_from_slice(&crate::FORMAT_VERSION.to_le_bytes());
@@ -210,19 +219,35 @@ pub fn write_header(w: &mut impl Write, comp: u8, id: Ident, payload_len: u64) -
     h[16..24].copy_from_slice(&payload_len.to_le_bytes());
     h[24..32].copy_from_slice(&id.epoch.to_le_bytes());
     h[32..36].copy_from_slice(&id.seq.to_le_bytes());
+    h[36..40].copy_from_slice(&block.to_le_bytes());
     w.write_all(&h)?;
     Ok(())
 }
 
-/// `check_header`, and the header names snapshot `id` and the payload ends
-/// the file: a component of another build or publication is refused.
-pub fn check_ident(bytes: &[u8], comp: u8, id: Ident) -> Result<&[u8]> {
-    check_ident_header(bytes, bytes.len() as u64, comp, id)?;
-    Ok(&bytes[HEADER_LEN..])
+/// A component's parts: its payload, the trailer of block digests after it,
+/// and the block size.
+pub struct Parts<'a> {
+    pub body: &'a [u8],
+    pub trailer: &'a [u8],
+    pub block: u32,
 }
 
-/// `check_ident` from the header alone, for a file of `file_len` bytes.
-pub fn check_ident_header(h: &[u8], file_len: u64, comp: u8, id: Ident) -> Result<()> {
+/// `check_header`, and the header names snapshot `id` and the payload and
+/// its trailer end the file: a component of another build or publication is
+/// refused.
+pub fn check_ident(bytes: &[u8], comp: u8, id: Ident) -> Result<Parts<'_>> {
+    let (len, block) = check_ident_header(bytes, bytes.len() as u64, comp, id)?;
+    let end = HEADER_LEN + len as usize;
+    Ok(Parts {
+        body: &bytes[HEADER_LEN..end],
+        trailer: &bytes[end..],
+        block,
+    })
+}
+
+/// `check_ident` from the header alone, for a file of `file_len` bytes:
+/// the payload length and block size.
+pub fn check_ident_header(h: &[u8], file_len: u64, comp: u8, id: Ident) -> Result<(u64, u32)> {
     let len = fields(h, comp)?;
     let epoch = u64::from_le_bytes(h[24..32].try_into().unwrap());
     let seq = u32::from_le_bytes(h[32..36].try_into().unwrap());
@@ -233,9 +258,16 @@ pub fn check_ident_header(h: &[u8], file_len: u64, comp: u8, id: Ident) -> Resul
             id.seq
         );
     }
+    let block = u32::from_le_bytes(h[36..40].try_into().unwrap());
+    if block == 0 {
+        bail!("index file without a block size");
+    }
+    let want = len
+        .checked_add(crate::integrity::trailer_len(len, block))
+        .context("index file length overflows")?;
     match file_len.checked_sub(HEADER_LEN as u64) {
-        Some(n) if n == len => Ok(()),
-        Some(n) if n > len => bail!("index file longer than its header says"),
+        Some(n) if n == want => Ok((len, block)),
+        Some(n) if n > want => bail!("index file longer than its header says"),
         _ => bail!("truncated index file"),
     }
 }
@@ -332,19 +364,25 @@ impl FileTable {
     }
 }
 
-/// Zero-copy view over a serialized file table.
+/// Zero-copy view over a serialized file table. Its accessors verify the
+/// bytes they return (`integrity.rs`): after a failed check they return
+/// nothing, and the index reads as corrupt.
 pub struct FilesView<'a> {
-    pub files: &'a [FileRec],
-    pub dirs: &'a [DirRec],
-    pub arena: &'a [u8],
-    pub huge: &'a [u32],
-    pub hidden: &'a [u32],
+    files: &'a [FileRec],
+    dirs: &'a [DirRec],
+    arena: &'a [u8],
+    huge: &'a [u32],
+    hidden: &'a [u32],
+    blocks: Option<Arc<Blocks>>,
 }
 
 impl<'a> FilesView<'a> {
-    pub fn parse(body: &'a [u8]) -> Result<Self> {
+    pub fn parse(body: &'a [u8], blocks: Option<Arc<Blocks>>) -> Result<Self> {
         if body.len() < 16 {
             bail!("short files section");
+        }
+        if !ok(&blocks, &body[..16]) {
+            bail!("files header does not match its digest");
         }
         let n_files = u32::from_le_bytes(body[0..4].try_into().unwrap()) as usize;
         let n_dirs = u32::from_le_bytes(body[4..8].try_into().unwrap()) as usize;
@@ -361,6 +399,9 @@ impl<'a> FilesView<'a> {
         let arena = body.get(off..off + arena_len).context("arena truncated")?;
         off = (off + arena_len + 7) & !7;
         let counts = body.get(off..off + 8).context("id lists truncated")?;
+        if !ok(&blocks, counts) {
+            bail!("files id lists do not match their digest");
+        }
         let n_huge = u32::from_le_bytes(counts[0..4].try_into().unwrap()) as usize;
         let n_hidden = u32::from_le_bytes(counts[4..8].try_into().unwrap()) as usize;
         off += 8;
@@ -371,6 +412,9 @@ impl<'a> FilesView<'a> {
         let ib = body
             .get(off..off + n_hidden * 4)
             .context("hidden list truncated")?;
+        if !ok(&blocks, hb) || !ok(&blocks, ib) {
+            bail!("files id lists do not match their digest");
+        }
         let huge: &[u32] =
             bytemuck::try_cast_slice(hb).map_err(|_| anyhow::anyhow!("unaligned huge list"))?;
         let hidden: &[u32] =
@@ -384,14 +428,63 @@ impl<'a> FilesView<'a> {
             arena,
             huge,
             hidden,
+            blocks,
         })
+    }
+    pub fn len(&self) -> usize {
+        self.files.len()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.files.is_empty()
+    }
+    /// The record of segment-local file `i`.
+    pub fn rec(&self, i: usize) -> Option<&'a FileRec> {
+        let r = self.files.get(i..i + 1)?;
+        ok(&self.blocks, r).then(|| &r[0])
+    }
+    /// Every file record, in id order.
+    pub fn recs(&self) -> &'a [FileRec] {
+        if ok(&self.blocks, self.files) {
+            self.files
+        } else {
+            &[]
+        }
+    }
+    pub fn dirs(&self) -> &'a [DirRec] {
+        if ok(&self.blocks, self.dirs) {
+            self.dirs
+        } else {
+            &[]
+        }
+    }
+    /// The path arena, every file's and directory's path bytes.
+    pub fn arena(&self) -> &'a [u8] {
+        if ok(&self.blocks, self.arena) {
+            self.arena
+        } else {
+            &[]
+        }
+    }
+    /// Segment-local ids of files above `MAX_FILE` and of tracked-only files.
+    pub fn huge(&self) -> &'a [u32] {
+        self.huge
+    }
+    pub fn hidden(&self) -> &'a [u32] {
+        self.hidden
+    }
+    fn arena_range(&self, off: u32, len: u16) -> &'a [u8] {
+        let r = self
+            .arena
+            .get(off as usize..off as usize + len as usize)
+            .unwrap_or_default();
+        if ok(&self.blocks, r) { r } else { &[] }
     }
     /// The root-relative path's bytes (`rel`).
     pub fn path(&self, f: &FileRec) -> &'a [u8] {
-        &self.arena[f.path_off as usize..f.path_off as usize + f.path_len as usize]
+        self.arena_range(f.path_off, f.path_len)
     }
     pub fn dir_path(&self, d: &DirRec) -> &'a [u8] {
-        &self.arena[d.path_off as usize..d.path_off as usize + d.path_len as usize]
+        self.arena_range(d.path_off, d.path_len)
     }
 }
 
@@ -423,16 +516,20 @@ pub fn serialize_grams(entries: &[(u32, u32, Vec<u8>)]) -> Vec<u8> {
 }
 
 pub struct GramsView<'a> {
-    pub keys: &'a [u32],
-    pub counts: &'a [u32],
-    pub offsets: &'a [u64],
-    pub postings: &'a [u8],
+    keys: &'a [u32],
+    counts: &'a [u32],
+    offsets: &'a [u64],
+    postings: &'a [u8],
+    blocks: Option<Arc<Blocks>>,
 }
 
 impl<'a> GramsView<'a> {
-    pub fn parse(body: &'a [u8]) -> Result<Self> {
+    pub fn parse(body: &'a [u8], blocks: Option<Arc<Blocks>>) -> Result<Self> {
         if body.len() < 16 {
             bail!("short grams section");
+        }
+        if !ok(&blocks, &body[..16]) {
+            bail!("grams header does not match its digest");
         }
         let n = u32::from_le_bytes(body[0..4].try_into().unwrap()) as usize;
         let plen = u64::from_le_bytes(body[8..16].try_into().unwrap()) as usize;
@@ -455,13 +552,54 @@ impl<'a> GramsView<'a> {
             counts,
             offsets,
             postings,
+            blocks,
         })
     }
-    pub fn find(&self, key: u32) -> Option<usize> {
-        self.keys.binary_search(&key).ok()
+    pub fn len(&self) -> usize {
+        self.keys.len()
     }
+    pub fn is_empty(&self) -> bool {
+        self.keys.is_empty()
+    }
+    /// The position of `key`, found through verified keys only: an absent
+    /// key is absent from the keys the build wrote, or the index reads as
+    /// corrupt.
+    pub fn find(&self, key: u32) -> Option<usize> {
+        let (mut lo, mut hi) = (0usize, self.keys.len());
+        while lo < hi {
+            let mid = (lo + hi) / 2;
+            let k = &self.keys[mid..mid + 1];
+            if !ok(&self.blocks, k) {
+                return None;
+            }
+            match k[0].cmp(&key) {
+                std::cmp::Ordering::Less => lo = mid + 1,
+                std::cmp::Ordering::Greater => hi = mid,
+                std::cmp::Ordering::Equal => return Some(mid),
+            }
+        }
+        None
+    }
+    /// Documents holding the gram at `i`.
+    pub fn count(&self, i: usize) -> u32 {
+        match self.counts.get(i..i + 1) {
+            Some(c) if ok(&self.blocks, c) => c[0],
+            _ => 0,
+        }
+    }
+    /// The serialized posting list at `i`; empty when it cannot be verified.
     pub fn posting_bytes(&self, i: usize) -> &'a [u8] {
-        &self.postings[self.offsets[i] as usize..self.offsets[i + 1] as usize]
+        let Some(o) = self.offsets.get(i..i + 2) else {
+            return &[];
+        };
+        if !ok(&self.blocks, o) {
+            return &[];
+        }
+        let p = self
+            .postings
+            .get(o[0] as usize..o[1] as usize)
+            .unwrap_or_default();
+        if ok(&self.blocks, p) { p } else { &[] }
     }
 }
 
@@ -477,9 +615,11 @@ pub fn tmp_path(path: &Path) -> std::path::PathBuf {
     path.with_file_name(format!("{name}.{}.{n}.tmp", std::process::id()))
 }
 
-/// Write a component file atomically (unique temp + rename).
-pub fn write_atomic(path: &Path, comp: u8, id: Ident, body: &[u8]) -> Result<()> {
-    write_atomic_with(path, comp, id, body, true)
+/// Write a component file atomically (unique temp + rename), in verified
+/// blocks of `block` bytes. Returns the digest of its trailer, for the
+/// manifest (`integrity::root`).
+pub fn write_atomic(path: &Path, comp: u8, id: Ident, body: &[u8], block: usize) -> Result<String> {
+    write_atomic_with(path, comp, id, body, block, true)
 }
 
 /// `write_atomic` with the fsync optional. Base components are published
@@ -491,19 +631,22 @@ pub fn write_atomic_with(
     comp: u8,
     id: Ident,
     body: &[u8],
+    block: usize,
     durable: bool,
-) -> Result<()> {
+) -> Result<String> {
+    let trailer = crate::integrity::trailer(body, block);
     let tmp = tmp_path(path);
     {
         let file = crate::create_private(&tmp)?;
         let mut f = std::io::BufWriter::with_capacity(1 << 20, file);
-        write_header(&mut f, comp, id, body.len() as u64)?;
+        write_header(&mut f, comp, id, body.len() as u64, block as u32)?;
         f.write_all(body)?;
+        f.write_all(&trailer)?;
         f.flush()?;
         if durable {
             f.get_ref().sync_all()?;
         }
     }
     std::fs::rename(&tmp, path)?;
-    Ok(())
+    Ok(crate::integrity::root(&trailer))
 }
