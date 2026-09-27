@@ -1299,6 +1299,9 @@ pub struct MapResult {
     pub files: Vec<MapFile>,
     pub elapsed_ms: f64,
     pub source: &'static str,
+    /// Files added or removed since the graph was built, whose importers were
+    /// not resolved again (`Manifest::graph_changes`).
+    pub graph_changes: u32,
 }
 
 /// Count a file in its immediate subdirectory under `prefix`, if any.
@@ -1341,15 +1344,10 @@ pub fn map(o: &Options, dir: &str) -> Result<MapResult> {
         .trim_end_matches('/')
         .trim_end_matches('.')
         .to_string();
-    let Some(op) = (if o.use_index {
-        indexed::open_fresh(o, threads)?
-    } else {
-        None
-    }) else {
-        bail!(
-            "`map` needs the index (it is being built in the background; retry in a moment, or run `greeg index`)"
-        );
-    };
+    if !o.use_index {
+        bail!("`map` needs the index");
+    }
+    let op = indexed::open_for_graph(o, threads)?;
     let idx = &op.idx;
     if !idx.has_symbols() {
         bail!("`map` needs the symbol table; the index build is still in phase 1");
@@ -1468,6 +1466,7 @@ pub fn map(o: &Options, dir: &str) -> Result<MapResult> {
         files,
         elapsed_ms: t0.elapsed().as_secs_f64() * 1e3,
         source: "index",
+        graph_changes: idx.manifest.graph_changes,
     })
 }
 

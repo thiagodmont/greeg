@@ -14,27 +14,44 @@ pub fn digest(root: &Path) -> String {
     let mut h = blake3::Hasher::new();
     for p in inputs(root) {
         h.update(p.as_os_str().as_encoded_bytes());
-        match fs::metadata(&p) {
-            Ok(md) => {
-                h.update(&[1]);
-                for v in [
-                    md.dev(),
-                    md.ino(),
-                    md.size(),
-                    md.mtime() as u64,
-                    md.mtime_nsec() as u64,
-                    md.ctime() as u64,
-                    md.ctime_nsec() as u64,
-                ] {
-                    h.update(&v.to_le_bytes());
-                }
-            }
-            Err(_) => {
-                h.update(&[0]);
-            }
-        }
+        stamp_into(&mut h, &p);
     }
     h.finalize().to_hex()[..32].to_string()
+}
+
+/// `digest` of files named relative to `root`, by those names: the same
+/// whatever path spells the root.
+pub fn digest_under(root: &Path, rels: &[String]) -> String {
+    let mut h = blake3::Hasher::new();
+    for r in rels {
+        h.update(r.as_bytes());
+        h.update(&[0]);
+        stamp_into(&mut h, &root.join(r));
+    }
+    h.finalize().to_hex()[..32].to_string()
+}
+
+/// A path's identity, or that it is absent.
+fn stamp_into(h: &mut blake3::Hasher, p: &Path) {
+    match fs::metadata(p) {
+        Ok(md) => {
+            h.update(&[1]);
+            for v in [
+                md.dev(),
+                md.ino(),
+                md.size(),
+                md.mtime() as u64,
+                md.mtime_nsec() as u64,
+                md.ctime() as u64,
+                md.ctime_nsec() as u64,
+            ] {
+                h.update(&v.to_le_bytes());
+            }
+        }
+        Err(_) => {
+            h.update(&[0]);
+        }
+    }
 }
 
 /// Candidate paths, present or not. A few extra paths only cost a failed

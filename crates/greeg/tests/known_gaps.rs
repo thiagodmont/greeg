@@ -797,8 +797,9 @@ fn git_info_exclude_changes_the_indexed_file_set() {
     assert_eq!(search("globalneedle"), "");
 }
 
+/// A small tree rebuilds within the wait, so the answer comes from the new
+/// graph rather than an exit 2.
 #[test]
-#[ignore = "known gap: resolver configuration edits leave import edges stale"]
 fn a_resolver_config_edit_is_not_answered_from_stale_edges() {
     let tsconfig = |target: &str| {
         format!(r#"{{"compilerOptions":{{"baseUrl":".","paths":{{"@x":["{target}"]}}}}}}"#)
@@ -816,9 +817,7 @@ fn a_resolver_config_edit_is_not_answered_from_stale_edges() {
     w(&f.root.join("tsconfig.json"), tsconfig("new.ts"));
     std::thread::sleep(PAST_FRESHNESS_WINDOW);
     let o = f.run(&["--fresh", "stat", "--json", "map", "."]);
-    if o.status.code() == Some(2) {
-        return; // an explicit "index unavailable" answer is acceptable
-    }
+    assert_eq!(o.status.code(), Some(0), "{o:?}");
     let imported_by = |file: &str| {
         stdout(&o)
             .lines()
@@ -834,7 +833,6 @@ fn a_resolver_config_edit_is_not_answered_from_stale_edges() {
 }
 
 #[test]
-#[ignore = "known gap: graph verbs exit 2 while a rebuild runs"]
 fn graph_verbs_wait_for_a_short_rebuild() {
     let f = Fixture::with_filler(&[
         ("a.rs", "pub fn alpha() {}\n"),
@@ -849,6 +847,113 @@ fn graph_verbs_wait_for_a_short_rebuild() {
     assert_eq!(o.status.code(), Some(0), "{o:?}");
     let out = stdout(&o);
     assert!(out.contains("a.rs") && !out.contains("b.rs"), "{out}");
+}
+
+/// `map --json` counts importers per file.
+fn imported_by(o: &Output, file: &str) -> Option<u64> {
+    stdout(o)
+        .lines()
+        .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
+        .find(|v| v["type"] == "file" && v["data"]["path"] == file)
+        .map(|v| v["data"]["imported_by"].as_u64().unwrap())
+}
+
+/// A configuration outside the indexed files (here an ignored
+/// `node_modules` package named by `extends`) still decides the edges.
+#[test]
+fn a_tsconfig_extends_target_outside_the_tree_invalidates_the_graph() {
+    let base = |target: &str| {
+        format!(r#"{{"compilerOptions":{{"baseUrl":"../../..","paths":{{"@x":["{target}"]}}}}}}"#)
+    };
+    let f = Fixture::with_filler(&[
+        (".gitignore", "node_modules/\n"),
+        ("tsconfig.json", r#"{"extends":"@cfg/base/tsconfig.json"}"#),
+        ("node_modules/@cfg/base/tsconfig.json", &base("old.ts")),
+        (
+            "main.ts",
+            "import { x } from \"@x\";\nexport const y = x;\n",
+        ),
+        ("old.ts", "export const x = 1;\n"),
+        ("new.ts", "export const x = 2;\n"),
+    ]);
+    f.indexed();
+    let o = f.run(&["--fresh", "stat", "--json", "map", "."]);
+    assert_eq!(
+        (imported_by(&o, "old.ts"), imported_by(&o, "new.ts")),
+        (Some(1), Some(0)),
+        "{o:?}"
+    );
+    w(
+        &f.root.join("node_modules/@cfg/base/tsconfig.json"),
+        base("new.ts"),
+    );
+    std::thread::sleep(PAST_FRESHNESS_WINDOW);
+    let o = f.run(&["--fresh", "stat", "--json", "map", "."]);
+    assert_eq!(o.status.code(), Some(0), "{o:?}");
+    assert_eq!(
+        (imported_by(&o, "old.ts"), imported_by(&o, "new.ts")),
+        (Some(0), Some(1)),
+        "{o:?}"
+    );
+}
+
+/// Symbols come from the grammars registered when the index was built: a
+/// new extra language rebuilds it rather than leaving its files as they were
+/// extracted without it.
+#[test]
+fn adding_an_extra_language_does_not_reuse_symbols_from_another_grammar() {
+    let f = Fixture::with_filler(&[("a.foo", "fn alpha() {}\n")]);
+    f.indexed();
+    let generation = || greeg_index::read_manifest(&f.layout()).map(|m| m.generation);
+    assert_eq!(generation(), Some(1));
+    // an unchanged registry reuses the index
+    assert_eq!(
+        f.run(&["--fresh", "stat", "-l", "alpha"]).status.code(),
+        Some(0)
+    );
+    std::thread::sleep(Duration::from_secs(1));
+    assert_eq!(generation(), Some(1));
+    w(
+        &f.base.join("home/.config/greeg/lang/foo/spec.toml"),
+        "name = \"foo\"\nextensions = [\"foo\"]\n",
+    );
+    std::thread::sleep(PAST_FRESHNESS_WINDOW);
+    let o = f.run(&["--fresh", "stat", "-l", "alpha"]);
+    assert_eq!(stdout(&o), "a.foo\n", "{o:?}");
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while generation() != Some(2) {
+        assert!(Instant::now() < deadline, "no rebuild: {:?}", generation());
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+/// Files added since the graph was built are not resolved against its
+/// unchanged importers, and the graph says so.
+#[test]
+fn a_graph_discloses_files_added_since_it_was_built() {
+    let f = Fixture::with_filler(&[
+        ("main.py", "import util\n"),
+        ("util.py", "def helper():\n    pass\n"),
+    ]);
+    f.indexed();
+    let changes = |o: &Output| {
+        stdout(o)
+            .lines()
+            .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
+            .find(|v| v["type"] == "footer")
+            .map(|v| v["data"]["graph_changes"].clone())
+    };
+    let o = f.run(&["--fresh", "stat", "--json", "map", "."]);
+    assert_eq!(changes(&o), Some(serde_json::json!(0)), "{o:?}");
+    w(&f.root.join("extra.py"), "import util\n");
+    std::thread::sleep(PAST_FRESHNESS_WINDOW);
+    let o = f.run(&["--fresh", "stat", "--json", "map", "."]);
+    assert_eq!(changes(&o), Some(serde_json::json!(1)), "{o:?}");
+    let text = stdout(&f.run(&["--fresh", "stat", "map", "."]));
+    assert!(
+        text.contains("1 file added or removed since the graph was built"),
+        "{text}"
+    );
 }
 
 #[test]

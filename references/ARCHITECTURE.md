@@ -466,9 +466,35 @@ then spawns a detached process to extract them and publish a delta segment.
 You still get the working tree as it was at query time. The tree-sitter work is
 what moved off the critical path.
 
-Past a threshold (a changed ignore file or ignore input, more than 2,000 changed files, 16
-accumulated deltas, or 5 % of the tree) greeg spawns a full rebuild and answers
-the query with a scan.
+Some changes need a full rebuild, which greeg spawns while it answers the
+query with a scan:
+
+* an ignore file or ignore input changed (which files the walk yields);
+* a file import resolution reads changed: one named `tsconfig.json`,
+  `jsconfig.json`, `package.json`, `pnpm-workspace.yaml`, `Cargo.toml`,
+  `pyproject.toml`, `setup.py` or `setup.cfg`, or a configuration an
+  `extends` names, which may be one the walk does not index (`node_modules`);
+  the build records a digest of those, as it does of the ignore inputs. Edges
+  of files that did not change move with them, and a delta re-resolves only
+  the files it re-extracts;
+* the index was derived otherwise: by another greeg version, or another set
+  of extra languages (their spec, query or grammar file). The manifest
+  records the derivation, and the name of every language code in the file
+  table (`builtin:rust`, `extra:zig@<fingerprint>`);
+* a threshold: more than 2,000 changed files, 16 accumulated deltas, or 5 % of
+  the tree.
+
+A delta that adds or removes a file with import resolution does not resolve
+the imports of unchanged files again: the manifest counts such files, and
+`map` says how many the graph may miss.
+
+`map` needs the graph. When a rebuild is needed and the last build took under
+2 s, it starts the rebuild at once and waits for it, up to 2 s (not under
+`--fresh none`); otherwise, or when the wait runs out, it exits 2 with one
+line naming the reason and the last build's time, `greeg: the import graph is
+being rebuilt (reason: resolver-inputs, about 3s); retry, or run \`greeg
+index\``, and under `--json` a footer whose `outcome` holds `"exit": 2` and
+`"rebuilding": {"reason", "estimate_ms"}`.
 
 Symbol verbs are the exception. `def`, `refs` and `outline` need the changed
 files' symbols, so they apply the delta inline before answering.

@@ -45,9 +45,8 @@ pub struct Changes {
     pub touched_dirs: Vec<WalkedDir>,
     /// The skipped children of every directory listed again (`skipped.rs`).
     pub skipped: Vec<(Vec<u8>, skipped::Children)>,
-    /// An ignore file was added, modified or deleted: the ignore rules of its
-    /// subtree must be re-evaluated (full rebuild; `needs_rebuild`).
-    pub ignore_changed: bool,
+    /// Why this change needs a full rebuild, when it does (`rebuild_reason`).
+    pub rebuild: Option<RebuildReason>,
     pub method: &'static str,
     pub ms: f64,
     /// FSEvents id captured *before* the check ran, so edits made while the
@@ -58,7 +57,56 @@ pub struct Changes {
     pub no_ino: bool,
 }
 
+/// Why an index must be rebuilt rather than refreshed by a delta.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RebuildReason {
+    /// An ignore file or input changed: which files the walk yields.
+    IgnoreInputs,
+    /// A file import resolution reads changed: edges of unchanged files.
+    ResolverInputs,
+    /// The index was derived by another version or language registry.
+    Derivation,
+    /// Too many changes or deltas for a delta to be cheaper.
+    Threshold,
+}
+
+impl RebuildReason {
+    pub fn name(self) -> &'static str {
+        match self {
+            RebuildReason::IgnoreInputs => "ignore-inputs",
+            RebuildReason::ResolverInputs => "resolver-inputs",
+            RebuildReason::Derivation => "derivation",
+            RebuildReason::Threshold => "threshold",
+        }
+    }
+}
+
+/// Files import resolution reads by name: a change to one can move edges of
+/// files that did not change.
+pub const RESOLVER_FILES: [&[u8]; 8] = [
+    b"tsconfig.json",
+    b"jsconfig.json",
+    b"package.json",
+    b"pnpm-workspace.yaml",
+    b"Cargo.toml",
+    b"pyproject.toml",
+    b"setup.py",
+    b"setup.cfg",
+];
+
 impl Changes {
+    /// Record that `rel` was added, modified or deleted.
+    fn note(&mut self, rel: &[u8]) {
+        let reason = if is_ignore_file(rel) {
+            RebuildReason::IgnoreInputs
+        } else if RESOLVER_FILES.contains(&rel::file_name(rel)) {
+            RebuildReason::ResolverInputs
+        } else {
+            return;
+        };
+        self.rebuild.get_or_insert(reason);
+    }
+
     pub fn is_empty(&self) -> bool {
         self.modified.is_empty()
             && self.deleted.is_empty()
@@ -234,9 +282,7 @@ fn walk_new_dir(root: &Path, dir: &[u8], dir_id: u32, ch: &mut Changes) {
                 stamp: Stamp::of(&md),
             });
         } else if e.file_type().map(|t| t.is_file()).unwrap_or(false) {
-            if is_ignore_file(&r) {
-                ch.ignore_changed = true;
-            }
+            ch.note(&r);
             ch.added.push(WalkedFile {
                 rel: r,
                 stamp: Stamp::of(&md),
@@ -257,17 +303,13 @@ fn walk_new_dir(root: &Path, dir: &[u8], dir_id: u32, ch: &mut Changes) {
 fn classify(ch: &mut Changes, id: u32, rel: &[u8], rec: &FileRec, s: Option<Stamp>, no_ino: bool) {
     match s {
         None => {
-            if is_ignore_file(rel) {
-                ch.ignore_changed = true;
-            }
+            ch.note(rel);
             ch.deleted.push(id);
         }
         Some(st)
             if !st.same(&rec.stamp(), no_ino) || rec.stamp_flags & format::STAMP_RECHECK != 0 =>
         {
-            if is_ignore_file(rel) {
-                ch.ignore_changed = true;
-            }
+            ch.note(rel);
             ch.modified.push((
                 id,
                 WalkedFile {
@@ -364,9 +406,7 @@ fn relist_dirs(root: &Path, k: &Known, changed_dirs: &[(Vec<u8>, Stamp)], ch: &m
             if is_dir {
                 walk_new_dir(root, &child_rel, dir_id, ch);
             } else {
-                if is_ignore_file(&child_rel) {
-                    ch.ignore_changed = true;
-                }
+                ch.note(&child_rel);
                 ch.added.push(WalkedFile {
                     rel: child_rel,
                     stamp,
@@ -484,9 +524,17 @@ pub fn explicit_mode(idx: &Index) -> Mode {
 /// Decide and run the check for `mode`. `threads` is the stat pool size.
 pub fn check(idx: &Index, root: &Path, mode: Mode, threads: usize) -> Option<Changes> {
     let mut ch = check_tree(idx, root, mode, threads)?;
-    let recorded = &idx.manifest.ignore_inputs;
-    if !recorded.is_empty() && *recorded != crate::ignores::digest(root) {
-        ch.ignore_changed = true;
+    let m = &idx.manifest;
+    if !m.ignore_inputs.is_empty() && m.ignore_inputs != crate::ignores::digest(root) {
+        ch.rebuild.get_or_insert(RebuildReason::IgnoreInputs);
+    }
+    if m.derivation != crate::derive::derivation() {
+        ch.rebuild.get_or_insert(RebuildReason::Derivation);
+    }
+    if !m.resolver_inputs.is_empty()
+        && m.resolver_inputs != crate::ignores::digest_under(root, &m.resolver_files)
+    {
+        ch.rebuild.get_or_insert(RebuildReason::ResolverInputs);
     }
     Some(ch)
 }
@@ -619,6 +667,12 @@ pub fn apply(idx: &Index, root: &Path, ch: &Changes) -> Result<usize> {
     m.retired = retired;
     m.deltas = n;
     m.tombstones += tomb.len() as u32;
+    let membership = ch.added.iter().map(|w| &w.rel[..]);
+    let gone = ch.deleted.iter().filter_map(|&id| idx.path(id));
+    m.graph_changes += membership
+        .chain(gone)
+        .filter(|r| resolves_imports(r))
+        .count() as u32;
     if ch.no_ino {
         m.stamp_mode = crate::STAMP_NO_INO.into();
     }
@@ -642,12 +696,28 @@ fn current_fsevents_id() -> u64 {
     }
 }
 
+/// Files whose imports resolution maps to other files.
+fn resolves_imports(rel: &[u8]) -> bool {
+    use greeg_lang::Lang;
+    matches!(
+        Lang::from_path(as_path(rel)),
+        Lang::Python | Lang::Rust | Lang::JavaScript | Lang::TypeScript | Lang::Kotlin
+    )
+}
+
 /// Should a full rebuild be spawned instead of applying inline?
 pub fn needs_rebuild(idx: &Index, ch: &Changes) -> bool {
-    ch.ignore_changed
-        || ch.count() > 2000
-        || idx.deltas.len() >= 16
-        || (idx.tomb.len() + ch.count() as u64) * 20 > idx.base.n_files as u64
+    rebuild_reason(idx, ch).is_some()
+}
+
+/// Why `ch` needs a full rebuild of `idx`, if it does.
+pub fn rebuild_reason(idx: &Index, ch: &Changes) -> Option<RebuildReason> {
+    ch.rebuild.or_else(|| {
+        (ch.count() > 2000
+            || idx.deltas.len() >= 16
+            || (idx.tomb.len() + ch.count() as u64) * 20 > idx.base.n_files as u64)
+            .then_some(RebuildReason::Threshold)
+    })
 }
 
 #[cfg(test)]

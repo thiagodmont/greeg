@@ -262,7 +262,7 @@ pub struct Opened {
 /// `Ok(None)` means no usable index (a background build was spawned when
 /// possible) or that a rebuild is needed for this query.
 pub fn open_fresh(o: &Options, threads: usize) -> Result<Option<Opened>> {
-    open_fresh_with(o, threads, false, &mut || {})
+    Ok(open_fresh_with(o, threads, false, &mut || {})?.ok())
 }
 
 /// `open_fresh` for a search (answer first): changes below
@@ -270,7 +270,7 @@ pub fn open_fresh(o: &Options, threads: usize) -> Result<Option<Opened>> {
 /// and a detached `greeg index --refresh` is queued for after the output.
 /// Verbs keep `open_fresh`: they need the symbols of the changed files.
 pub fn open_fresh_deferred(o: &Options, threads: usize) -> Result<Option<Opened>> {
-    open_fresh_with(o, threads, true, &mut || {})
+    Ok(open_fresh_with(o, threads, true, &mut || {})?.ok())
 }
 
 /// The check to run again after another writer republished: the same mode,
@@ -283,21 +283,103 @@ fn retry_mode(idx: &Index, mode: Fresh) -> Fresh {
     }
 }
 
+/// No index answer: a build of it is queued, for `reason`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Rebuilding {
+    /// `fresh::RebuildReason::name`, `no-index` or `other-root`.
+    pub reason: &'static str,
+    /// How long the build it replaces took, when there was one.
+    pub estimate_ms: Option<u64>,
+    /// That build's generation (0 when none).
+    pub generation: u32,
+}
+
+impl std::fmt::Display for Rebuilding {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self.estimate_ms {
+            Some(ms) => write!(
+                f,
+                "the import graph is being rebuilt (reason: {}, about {}s); retry, or run `greeg index`",
+                self.reason,
+                ms.div_ceil(1000).max(1)
+            ),
+            None => write!(
+                f,
+                "the index is being built (reason: {}); retry in a moment, or run `greeg index`",
+                self.reason
+            ),
+        }
+    }
+}
+
+impl std::error::Error for Rebuilding {}
+
+/// A graph verb waits for a rebuild when the last build took less than this.
+pub const GRAPH_WAIT: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// `open_fresh` for a verb that needs the index's graph. When a rebuild is
+/// needed and the last build took under [`GRAPH_WAIT`], it starts that
+/// rebuild now and waits for it (not under `--fresh none`); otherwise, or when
+/// the wait runs out, the error is a [`Rebuilding`].
+pub fn open_for_graph(o: &Options, threads: usize) -> Result<Opened> {
+    let rb = match open_fresh_with(o, threads, false, &mut || {})? {
+        Ok(op) => return Ok(op),
+        Err(rb) => rb,
+    };
+    let quick = rb
+        .estimate_ms
+        .is_some_and(|ms| ms < GRAPH_WAIT.as_millis() as u64);
+    if o.fresh == Fresh::None || !quick {
+        return Err(rb.into());
+    }
+    flush_pending_build();
+    let dir = greeg_index::index_dir(&o.root, o.index_dir.as_deref())?;
+    let deadline = Instant::now() + GRAPH_WAIT;
+    while Instant::now() < deadline {
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        if read_manifest(&dir).is_some_and(|m| m.generation != rb.generation && m.phase2) {
+            if let Ok(op) = open_fresh_with(o, threads, false, &mut || {})? {
+                return Ok(op);
+            }
+            break;
+        }
+    }
+    Err(rb.into())
+}
+
 /// `open_fresh` with a hook run between the freshness check and the delta
-/// publish: a no-op in production, a racing writer in tests.
+/// publish: a no-op in production, a racing writer in tests. `Err` names
+/// the rebuild queued instead.
 fn open_fresh_with(
     o: &Options,
     threads: usize,
     defer: bool,
     before_apply: &mut dyn FnMut(),
-) -> Result<Option<Opened>> {
+) -> Result<std::result::Result<Opened, Rebuilding>> {
     let dir = greeg_index::index_dir(&o.root, o.index_dir.as_deref())?;
     let mut idx = match Index::open(&dir) {
         Ok(i) if i.built_for(&o.root) => i,
-        _ => {
+        Ok(i) => {
             spawn_build(&o.root, &dir);
-            return Ok(None);
+            return Ok(Err(Rebuilding {
+                reason: "other-root",
+                estimate_ms: None,
+                generation: i.manifest.generation,
+            }));
         }
+        Err(_) => {
+            spawn_build(&o.root, &dir);
+            return Ok(Err(Rebuilding {
+                reason: "no-index",
+                estimate_ms: None,
+                generation: read_manifest(&dir).map_or(0, |m| m.generation),
+            }));
+        }
+    };
+    let rebuilding = |idx: &Index, reason: &'static str| Rebuilding {
+        reason,
+        estimate_ms: Some(idx.manifest.build_ms as u64),
+        generation: idx.manifest.generation,
     };
     let t_fresh = Instant::now();
     let stat_threads = threads.clamp(1, 4);
@@ -319,9 +401,9 @@ fn open_fresh_with(
         };
         fresh_method = ch.method;
         fresh_changed = ch.count() + ch.deleted.len();
-        if fresh::needs_rebuild(&idx, &ch) {
+        if let Some(reason) = fresh::rebuild_reason(&idx, &ch) {
             spawn_build(&o.root, &dir);
-            return Ok(None);
+            return Ok(Err(rebuilding(&idx, reason.name())));
         }
         if ch.is_empty() {
             let _ = fresh::apply(&idx, &o.root, &ch); // refresh TTL and event id
@@ -338,7 +420,7 @@ fn open_fresh_with(
         // a build for another root may have published in between
         if !idx.built_for(&o.root) {
             spawn_build(&o.root, &dir);
-            return Ok(None);
+            return Ok(Err(rebuilding(&idx, "other-root")));
         }
         if applied > 0 || attempt > 0 {
             break;
@@ -347,7 +429,7 @@ fn open_fresh_with(
     }
     *OPENED.lock().unwrap_or_else(|e| e.into_inner()) = Some(idx.manifest.snapshot());
     // a phase-1-only index answers gram queries; symbols arrive when the build finishes
-    Ok(Some(Opened {
+    Ok(Ok(Opened {
         idx,
         dir,
         fresh_method,
@@ -1007,10 +1089,19 @@ mod tests {
             ..Default::default()
         };
         build(&a, &dir, &opts).unwrap();
-        // the same edit in both trees, with the same stamps
+        // the same edit in both trees, with the same stamps; only the edited
+        // file and its directory, since pinning moves a file's ctime
         for root in [&a, &b] {
             fs::write(root.join("src/main.rs"), "fn main() { edited(); }\n").unwrap();
-            pin(root);
+            let t = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000);
+            let f = fs::File::options()
+                .write(true)
+                .open(root.join("src/main.rs"));
+            f.unwrap().set_modified(t).unwrap();
+            fs::File::open(root.join("src"))
+                .unwrap()
+                .set_modified(t)
+                .unwrap();
         }
         let o = Options {
             root: a.clone(),
@@ -1019,7 +1110,8 @@ mod tests {
             ..Default::default()
         };
         let mut race = || build(&b, &dir, &opts).map(|_| ()).unwrap();
-        assert!(open_fresh_with(&o, 1, false, &mut race).unwrap().is_none());
+        let r = open_fresh_with(&o, 1, false, &mut race).unwrap();
+        assert_eq!(r.err().map(|rb| rb.reason), Some("other-root"));
         let _ = fs::remove_dir_all(&base);
     }
 
