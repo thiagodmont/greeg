@@ -1,0 +1,81 @@
+crates/greeg-index/src/words.rs
+  s_b1057b2933cdb0::t_93688f6fad6f6b 104-105,107-112,116,120-122,149-151,163,172,174-184,186-188,194-198,206-211,213-219,221-242,244,292,310,323,332,338,340
+  s_b1057b2933cdb0::t_c164c5f605dc69 14,16,300-302,313
+  s_b1057b2933cdb0::t_09edfb2cf72215 327-330
+crates/greeg-query/src/verbs.rs
+  s_b1057b2933cdb0::t_1f93e20dd742ae 1461-1463
+crates/greeg-index/tests/integrity.rs
+  s_b1057b2933cdb0::t_36c9ab9d6d9ce5 1-24,34-84,87-89,91-139
+  s_b1057b2933cdb0::t_41e426293c1e15 25-33
+  s_b1057b2933cdb0::t_cce56508d3b9f5 85-86,90
+crates/greeg-index/src/build.rs
+  s_b1057b2933cdb0::t_bc3c60fa1e6ce1 780-782,784-787,789,791,796-799,814,1073-1081,1083-1084,1086-1090,1092
+  s_b1057b2933cdb0::t_cce56508d3b9f5 39-40,61-66,783,1082
+crates/greeg/tests/known_gaps.rs
+  s_b1057b2933cdb0::t_571ec642fa4048 963-966,978-1009,1012-1015,1043-1050,1055-1057
+  s_b1057b2933cdb0::t_4a11dd34115e17 1010-1011,1016-1028,1034-1042
+  s_b1057b2933cdb0::t_cce56508d3b9f5 1029-1033,1051-1054
+  s_b1057b2933cdb0::t_3c952529680666 1058,1060-1082
+  s_b1057b2933cdb0::t_d0c82d718e0a9f 1059
+crates/greeg-index/src/index.rs
+  s_b1057b2933cdb0::t_16a589da21efe3 17,442-473,475,478-497,500-501,503-504,518,520-521,532-541,558,570-571,585,588-590,593-594,596,600-607,616
+  s_b1057b2933cdb0::t_09edfb2cf72215 72-84,95,99,591-592,595,597-599,684,694,752-753,756-757,761,764,768,808,836,898-899,924,1036-1037,1042-1050,1160,1172,1176
+  s_b1057b2933cdb0::t_59fe6b96539e88 4,39-41,57-60,66-69,71,85-94,96-98,153-154,157,161,166,180,208,233,243,278,337-338
+crates/greeg-index/src/lib.rs
+  s_b1057b2933cdb0::t_636ea7e47922a3 36
+  s_b1057b2933cdb0::t_caae8c8aa7e3c4 111-114
+  s_b1057b2933cdb0::t_0480e3c0af26a7 15
+crates/greeg-index/tests/layout.rs
+  s_b1057b2933cdb0::t_cce56508d3b9f5 31
+  s_b1057b2933cdb0::t_636ea7e47922a3 192
+crates/greeg-index/src/integrity.rs
+  s_b1057b2933cdb0::t_aab18fd1b0bc68 1-42,49-169
+  s_b1057b2933cdb0::t_16a589da21efe3 43-48
+crates/greeg-index/src/fresh.rs
+  s_b1057b2933cdb0::t_cce56508d3b9f5 661
+  s_b1057b2933cdb0::t_e52285784db0b0 656,664,669-673
+  s_b1057b2933cdb0::t_5dde527733f58d 628-631
+  s_b1057b2933cdb0::t_09edfb2cf72215 172,175
+README.md
+  s_b1057b2933cdb0::t_aec0710695758b 333-335
+crates/greeg-index/tests/index.rs
+  s_b1057b2933cdb0::t_d6ce63aed9edf7 119,132,184,196
+crates/greeg-index/src/symtab.rs
+  s_b1057b2933cdb0::t_cef4dc7269e40b 6
+  s_b1057b2933cdb0::t_09edfb2cf72215 12,752
+  s_b1057b2933cdb0::t_e8cba759e6b22c 409-411,414-439,443,447-449,492,500-502,504-511,514-516,519-524,530-534,563-565,570-572,576-577,580-585,592-596,600-601,696,698-703,707,711-713,735,739-741,745-747,751,1096,1111
+crates/greeg-index/src/format.rs
+  s_b1057b2933cdb0::t_cce56508d3b9f5 618-622,634
+  s_b1057b2933cdb0::t_59fe6b96539e88 475
+  s_b1057b2933cdb0::t_f8cbd36f482fb0 67,367-369,371-376,380,384-386,402-404,415-417,431,434-474,476-481,484,487,519-523,527,531-533,555,558-566,568-588,590,592-602
+  s_b1057b2933cdb0::t_0480e3c0af26a7 3-8,208-214,222,227-245,248-250,261-267,269-270,636-637,642,644,651
+  s_b1057b2933cdb0::t_09edfb2cf72215 72
+crates/greeg-query/src/indexed.rs
+  s_b1057b2933cdb0::t_1f93e20dd742ae 234-247,329
+  s_b1057b2933cdb0::t_5dde527733f58d 208-233,760-763
+crates/greeg-index/src/skipped.rs
+  s_b1057b2933cdb0::t_cce56508d3b9f5 112-120
+  s_b1057b2933cdb0::t_caae8c8aa7e3c4 110-111
+crates/greeg/src/verbs_out.rs
+  s_b1057b2933cdb0::t_5dde527733f58d 9,296,449,617,725,800,1073
+  s_b1057b2933cdb0::t_571ec642fa4048 391
+references/ARCHITECTURE.md
+  s_b1057b2933cdb0::t_e53e299020923c 75
+  s_b1057b2933cdb0::t_d57ebe48c58dc1 46-50,70-74,76-77,592-598
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "09287e8067310f44bfb7bc45baf954f6e07fc8bf",
+  "prompts": {},
+  "sessions": {
+    "s_b1057b2933cdb0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0aa73425-0ec9-4b76-ae94-35b6bdff17bb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
