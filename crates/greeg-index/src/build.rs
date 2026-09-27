@@ -36,6 +36,8 @@ pub struct BuildOpts {
     /// Bytes of postings held across all workers before they spill to sorted
     /// segments (`external.rs`). Below it the build is the in-memory one.
     pub posting_budget: usize,
+    /// Bytes per verified block of the base components (`integrity.rs`).
+    pub block: usize,
 }
 
 impl Default for BuildOpts {
@@ -56,6 +58,12 @@ impl Default for BuildOpts {
                 .and_then(|v| v.parse::<usize>().ok())
                 .map(|mb| mb << 20)
                 .unwrap_or(external::DEFAULT_BUDGET),
+            block: std::env::var("GREEG_BUILD_BLOCK_KIB")
+                .ok()
+                .and_then(|v| v.parse::<usize>().ok())
+                .filter(|&k| k > 0)
+                .map(|k| k << 10)
+                .unwrap_or(crate::integrity::BLOCK),
         }
     }
 }
@@ -769,32 +777,26 @@ pub fn build(root: &Path, dir: &Path, opts: &BuildOpts) -> Result<Manifest> {
         epoch,
         seq: snapshot::SEQ_PHASE1,
     };
-    let at = |comp: u8| dir.join(m.named(comp, snapshot::SEQ_PHASE1));
-    format::write_atomic(
-        &at(format::COMP_GRAMS),
-        format::COMP_GRAMS,
-        id,
-        &grams_bytes,
-    )?;
+    let mut roots = std::collections::BTreeMap::new();
+    let mut publish = |comp: u8, body: &[u8]| -> Result<()> {
+        let name = m.named(comp, snapshot::SEQ_PHASE1);
+        let root = format::write_atomic(&dir.join(&name), comp, id, body, opts.block)?;
+        roots.insert(name, root);
+        Ok(())
+    };
+    publish(format::COMP_GRAMS, &grams_bytes)?;
     drop(grams_bytes);
-    format::write_atomic(
-        &at(format::COMP_WORDS),
-        format::COMP_WORDS,
-        id,
-        &words_bytes,
-    )?;
+    publish(format::COMP_WORDS, &words_bytes)?;
     drop(words_bytes);
-    format::write_atomic(
-        &at(format::COMP_FILES),
-        format::COMP_FILES,
-        id,
-        &ft.serialize(),
-    )?;
+    publish(format::COMP_FILES, &ft.serialize())?;
     let skipped = skipped
         .join()
         .map_err(|_| anyhow::anyhow!("listing skipped entries panicked"))?;
     let skipped_name = m.named(format::COMP_SKIPPED, snapshot::SEQ_PHASE1);
-    skipped.write(&dir.join(&skipped_name), id)?;
+    roots.insert(
+        skipped_name.clone(),
+        skipped.write(&dir.join(&skipped_name), id)?,
+    );
     let now = now_ms();
     let (retired, due) = snapshot::retire(
         previous
@@ -809,6 +811,7 @@ pub fn build(root: &Path, dir: &Path, opts: &BuildOpts) -> Result<Manifest> {
         root_id,
         generation,
         retired,
+        roots,
         phase1: true,
         phase2: false,
         symbols: 0,
@@ -1067,28 +1070,26 @@ fn phase2(
         epoch: m.epoch,
         seq: snapshot::SEQ_PHASE2,
     };
-    let at = |comp: u8| dir.join(m.named(comp, snapshot::SEQ_PHASE2));
-    format::write_atomic(
-        &at(format::COMP_SYMBOLS),
-        format::COMP_SYMBOLS,
-        id,
-        &sym_body,
-    )?;
-    format::write_atomic(&at(format::COMP_SPANS), format::COMP_SPANS, id, &span_body)?;
-    format::write_atomic(&at(format::COMP_GRAPH), format::COMP_GRAPH, id, &graph_body)?;
-    format::write_atomic(
-        &at(format::COMP_FILES),
-        format::COMP_FILES,
-        id,
-        &ft.serialize(),
-    )?;
+    // what the manifest names now, deltas published since phase 1 included
+    let mut roots = cur.roots.clone();
+    for (comp, body) in [
+        (format::COMP_SYMBOLS, &sym_body[..]),
+        (format::COMP_SPANS, &span_body[..]),
+        (format::COMP_GRAPH, &graph_body[..]),
+        (format::COMP_FILES, &ft.serialize()[..]),
+    ] {
+        let name = m.named(comp, snapshot::SEQ_PHASE2);
+        let root = format::write_atomic(&dir.join(&name), comp, id, body, opts.block)?;
+        roots.insert(name, root);
+    }
     let now = now_ms();
-    let (retired, due) = snapshot::retire(
-        &cur.retired,
-        cur.component(format::COMP_FILES).map(|(name, _)| name),
-        now,
-    );
+    let phase1_files = cur.component(format::COMP_FILES).map(|(name, _)| name);
+    if let Some(name) = &phase1_files {
+        roots.remove(name);
+    }
+    let (retired, due) = snapshot::retire(&cur.retired, phase1_files, now);
     m.retired = retired;
+    m.roots = roots;
     m.seq = snapshot::SEQ_PHASE2;
     m.components = snapshot::Components {
         files: snapshot::SEQ_PHASE2,

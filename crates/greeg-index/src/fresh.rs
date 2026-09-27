@@ -169,10 +169,10 @@ impl<'a> Known<'a> {
 fn known(idx: &Index) -> Known<'_> {
     let mut files = Vec::with_capacity(idx.base.n_files as usize);
     files.extend(idx.tracked_files());
-    let mut dirs: HashMap<&[u8], Stamp> = HashMap::with_capacity(idx.base.files().dirs.len());
+    let mut dirs: HashMap<&[u8], Stamp> = HashMap::with_capacity(idx.base.files().dirs().len());
     for (_, seg) in idx.segments() {
         let fv = seg.files();
-        for d in fv.dirs {
+        for d in fv.dirs() {
             dirs.insert(fv.dir_path(d), d.stamp());
         }
     }
@@ -625,6 +625,10 @@ pub fn apply(idx: &Index, root: &Path, ch: &Changes) -> Result<usize> {
     dirs.extend(ch.touched_dirs.iter().cloned());
     // extraction runs outside the lock; only the publish is serialized
     let body = build_delta(idx, root, first_id, &files, &prev, &dirs, &tomb)?;
+    // a delta built from bytes that failed their check is not published
+    if idx.corrupt() {
+        return Ok(0);
+    }
     // an index without the record stays without it: coverage unknown
     let skipped = if ch.skipped.is_empty() {
         None
@@ -649,19 +653,24 @@ pub fn apply(idx: &Index, root: &Path, ch: &Changes) -> Result<usize> {
     };
     // not fsynced: a torn delta fails `Index::open` and rebuilds, and the
     // F_FULLFSYNC was 4–5 ms of every post-edit query (M10)
-    format::write_atomic_with(
+    let root = format::write_atomic_with(
         &idx.dir.join(m.delta(n)),
         format::COMP_DELTA,
         id,
         &body,
+        crate::integrity::BLOCK,
         false,
     )?;
+    m.roots.insert(m.delta(n), root);
     let now = now_ms();
     let mut superseded = Vec::new();
     if let Some(s) = skipped {
         let name = m.delta_skipped(n);
-        s.write(&idx.dir.join(&name), id)?;
-        superseded.push(std::mem::replace(&mut m.skipped, name));
+        let root = s.write(&idx.dir.join(&name), id)?;
+        m.roots.insert(name.clone(), root);
+        let old = std::mem::replace(&mut m.skipped, name);
+        m.roots.remove(&old);
+        superseded.push(old);
     }
     let (retired, due) = crate::snapshot::retire(&m.retired, superseded, now);
     m.retired = retired;

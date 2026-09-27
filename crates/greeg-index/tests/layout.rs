@@ -28,6 +28,7 @@ fn opts() -> BuildOpts {
         quiet: true,
         phase1_only: false,
         posting_budget: 256 << 20,
+        block: greeg_index::integrity::BLOCK,
     }
 }
 
@@ -188,7 +189,7 @@ fn layout_fingerprint_matches_format_version() {
     unsafe { std::env::set_var("GREEG_DEBUG_FIXED_STAMPS", "1") };
     // built-in languages only, whatever this machine registers
     unsafe { std::env::set_var("GREEG_LANG_DIR", "/nonexistent/greeg-lang") };
-    const LAYOUT: (u32, &str) = (10, "a6d9c9c9f393bfbe");
+    const LAYOUT: (u32, &str) = (11, "2b9a83f30d49b344");
     let t = fingerprint_tree();
     let digest = layout_digest(&t);
     assert_eq!(

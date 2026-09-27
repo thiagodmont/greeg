@@ -11,7 +11,9 @@
 //! and the candidate set is a superset; a query word with other bytes, or
 //! under `-i`, keeps the trigram plan.
 
+use crate::integrity::{Blocks, ok};
 use anyhow::{Context, Result, bail};
+use std::sync::Arc;
 
 pub const MIN_WORD: usize = 2;
 pub const MAX_WORD: usize = 64;
@@ -99,19 +101,24 @@ pub fn serialize(entries: &[(Vec<u8>, u32, Vec<u8>)]) -> Vec<u8> {
     body
 }
 
-/// Zero-copy view over a serialized word section.
+/// Zero-copy view over a serialized word section. Its accessors verify the
+/// bytes they read (`integrity.rs`).
 pub struct WordsView<'a> {
-    pub word_off: &'a [u32],
-    pub arena: &'a [u8],
-    pub counts: &'a [u32],
-    pub offsets: &'a [u64],
-    pub postings: &'a [u8],
+    word_off: &'a [u32],
+    arena: &'a [u8],
+    counts: &'a [u32],
+    offsets: &'a [u64],
+    postings: &'a [u8],
+    blocks: Option<Arc<Blocks>>,
 }
 
 impl<'a> WordsView<'a> {
-    pub fn parse(body: &'a [u8]) -> Result<Self> {
+    pub fn parse(body: &'a [u8], blocks: Option<Arc<Blocks>>) -> Result<Self> {
         if body.len() < 16 {
             bail!("short words section");
+        }
+        if !ok(&blocks, &body[..16]) {
+            bail!("words header does not match its digest");
         }
         let n = u32::from_le_bytes(body[0..4].try_into().unwrap()) as usize;
         let arena_len = u32::from_le_bytes(body[4..8].try_into().unwrap()) as usize;
@@ -139,6 +146,9 @@ impl<'a> WordsView<'a> {
             .get(off..)
             .and_then(|b| b.get(..plen))
             .context("word postings")?;
+        if !ok(&blocks, &word_off[n..]) || !ok(&blocks, &offsets[n..]) {
+            bail!("word section lengths do not match their digest");
+        }
         if word_off.last().copied().unwrap_or(0) as usize != arena_len
             || offsets.last().copied().unwrap_or(0) as usize != plen
         {
@@ -150,6 +160,7 @@ impl<'a> WordsView<'a> {
             counts,
             offsets,
             postings,
+            blocks,
         })
     }
     pub fn len(&self) -> usize {
@@ -158,16 +169,33 @@ impl<'a> WordsView<'a> {
     pub fn is_empty(&self) -> bool {
         self.counts.is_empty()
     }
+    /// The word at `i`; empty when it cannot be verified.
     pub fn word(&self, i: usize) -> &'a [u8] {
-        &self.arena[self.word_off[i] as usize..self.word_off[i + 1] as usize]
+        let Some(o) = self.word_off.get(i..i + 2) else {
+            return &[];
+        };
+        if !ok(&self.blocks, o) {
+            return &[];
+        }
+        let w = self
+            .arena
+            .get(o[0] as usize..o[1] as usize)
+            .unwrap_or_default();
+        if ok(&self.blocks, w) { w } else { &[] }
     }
-    /// Dictionary position of `w`, if indexed.
+    /// Dictionary position of `w`, found through verified words only: an
+    /// absent word is absent from the dictionary the build wrote, or the
+    /// index reads as corrupt.
     pub fn find(&self, w: &[u8]) -> Option<usize> {
         let n = self.len();
         let (mut lo, mut hi) = (0usize, n);
         while lo < hi {
             let mid = (lo + hi) / 2;
-            match self.word(mid).cmp(w) {
+            let at = self.word(mid);
+            if self.blocks.as_ref().is_some_and(|b| b.bad()) {
+                return None;
+            }
+            match at.cmp(w) {
                 std::cmp::Ordering::Less => lo = mid + 1,
                 std::cmp::Ordering::Greater => hi = mid,
                 std::cmp::Ordering::Equal => return Some(mid),
@@ -175,17 +203,45 @@ impl<'a> WordsView<'a> {
         }
         None
     }
-    pub fn posting_bytes(&self, i: usize) -> &'a [u8] {
-        &self.postings[self.offsets[i] as usize..self.offsets[i + 1] as usize]
-    }
-    /// Dictionary position of the word whose bytes contain arena offset `off`.
-    pub fn word_at_offset(&self, off: usize) -> Option<usize> {
-        let i = self.word_off.partition_point(|&o| (o as usize) <= off);
-        if i == 0 || i > self.len() {
-            return None;
+    /// Documents holding the word at `i`.
+    pub fn count(&self, i: usize) -> u32 {
+        match self.counts.get(i..i + 1) {
+            Some(c) if ok(&self.blocks, c) => c[0],
+            _ => 0,
         }
-        Some(i - 1)
     }
+    /// The serialized posting list at `i`; empty when it cannot be verified.
+    pub fn posting_bytes(&self, i: usize) -> &'a [u8] {
+        let Some(o) = self.offsets.get(i..i + 2) else {
+            return &[];
+        };
+        if !ok(&self.blocks, o) {
+            return &[];
+        }
+        let p = self
+            .postings
+            .get(o[0] as usize..o[1] as usize)
+            .unwrap_or_default();
+        if ok(&self.blocks, p) { p } else { &[] }
+    }
+    /// The whole dictionary (offsets, words, counts), verified; `None` when a
+    /// block fails its check. For passes over every word.
+    pub fn dictionary(&self) -> Option<(&'a [u32], &'a [u8], &'a [u32])> {
+        (ok(&self.blocks, self.word_off)
+            && ok(&self.blocks, self.arena)
+            && ok(&self.blocks, self.counts))
+        .then_some((self.word_off, self.arena, self.counts))
+    }
+}
+
+/// Dictionary position of the word whose bytes contain arena offset `off`,
+/// in a verified dictionary's word offsets.
+pub fn word_at_offset(word_off: &[u32], off: usize) -> Option<usize> {
+    let i = word_off.partition_point(|&o| (o as usize) <= off);
+    if i == 0 || i >= word_off.len() {
+        return None;
+    }
+    Some(i - 1)
 }
 
 #[cfg(test)]
@@ -233,7 +289,7 @@ mod tests {
         }
         entries.sort_by(|a, b| a.0.cmp(&b.0));
         let body = serialize(&entries);
-        let v = WordsView::parse(&body).unwrap();
+        let v = WordsView::parse(&body, None).unwrap();
         assert_eq!(v.len(), 3);
         let i = v.find(b"node").unwrap();
         assert_eq!(v.word(i), b"node");
@@ -241,8 +297,9 @@ mod tests {
         let bm = roaring::RoaringBitmap::deserialize_from(v.posting_bytes(i)).unwrap();
         assert_eq!(bm.iter().collect::<Vec<_>>(), [1, 2, 3]);
         assert!(v.find(b"NODE").is_none(), "case-sensitive keys");
-        assert_eq!(v.word_at_offset(v.word_off[i] as usize + 2), Some(i));
-        assert_eq!(v.find(b"Node").map(|i| v.counts[i]), Some(2));
+        let (word_off, _, _) = v.dictionary().unwrap();
+        assert_eq!(word_at_offset(word_off, word_off[i] as usize + 2), Some(i));
+        assert_eq!(v.find(b"Node").map(|i| v.count(i)), Some(2));
     }
 
     /// A word section with no words parses, and a body cut anywhere (a delta
@@ -250,10 +307,10 @@ mod tests {
     #[test]
     fn empty_and_truncated_sections() {
         let body = serialize(&[]);
-        let v = WordsView::parse(&body).unwrap();
+        let v = WordsView::parse(&body, None).unwrap();
         assert!(v.is_empty());
         assert!(v.find(b"node").is_none());
-        assert!(v.word_at_offset(0).is_none());
+        assert!(word_at_offset(v.dictionary().unwrap().0, 0).is_none());
 
         let mut entries: Vec<(Vec<u8>, u32, Vec<u8>)> = Vec::new();
         for (w, ids) in [("alpha", vec![1u32, 5]), ("beta", vec![2])] {
@@ -263,20 +320,23 @@ mod tests {
             entries.push((w.as_bytes().to_vec(), ids.len() as u32, b));
         }
         let body = serialize(&entries);
-        assert!(WordsView::parse(&body).is_ok());
+        assert!(WordsView::parse(&body, None).is_ok());
         for cut in 0..body.len() {
             // the trailing padding is the only part a cut can spare
             if cut + 8 <= body.len() {
-                assert!(WordsView::parse(&body[..cut]).is_err(), "cut at {cut}");
+                assert!(
+                    WordsView::parse(&body[..cut], None).is_err(),
+                    "cut at {cut}"
+                );
             } else {
-                let _ = WordsView::parse(&body[..cut]);
+                let _ = WordsView::parse(&body[..cut], None);
             }
         }
         // a torn header claiming more postings than any body holds
         let mut torn = body.clone();
         torn[8..16].copy_from_slice(&u64::MAX.to_le_bytes());
-        assert!(WordsView::parse(&torn).is_err());
+        assert!(WordsView::parse(&torn, None).is_err());
         torn[8..16].copy_from_slice(&0u64.to_le_bytes());
-        assert!(WordsView::parse(&torn).is_err(), "lengths disagree");
+        assert!(WordsView::parse(&torn, None).is_err(), "lengths disagree");
     }
 }

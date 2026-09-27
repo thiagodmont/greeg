@@ -205,6 +205,46 @@ fn mark_corrupt_opened(o: &Options, opened: Option<Snapshot>) {
     spawn_build(&o.root, &dir);
 }
 
+/// Say once that the index failed a check, and queue its rebuild.
+fn note_corruption(o: &Options) {
+    static NOTED: std::sync::Once = std::sync::Once::new();
+    NOTED.call_once(|| {
+        eprintln!(
+            "greeg: index component failed its check; answering from a scan and rebuilding the index"
+        );
+        mark_corrupt(o);
+    });
+}
+
+/// Run a verb, from the index when it can. When a block of the index failed
+/// its check meanwhile (`integrity::failed`), anything read from it may be
+/// wrong: queue a rebuild and answer again without the index, before any
+/// output.
+pub fn answered<T>(o: &Options, f: impl Fn(&Options) -> Result<T>) -> Result<T> {
+    let r = f(o);
+    if !o.use_index || !greeg_index::integrity::failed() {
+        return r;
+    }
+    note_corruption(o);
+    let mut so = o.clone();
+    so.use_index = false;
+    f(&so)
+}
+
+/// For a verb that has no answer without the index: when a check failed,
+/// the rebuild it queued.
+pub fn failed_check(o: &Options, idx: &Index) -> Option<Rebuilding> {
+    if !idx.corrupt() && !greeg_index::integrity::failed() {
+        return None;
+    }
+    note_corruption(o);
+    Some(Rebuilding {
+        reason: "corrupt",
+        estimate_ms: Some(idx.manifest.build_ms as u64),
+        generation: idx.manifest.generation,
+    })
+}
+
 pub(crate) fn path_allowed(rel: &[u8], paths: &[Vec<u8>]) -> bool {
     if paths.is_empty() {
         return true;
@@ -286,7 +326,7 @@ fn retry_mode(idx: &Index, mode: Fresh) -> Fresh {
 /// No index answer: a build of it is queued, for `reason`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Rebuilding {
-    /// `fresh::RebuildReason::name`, `no-index` or `other-root`.
+    /// `fresh::RebuildReason::name`, `no-index`, `other-root` or `corrupt`.
     pub reason: &'static str,
     /// How long the build it replaces took, when there was one.
     pub estimate_ms: Option<u64>,
@@ -717,11 +757,10 @@ pub(crate) fn try_index(cx: &Ctx, threads: usize, t0: Instant) -> Result<Option<
     let mut files = out.into_inner().unwrap();
     files.sort_by(|a, b| a.rel.cmp(&b.rel));
     crate::finish_stats(&mut stats, &files, o, cx.stats, t0);
-    if idx.corrupt() {
-        // a posting list failed to deserialize: the query above used a superset
-        // (every file) for that gram, so the answer is right; rebuild in the background
-        eprintln!("greeg: index component unreadable; rebuilding in the background");
-        mark_corrupt(o);
+    if idx.corrupt() || greeg_index::integrity::failed() {
+        // bytes the build did not write were read: nothing above is trusted
+        note_corruption(o);
+        return Ok(None);
     }
     Ok(Some(ScanResult {
         opts: o.clone(),

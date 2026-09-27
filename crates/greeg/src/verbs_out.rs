@@ -6,6 +6,7 @@ use crate::{Common, chain_str, container_of, fmt_n};
 use anyhow::Result;
 use greeg_lang::sym::{SYM_EXPORTED, SYM_HAS_DOC, SYM_TEST};
 use greeg_lang::{DefKind, FileFlags};
+use greeg_query::indexed::answered;
 use greeg_query::outcome::Outcome;
 use greeg_query::verbs::{self, DefEntry};
 use greeg_query::{HitKind, Options};
@@ -292,7 +293,7 @@ pub fn run_def(
     {
         from = s.focus();
     }
-    let r = verbs::def(o, name, &from, want)?;
+    let r = answered(o, |o| verbs::def(o, name, &from, want))?;
     let oc = Outcome {
         total: r.total,
         shown: r.entries.len(),
@@ -387,7 +388,7 @@ pub fn run_def(
 }
 
 pub fn run_show(c: &Common, o: &Options, locs: &[(String, u32)]) -> Result<()> {
-    let r = verbs::show(o, locs)?;
+    let r = answered(o, |o| verbs::show(o, locs))?;
     let mut w = out();
     if c.json {
         for it in &r.items {
@@ -445,7 +446,7 @@ pub fn run_show(c: &Common, o: &Options, locs: &[(String, u32)]) -> Result<()> {
 
 pub fn run_refs(c: &Common, o: &Options, name: &str) -> Result<()> {
     let kinds: Vec<HitKind> = o.kinds.clone();
-    let r = verbs::refs(o, name, &kinds)?;
+    let r = answered(o, |o| verbs::refs(o, name, &kinds))?;
     let s = &r.scan;
     let mut w = out();
     // group hits by kind, best first within each kind
@@ -613,7 +614,7 @@ pub fn run_refs(c: &Common, o: &Options, name: &str) -> Result<()> {
 }
 
 pub fn run_callers(c: &Common, o: &Options, name: &str, depth: usize) -> Result<()> {
-    let r = verbs::callers(o, name, depth)?;
+    let r = answered(o, |o| verbs::callers(o, name, depth))?;
     let mut w = out();
     let limit = if o.budget == 0 {
         usize::MAX
@@ -721,7 +722,7 @@ pub fn run_callers(c: &Common, o: &Options, name: &str, depth: usize) -> Result<
 }
 
 pub fn run_impls(c: &Common, o: &Options, name: &str) -> Result<()> {
-    let r = verbs::impls(o, name)?;
+    let r = answered(o, |o| verbs::impls(o, name))?;
     let mut w = out();
     let limit = if o.budget == 0 {
         usize::MAX
@@ -796,7 +797,7 @@ pub fn run_impls(c: &Common, o: &Options, name: &str) -> Result<()> {
 }
 
 pub fn run_outline(c: &Common, o: &Options, file: &str, imports: bool) -> Result<()> {
-    let r = verbs::outline(o, file)?;
+    let r = answered(o, |o| verbs::outline(o, file))?;
     let mut w = out();
     if c.json {
         for d in &r.defs {
@@ -1069,7 +1070,7 @@ pub fn run_map(c: &Common, o: &Options, dir: &str) -> Result<()> {
 }
 
 pub fn run_impact(c: &Common, o: &Options, name: &str) -> Result<()> {
-    let r = verbs::impact(o, name)?;
+    let r = answered(o, |o| verbs::impact(o, name))?;
     // an answer counts referring files
     let files = r.will_break.len() + r.may_break.len() + r.review.len();
     let oc = Outcome {

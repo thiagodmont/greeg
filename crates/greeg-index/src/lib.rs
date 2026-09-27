@@ -12,6 +12,7 @@ pub mod fresh;
 pub mod gram;
 pub mod ignores;
 pub mod index;
+pub mod integrity;
 pub mod lock;
 pub mod plan;
 pub mod private;
@@ -32,7 +33,7 @@ use std::path::{Path, PathBuf};
 /// The on-disk layout. Every change to what a build or refresh writes gets a
 /// new number, released or not, so binaries of different layouts never share
 /// files (`format_dir`); `layout_fingerprint_matches_format_version` enforces it.
-pub const FORMAT_VERSION: u32 = 10;
+pub const FORMAT_VERSION: u32 = 11;
 
 /// Create an index directory and any missing parents owner-only (0700).
 /// Existing directories are left as they are, never chmodded.
@@ -107,6 +108,10 @@ pub struct Manifest {
     /// Superseded entries, removed once their grace period is over.
     #[serde(default)]
     pub retired: Vec<snapshot::Retired>,
+    /// The digest of every named file's trailer of block digests, by name
+    /// (`integrity::root`): a reader verifies what it reads against these.
+    #[serde(default)]
+    pub roots: std::collections::BTreeMap<String, String>,
     pub phase1: bool,
     /// Symbols, spans and graph published (phase 2, ARCHITECTURE.md).
     #[serde(default)]

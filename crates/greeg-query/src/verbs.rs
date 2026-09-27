@@ -1458,6 +1458,9 @@ pub fn map(o: &Options, dir: &str) -> Result<MapResult> {
             .unwrap_or(std::cmp::Ordering::Equal)
             .then(a.rel.cmp(&b.rel))
     });
+    if let Some(rb) = indexed::failed_check(o, idx) {
+        return Err(rb.into());
+    }
     Ok(MapResult {
         dir,
         files_total,
