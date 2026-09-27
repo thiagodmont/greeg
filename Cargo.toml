@@ -28,6 +28,7 @@ memmap2 = "0.9"
 bytemuck = { version = "1", features = ["derive"] }
 hashbrown = "0.15"
 blake3 = "1"
+xxhash-rust = { version = "0.8", features = ["xxh3"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 tree-sitter = "=0.27.0"

@@ -44,10 +44,10 @@ Every component is a flat, fixed-width table read through `mmap`, with no
 deserialization step, after a 48-byte header: magic `GREEG\0\0\0`, format
 u32, component u8, 3 reserved bytes, payload length u64, epoch u64, sequence
 u32, block size u32 and 8 reserved bytes. A trailer follows the payload: an
-8-byte blake3 digest of each 16 KiB block. Each build writes its components
+XXH3-64 digest of each 16 KiB block. Each build writes its components
 into its own directory, `g-<epoch>/`, under a random 64-bit epoch; a
 `manifest` (JSON) names the current build, the file of each component and,
-in `roots`, the digest of each file's trailer.
+in `roots`, the blake3 digest of each file's trailer.
 
 | File | Holds | Used for |
 |---|---|---|
