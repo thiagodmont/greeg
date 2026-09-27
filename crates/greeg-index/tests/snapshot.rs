@@ -309,3 +309,19 @@ fn a_burst_of_rebuilds_keeps_a_bounded_number_of_builds() {
     assert_eq!(builds, 1 + RETIRED_BUILDS);
     assert!(Index::open(&t.dir).is_ok());
 }
+
+#[test]
+fn phase_two_does_not_revive_an_abandoned_build() {
+    let t = tree();
+    let dir = t.dir.clone();
+    after_phase1_on_this_thread(Some(Box::new(move || {
+        let _lock = greeg_index::lock::writer(&dir).unwrap();
+        greeg_index::snapshot::abandon(&dir).unwrap();
+    })));
+    let built = build(&t.root, &t.dir, &opts());
+    after_phase1_on_this_thread(None);
+    assert!(built.is_err());
+    let m = read_manifest(&t.dir).unwrap();
+    assert!(!m.phase1 && !m.phase2);
+    assert!(Index::open(&t.dir).is_err());
+}

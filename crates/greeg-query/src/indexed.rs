@@ -176,12 +176,12 @@ fn refresh_inner(root: &Path, dir: &Path, threads: usize) -> Result<()> {
 /// `mark_corrupt` can tell the one that failed from one published since.
 static OPENED: Mutex<Option<Snapshot>> = Mutex::new(None);
 
-/// Drop the manifest so the next query rebuilds, and start that rebuild now.
-/// Runs under the writer lock, and only while the manifest still names the
-/// snapshot this process opened: one a concurrent writer published since the
-/// failure is left alone (a process that never opened an index deletes
-/// unconditionally, e.g. after a SIGBUS re-exec). The unnamed build
-/// directory is an orphan for the next build's cleanup.
+/// Mark the snapshot unusable so the next query rebuilds (the rebuild retires
+/// its directory), and start that rebuild now. Runs under the writer lock,
+/// and only while the manifest still names the snapshot this process opened:
+/// one a concurrent writer published since the failure is left alone (a
+/// process that never opened an index marks unconditionally, e.g. after a
+/// SIGBUS re-exec).
 pub fn mark_corrupt(o: &Options) {
     let Ok(dir) = greeg_index::index_dir(&o.root, o.index_dir.as_deref()) else {
         return;
@@ -196,7 +196,7 @@ pub fn mark_corrupt(o: &Options) {
     {
         return;
     }
-    let _ = fs::remove_file(dir.join("manifest"));
+    let _ = greeg_index::snapshot::abandon(&dir);
     spawn_build(&o.root, &dir);
 }
 
@@ -826,6 +826,43 @@ pub(crate) fn classify_at(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A snapshot found corrupt is retired by the rebuild it queues, like any
+    /// superseded build, instead of staying on disk as an orphan.
+    #[test]
+    fn a_corrupt_snapshot_is_retired_by_the_rebuild_it_queues() {
+        use greeg_index::build::{BuildOpts, build};
+        let base = std::env::temp_dir().join(format!("greeg-corrupt-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        let root = base.join("tree");
+        let dir = greeg_index::format_dir(&base.join("index"));
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::create_dir_all(root.join(".git")).unwrap();
+        fs::write(root.join("src/lib.rs"), "pub fn helper_alpha() {}\n").unwrap();
+        let opts = BuildOpts {
+            reader_threads: 1,
+            quiet: true,
+            ..Default::default()
+        };
+        build(&root, &dir, &opts).unwrap();
+        let o = Options {
+            root: root.clone(),
+            index_dir: Some(greeg_index::repo_of(&dir).to_path_buf()),
+            fresh: Fresh::None,
+            ..Default::default()
+        };
+        let opened = open_fresh(&o, 1).unwrap().expect("index opened");
+        let old = greeg_index::snapshot::gen_dir(opened.idx.manifest.epoch);
+        mark_corrupt(&o);
+        assert!(Index::open(&dir).is_err(), "a corrupt snapshot is not used");
+        // the queued rebuild
+        build(&root, &dir, &opts).unwrap();
+        let m = read_manifest(&dir).unwrap();
+        assert!(m.retired.iter().any(|r| r.name == old), "{:?}", m.retired);
+        assert!(greeg_index::snapshot::expire_retired(&dir) > 0);
+        assert!(!dir.join(&old).exists());
+        let _ = fs::remove_dir_all(&base);
+    }
 
     /// A query whose delta was skipped because another writer republished in
     /// between must re-check the reopened index instead of answering from it.

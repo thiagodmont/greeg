@@ -559,7 +559,8 @@ background rebuild. A corrupt posting list reads as "every file" and marks the
 index for rebuild; a superset is harmless, because verification runs the real
 matcher anyway. A truncated component fails to open and triggers a rebuild,
 unless the snapshot changed while it was opened. Marking an index corrupt
-removes the manifest only if it still names the snapshot the reader opened.
+marks the manifest unusable, only if it still names the snapshot the reader
+opened; the rebuild that follows retires that build like any other.
 A `SIGBUS` from a file truncated under an active mmap re-executes the same
 command with `--no-index`. A format-version mismatch rebuilds. There's no
 migration code, by design.
