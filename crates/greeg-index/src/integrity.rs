@@ -1,6 +1,7 @@
 //! Block digests (ARCHITECTURE.md): every component body is split into
-//! blocks, and a trailer after it holds a truncated blake3 digest per block.
-//! The manifest records the digest of each trailer, so a reader trusts no
+//! blocks, and a trailer after it holds an XXH3-64 digest per block, fast
+//! enough that a query hashes what it reads at little cost. The manifest
+//! records the blake3 digest of each trailer, so a reader trusts no
 //! byte it has not checked: small or eagerly read components are verified
 //! whole when opened, and the large ones block by block as they are read,
 //! each block once per process. A failed check marks the index corrupt;
@@ -21,7 +22,7 @@ pub fn trailer_len(len: u64, block: u32) -> u64 {
 }
 
 fn digest(block: &[u8]) -> [u8; DIGEST] {
-    blake3::hash(block).as_bytes()[..DIGEST].try_into().unwrap()
+    xxhash_rust::xxh3::xxh3_64(block).to_le_bytes()
 }
 
 /// The trailer of `body`: one digest per block.
