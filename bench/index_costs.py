@@ -126,6 +126,8 @@ def measure(name, binaries, args, rng):
              "fresh_miss": ["-l", MISS, "--fresh", "stat"]}
     if queries.get("word"):
         cases["word_count"] = ["-c", "-w", queries["word"], "--sort", "path", "--fresh", "stat"]
+    if queries.get("regex"):
+        cases["regex_count"] = ["-c", queries["regex"], "--sort", "path", "--fresh", "stat"]
     for verb in ("def", "refs"):
         if queries.get(verb):
             cases[verb] = [verb, queries[verb], "--fresh", "stat"]
