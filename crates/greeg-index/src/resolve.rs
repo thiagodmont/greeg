@@ -52,6 +52,8 @@ pub struct Resolver<'a> {
     ts_by_dir: HashMap<String, usize>,
     /// Workspace packages by name (`package.json` files named by the root's `workspaces`).
     js_packages: HashMap<String, JsPackage>,
+    /// `extends` targets read, repo-relative, sorted.
+    config_inputs: Vec<String>,
 }
 
 fn dir_of(rel: &str) -> &str {
@@ -162,13 +164,14 @@ impl<'a> Resolver<'a> {
         ts_dirs.sort();
         ts_dirs.dedup();
         let mut ts_configs: Vec<TsConfig> = Vec::with_capacity(ts_dirs.len());
+        let mut config_inputs = Vec::new();
         for d in &ts_dirs {
             let file = if paths.contains_key(join(d, "tsconfig.json").as_str()) {
                 "tsconfig.json"
             } else {
                 "jsconfig.json"
             };
-            ts_configs.push(load_tsconfig(root, &join(d, file), 0));
+            ts_configs.push(load_tsconfig(root, &join(d, file), &mut config_inputs));
         }
         let ts_by_dir = ts_configs
             .iter()
@@ -176,6 +179,8 @@ impl<'a> Resolver<'a> {
             .map(|(i, c)| (c.dir.clone(), i))
             .collect();
         let js_packages = workspace_packages(root, &pkg_jsons);
+        config_inputs.sort();
+        config_inputs.dedup();
         Resolver {
             paths,
             py_roots,
@@ -187,7 +192,15 @@ impl<'a> Resolver<'a> {
             ts_configs,
             ts_by_dir,
             js_packages,
+            config_inputs,
         }
+    }
+
+    /// Configuration files resolution read beyond the files that name them:
+    /// `extends` targets, which may be files the walk does not index
+    /// (`node_modules`) or files of any name. A change to one changes edges.
+    pub fn config_inputs(&self) -> &[String] {
+        &self.config_inputs
     }
 
     pub fn ts_configs(&self) -> &[TsConfig] {
@@ -583,14 +596,14 @@ pub fn strip_jsonc(src: &str) -> String {
 /// Parse a tsconfig with its `extends` chain (`rel` repo-relative). `paths`
 /// targets are made repo-relative against the effective `baseUrl`, else the
 /// directory of the config that declared them.
-fn load_tsconfig(root: &Path, rel: &str, depth: usize) -> TsConfig {
+fn load_tsconfig(root: &Path, rel: &str, read: &mut Vec<String>) -> TsConfig {
     type Patterns = Vec<(String, Vec<String>)>;
     struct Raw {
         base_url: Option<String>,
         /// (declaring config dir, patterns)
         paths: Option<(String, Patterns)>,
     }
-    fn raw(root: &Path, rel: &str, depth: usize) -> Raw {
+    fn raw(root: &Path, rel: &str, depth: usize, read: &mut Vec<String>) -> Raw {
         let mut r = Raw {
             base_url: None,
             paths: None,
@@ -616,7 +629,8 @@ fn load_tsconfig(root: &Path, rel: &str, depth: usize) -> TsConfig {
         };
         for p in parents {
             if let Some(prel) = resolve_extends(root, &dir, &p) {
-                let pr = raw(root, &prel, depth + 1);
+                let pr = raw(root, &prel, depth + 1, read);
+                read.push(prel);
                 if r.base_url.is_none() {
                     r.base_url = pr.base_url;
                 }
@@ -647,7 +661,7 @@ fn load_tsconfig(root: &Path, rel: &str, depth: usize) -> TsConfig {
         }
         r
     }
-    let r = raw(root, rel, depth);
+    let r = raw(root, rel, 0, read);
     let dir = dir_of(rel).to_string();
     let paths = match r.paths {
         Some((decl_dir, pats)) => {

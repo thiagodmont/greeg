@@ -496,14 +496,14 @@ fn run_index(
         match greeg_index::fresh::check(&idx, &root, mode, 4) {
             Some(ch) => {
                 println!(
-                    "{}: modified {} deleted {} added {} added_dirs {} touched_dirs {} ignore_changed {} in {:.1} ms",
+                    "{}: modified {} deleted {} added {} added_dirs {} touched_dirs {} rebuild {} in {:.1} ms",
                     ch.method,
                     ch.modified.len(),
                     ch.deleted.len(),
                     ch.added.len(),
                     ch.added_dirs.len(),
                     ch.touched_dirs.len(),
-                    ch.ignore_changed,
+                    greeg_index::fresh::rebuild_reason(&idx, &ch).map_or("none", |r| r.name()),
                     ch.ms
                 );
                 if greeg_index::fresh::needs_rebuild(&idx, &ch) {

@@ -933,7 +933,23 @@ pub fn run_outline(c: &Common, o: &Options, file: &str, imports: bool) -> Result
 }
 
 pub fn run_map(c: &Common, o: &Options, dir: &str) -> Result<()> {
-    let r = verbs::map(o, dir)?;
+    let r = match verbs::map(o, dir) {
+        Ok(r) => r,
+        Err(e) => {
+            if c.json
+                && let Some(rb) = e.downcast_ref::<greeg_query::indexed::Rebuilding>()
+            {
+                let mut w = out();
+                serde_json::to_writer(
+                    &mut w,
+                    &json!({"type":"footer","data":{"verb":"map","outcome":{"exit":2,"rebuilding":{"reason":rb.reason,"estimate_ms":rb.estimate_ms}}}}),
+                )?;
+                writeln!(w)?;
+                w.flush()?;
+            }
+            return Err(e);
+        }
+    };
     let mut w = out();
     let file_limit = if o.budget == 0 {
         usize::MAX
@@ -962,7 +978,7 @@ pub fn run_map(c: &Common, o: &Options, dir: &str) -> Result<()> {
         }
         serde_json::to_writer(
             &mut w,
-            &json!({"type":"footer","data":{"verb":"map","dir":r.dir,"files_total":r.files_total,"symbols_total":r.symbols_total,"dirs_total":r.dirs.len(),"source":r.source,"elapsed_ms":r.elapsed_ms}}),
+            &json!({"type":"footer","data":{"verb":"map","dir":r.dir,"files_total":r.files_total,"symbols_total":r.symbols_total,"dirs_total":r.dirs.len(),"source":r.source,"graph_changes":r.graph_changes,"elapsed_ms":r.elapsed_ms}}),
         )?;
         writeln!(w)?;
         w.flush()?;
@@ -978,6 +994,17 @@ pub fn run_map(c: &Common, o: &Options, dir: &str) -> Result<()> {
         r.source,
         ms(c, r.elapsed_ms)
     )?;
+    if r.graph_changes > 0 {
+        writeln!(
+            w,
+            "{} added or removed since the graph was built: imports of unchanged files may miss them (`greeg index` rebuilds it)",
+            if r.graph_changes == 1 {
+                "1 file".to_string()
+            } else {
+                format!("{} files", fmt_n(r.graph_changes as usize))
+            }
+        )?;
+    }
     if !r.dirs.is_empty() {
         writeln!(w, "\ndirectories (by best file rank)")?;
         for d in r.dirs.iter().take(dir_limit) {

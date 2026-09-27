@@ -58,7 +58,8 @@ impl Lang {
     pub fn indent_scoped(self) -> bool {
         matches!(self, Lang::Python)
     }
-    /// Stable byte code for the file table (built-ins 0..16, extras 16 + index).
+    /// The file table's byte for this language: built-ins in [`BUILTINS`]
+    /// order, then extras in registry order (`greeg_index::derive`).
     pub fn code(self) -> u8 {
         match self {
             Lang::None => 0,
@@ -68,7 +69,7 @@ impl Lang {
             Lang::TypeScript => 4,
             Lang::Kotlin => 5,
             Lang::Text => 6,
-            Lang::Extra(i) => 16u8.saturating_add(i),
+            Lang::Extra(i) => BUILTINS.len() as u8 + i,
         }
     }
     pub fn from_path(path: &Path) -> Lang {
@@ -101,6 +102,17 @@ impl Lang {
         }
     }
 }
+
+/// Built-in languages in code order (`Lang::code`).
+pub const BUILTINS: [Lang; 7] = [
+    Lang::None,
+    Lang::Python,
+    Lang::Rust,
+    Lang::JavaScript,
+    Lang::TypeScript,
+    Lang::Kotlin,
+    Lang::Text,
+];
 
 /// Per-file flags (see ARCHITECTURE.md). Path-derived flags are cheap and
 /// computed for every file; content-derived flags only for files we read.

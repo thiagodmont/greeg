@@ -2,6 +2,7 @@
 //! ignore-file edits, corrupt deltas and writer races, on a temp tree.
 
 use greeg_index::build::{BuildOpts, build};
+use greeg_index::fresh::RebuildReason;
 use greeg_index::fresh::{self, Mode};
 use greeg_index::{Index, format, plan, read_manifest};
 use std::fs;
@@ -378,6 +379,46 @@ fn stat_mode_add_delete_rename() {
     assert!(check(&idx, &t.root).is_empty());
 }
 
+/// A file import resolution reads by name, added, edited or deleted, moves
+/// edges of files that did not change: only a rebuild resolves them again.
+#[test]
+fn resolver_file_edits_force_rebuild() {
+    let t = tree();
+    build(&t.root, &t.dir, &opts()).unwrap();
+    let idx = Index::open(&t.dir).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(30));
+    fs::write(t.root.join("Cargo.toml"), "[package]\nname = \"x\"\n").unwrap();
+    let ch = check(&idx, &t.root);
+    assert_eq!(ch.rebuild, Some(RebuildReason::ResolverInputs), "{ch:?}");
+    assert_eq!(
+        fresh::rebuild_reason(&idx, &ch),
+        Some(RebuildReason::ResolverInputs)
+    );
+    // a file of another name is a delta
+    build(&t.root, &t.dir, &opts()).unwrap();
+    let idx = Index::open(&t.dir).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(30));
+    fs::write(t.root.join("README.md"), "readme_epsilon\n").unwrap();
+    assert_eq!(check(&idx, &t.root).rebuild, None);
+}
+
+/// An index derived by another version or language registry is rebuilt.
+#[test]
+fn another_derivation_forces_rebuild() {
+    let t = tree();
+    build(&t.root, &t.dir, &opts()).unwrap();
+    let mut m = read_manifest(&t.dir).unwrap();
+    assert_eq!(m.derivation, greeg_index::derive::derivation());
+    assert_eq!(m.languages[..2], ["builtin:none", "builtin:python"]);
+    m.derivation = "an older release".into();
+    greeg_index::write_manifest(&t.dir, &m).unwrap();
+    let idx = Index::open(&t.dir).unwrap();
+    assert_eq!(
+        check(&idx, &t.root).rebuild,
+        Some(RebuildReason::Derivation)
+    );
+}
+
 #[test]
 fn ignore_file_edits_force_rebuild() {
     let t = tree();
@@ -388,7 +429,7 @@ fn ignore_file_edits_force_rebuild() {
     fs::write(t.root.join(".gitignore"), "build/\nlib/\n").unwrap();
     let ch = check(&idx, &t.root);
     assert!(
-        ch.ignore_changed,
+        ch.rebuild == Some(RebuildReason::IgnoreInputs),
         "edited .gitignore must be detected: {ch:?}"
     );
     assert!(fresh::needs_rebuild(&idx, &ch));
@@ -404,7 +445,7 @@ fn ignore_file_edits_force_rebuild() {
     fs::write(t.root.join("src/.ignore"), "util/\n").unwrap();
     let ch = check(&idx, &t.root);
     assert!(
-        ch.ignore_changed,
+        ch.rebuild == Some(RebuildReason::IgnoreInputs),
         "added src/.ignore must be detected: {ch:?}"
     );
     build(&t.root, &t.dir, &opts()).unwrap();
@@ -416,7 +457,7 @@ fn ignore_file_edits_force_rebuild() {
     fs::remove_file(t.root.join("src/.ignore")).unwrap();
     let ch = check(&idx, &t.root);
     assert!(
-        ch.ignore_changed,
+        ch.rebuild == Some(RebuildReason::IgnoreInputs),
         "deleted src/.ignore must be detected: {ch:?}"
     );
     build(&t.root, &t.dir, &opts()).unwrap();

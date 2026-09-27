@@ -138,48 +138,31 @@ fn cap_of(n: &str) -> Cap {
     }
 }
 
+const PY_QUERY: &str = include_str!("../queries/python.scm");
+const RS_QUERY: &str = include_str!("../queries/rust.scm");
+const JS_QUERY: &str = include_str!("../queries/javascript.scm");
+const TS_QUERY: &str = include_str!("../queries/typescript.scm");
+const KT_QUERY: &str = include_str!("../queries/kotlin.scm");
+/// Every built-in tags query, for the derivation fingerprint.
+pub const QUERIES: [&str; 5] = [PY_QUERY, RS_QUERY, JS_QUERY, TS_QUERY, KT_QUERY];
+
 fn compile(lang: Language, src: &str) -> LangQ {
     let query = Query::new(&lang, src).unwrap_or_else(|e| panic!("bad query: {e}"));
     let caps = query.capture_names().iter().map(|n| cap_of(n)).collect();
     LangQ { lang, query, caps }
 }
 
-static PY: LazyLock<LangQ> = LazyLock::new(|| {
-    compile(
-        tree_sitter_python::LANGUAGE.into(),
-        include_str!("../queries/python.scm"),
-    )
-});
-static RS: LazyLock<LangQ> = LazyLock::new(|| {
-    compile(
-        tree_sitter_rust::LANGUAGE.into(),
-        include_str!("../queries/rust.scm"),
-    )
-});
-static JS: LazyLock<LangQ> = LazyLock::new(|| {
-    compile(
-        tree_sitter_javascript::LANGUAGE.into(),
-        include_str!("../queries/javascript.scm"),
-    )
-});
-static TS: LazyLock<LangQ> = LazyLock::new(|| {
-    compile(
-        tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
-        include_str!("../queries/typescript.scm"),
-    )
-});
-static TSX: LazyLock<LangQ> = LazyLock::new(|| {
-    compile(
-        tree_sitter_typescript::LANGUAGE_TSX.into(),
-        include_str!("../queries/typescript.scm"),
-    )
-});
-static KT: LazyLock<LangQ> = LazyLock::new(|| {
-    compile(
-        tree_sitter_kotlin_sg::LANGUAGE.into(),
-        include_str!("../queries/kotlin.scm"),
-    )
-});
+static PY: LazyLock<LangQ> =
+    LazyLock::new(|| compile(tree_sitter_python::LANGUAGE.into(), PY_QUERY));
+static RS: LazyLock<LangQ> = LazyLock::new(|| compile(tree_sitter_rust::LANGUAGE.into(), RS_QUERY));
+static JS: LazyLock<LangQ> =
+    LazyLock::new(|| compile(tree_sitter_javascript::LANGUAGE.into(), JS_QUERY));
+static TS: LazyLock<LangQ> =
+    LazyLock::new(|| compile(tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(), TS_QUERY));
+static TSX: LazyLock<LangQ> =
+    LazyLock::new(|| compile(tree_sitter_typescript::LANGUAGE_TSX.into(), TS_QUERY));
+static KT: LazyLock<LangQ> =
+    LazyLock::new(|| compile(tree_sitter_kotlin_sg::LANGUAGE.into(), KT_QUERY));
 
 fn lang_q(lang: Lang, tsx: bool) -> Option<&'static LangQ> {
     Some(match lang {

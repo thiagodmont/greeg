@@ -163,6 +163,9 @@ fn layout_digest(t: &Tmp) -> String {
         "fsevents_id",
         "verified_unix_ms",
         "ignore_inputs",
+        "resolver_inputs",
+        // the version is part of it: a release changes it, not the layout
+        "derivation",
     ] {
         assert!(m.remove(volatile).is_some(), "manifest has no {volatile}");
     }
@@ -183,7 +186,9 @@ fn layout_digest(t: &Tmp) -> String {
 fn layout_fingerprint_matches_format_version() {
     // SAFETY: the only test in this binary, and no thread has started yet.
     unsafe { std::env::set_var("GREEG_DEBUG_FIXED_STAMPS", "1") };
-    const LAYOUT: (u32, &str) = (9, "db8c9d554fb42d59");
+    // built-in languages only, whatever this machine registers
+    unsafe { std::env::set_var("GREEG_LANG_DIR", "/nonexistent/greeg-lang") };
+    const LAYOUT: (u32, &str) = (10, "a6d9c9c9f393bfbe");
     let t = fingerprint_tree();
     let digest = layout_digest(&t);
     assert_eq!(

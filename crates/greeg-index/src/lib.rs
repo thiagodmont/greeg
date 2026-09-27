@@ -5,6 +5,7 @@
 //! fixed-layout, and read through `mmap` without deserialization.
 
 pub mod build;
+pub mod derive;
 pub mod external;
 pub mod format;
 pub mod fresh;
@@ -31,7 +32,7 @@ use std::path::{Path, PathBuf};
 /// The on-disk layout. Every change to what a build or refresh writes gets a
 /// new number, released or not, so binaries of different layouts never share
 /// files (`format_dir`); `layout_fingerprint_matches_format_version` enforces it.
-pub const FORMAT_VERSION: u32 = 9;
+pub const FORMAT_VERSION: u32 = 10;
 
 /// Create an index directory and any missing parents owner-only (0700).
 /// Existing directories are left as they are, never chmodded.
@@ -150,6 +151,25 @@ pub struct Manifest {
     /// inode numbers; empty otherwise (`fresh::classify_all`).
     #[serde(default)]
     pub stamp_mode: String,
+    /// `derive::derivation` of the build: an index derived otherwise rebuilds.
+    #[serde(default)]
+    pub derivation: String,
+    /// `derive::language_keys`: the name of each language code in the file
+    /// table.
+    #[serde(default)]
+    pub languages: Vec<String>,
+    /// Configuration files import resolution read besides those the file
+    /// table tracks (`Resolver::config_inputs`), and `ignores::digest_paths`
+    /// of them; empty until phase 2.
+    #[serde(default)]
+    pub resolver_files: Vec<String>,
+    #[serde(default)]
+    pub resolver_inputs: String,
+    /// Files of a language with import resolution that deltas added or
+    /// removed since the build: their importers were not resolved again, so
+    /// the graph may miss or keep edges to them.
+    #[serde(default)]
+    pub graph_changes: u32,
 }
 
 /// `Manifest::stamp_mode` when freshness no longer compares inode numbers.
