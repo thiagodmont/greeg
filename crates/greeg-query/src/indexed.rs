@@ -183,13 +183,18 @@ static OPENED: Mutex<Option<Snapshot>> = Mutex::new(None);
 /// process that never opened an index marks unconditionally, e.g. after a
 /// SIGBUS re-exec).
 pub fn mark_corrupt(o: &Options) {
+    let opened = *OPENED.lock().unwrap_or_else(|e| e.into_inner());
+    mark_corrupt_opened(o, opened);
+}
+
+/// `mark_corrupt` for the snapshot `opened`.
+fn mark_corrupt_opened(o: &Options, opened: Option<Snapshot>) {
     let Ok(dir) = greeg_index::index_dir(&o.root, o.index_dir.as_deref()) else {
         return;
     };
     let Ok(_lock) = lock::writer(&dir) else {
         return;
     };
-    let opened = *OPENED.lock().unwrap_or_else(|e| e.into_inner());
     if let Some(snap) = opened
         && let Some(m) = read_manifest(&dir)
         && m.snapshot() != snap
@@ -853,7 +858,8 @@ mod tests {
         };
         let opened = open_fresh(&o, 1).unwrap().expect("index opened");
         let old = greeg_index::snapshot::gen_dir(opened.idx.manifest.epoch);
-        mark_corrupt(&o);
+        // tests on other threads share the process's `OPENED`
+        mark_corrupt_opened(&o, Some(opened.idx.manifest.snapshot()));
         assert!(Index::open(&dir).is_err(), "a corrupt snapshot is not used");
         // the queued rebuild
         build(&root, &dir, &opts).unwrap();
