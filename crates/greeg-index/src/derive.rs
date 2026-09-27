@@ -18,8 +18,8 @@ pub fn derivation() -> &'static str {
             h.update(&(q.len() as u64).to_le_bytes());
             h.update(q.as_bytes());
         }
-        for l in extra::registry() {
-            h.update(fingerprint(l).as_bytes());
+        for f in fingerprints() {
+            h.update(f.as_bytes());
         }
         h.finalize().to_hex()[..32].to_string()
     })
@@ -32,10 +32,16 @@ pub fn language_keys() -> Vec<String> {
         .iter()
         .map(|l| format!("builtin:{}", l.name()))
         .collect();
-    for l in extra::registry() {
-        keys.push(format!("extra:{}@{}", l.name, &fingerprint(l)[..16]));
+    for (l, f) in extra::registry().iter().zip(fingerprints()) {
+        keys.push(format!("extra:{}@{}", l.name, &f[..16]));
     }
     keys
+}
+
+/// `fingerprint` of each registered language, in registry order.
+fn fingerprints() -> &'static [String] {
+    static F: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
+    F.get_or_init(|| extra::registry().iter().map(fingerprint).collect())
 }
 
 /// What of a registered language decides its symbols: its name,
