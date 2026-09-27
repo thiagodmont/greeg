@@ -13,6 +13,7 @@ use memmap2::{Advice, Mmap};
 use roaring::RoaringBitmap;
 use std::borrow::Cow;
 use std::fs;
+use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 
@@ -69,7 +70,7 @@ fn map_checked(
 ) -> Result<(Mmap, &'static [u8], Arc<Blocks>)> {
     let m = map(f, advice)?;
     let parts = format::check_ident(&m, comp, id)?;
-    let (body, blocks) = verify(&parts, comp, manifest, name, eager)?;
+    let (body, blocks) = verify(&parts, f, manifest, name, eager)?;
     Ok((m, body, blocks))
 }
 
@@ -77,7 +78,7 @@ fn map_checked(
 /// `name`, and with `eager` every block now.
 fn verify(
     parts: &format::Parts<'_>,
-    comp: u8,
+    f: &fs::File,
     manifest: &Manifest,
     name: &str,
     eager: bool,
@@ -91,9 +92,12 @@ fn verify(
         integrity::note_failed();
         bail!("{name}: block digests do not match the manifest");
     }
-    let blocks = Blocks::new(body, trailer, parts.block as usize);
-    if (eager || body.len() < integrity::EAGER_FILES && comp == format::COMP_FILES) && !blocks.all()
-    {
+    let key = f
+        .metadata()
+        .ok()
+        .map(|md| (want.clone(), md.dev(), md.ino()));
+    let blocks = Blocks::new(body, trailer, parts.block as usize, key);
+    if eager && !blocks.all() {
         bail!("{name}: a block does not match its digest");
     }
     Ok((body, blocks))
@@ -595,14 +599,7 @@ impl Index {
                 seq: u32::from_le_bytes(m.get(32..36)?.try_into().ok()?),
             };
             let parts = format::check_ident(&m, format::COMP_SKIPPED, id).ok()?;
-            verify(
-                &parts,
-                format::COMP_SKIPPED,
-                &manifest,
-                &manifest.skipped,
-                true,
-            )
-            .ok()?;
+            verify(&parts, &f, &manifest, &manifest.skipped, true).ok()?;
             Some(m)
         });
         Ok(Index {

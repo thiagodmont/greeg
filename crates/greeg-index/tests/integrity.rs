@@ -115,6 +115,9 @@ fn every_single_byte_flip_is_detected_or_widens() {
             let mut bytes = original.clone();
             bytes[at] ^= 0x01;
             fs::write(&path, &bytes).unwrap();
+            // a process never sees a component rewritten in place; this
+            // test does, so what the last open verified does not carry over
+            greeg_index::integrity::forget_checked();
             flips += 1;
             match Index::open(&t.dir) {
                 Err(_) => failed_open += 1,
