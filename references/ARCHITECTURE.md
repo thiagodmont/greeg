@@ -69,10 +69,10 @@ length: a delta or record of another build is never applied.
 
 A reader trusts no byte it has not checked against the build. Opening a
 component compares its trailer with the manifest's root. Deltas, `skipped`
-records, file tables under 4 MiB, and the graph at first use are then
-verified whole. The grams, words, symbols, spans and larger file tables
-are verified block by block as a query reads them, and each block once per
-process. This detects accidental corruption (a disk, a copy, a stray
+records and the graph (at first use) are then verified whole. The file
+table, grams, words, symbols and spans are verified block by block as a
+query reads them, each block once per process, however often it opens the
+index. This detects accidental corruption (a disk, a copy, a stray
 write), not a same-user adversary, who could rewrite the manifest too.
 
 Paths are the bytes of each name below the root, joined by `/`, the only

@@ -2,17 +2,17 @@
 //! blocks, and a trailer after it holds a truncated blake3 digest per block.
 //! The manifest records the digest of each trailer, so a reader trusts no
 //! byte it has not checked: small or eagerly read components are verified
-//! whole when opened, and the large ones block by block as they are read. A
-//! failed check marks the index corrupt; readers then answer from a scan.
-//! This detects accidental corruption, not a same-user adversary.
+//! whole when opened, and the large ones block by block as they are read,
+//! each block once per process. A failed check marks the index corrupt;
+//! readers then answer from a scan. This detects accidental corruption, not
+//! a same-user adversary.
 
-use std::sync::Arc;
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, LazyLock, Mutex};
 
 /// Block size of the components a build writes.
 pub const BLOCK: usize = 16 << 10;
-/// A file table below this is verified whole when opened.
-pub const EAGER_FILES: usize = 4 << 20;
 const DIGEST: usize = 8;
 
 /// Trailer bytes for a body of `len` bytes in blocks of `block`.
@@ -52,35 +52,76 @@ pub fn failed() -> bool {
     FAILED.load(Ordering::Relaxed)
 }
 
+/// Which blocks of a component this process has verified, and whether one
+/// failed.
+struct Checked {
+    done: Box<[AtomicU64]>,
+    bad: AtomicBool,
+}
+
+/// A component file: its trailer's digest, device and inode.
+pub type Key = (String, u64, u64);
+
+/// What this process verified, by component file, so an index opened again
+/// (a verb, then the scan it hands over to) does not hash the same blocks
+/// again. Files are never rewritten in place.
+static CHECKED: LazyLock<Mutex<HashMap<Key, Arc<Checked>>>> = LazyLock::new(Default::default);
+
+/// Forget what this process verified: for a test that rewrites a component
+/// in place between opens.
+#[doc(hidden)]
+pub fn forget_checked() {
+    CHECKED.lock().unwrap_or_else(|e| e.into_inner()).clear();
+}
+
 /// The blocks of one component body, and which of them this process has
 /// verified.
 pub struct Blocks {
     body: &'static [u8],
     trailer: &'static [u8],
     block: usize,
-    done: Box<[AtomicU64]>,
-    bad: AtomicBool,
+    checked: Arc<Checked>,
 }
 
 impl Blocks {
-    pub fn new(body: &'static [u8], trailer: &'static [u8], block: usize) -> Arc<Blocks> {
+    /// `key` shares what is verified with other opens of the same file.
+    pub fn new(
+        body: &'static [u8],
+        trailer: &'static [u8],
+        block: usize,
+        key: Option<Key>,
+    ) -> Arc<Blocks> {
         let n = body.len().div_ceil(block.max(1));
+        let fresh = || {
+            Arc::new(Checked {
+                done: (0..n.div_ceil(64)).map(|_| AtomicU64::new(0)).collect(),
+                bad: AtomicBool::new(false),
+            })
+        };
+        let checked = match key {
+            Some(k) => CHECKED
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .entry(k)
+                .or_insert_with(fresh)
+                .clone(),
+            None => fresh(),
+        };
         Arc::new(Blocks {
             body,
             trailer,
             block: block.max(1),
-            done: (0..n.div_ceil(64)).map(|_| AtomicU64::new(0)).collect(),
-            bad: AtomicBool::new(false),
+            checked,
         })
     }
 
     /// Some block failed its check.
     pub fn bad(&self) -> bool {
-        self.bad.load(Ordering::Relaxed)
+        self.checked.bad.load(Ordering::Relaxed)
     }
 
     fn fail(&self) -> bool {
-        self.bad.store(true, Ordering::Relaxed);
+        self.checked.bad.store(true, Ordering::Relaxed);
         FAILED.store(true, Ordering::Relaxed);
         false
     }
@@ -88,7 +129,7 @@ impl Blocks {
     /// Verify blocks `first..=last`.
     fn verify(&self, first: usize, last: usize) -> bool {
         for i in first..=last {
-            let (word, bit) = (&self.done[i / 64], 1u64 << (i % 64));
+            let (word, bit) = (&self.checked.done[i / 64], 1u64 << (i % 64));
             if word.load(Ordering::Relaxed) & bit != 0 {
                 continue;
             }
@@ -156,7 +197,7 @@ mod tests {
         assert_eq!(t.len() as u64, trailer_len(body.len() as u64, 1024));
         let mut bad = body.clone();
         bad[5000] ^= 1;
-        let b = Blocks::new(leak(bad), t, 1024);
+        let b = Blocks::new(leak(bad), t, 1024, None);
         assert!(b.range(0, 4096), "blocks before the flip");
         assert!(b.range(9000, 1000), "the short last block");
         assert!(!b.bad());
@@ -165,5 +206,26 @@ mod tests {
         // once bad, nothing is trusted
         assert!(!b.range(0, 10));
         assert!(!b.range(9000, 2000), "past the end");
+    }
+
+    #[test]
+    fn another_open_of_the_same_file_reuses_what_was_verified() {
+        let body: Vec<u8> = (0..4096u32).map(|i| (i % 13) as u8).collect();
+        let t = leak(trailer(&body, 1024));
+        let key = || Some((root(t), u64::MAX, 7));
+        let first = Blocks::new(leak(body.clone()), t, 1024, key());
+        assert!(first.range(0, 1024));
+        // the same file mapped again: its first block is not hashed again,
+        // so a change there, which a file never gets in place, goes unseen
+        let mut changed = body.clone();
+        changed[0] ^= 1;
+        changed[2048] ^= 1;
+        let again = Blocks::new(leak(changed.clone()), t, 1024, key());
+        assert!(again.range(0, 1024));
+        assert!(!again.range(2048, 1));
+        assert!(first.bad(), "a failure is the file's, in every open");
+        // another file with the same content shares nothing
+        let other = Blocks::new(leak(changed), t, 1024, Some((root(t), u64::MAX, 8)));
+        assert!(!other.range(0, 1024));
     }
 }
