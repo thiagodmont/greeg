@@ -460,3 +460,11 @@ filename = "generation-snapshots-confirmation-2026-09-24-darwin-arm64.json"
 title = "Generation snapshots: confirmation (2026-09-24)"
 pr = 34
 notes = "Same binaries, 151 pairs, on def_hit in both backends. Exit status and stdout are unchanged and the definition contract passes. The flag does not repeat: medians +0.7% (scan) and +0.6% (index), p95 −3.0% and +0.7%. Load average was 8.9–10.7. The harness records no execution time; the result file was written at 2026-09-24T22:17:52Z."
+
+[[datasets]]
+id = "derivation_fingerprints"
+section = "matching_review"
+filename = "derivation-fingerprints-2026-09-27-darwin-arm64.json"
+title = "Derivation fingerprints: exact-search regression (2026-09-27)"
+pr = 35
+notes = "v0.7.0 against the branch that rebuilds on resolver input, derivation and ignore changes with typed reasons, records language keys, and lets graph verbs wait for a short rebuild (format 10). All 34 cases keep their exit status and stdout (JSON compared without elapsed fields), token counts are unchanged, and every contract passes. Medians range from −1.5% to +2.6%, with no flag. Index build, disk, open, freshness and post-edit costs on tokio, django, ktor and TypeScript-5.9 (bench/index_costs.py, against main) are in the PR. Load average was 5.8–7.8. The harness records no execution time; the result file was written at 2026-09-27T18:31:09Z."
