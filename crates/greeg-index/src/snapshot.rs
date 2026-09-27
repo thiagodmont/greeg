@@ -252,6 +252,21 @@ pub fn clean(dir: &Path, m: &Manifest, due: &[String], orphans: bool, now_ms: u6
     removed
 }
 
+/// Mark the published snapshot unusable: queries rebuild, and that build
+/// retires its directory like any superseded one. An unreadable manifest is
+/// removed. Callers hold the writer lock.
+pub fn abandon(dir: &Path) -> anyhow::Result<()> {
+    let Some(mut m) = crate::read_manifest(dir) else {
+        return match fs::remove_file(dir.join("manifest")) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e.into()),
+            _ => Ok(()),
+        };
+    };
+    m.phase1 = false;
+    m.phase2 = false;
+    crate::write_manifest(dir, &m)
+}
+
 /// Remove every retired entry now, as if its grace period were over: for
 /// tests of what a reader keeps once the files are gone.
 #[doc(hidden)]

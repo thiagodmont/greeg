@@ -1046,6 +1046,9 @@ fn phase2(
     let Some(cur) = read_manifest(dir) else {
         bail!("manifest vanished during phase 2")
     };
+    if !cur.phase1 {
+        bail!("index build {:016x} abandoned during phase 2", m.epoch);
+    }
     if cur.epoch != m.epoch {
         bail!(
             "index build {:016x} superseded by {:016x} during phase 2",
