@@ -1,0 +1,73 @@
+crates/greeg-index/src/fresh.rs
+  s_b1057b2933cdb0::t_d2356f897d85d7 535,672-675
+  s_b1057b2933cdb0::t_50ce5724fd47f5 670-671,699-705
+  s_b1057b2933cdb0::t_360348d8cac22b 48-49,60-96,98-109,285,306,312,409,527-534,536-537,706,710-720
+  s_b1057b2933cdb0::t_7aba797bb54004 707
+crates/greeg-index/tests/layout.rs
+  s_b1057b2933cdb0::t_9015fa8b0cd5e6 166-168,189-190
+  s_b1057b2933cdb0::t_07d39c5ae23264 191
+crates/greeg/src/main.rs
+  s_b1057b2933cdb0::t_e099fdea919dfc 499,506
+crates/greeg-query/src/verbs.rs
+  s_b1057b2933cdb0::t_60b4c443001310 1302-1304,1347-1350,1469
+crates/greeg/tests/known_gaps.rs
+  s_b1057b2933cdb0::t_d2356f897d85d7 910-913,953-956
+  s_b1057b2933cdb0::t_1c9b2b84cdae18 800-801,820,852-909,914-952,957
+  s_b1057b2933cdb0::t_9e569c1db673e5 958
+crates/greeg-index/src/ignores.rs
+  s_b1057b2933cdb0::t_2f92cb2e19d0f6 20-21
+  s_b1057b2933cdb0::t_d2356f897d85d7 17-19,22-48,51-53
+crates/greeg-lang/src/lib.rs
+  s_b1057b2933cdb0::t_33d7e7d15c23a4 61-62,106-107
+  s_b1057b2933cdb0::t_9a23e9c789f0c4 72,108-115
+  s_b1057b2933cdb0::t_38f10ddbbf5a68 116
+references/ARCHITECTURE.md
+  s_b1057b2933cdb0::t_81efc0f9cfd03e 469-497
+crates/greeg-index/src/lib.rs
+  s_b1057b2933cdb0::t_33d7e7d15c23a4 8
+  s_b1057b2933cdb0::t_cae6d45e19ef29 154-172
+  s_b1057b2933cdb0::t_9015fa8b0cd5e6 35
+README.md
+  s_b1057b2933cdb0::t_d36d00eaa50b30 242-245
+crates/greeg-index/tests/index.rs
+  s_b1057b2933cdb0::t_e099fdea919dfc 5,382-415,420-421,432,448,460
+  s_b1057b2933cdb0::t_d2356f897d85d7 416-419
+crates/greeg-index/src/resolve.rs
+  s_b1057b2933cdb0::t_2f2c5bc4bebdac 55-56,167,174,182-183,195,199-205,599,606,632-633,664
+crates/greeg/src/verbs_out.rs
+  s_b1057b2933cdb0::t_af2fdca219a2aa 936-952,981,997-1000,1006-1007
+  s_b1057b2933cdb0::t_c8d7a77aa00882 1001-1005
+crates/greeg-lang/src/sym.rs
+  s_b1057b2933cdb0::t_9a23e9c789f0c4 141-148
+  s_b1057b2933cdb0::t_d2356f897d85d7 155-165
+crates/greeg-index/src/build.rs
+  s_b1057b2933cdb0::t_ce1f1d66ea7f4a 991,1103
+  s_b1057b2933cdb0::t_99d701b1797f4e 833-834,992,1102,1104
+  s_b1057b2933cdb0::t_d2356f897d85d7 993
+crates/greeg-query/src/indexed.rs
+  s_b1057b2933cdb0::t_513d3e15b02e65 1113-1114
+  s_b1057b2933cdb0::t_b22e5b92e036bc 432
+  s_b1057b2933cdb0::t_54308c07c0b2b4 1092-1093,1096
+  s_b1057b2933cdb0::t_f3998c11462f04 1097-1099,1101-1104
+  s_b1057b2933cdb0::t_d2356f897d85d7 329-331
+  s_b1057b2933cdb0::t_75a41e8b389a9e 265,273,286-328,332-349,351-352,358,362-370,372-376,379-383,404,406,423
+  s_b1057b2933cdb0::t_0ce4f812f3bf06 1100
+crates/greeg-index/src/derive.rs
+  s_b1057b2933cdb0::t_33d7e7d15c23a4 1-73
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "971980d8d1e17637518e771c3f186f704528501f",
+  "prompts": {},
+  "sessions": {
+    "s_b1057b2933cdb0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0aa73425-0ec9-4b76-ae94-35b6bdff17bb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
