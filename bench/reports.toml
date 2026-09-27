@@ -468,3 +468,11 @@ filename = "derivation-fingerprints-2026-09-27-darwin-arm64.json"
 title = "Derivation fingerprints: exact-search regression (2026-09-27)"
 pr = 35
 notes = "v0.7.0 against the branch that rebuilds on resolver input, derivation and ignore changes with typed reasons, records language keys, and lets graph verbs wait for a short rebuild (format 10). All 34 cases keep their exit status and stdout (JSON compared without elapsed fields), token counts are unchanged, and every contract passes. Medians range from −1.5% to +2.6%, with no flag. Index build, disk, open, freshness and post-edit costs on tokio, django, ktor and TypeScript-5.9 (bench/index_costs.py, against main) are in the PR. Load average was 5.8–7.8. The harness records no execution time; the result file was written at 2026-09-27T18:31:09Z."
+
+[[datasets]]
+id = "component_integrity"
+section = "matching_review"
+filename = "component-integrity-2026-09-27-darwin-arm64.json"
+title = "Component integrity: exact-search regression (2026-09-27)"
+pr = 36
+notes = "v0.7.0 against the branch that verifies every component against per-block XXH3-64 digests whose trailer digests the manifest records, block by block as a query reads them, and answers from a scan when a check fails (format 11). All 34 cases keep their exit status and stdout (JSON compared without elapsed fields), and every contract passes. Token counts are unchanged except hit_json, ±4 tokens in both backends, from the digits of its elapsed fields. Medians range from −0.8% to +3.3%, with no flag. Index build, disk, open, freshness and post-edit costs on tokio, django, ktor and TypeScript-5.9 (bench/index_costs.py, against main), are in the PR. Block size: 16 KiB. Measured on tokio, django and TypeScript-5.9 with blake3 block digests, no query was more than 3.8% slower at 4 KiB than at 16 KiB, which writes a quarter of its trailer; 64 KiB was slower on most small queries (open +3.7% to +6.0%, django def +9.5%); and verifying every block at open took TypeScript-5.9's open from 5.6 ms to 53 ms. Load average was 6.2–7.1. The harness records no execution time; the result file was written at 2026-09-27T21:36:31Z."
