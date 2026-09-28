@@ -498,7 +498,6 @@ pub(crate) fn try_index(cx: &Ctx, threads: usize, t0: Instant) -> Result<Option<
     if std::env::var_os("GREEG_DEBUG_PANIC").is_some() {
         panic!("injected panic (GREEG_DEBUG_PANIC)");
     }
-    greeg_index::commit::inject("index");
     let mut stats = Stats {
         threads,
         source: "index",

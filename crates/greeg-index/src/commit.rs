@@ -39,7 +39,7 @@ pub fn assert_open() {
 
 /// Fault injection for the recovery tests: `GREEG_DEBUG_SIGBUS` names where
 /// to raise SIGBUS, `after-output`, `after-stdin` or `every-run`; any other
-/// value raises it in an index query (`index`).
+/// value raises it when an index is opened (`index`).
 pub fn inject(point: &str) {
     static AT: OnceLock<Option<String>> = OnceLock::new();
     let Some(at) = AT.get_or_init(|| {

@@ -353,6 +353,24 @@ fn recovery_happens_at_most_once() {
     assert!(o.stdout.is_empty(), "{o:?}");
 }
 
+/// `doctor` reads the index too: a fault there is recovered from before
+/// any of its report is printed, so no line appears twice.
+#[test]
+fn a_doctor_report_is_printed_once_after_a_fault() {
+    let f = Fixture::new(&[("a.rs", "fn doctorneedle() {}\n")]);
+    f.indexed();
+    let o = f
+        .command()
+        .env("GREEG_DEBUG_SIGBUS", "index")
+        .arg("doctor")
+        .output()
+        .unwrap();
+    let out = stdout(&o);
+    assert_eq!(o.status.code(), Some(0), "{o:?}");
+    assert_eq!(out.matches("\nroot ").count(), 1, "{out}");
+    assert!(String::from_utf8_lossy(&o.stderr).contains(RERUN), "{o:?}");
+}
+
 /// A run that has read stdin cannot be run again: its input is gone.
 #[test]
 fn a_run_that_read_stdin_is_not_run_again() {
