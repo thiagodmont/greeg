@@ -1,0 +1,62 @@
+crates/greeg-query/src/lib.rs
+  s_b1057b2933cdb0::t_830464ad56cd21 555-556,563-567,2067-2073,2118-2120,2127-2128,2132-2134
+  s_b1057b2933cdb0::t_ea65f3935983d5 349-350,376,382-387,1560-1563,1568,1586-1589,1593,1676
+  s_b1057b2933cdb0::t_d70afe53112a63 16,27,2129-2131,2632-2641
+  s_b1057b2933cdb0::t_a4cc9434ea854b 2121-2126,2565,2631,2642
+  s_b1057b2933cdb0::t_c4be9364e29629 1785
+crates/greeg-query/src/shape.rs
+  s_b1057b2933cdb0::t_bad799594dd618 968
+crates/greeg/tests/known_gaps.rs
+  s_b1057b2933cdb0::t_112719680f1629 848-855,882-897,901-904
+  s_b1057b2933cdb0::t_752f8015a770f3 859,862
+  s_b1057b2933cdb0::t_be2226729b6f1e 856,869-881,898-900,905-909
+  s_b1057b2933cdb0::t_50cbd5635db105 910-911
+crates/greeg-index/src/lib.rs
+  s_b1057b2933cdb0::t_709f930ee430bf 25
+crates/greeg-index/src/tree.rs
+  s_b1057b2933cdb0::t_112719680f1629 42-45,369-375,380-384
+  s_b1057b2933cdb0::t_937056d61d67f0 16,22,176-184
+  s_b1057b2933cdb0::t_6453bfc15fee5e 1-15,17-18,20-21,23-41,46-175,185-295,307-329,331-335,337-368,376-379,385-400
+  s_b1057b2933cdb0::t_d70afe53112a63 296-306
+  s_b1057b2933cdb0::t_b7d9fe5f93880c 19
+  s_b1057b2933cdb0::t_926cd1200c6d30 330,336
+crates/greeg-index/src/fresh.rs
+  s_b1057b2933cdb0::t_cc7c5a6f6b8105 477,480
+  s_b1057b2933cdb0::t_9ec015b23a31b5 476,482
+  s_b1057b2933cdb0::t_73cf32a8907c60 190,198-202,210,212-213,215-216
+  s_b1057b2933cdb0::t_f27f8fccc791f3 9,376,379,512
+crates/greeg-query/src/indexed.rs
+  s_b1057b2933cdb0::t_61be5490bbc104 16
+  s_b1057b2933cdb0::t_75fce0152b1fe6 673-675,721
+  s_b1057b2933cdb0::t_d70afe53112a63 25
+crates/greeg-query/src/stdin.rs
+  s_b1057b2933cdb0::t_6767084771398f 112
+crates/greeg-index/src/build.rs
+  s_b1057b2933cdb0::t_b5a0a479342aa6 103-104
+  s_b1057b2933cdb0::t_73cf32a8907c60 102,105-122
+  s_b1057b2933cdb0::t_937056d61d67f0 348-349,357,359,363,368,434,445,462,469,475,497,645,694,926,931,964,1190,1208,1248
+  s_b1057b2933cdb0::t_3ccff89b22c4c0 13
+  s_b1057b2933cdb0::t_112719680f1629 753-759,977,1526,1531,1544,1558-1564,1575-1580,1592,1597-1601,1606-1610
+crates/greeg-query/src/verbs.rs
+  s_b1057b2933cdb0::t_0aa253fd132b42 904
+  s_b1057b2933cdb0::t_a93a50909f86d2 14
+  s_b1057b2933cdb0::t_4d4bf2860a695a 560,562-564,944-946,1163-1172,1174-1182,1249
+references/ARCHITECTURE.md
+  s_b1057b2933cdb0::t_3c18578243c57d 443-455
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "0578150309468167d953ab7c70751d7b94fcee5d",
+  "prompts": {},
+  "sessions": {
+    "s_b1057b2933cdb0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0aa73425-0ec9-4b76-ae94-35b6bdff17bb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
