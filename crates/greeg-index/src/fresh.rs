@@ -179,11 +179,32 @@ fn known(idx: &Index) -> Known<'_> {
     Known { files, dirs }
 }
 
+/// How a stat pass looks entries up.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Lookup {
+    /// [`Tree::stat`]: a symlink anywhere on the way is refused.
+    Refusing,
+    /// [`Tree::lstat`]: the pass checks the directories on the way itself,
+    /// where refusing would open each of them.
+    Leaf,
+}
+
+impl Lookup {
+    fn of(tree: &Tree) -> Lookup {
+        if tree.stat_is_one_call() {
+            Lookup::Refusing
+        } else {
+            Lookup::Leaf
+        }
+    }
+}
+
 /// Parallel lstat of `items`, returning per item its stamp, or None when
 /// missing or no longer of the `kind` the index holds (a regular file
 /// replaced by a symlink reads as deleted, as a scan would skip it).
 fn stat_many<T: Sync>(
-    root: &Path,
+    tree: Option<&Tree>,
+    lookup: Lookup,
     items: &[T],
     rel: impl Fn(&T) -> &[u8] + Sync,
     kind: fn(&tree::Stat) -> bool,
@@ -191,14 +212,10 @@ fn stat_many<T: Sync>(
 ) -> Vec<Option<Stamp>> {
     let n = items.len();
     let mut out: Vec<Option<Stamp>> = vec![None; n];
-    if n == 0 {
-        return out;
-    }
     // an entry the tree cannot reach without a symlink is gone
-    let Ok(tree) = Tree::open(root) else {
+    let Some(tree) = tree.filter(|_| n > 0) else {
         return out;
     };
-    let tree = &tree;
     let threads = threads.clamp(1, 8).min(n);
     let chunk = n.div_ceil(threads);
     std::thread::scope(|sc| {
@@ -208,11 +225,11 @@ fn stat_many<T: Sync>(
             sc.spawn(move || {
                 let mut dirs = tree::Dirs::default();
                 for (o, it) in part.iter_mut().zip(items) {
-                    *o = tree
-                        .stat(rel(it), &mut dirs)
-                        .ok()
-                        .filter(kind)
-                        .map(|st| Stamp::of_stat(&st));
+                    let st = match lookup {
+                        Lookup::Refusing => tree.stat(rel(it), &mut dirs),
+                        Lookup::Leaf => tree.lstat(rel(it)),
+                    };
+                    *o = st.ok().filter(kind).map(|st| Stamp::of_stat(&st));
                 }
             });
         }
@@ -364,7 +381,13 @@ fn classify_all(
 
 /// Full stat pass.
 pub fn check_stat(idx: &Index, root: &Path, threads: usize) -> Changes {
+    check_stat_with(idx, root, None, threads)
+}
+
+fn check_stat_with(idx: &Index, root: &Path, lookup: Option<Lookup>, threads: usize) -> Changes {
     let t = Instant::now();
+    let tree = Tree::open(root).ok();
+    let lookup = lookup.unwrap_or_else(|| tree.as_ref().map_or(Lookup::Refusing, Lookup::of));
     let fsevents_id = current_fsevents_id();
     let k = known(idx);
     let mut ch = Changes {
@@ -372,12 +395,17 @@ pub fn check_stat(idx: &Index, root: &Path, threads: usize) -> Changes {
         fsevents_id,
         ..Default::default()
     };
-    let st = stat_many(root, &k.files, |f| f.1, tree::is_file, threads);
-    let no_ino = classify_all(&mut ch, idx.no_ino(), &k.files, st, k.files.len());
+    let tree = tree.as_ref();
+    let mut st = stat_many(tree, lookup, &k.files, |f| f.1, tree::is_file, threads);
     let mut dirs: Vec<(&[u8], Stamp)> = k.dirs.iter().map(|(p, m)| (*p, *m)).collect();
-    // in path order, so a stat pass that opens directories shares them
+    // in path order: a stat pass that opens directories shares them, and a
+    // directory comes before those below it
     dirs.sort_unstable_by_key(|d| d.0);
-    let ds = stat_many(root, &dirs, |d| d.0, tree::is_dir, threads);
+    let mut ds = stat_many(tree, lookup, &dirs, |d| d.0, tree::is_dir, threads);
+    if lookup == Lookup::Leaf {
+        drop_below_gone(&dirs, &mut ds, &k.files, &mut st);
+    }
+    let no_ino = classify_all(&mut ch, idx.no_ino(), &k.files, st, k.files.len());
     let mut changed_dirs: Vec<(Vec<u8>, Stamp)> = Vec::new();
     for ((rel, old), s) in dirs.iter().zip(ds) {
         match s {
@@ -389,6 +417,44 @@ pub fn check_stat(idx: &Index, root: &Path, threads: usize) -> Changes {
     relist_dirs(root, &k, &changed_dirs, &mut ch);
     ch.ms = t.elapsed().as_secs_f64() * 1e3;
     ch
+}
+
+/// A leaf lookup follows a symlink swapped in for a directory on the way:
+/// clear the stamps of the directories and files below a directory that is
+/// gone or no longer a directory. `dirs` is in path order.
+fn drop_below_gone(
+    dirs: &[(&[u8], Stamp)],
+    ds: &mut [Option<Stamp>],
+    files: &[(u32, &[u8], &FileRec)],
+    st: &mut [Option<Stamp>],
+) {
+    let mut gone: HashSet<&[u8]> = HashSet::new();
+    for ((rel, _), s) in dirs.iter().zip(ds.iter_mut()) {
+        if s.is_none() || (!gone.is_empty() && below(&gone, rel)) {
+            *s = None;
+            gone.insert(rel);
+        }
+    }
+    if gone.is_empty() {
+        return;
+    }
+    for (f, s) in files.iter().zip(st) {
+        if below(&gone, f.1) {
+            *s = None;
+        }
+    }
+}
+
+/// Some directory on the way to `rel` is in `dirs`.
+fn below(dirs: &HashSet<&[u8]>, rel: &[u8]) -> bool {
+    let mut r = rel;
+    while let Some(k) = r.iter().rposition(|&b| b == b'/') {
+        r = &r[..k];
+        if dirs.contains(r) {
+            return true;
+        }
+    }
+    false
 }
 
 /// Re-list changed directories to find additions (files and subdirectories).
@@ -475,6 +541,10 @@ pub fn check_fsevents(idx: &Index, root: &Path, threads: usize) -> Option<Change
     let mut changed_dirs = Vec::new();
     let mut moved: HashSet<&[u8]> = HashSet::new();
     let tree = Tree::open(&abs_root).ok()?;
+    // only the full pass checks the directories on the way for a leaf lookup
+    if Lookup::of(&tree) == Lookup::Leaf {
+        return None;
+    }
     let mut on_way = tree::Dirs::default();
     for r in &rels {
         if let Some(old) = k.dirs.get(r.as_slice())
@@ -510,7 +580,14 @@ pub fn check_fsevents(idx: &Index, root: &Path, threads: usize) -> Option<Change
         .filter(|f| rels.contains(parent_of(f.1)) || under_moved(f.1))
         .copied()
         .collect();
-    let st = stat_many(root, &files, |f| f.1, tree::is_file, threads);
+    let st = stat_many(
+        Some(&tree),
+        Lookup::Refusing,
+        &files,
+        |f| f.1,
+        tree::is_file,
+        threads,
+    );
     classify_all(&mut ch, idx.no_ino(), &files, st, k.files.len());
     relist_dirs(root, &k, &changed_dirs, &mut ch);
     ch.ms = t.elapsed().as_secs_f64() * 1e3;
@@ -850,6 +927,45 @@ mod tests {
         assert!(!dir.join(&before.manifest.skipped).exists());
         let sk = before.skipped().expect("record kept by the open index");
         assert!(sk.entries().any(|(rel, _)| rel == b".hidden.rs"));
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    /// A directory swapped for a symlink loses its files, and nothing below
+    /// the symlink is indexed, however the stat pass looks entries up.
+    #[test]
+    fn a_directory_swapped_for_a_symlink_drops_its_files() {
+        let (base, root, dir) = tree("swapped-dir");
+        fs::create_dir_all(root.join("pkg/deep")).unwrap();
+        fs::write(root.join("pkg/a.rs"), "fn a() {}\n").unwrap();
+        fs::write(root.join("pkg/deep/b.rs"), "fn b() {}\n").unwrap();
+        fs::write(root.join("top.rs"), "fn top() {}\n").unwrap();
+        let opts = BuildOpts {
+            reader_threads: 1,
+            quiet: true,
+            phase1_only: true,
+            ..Default::default()
+        };
+        build(&root, &dir, &opts).unwrap();
+        let idx = Index::open(&dir).unwrap();
+        let outside = base.join("outside");
+        fs::create_dir_all(outside.join("deep")).unwrap();
+        for f in ["a.rs", "c.rs", "deep/b.rs", "deep/d.rs"] {
+            fs::write(outside.join(f), "fn outside() {}\n").unwrap();
+        }
+        fs::rename(root.join("pkg"), base.join("moved")).unwrap();
+        std::os::unix::fs::symlink(&outside, root.join("pkg")).unwrap();
+        let mut gone = [id_of(&idx, "pkg/a.rs"), id_of(&idx, "pkg/deep/b.rs")];
+        gone.sort_unstable();
+        for lookup in [Some(Lookup::Leaf), None] {
+            let mut ch = check_stat_with(&idx, &root, lookup, 1);
+            ch.deleted.sort_unstable();
+            assert_eq!(ch.deleted, gone, "{lookup:?}");
+            assert!(ch.modified.is_empty(), "{lookup:?}");
+            let below = |rel: &[u8]| rel.starts_with(b"pkg/");
+            assert!(!ch.added.iter().any(|f| below(&f.rel)), "{lookup:?}");
+            assert!(!ch.added_dirs.iter().any(|d| below(&d.rel)), "{lookup:?}");
+            assert!(!ch.touched_dirs.iter().any(|d| below(&d.rel)), "{lookup:?}");
+        }
         let _ = fs::remove_dir_all(&base);
     }
 
