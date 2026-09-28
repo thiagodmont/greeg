@@ -375,7 +375,9 @@ pub fn check_stat(idx: &Index, root: &Path, threads: usize) -> Changes {
     };
     let st = stat_many(root, &k.files, |f| f.1, tree::is_file, threads);
     let no_ino = classify_all(&mut ch, idx.no_ino(), &k.files, st, k.files.len());
-    let dirs: Vec<(&[u8], Stamp)> = k.dirs.iter().map(|(p, m)| (*p, *m)).collect();
+    let mut dirs: Vec<(&[u8], Stamp)> = k.dirs.iter().map(|(p, m)| (*p, *m)).collect();
+    // in path order, so a stat pass that opens directories shares them
+    dirs.sort_unstable_by_key(|d| d.0);
     let ds = stat_many(root, &dirs, |d| d.0, tree::is_dir, threads);
     let mut changed_dirs: Vec<(Vec<u8>, Stamp)> = Vec::new();
     for ((rel, old), s) in dirs.iter().zip(ds) {

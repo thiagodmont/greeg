@@ -19,6 +19,10 @@ use std::path::{Path, PathBuf};
 #[derive(Debug)]
 pub struct Tree {
     dir: File,
+    /// Where lookups start: `AT_FDCWD` when the directory is the working
+    /// directory, which the process holds as it holds `dir` and which
+    /// macOS resolves faster from many threads; `dir` otherwise.
+    at: RawFd,
     path: PathBuf,
 }
 
@@ -173,8 +177,14 @@ impl Tree {
             .read(true)
             .custom_flags(libc::O_DIRECTORY | libc::O_CLOEXEC)
             .open(root)?;
+        let at = if same_file(&dir, Path::new(".")) {
+            libc::AT_FDCWD
+        } else {
+            dir.as_raw_fd()
+        };
         Ok(Tree {
             dir,
+            at,
             path: root.to_path_buf(),
         })
     }
@@ -188,7 +198,7 @@ impl Tree {
     /// FIFO or device.
     pub fn open_file(&self, rel: &[u8]) -> io::Result<File> {
         let c = cpath(rel)?;
-        let f = match fast::open(self.dir.as_raw_fd(), &c) {
+        let f = match fast::open(self.at, &c) {
             Some(r) => r?,
             None => self.walk_open(rel)?,
         };
@@ -218,7 +228,7 @@ impl Tree {
             return Ok(st);
         }
         let c = cpath(rel)?;
-        if let Some(r) = fast::stat(self.dir.as_raw_fd(), &c) {
+        if let Some(r) = fast::stat(self.at, &c) {
             return r;
         }
         let (parent, leaf) = split(rel);
@@ -232,12 +242,21 @@ impl Tree {
         let mut at: Option<File> = None;
         if !parent.is_empty() {
             for c in parent.split(|&b| b == b'/') {
-                let base = at.as_ref().unwrap_or(&self.dir).as_raw_fd();
+                let base = at.as_ref().map_or(self.at, File::as_raw_fd);
                 at = Some(openat(base, &cpath(c)?, DIR_FLAGS)?);
             }
         }
-        let base = at.as_ref().unwrap_or(&self.dir).as_raw_fd();
+        let base = at.as_ref().map_or(self.at, File::as_raw_fd);
         openat(base, &cpath(leaf)?, LEAF_FLAGS)
+    }
+}
+
+/// `f` is the file at `path`, by device and inode.
+fn same_file(f: &File, path: &Path) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    match (f.metadata(), std::fs::metadata(path)) {
+        (Ok(a), Ok(b)) => a.dev() == b.dev() && a.ino() == b.ino(),
+        _ => false,
     }
 }
 
@@ -273,7 +292,7 @@ impl Dirs {
             .count();
         self.open.truncate(keep);
         for c in &comps[keep..] {
-            let base = self.open.last().map_or(&tree.dir, |(_, f)| f).as_raw_fd();
+            let base = self.open.last().map_or(tree.at, |(_, f)| f.as_raw_fd());
             match openat(base, &cpath(c)?, DIR_FLAGS) {
                 Ok(f) => self.open.push((c.to_vec(), f)),
                 Err(e) => {
@@ -282,7 +301,7 @@ impl Dirs {
                 }
             }
         }
-        Ok(self.open.last().map_or(&tree.dir, |(_, f)| f).as_raw_fd())
+        Ok(self.open.last().map_or(tree.at, |(_, f)| f.as_raw_fd()))
     }
 }
 
