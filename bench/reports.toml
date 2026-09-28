@@ -484,3 +484,11 @@ filename = "recovery-before-output-2026-09-28-darwin-arm64.json"
 title = "Recovery before output: exact-search regression (2026-09-28)"
 pr = 37
 notes = "v0.7.0 against the branch that commits the output at its first byte, closes the index before it, recovers from a fault at most once and never re-runs after output started. All 34 cases keep their exit status and stdout (JSON compared without elapsed fields), and every contract passes. Token counts are unchanged except case_miss_json and hit_json in the index backend, ±4 tokens from the digits of their elapsed fields. Medians range from −1.9% to +3.2%, with no flag. Index costs on tokio, django, ktor and TypeScript-5.9 (bench/index_costs.py, against main) and recovery latency are in the PR. The harness records no execution time; the result file was written at 2026-09-28T15:04:41Z."
+
+[[datasets]]
+id = "symlinked_ancestors"
+section = "matching_review"
+filename = "symlinked-ancestors-2026-09-28-darwin-arm64.json"
+title = "Symlinked ancestors: exact-search regression (2026-09-28)"
+pr = 38
+notes = "v0.7.0 against the branch that opens and stats every file below the root without following a symlink in any component (O_NOFOLLOW_ANY on macOS 11+, openat2 on Linux 5.6+, a no-follow directory walk otherwise). All 34 cases keep their exit status and stdout (JSON compared without elapsed fields), and every contract passes. Token counts are unchanged except case_miss_json in the index backend, ±4 tokens from the digits of its elapsed fields. Medians range from −1.8% to +5.7%, with no flag. Index costs on tokio, django, ktor and TypeScript-5.9 (bench/index_costs.py, against main), including the fast path and fallback stat pass, are in the PR. The harness records no execution time; the result file was written at 2026-09-28T16:37:09Z."
