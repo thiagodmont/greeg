@@ -5,6 +5,7 @@
 //! fixed-layout, and read through `mmap` without deserialization.
 
 pub mod build;
+pub mod commit;
 pub mod derive;
 pub mod external;
 pub mod format;

@@ -295,6 +295,114 @@ fn a_rerun_after_sigbus_keeps_arguments_after_a_double_dash() {
     assert!(stdout(&o).contains("a.txt"), "{o:?}");
 }
 
+const RERUN: &str = "answering from a scan and rebuilding the index";
+
+/// A fault once the answer has started reaching stdout is not recovered by
+/// running again: that would print the rows already written a second time.
+#[test]
+fn recovery_after_output_started_does_not_repeat_rows() {
+    let files: Vec<(String, String)> = (0..40)
+        .map(|i| (format!("f{i:02}.txt"), format!("rowneedle {i}\n")))
+        .collect();
+    let refs: Vec<(&str, &str)> = files
+        .iter()
+        .map(|(p, b)| (p.as_str(), b.as_str()))
+        .collect();
+    let f = Fixture::new(&refs);
+    f.indexed();
+    let o = f
+        .command()
+        .env("GREEG_DEBUG_SIGBUS", "after-output")
+        .args([
+            "--no-session",
+            "--budget",
+            "0",
+            "--sort",
+            "path",
+            "rowneedle",
+        ])
+        .output()
+        .unwrap();
+    let err = String::from_utf8_lossy(&o.stderr);
+    assert_eq!(o.status.code(), Some(2), "{o:?}");
+    assert!(err.contains("output is incomplete"), "{err}");
+    assert!(!err.contains(RERUN), "{err}");
+    let rows: Vec<&str> = std::str::from_utf8(&o.stdout).unwrap().lines().collect();
+    let mut unique = rows.clone();
+    unique.dedup();
+    assert_eq!(rows, unique, "a row was printed twice");
+    assert!(!rows.is_empty() && rows.len() <= 40, "{rows:?}");
+}
+
+/// A process recovers from a fault at most once: a fault in the run that
+/// recovers ends it with exit 2, not another run.
+#[test]
+fn recovery_happens_at_most_once() {
+    let f = Fixture::new(&[("a.txt", "onceneedle\n")]);
+    f.indexed();
+    let o = f
+        .command()
+        .env("GREEG_DEBUG_SIGBUS", "every-run")
+        .args(["--no-session", "onceneedle"])
+        .output()
+        .unwrap();
+    let err = String::from_utf8_lossy(&o.stderr);
+    assert_eq!(o.status.code(), Some(2), "{o:?}");
+    assert_eq!(err.matches(RERUN).count(), 1, "{err}");
+    assert!(err.contains("a mapped file changed while in use"), "{err}");
+    assert!(o.stdout.is_empty(), "{o:?}");
+}
+
+/// A run that has read stdin cannot be run again: its input is gone.
+#[test]
+fn a_run_that_read_stdin_is_not_run_again() {
+    use std::io::Write;
+    let f = Fixture::new(&[]);
+    let mut child = f
+        .command()
+        .env("GREEG_DEBUG_SIGBUS", "after-stdin")
+        .args(["--no-session", "stdinneedle"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(b"stdinneedle\n")
+        .unwrap();
+    let o = child.wait_with_output().unwrap();
+    let err = String::from_utf8_lossy(&o.stderr);
+    assert_eq!(o.status.code(), Some(2), "{o:?}");
+    assert!(!err.contains(RERUN), "{err}");
+    assert!(err.contains("a mapped file changed while in use"), "{err}");
+    assert!(o.stdout.is_empty(), "{o:?}");
+}
+
+/// A block that fails its check is found before anything is printed: the
+/// answer is the scan's, printed once.
+#[test]
+fn a_digest_failure_before_output_answers_from_a_scan() {
+    let f = Fixture::new(&[
+        ("a.txt", "digestneedle one\n"),
+        ("b.txt", "digestneedle two\n"),
+        ("c.txt", "other\n"),
+    ]);
+    f.indexed();
+    assert!(
+        mutate(&f, "words.", b"digestneedle") > 0,
+        "no dictionary holds the word"
+    );
+    let args = ["--budget", "0", "--sort", "path", "-w", "digestneedle"];
+    let o = f.run(&args);
+    let err = String::from_utf8_lossy(&o.stderr);
+    assert_eq!(o.status.code(), Some(0), "{o:?}");
+    assert_eq!(stdout(&o), stdout(&f.scan(&args)));
+    assert_eq!(err.matches("failed its check").count(), 1, "{err}");
+}
+
 #[test]
 fn a_relaxed_answer_exits_1_in_every_search_verb() {
     let f = Fixture::new(&[(

@@ -373,6 +373,7 @@ impl Index {
     /// tests.
     #[doc(hidden)]
     pub fn open_with(dir: &Path, between: &mut dyn FnMut()) -> Result<Index> {
+        crate::commit::assert_open();
         let mut attempt = 0;
         loop {
             let manifest = read_manifest(dir).context("no usable index manifest")?;
@@ -1023,6 +1024,7 @@ impl Index {
     // ---------------------------------------------------------------- graph
 
     pub fn graph(&self) -> Option<&GraphView<'_>> {
+        crate::commit::assert_open();
         self.graph
             .get_or_init(|| {
                 let (_, seq) = self.manifest.component(format::COMP_GRAPH)?;

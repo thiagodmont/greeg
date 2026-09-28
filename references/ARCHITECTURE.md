@@ -587,6 +587,10 @@ coverage against your fixtures.
 ## When things go wrong
 
 The index is a cache, and the failures below end in a correct answer.
+Every answer is complete before its first byte is written: the index
+snapshot is closed by then (debug builds panic on any use of the index after
+it), so each failure is recovered from at most once, by answering again
+without the index.
 
 A panic anywhere in the index path is caught, degrades to a scan, and queues a
 background rebuild. A block whose digest does not match, a dictionary entry
@@ -600,7 +604,11 @@ unless the snapshot changed while it was opened. Marking an index corrupt
 marks the manifest unusable, only if it still names the snapshot the reader
 opened; the rebuild that follows retires that build like any other.
 A `SIGBUS` from a file truncated under an active mmap re-executes the same
-command with `--no-index`. A format-version mismatch rebuilds. There's no
+command once with `--no-index`, which rebuilds the index. A run that cannot
+be repeated ends with exit 2 and a message instead: one that already
+recovered, one that read stdin, and one that started its output, which
+reports it as incomplete rather than print its rows twice. A format-version
+mismatch rebuilds. There's no
 migration code, by design.
 
 ## Design decisions

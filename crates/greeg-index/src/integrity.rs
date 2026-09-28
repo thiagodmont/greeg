@@ -147,6 +147,7 @@ impl Blocks {
 
     /// Verify the bytes `off..off + len` of the body.
     pub fn range(&self, off: usize, len: usize) -> bool {
+        crate::commit::assert_open();
         if self.bad() {
             return false;
         }
