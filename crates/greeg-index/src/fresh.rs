@@ -11,7 +11,6 @@ use crate::{Index, now_ms, read_manifest, write_manifest};
 use anyhow::Result;
 use hashbrown::{HashMap, HashSet};
 use roaring::RoaringBitmap;
-use std::fs;
 use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 use std::time::{Duration, Instant};
@@ -441,7 +440,7 @@ pub fn check_fsevents(idx: &Index, root: &Path, threads: usize) -> Option<Change
     }
     let t = Instant::now();
     let fsevents_id = current_fsevents_id();
-    let abs_root = fs::canonicalize(root).ok()?;
+    let abs_root = std::fs::canonicalize(root).ok()?;
     // a root that is not UTF-8 cannot be named to FSEvents: the stat pass runs
     let root_s = abs_root.to_str()?;
     let dirs =
@@ -740,6 +739,7 @@ pub fn rebuild_reason(idx: &Index, ch: &Changes) -> Option<RebuildReason> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
 
     #[test]
     fn inode_only_changes_switch_to_no_ino_mode_only_when_most_files_show_them() {
