@@ -11,6 +11,7 @@ use anyhow::{Context, Result, bail};
 use greeg_index::Index;
 use greeg_index::index::SymId;
 use greeg_index::symtab::{kind_from_code, kind_weight};
+use greeg_index::tree::Tree;
 use greeg_lang::sym::{SYM_EXPORTED, SYM_HAS_DOC, SYM_OBJ_MEMBER, SYM_TEST};
 use greeg_lang::{DefKind, FileFlags, Lang};
 use std::collections::BTreeMap;
@@ -556,10 +557,11 @@ pub fn def(
             (o.budget / 40).clamp(3, 40)
         };
         let mut cache: BTreeMap<Vec<u8>, Vec<u8>> = BTreeMap::new();
+        let tree = Tree::open(&o.root).ok();
         for e in entries.iter_mut().take(show) {
-            let src = cache.entry(e.rel.clone()).or_insert_with(|| {
-                greeg_lang::read_text(o.root.join(as_path(&e.rel))).unwrap_or_default()
-            });
+            let src = cache
+                .entry(e.rel.clone())
+                .or_insert_with(|| indexed_text(tree.as_ref(), &e.rel));
             if src.is_empty() || e.start as usize >= src.len() {
                 continue;
             }
@@ -899,6 +901,7 @@ pub fn impls(o: &Options, name: &str) -> Result<ImplsResult> {
         source = "index";
         fresh = op.fresh_method;
         let mut cache: BTreeMap<Vec<u8>, Vec<u8>> = BTreeMap::new();
+        let tree = Tree::open(&o.root).ok();
         // rank every eligible implementation before reading any source
         let mut found: Vec<(f32, SymId)> = idx
             .implementors(name)
@@ -938,9 +941,9 @@ pub fn impls(o: &Options, name: &str) -> Result<ImplsResult> {
                 .map(|(k, n)| (kind_from_code(k), n.to_string()))
                 .collect();
             let chain = chain[..chain.len().saturating_sub(1)].to_vec();
-            let src = cache.entry(rel.clone()).or_insert_with(|| {
-                greeg_lang::read_text(o.root.join(as_path(&rel))).unwrap_or_default()
-            });
+            let src = cache
+                .entry(rel.clone())
+                .or_insert_with(|| indexed_text(tree.as_ref(), &rel));
             let (sig, doc) = if (r.start as usize) < src.len() {
                 signature_and_doc(
                     Some((idx, fid)),
@@ -1157,8 +1160,26 @@ pub const BODY_CAP: u32 = 200;
 /// Lines each way when no definition encloses the asked line.
 pub const WINDOW: u32 = 20;
 
-/// Read one file for bodies.
+/// An indexed file's text, read below the root without following a
+/// symlink; empty when it cannot be.
+fn indexed_text(tree: Option<&Tree>, rel: &[u8]) -> Vec<u8> {
+    let mut v = tree.and_then(|t| t.read(rel).ok()).unwrap_or_default();
+    greeg_lang::transcode_utf16(&mut v);
+    v
+}
+
+/// Read one indexed file for bodies, below the root without following a
+/// symlink.
 pub fn source_of(o: &Options, rel: &[u8]) -> Result<crate::Source> {
+    let mut bytes = Tree::open(&o.root)
+        .and_then(|t| t.read(rel))
+        .with_context(|| format!("read {}", greeg_index::rel::display(rel)))?;
+    greeg_lang::transcode_utf16(&mut bytes);
+    Ok(crate::Source::new(bytes))
+}
+
+/// Read a file named on the command line, resolved as given.
+fn named_source(o: &Options, rel: &[u8]) -> Result<crate::Source> {
     let path = o.root.join(as_path(rel));
     let bytes = greeg_lang::read_text(&path).with_context(|| format!("read {}", path.display()))?;
     Ok(crate::Source::new(bytes))
@@ -1225,7 +1246,7 @@ pub fn show(o: &Options, locs: &[(String, u32)]) -> Result<ShowResult> {
     let mut est = 0usize;
     for (file, asked) in locs {
         let rel = file.trim_start_matches("./");
-        let src = source_of(o, rel.as_bytes())?;
+        let src = named_source(o, rel.as_bytes())?;
         let asked = (*asked).clamp(1, src.line_count().max(1));
         let defs = if Lang::from_path(&o.root.join(rel)).has_grammar() {
             let ol = outline(o, rel)?;

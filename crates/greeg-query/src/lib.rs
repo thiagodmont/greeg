@@ -13,6 +13,7 @@ pub mod tokens;
 pub mod verbs;
 
 use anyhow::{Context, Result};
+use greeg_index::tree::Tree;
 use greeg_lang::defs::{Outline, outline};
 use greeg_lang::lexer::{Lexed, SpanKind, lex};
 use greeg_lang::{DefKind, FileFlags, Lang, content_flags, is_import_line, path_flags};
@@ -22,8 +23,8 @@ use grep_searcher::{BinaryDetection, Searcher, SearcherBuilder, Sink, SinkMatch}
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering::Relaxed};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 
 pub const MAX_HITS_PER_FILE: usize = 64;
@@ -345,6 +346,8 @@ pub struct FileResult {
     pub file_id: Option<u32>,
     /// The file's bytes once something needed them (read at most once per query).
     pub src: Option<Source>,
+    /// Where it is read from: a path below a tree, or `path` as named.
+    pub(crate) below: Option<(Arc<Tree>, Vec<u8>)>,
 }
 
 impl FileResult {
@@ -370,12 +373,18 @@ impl FileResult {
             refined: false,
             file_id: None,
             src: None,
+            below: None,
         }
     }
     /// Read the file (once) and return it.
     pub fn source(&mut self) -> Option<&Source> {
         if self.src.is_none() {
-            self.src = Some(Source::new(greeg_lang::read_text(&self.path).ok()?));
+            let mut bytes = match &self.below {
+                Some((tree, rel)) => tree.read(rel).ok()?,
+                None => fs::read(&self.path).ok()?,
+            };
+            greeg_lang::transcode_utf16(&mut bytes);
+            self.src = Some(Source::new(bytes));
         }
         self.src.as_ref()
     }
@@ -543,13 +552,19 @@ pub(crate) struct ScanBounds {
     pub(crate) max_matched: usize,
 }
 
-fn walker(o: &Options, threads: usize, bounds: &ScanBounds) -> Result<ignore::WalkParallel> {
+/// Where a scan walks from: the paths named on the command line, or the root.
+fn walk_roots(o: &Options) -> Vec<PathBuf> {
     let mut roots: Vec<PathBuf> = if o.paths.is_empty() {
         vec![o.root.clone()]
     } else {
         o.paths.clone()
     };
     roots.dedup();
+    roots
+}
+
+fn walker(o: &Options, threads: usize, bounds: &ScanBounds) -> Result<ignore::WalkParallel> {
+    let roots = walk_roots(o);
     let mut wb = ignore::WalkBuilder::new(&roots[0]);
     for r in &roots[1..] {
         wb.add(r);
@@ -1531,8 +1546,6 @@ pub(crate) struct Ctx<'a> {
     pub(crate) classify: bool,
     /// Apply `--kind` inside `process_file` (false when the index classifies afterwards).
     pub(crate) filter_kinds: bool,
-    /// Paths come from the index: read only regular files, never through a symlink.
-    pub(crate) regular_only: bool,
 }
 
 /// `--no-tests`, `--no-vendored` and `--no-generated`, on one file's flags.
@@ -1544,12 +1557,15 @@ pub(crate) fn excluded_by_flags(o: &Options, flags: FileFlags) -> bool {
                 && flags.has(FileFlags::GENERATED | FileFlags::MINIFIED | FileFlags::LOCKFILE))
 }
 
-/// Search one file. `kind_of` classifies an occurrence from the index's
-/// span tables; without it the scan rules do (`ScanKinds`).
+/// Search one file, read from `below` (a tree and the path under it) or
+/// else from `path` as named. `kind_of` classifies an occurrence from the
+/// index's span tables; without it the scan rules do (`ScanKinds`).
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn process_file(
     cx: &Ctx,
     path: &Path,
     rel: Vec<u8>,
+    below: Option<(&Arc<Tree>, &[u8])>,
     searcher: &mut Searcher,
     buf: &mut Vec<u8>,
     kind_of: Option<SpanKindOf>,
@@ -1567,15 +1583,14 @@ pub(crate) fn process_file(
     }
     buf.clear();
     let t_read = Instant::now();
+    let f = match below {
+        Some((tree, sub)) => tree.open_file(sub).ok()?,
+        None => fs::File::open(path).ok()?,
+    };
     {
         use std::io::Read;
-        let f = if cx.regular_only {
-            greeg_index::open_regular(path).ok()?
-        } else {
-            fs::File::open(path).ok()?
-        };
         // read at most max_filesize + 1 so oversized files are detected without a stat
-        f.take(o.max_filesize.saturating_add(1))
+        (&f).take(o.max_filesize.saturating_add(1))
             .read_to_end(buf)
             .ok()?;
     }
@@ -1658,7 +1673,7 @@ pub(crate) fn process_file(
     if need_path_flags && excluded_by_flags(o, flags) {
         return None;
     }
-    let md = fs::metadata(path).ok();
+    let md = f.metadata().ok();
     let size = md.as_ref().map(|m| m.len()).unwrap_or(src.len() as u64);
     let modified = md.and_then(|m| m.modified().ok());
     let mtime = modified
@@ -1767,6 +1782,7 @@ pub(crate) fn process_file(
         refined: false,
         file_id: None,
         src: None,
+        below: below.map(|(tree, sub)| (tree.clone(), sub.to_vec())),
     })
 }
 
@@ -2024,7 +2040,6 @@ fn scan_once(o: &Options, bounds: &ScanBounds) -> Result<ScanResult> {
         stats: &acc,
         classify,
         filter_kinds: true,
-        regular_only: false,
     };
     if o.use_index && !o.no_ignore && !o.hidden {
         // A panic anywhere in the index path degrades to scan mode:
@@ -2049,6 +2064,13 @@ fn scan_once(o: &Options, bounds: &ScanBounds) -> Result<ScanResult> {
     }
     let out: Mutex<Vec<FileResult>> = Mutex::new(Vec::new());
     let root = &o.root;
+    // what the walk finds below a root is read without following a symlink;
+    // a root itself, named on the command line, is resolved as given
+    let bases: Vec<(PathBuf, Arc<Tree>)> = walk_roots(o)
+        .into_iter()
+        .filter_map(|r| Some((r.clone(), Arc::new(Tree::open(&r).ok()?))))
+        .collect();
+    let bases = &bases;
     /// Per-thread results, flushed when full and on drop (walker threads end without notice).
     struct Local<'a> {
         v: Vec<FileResult>,
@@ -2093,7 +2115,23 @@ fn scan_once(o: &Options, bounds: &ScanBounds) -> Result<ScanResult> {
             let p = e.path();
             cx.stats.walked.fetch_add(1, Relaxed);
             let rel = greeg_index::rel::of(root, p);
-            if let Some(fr) = process_file(cx, p, rel, &mut searcher, &mut buf, None) {
+            let below = if e.depth() == 0 {
+                None
+            } else {
+                // the deepest root: a named path inside another is read as named
+                let Some((base, tree)) = bases
+                    .iter()
+                    .filter(|(base, _)| p.starts_with(base))
+                    .max_by_key(|(base, _)| base.components().count())
+                else {
+                    return ignore::WalkState::Continue;
+                };
+                let sub = std::os::unix::ffi::OsStrExt::as_bytes(
+                    p.strip_prefix(base).unwrap_or(p).as_os_str(),
+                );
+                Some((tree, sub))
+            };
+            if let Some(fr) = process_file(cx, p, rel, below, &mut searcher, &mut buf, None) {
                 let n = cx.stats.matched.fetch_add(1, Relaxed) + 1;
                 local.v.push(fr);
                 if local.v.len() >= 64 {
@@ -2512,7 +2550,6 @@ mod tests {
             stats: &acc,
             classify: true,
             filter_kinds: true,
-            regular_only: false,
         };
         let mut sb = SearcherBuilder::new();
         sb.line_number(true)
@@ -2525,6 +2562,7 @@ mod tests {
             &cx,
             path,
             path.file_name().unwrap().as_encoded_bytes().to_vec(),
+            None,
             &mut searcher,
             &mut buf,
             None,
@@ -2583,7 +2621,6 @@ mod tests {
             stats: &acc,
             classify: false,
             filter_kinds: true,
-            regular_only: false,
         };
         let mut sb = SearcherBuilder::new();
         sb.line_number(true)
@@ -2591,7 +2628,18 @@ mod tests {
             .bom_sniffing(false);
         let mut searcher = sb.build();
         let mut buf = Vec::new();
-        assert!(process_file(&cx, &p, "bin.txt".into(), &mut searcher, &mut buf, None).is_none());
+        assert!(
+            process_file(
+                &cx,
+                &p,
+                "bin.txt".into(),
+                None,
+                &mut searcher,
+                &mut buf,
+                None
+            )
+            .is_none()
+        );
         assert_eq!(acc.binary.load(Relaxed), 1);
     }
 

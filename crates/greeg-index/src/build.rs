@@ -10,6 +10,7 @@ use crate::resolve::Resolver;
 use crate::skipped::Skipped;
 use crate::snapshot;
 use crate::symtab::{DeltaGraphBuilder, FileExtract, GraphBuilder, SpanBuilder, SymBuilder};
+use crate::tree::Tree;
 use crate::words;
 use crate::{Manifest, now_ms, read_manifest, write_manifest};
 use anyhow::{Context, Result, bail};
@@ -96,6 +97,27 @@ impl Stamp {
             ino: md.ino(),
             dev: md.dev(),
         }
+    }
+
+    /// `of` for a stat made without `fs::Metadata` (`tree::Tree::stat`).
+    // the field types differ between targets
+    #[allow(clippy::unnecessary_cast)]
+    pub fn of_stat(st: &crate::tree::Stat) -> Stamp {
+        let stamp = Stamp {
+            size: st.st_size as u64,
+            mtime_ns: st.st_mtime as i64 * 1_000_000_000 + st.st_mtime_nsec as i64,
+            ctime_ns: st.st_ctime as i64 * 1_000_000_000 + st.st_ctime_nsec as i64,
+            ino: st.st_ino as u64,
+            dev: st.st_dev as u64,
+        };
+        if fixed_identity() {
+            return Stamp {
+                size: stamp.size,
+                mtime_ns: stamp.mtime_ns,
+                ..Default::default()
+            };
+        }
+        stamp
     }
 
     /// Equal, ignoring the inode and device when `no_ino`.
@@ -323,7 +345,8 @@ pub struct Capture {
 
 /// Lets tests act while a file is being read, by its name.
 #[cfg(test)]
-fn read_hook(path: &Path) {
+fn read_hook(tree: &Tree, rel: &[u8]) {
+    let path = &tree.path().join(crate::rel::as_path(rel));
     if path.ends_with("changes-during-read.txt") {
         fs::write(path, "omega\n").unwrap();
     } else if path.ends_with("slow-read.txt") {
@@ -331,18 +354,18 @@ fn read_hook(path: &Path) {
     }
 }
 
-/// Read `path` (at most `MAX_FILE + 1` bytes) into `buf`, sized from the
+/// Read `rel` (at most `MAX_FILE + 1` bytes) into `buf`, sized from the
 /// walk's size so the read needs one allocation and no probing.
-fn read_file(path: &Path, walk: &Stamp, buf: &mut Vec<u8>) -> Option<Capture> {
+fn read_file(tree: &Tree, rel: &[u8], walk: &Stamp, buf: &mut Vec<u8>) -> Option<Capture> {
     use std::io::Read;
     buf.clear();
     buf.reserve((walk.size as usize).min(MAX_FILE as usize + 1) + 1);
-    let f = crate::open_regular(path).ok()?;
+    let f = tree.open_file(rel).ok()?;
     let started = now_ns();
     let before = Stamp::of(&f.metadata().ok()?);
     (&f).take(MAX_FILE + 1).read_to_end(buf).ok()?;
     #[cfg(test)]
-    read_hook(path);
+    read_hook(tree, rel);
     let after = Stamp::of(&f.metadata().ok()?);
     // the inode is compared only on the one descriptor: a path's stat and a
     // descriptor's can disagree on it where inode numbers are not kept, and
@@ -408,7 +431,7 @@ pub(crate) fn dir_rec((path_off, path_len): (u32, u16), stamp: &Stamp) -> DirRec
 /// next check to re-extract. Waits at most `max_wait_ns`; a longer wait (a
 /// file system with whole-second timestamps, inside a query) leaves the
 /// capture racy.
-fn settle_racy(path: &Path, c: &mut Capture, max_wait_ns: i64, buf: &mut Vec<u8>) {
+fn settle_racy(tree: &Tree, rel: &[u8], c: &mut Capture, max_wait_ns: i64, buf: &mut Vec<u8>) {
     use std::io::Read;
     let Some(hash) = c.racy else { return };
     let wait = c.stamp.trusted_from() - now_ns();
@@ -419,7 +442,7 @@ fn settle_racy(path: &Path, c: &mut Capture, max_wait_ns: i64, buf: &mut Vec<u8>
         std::thread::sleep(std::time::Duration::from_nanos(wait as u64));
     }
     let same = (|| {
-        let f = crate::open_regular(path).ok()?;
+        let f = tree.open_file(rel).ok()?;
         let now = Stamp::of(&f.metadata().ok()?);
         buf.clear();
         (&f).take(MAX_FILE + 1).read_to_end(buf).ok()?;
@@ -436,20 +459,20 @@ const DELTA_RACY_WAIT: i64 = 25_000_000;
 
 /// Read one file and extract its grams and flags. `buf` and `dd` are reused.
 pub fn extract_file(
-    path: &Path,
+    tree: &Tree,
     rel: &[u8],
     walk: &Stamp,
     buf: &mut Vec<u8>,
     dd: &mut Dedup,
     grams: &mut Vec<u32>,
 ) -> Extracted {
-    extract_file_with(path, rel, walk, buf, dd, grams, |_, _| ()).0
+    extract_file_with(tree, rel, walk, buf, dd, grams, |_, _| ()).0
 }
 
 /// `extract_file`, calling `hook(rel, bytes)` on the unfolded content before
 /// gram extraction so a second extractor (symbols) needs no second read.
 fn extract_file_with<T: Default>(
-    path: &Path,
+    tree: &Tree,
     rel: &[u8],
     walk: &Stamp,
     buf: &mut Vec<u8>,
@@ -471,7 +494,7 @@ fn extract_file_with<T: Default>(
         );
     }
     // ignore files are read only for their stamp: they are never searched
-    let read = read_file(path, walk, buf);
+    let read = read_file(tree, rel, walk, buf);
     if read.is_none() || is_ignore_file(rel) {
         return (
             Extracted {
@@ -619,6 +642,7 @@ pub fn build(root: &Path, dir: &Path, opts: &BuildOpts) -> Result<Manifest> {
     crate::write_owner(dir)?;
     // before the walk: a root replaced during the build must not match it
     let root_id = crate::RootId::of(root).context("root identity")?;
+    let tree = Tree::open(root).context("open the root")?;
     let fsevents_id = greeg_fsevents_id();
     // before the walk, so a change made during it shows up at the next check
     let ignore_inputs = crate::ignores::digest(root);
@@ -629,7 +653,6 @@ pub fn build(root: &Path, dir: &Path, opts: &BuildOpts) -> Result<Manifest> {
     let pool = rayon::ThreadPoolBuilder::new()
         .num_threads(opts.reader_threads)
         .build()?;
-    let root_buf = root.to_path_buf();
     let source_bytes = std::sync::atomic::AtomicU64::new(0);
     type Flags = Vec<(u32, u16, Option<Capture>)>;
     // Postings accumulate against a byte budget shared across the workers and
@@ -668,7 +691,7 @@ pub fn build(root: &Path, dir: &Path, opts: &BuildOpts) -> Result<Manifest> {
                     // words come from the unfolded bytes (case-sensitive keys),
                     // deduplicated per file by the last id pushed
                     let (ex, ()) = extract_file_with(
-                        &root_buf.join(crate::rel::as_path(&w.rel)),
+                        &tree,
                         &w.rel,
                         &w.stamp,
                         &mut buf,
@@ -727,8 +750,13 @@ pub fn build(root: &Path, dir: &Path, opts: &BuildOpts) -> Result<Manifest> {
     let mut again = Vec::new();
     for (id, _, c) in &mut flags_sorted {
         if let Some(c) = c {
-            let path = root.join(crate::rel::as_path(&walked[*id as usize].rel));
-            settle_racy(&path, c, BUILD_RACY_WAIT, &mut again);
+            settle_racy(
+                &tree,
+                &walked[*id as usize].rel,
+                c,
+                BUILD_RACY_WAIT,
+                &mut again,
+            );
         }
     }
     for (i, w) in walked.iter().enumerate() {
@@ -895,12 +923,12 @@ pub fn wants_symbols(rel: &[u8], flags: u16) -> bool {
 /// matches `recorded`, the stamp its phase-1 record holds, or was read too
 /// soon for its stamp to tell.
 pub fn extract_symbols(
-    path: &Path,
+    tree: &Tree,
     rel: &[u8],
     recorded: &Stamp,
     buf: &mut Vec<u8>,
 ) -> (Option<FileExtract>, bool) {
-    let Some(read) = read_file(path, recorded, buf) else {
+    let Some(read) = read_file(tree, rel, recorded, buf) else {
         return (None, true);
     };
     let recheck = read.changed || read.racy.is_some();
@@ -933,7 +961,7 @@ fn phase2(
         .map(|n| n.get())
         .unwrap_or(4);
     let pool = rayon::ThreadPoolBuilder::new().num_threads(cores).build()?;
-    let root_buf = root.to_path_buf();
+    let tree = Tree::open(root).context("open the root")?;
     let todo: Vec<u32> = (0..ft.files.len())
         .filter(|&i| wants_symbols(&walked[i].rel, ft.files[i].flags))
         .map(|i| i as u32)
@@ -946,15 +974,7 @@ fn phase2(
                 |buf, &i| {
                     let w = &walked[i as usize];
                     let rec = ft.files[i as usize].stamp();
-                    (
-                        i,
-                        extract_symbols(
-                            &root_buf.join(crate::rel::as_path(&w.rel)),
-                            &w.rel,
-                            &rec,
-                            buf,
-                        ),
-                    )
+                    (i, extract_symbols(&tree, &w.rel, &rec, buf))
                 },
             )
             .collect()
@@ -1167,6 +1187,7 @@ pub fn build_delta(
     // unread files (above the size cap) keep the check's stamp, judged
     // against this time
     let started_ns = now_ns();
+    let tree = Tree::open(root).context("open the root")?;
     let mut buf = Vec::with_capacity(256 * 1024);
     let mut again = Vec::new();
     let mut dd = Dedup::new();
@@ -1184,7 +1205,7 @@ pub fn build_delta(
         let id = first_id + i as u32;
         // one read serves both extractors: symbols see the unfolded bytes, then grams
         let (ex, fx) = extract_file_with(
-            &root.join(crate::rel::as_path(&w.rel)),
+            &tree,
             &w.rel,
             &w.stamp,
             &mut buf,
@@ -1224,12 +1245,7 @@ pub fn build_delta(
         extracts.push(fx);
         let mut read = ex.read;
         if let Some(c) = &mut read {
-            settle_racy(
-                &root.join(crate::rel::as_path(&w.rel)),
-                c,
-                DELTA_RACY_WAIT,
-                &mut again,
-            );
+            settle_racy(&tree, &w.rel, c, DELTA_RACY_WAIT, &mut again);
         }
         let at = ft.intern(&w.rel);
         let rec = file_rec(
@@ -1507,11 +1523,12 @@ mod tests {
     fn a_racy_capture_is_cleared_only_when_its_bytes_still_match() {
         let d = temp("racy");
         let p = d.join("a.txt");
+        let tree = Tree::open(&d).unwrap();
         let mut buf = Vec::new();
         for (edit, changed) in [(false, false), (true, true)] {
             fs::write(&p, "alpha\n").unwrap();
             let walk = Stamp::of(&fs::symlink_metadata(&p).unwrap());
-            let mut c = read_file(&p, &walk, &mut buf).unwrap();
+            let mut c = read_file(&tree, b"a.txt", &walk, &mut buf).unwrap();
             assert!(c.racy.is_some() && !c.changed, "just written");
             if edit {
                 // same size, stamps put back: only the bytes tell
@@ -1524,7 +1541,7 @@ mod tests {
                     .set_modified(mt)
                     .unwrap();
             }
-            settle_racy(&p, &mut c, BUILD_RACY_WAIT, &mut buf);
+            settle_racy(&tree, b"a.txt", &mut c, BUILD_RACY_WAIT, &mut buf);
             assert!(c.racy.is_none());
             assert_eq!(c.changed, changed, "edited: {edit}");
         }
@@ -1538,7 +1555,13 @@ mod tests {
         fs::write(&f, "alpha\n").unwrap();
         let walk = Stamp::of(&fs::symlink_metadata(&f).unwrap());
         // the hook sleeps past the trust window while the file is read
-        let c = read_file(&f, &walk, &mut Vec::new()).unwrap();
+        let c = read_file(
+            &Tree::open(&d).unwrap(),
+            b"slow-read.txt",
+            &walk,
+            &mut Vec::new(),
+        )
+        .unwrap();
         assert!(!c.changed && c.racy.is_some());
         let _ = fs::remove_dir_all(&d);
     }
@@ -1549,7 +1572,12 @@ mod tests {
         let f = d.join("a.rs");
         fs::write(&f, "fn alpha() {}\n").unwrap();
         let recorded = Stamp::of(&fs::symlink_metadata(&f).unwrap());
-        let (ex, recheck) = extract_symbols(&f, b"a.rs", &recorded, &mut Vec::new());
+        let (ex, recheck) = extract_symbols(
+            &Tree::open(&d).unwrap(),
+            b"a.rs",
+            &recorded,
+            &mut Vec::new(),
+        );
         assert!(ex.is_some() && recheck);
         let _ = fs::remove_dir_all(&d);
     }
@@ -1561,16 +1589,25 @@ mod tests {
         fs::write(&f, "alpha\n").unwrap();
         let walk = Stamp::of(&fs::symlink_metadata(&f).unwrap());
         let mut buf = Vec::new();
+        let tree = Tree::open(&d).unwrap();
         let other_ino = Stamp {
             ino: walk.ino + 1,
             ..walk
         };
-        assert!(!read_file(&f, &other_ino, &mut buf).unwrap().changed);
+        assert!(
+            !read_file(&tree, b"a.txt", &other_ino, &mut buf)
+                .unwrap()
+                .changed
+        );
         let other_size = Stamp {
             size: walk.size + 1,
             ..walk
         };
-        assert!(read_file(&f, &other_size, &mut buf).unwrap().changed);
+        assert!(
+            read_file(&tree, b"a.txt", &other_size, &mut buf)
+                .unwrap()
+                .changed
+        );
         let _ = fs::remove_dir_all(&d);
     }
 

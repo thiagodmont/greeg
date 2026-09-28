@@ -13,6 +13,7 @@ use greeg_index::fresh::{self, Mode as Fresh};
 use greeg_index::index::SymId;
 use greeg_index::snapshot::Snapshot;
 use greeg_index::symtab::kind_from_code;
+use greeg_index::tree::Tree;
 use greeg_index::{Index, lock, plan, read_manifest};
 use greeg_lang::sym::SYM_OBJ_MEMBER;
 use greeg_lang::{DefKind, FileFlags, Lang};
@@ -20,8 +21,8 @@ use grep_searcher::{BinaryDetection, SearcherBuilder};
 use std::fs;
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering::Relaxed};
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 /// Queued background work: (root, index dir, refresh). `refresh` is the
@@ -658,7 +659,6 @@ pub(crate) fn try_index(cx: &Ctx, threads: usize, t0: Instant) -> Result<Option<
         stats: cx.stats,
         classify: cx.classify && !use_spans,
         filter_kinds: !use_spans,
-        regular_only: true,
     };
     // a changed file has no spans yet: line-local classification, as in a scan
     let cx_scan = Ctx {
@@ -667,10 +667,12 @@ pub(crate) fn try_index(cx: &Ctx, threads: usize, t0: Instant) -> Result<Option<
         stats: cx.stats,
         classify: cx.classify,
         filter_kinds: true,
-        regular_only: true,
     };
     let cx = &cx_idx;
     let cx_scan = &cx_scan;
+    // indexed paths are read below the root, never through a symlink
+    let tree = Arc::new(Tree::open(&o.root)?);
+    let tree = &tree;
     let out: Mutex<Vec<FileResult>> = Mutex::new(Vec::new());
     let next = AtomicUsize::new(0);
     let root = &o.root;
@@ -716,6 +718,7 @@ pub(crate) fn try_index(cx: &Ctx, threads: usize, t0: Instant) -> Result<Option<
                         },
                         &path,
                         rel.to_vec(),
+                        Some((tree, rel)),
                         &mut searcher,
                         &mut buf,
                         by_index.as_ref().map(|f| f as crate::SpanKindOf),

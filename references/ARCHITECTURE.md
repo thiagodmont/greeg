@@ -440,9 +440,19 @@ to keep it there.
 
 A known file that is no longer a regular file (replaced by a symlink, FIFO
 or device) counts as deleted, and added entries are indexed only when they
-are regular files, as a scan would. Indexed paths are opened without
-following a symlink and without blocking, then checked to be regular; parent
-directories are not yet checked the same way.
+are regular files, as a scan would. Every file found below the root, by the
+walk or in the index, is opened and stat'd relative to a descriptor of the
+root, following no symlink in any component (`tree.rs`): a directory swapped
+for a symlink cannot redirect a read, and its files count as deleted. macOS
+11+ does this in one call (`O_NOFOLLOW_ANY`), Linux 5.6+ opens with
+`openat2(RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS)`, and otherwise each
+directory on the way is opened with `O_NOFOLLOW`; the freshness pass keeps
+the directories of the previous path, so it opens each one once. Files are
+opened without blocking and checked to be regular. A path named on the
+command line is resolved as given, symlinks included, as ripgrep does; only
+what lies below it is read this way. The walk still lists directories by
+path, so a swap that races it can put names from outside into a listing,
+but their contents are not read.
 
 Ignore files inside the tree are tracked like files. Ignore inputs outside
 it (ancestor ignore files, the repository's `info/exclude`, the global git

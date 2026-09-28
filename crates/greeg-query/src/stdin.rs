@@ -109,6 +109,7 @@ pub fn scan(o: &Options, data: Vec<u8>) -> Result<ScanResult> {
             refined: true,
             file_id: None,
             src: Some(src),
+            below: None,
         });
     }
     let mut stats = Stats {
