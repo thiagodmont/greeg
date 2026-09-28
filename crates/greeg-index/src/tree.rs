@@ -6,7 +6,8 @@
 //! macOS 11+ refuses symlinks in one call (`O_NOFOLLOW_ANY`,
 //! `AT_SYMLINK_NOFOLLOW_ANY`) and Linux 5.6+ opens with `openat2`; otherwise
 //! each directory on the way is opened with `O_NOFOLLOW`, and a stat pass
-//! keeps the directories of the previous path ([`Dirs`]).
+//! keeps the directories of the previous path ([`Dirs`]). [`Tree::lstat`]
+//! skips that cost for callers that check the directories themselves.
 
 use std::ffi::{CStr, CString};
 use std::fs::File;
@@ -107,6 +108,10 @@ mod fast {
     pub(super) fn stat(dir: RawFd, rel: &CStr) -> Option<io::Result<Stat>> {
         available(dir).then(|| fstatat(dir, rel, AT_SYMLINK_NOFOLLOW_ANY))
     }
+
+    pub(super) fn stat_is_one_call(dir: RawFd) -> bool {
+        available(dir)
+    }
 }
 
 #[cfg(target_os = "linux")]
@@ -155,6 +160,10 @@ mod fast {
     pub(super) fn stat(_: RawFd, _: &CStr) -> Option<io::Result<Stat>> {
         None
     }
+
+    pub(super) fn stat_is_one_call(_: RawFd) -> bool {
+        false
+    }
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
@@ -167,6 +176,10 @@ mod fast {
 
     pub(super) fn stat(_: RawFd, _: &CStr) -> Option<io::Result<Stat>> {
         None
+    }
+
+    pub(super) fn stat_is_one_call(_: RawFd) -> bool {
+        false
     }
 }
 
@@ -220,12 +233,7 @@ impl Tree {
     /// previous call, so stats in path order open each directory once.
     pub fn stat(&self, rel: &[u8], dirs: &mut Dirs) -> io::Result<Stat> {
         if rel.is_empty() {
-            let mut st: Stat = unsafe { std::mem::zeroed() };
-            // SAFETY: a valid descriptor and stat buffer.
-            if unsafe { libc::fstat(self.dir.as_raw_fd(), &mut st) } != 0 {
-                return Err(io::Error::last_os_error());
-            }
-            return Ok(st);
+            return self.own_stat();
         }
         let c = cpath(rel)?;
         if let Some(r) = fast::stat(self.at, &c) {
@@ -234,6 +242,30 @@ impl Tree {
         let (parent, leaf) = split(rel);
         let dir = dirs.enter(self, parent)?;
         fstatat(dir, &cpath(leaf)?, libc::AT_SYMLINK_NOFOLLOW)
+    }
+
+    /// Whether [`Tree::stat`] refuses symlinks in one call, without opening
+    /// the directories on the way.
+    pub fn stat_is_one_call(&self) -> bool {
+        fast::stat_is_one_call(self.at)
+    }
+
+    /// `lstat` of `rel` (the tree itself when empty), following a symlink
+    /// in a directory on the way: the caller checks those directories.
+    pub fn lstat(&self, rel: &[u8]) -> io::Result<Stat> {
+        if rel.is_empty() {
+            return self.own_stat();
+        }
+        fstatat(self.at, &cpath(rel)?, libc::AT_SYMLINK_NOFOLLOW)
+    }
+
+    fn own_stat(&self) -> io::Result<Stat> {
+        let mut st: Stat = unsafe { std::mem::zeroed() };
+        // SAFETY: a valid descriptor and stat buffer.
+        if unsafe { libc::fstat(self.dir.as_raw_fd(), &mut st) } != 0 {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(st)
     }
 
     /// Open `rel` one component at a time, none of them followed.
@@ -403,6 +435,19 @@ mod tests {
             };
             assert_eq!(dirs.open.len(), depth);
         }
+        let _ = fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn lstat_follows_a_symlinked_directory_on_the_way_but_not_the_entry() {
+        let d = fixture("lstat");
+        symlink(d.join("outside"), d.join("root/linked")).unwrap();
+        let t = Tree::open(&d.join("root")).unwrap();
+        assert!(is_file(&t.lstat(b"linked/a.rs").unwrap()));
+        let link = t.lstat(b"linked").unwrap();
+        assert!(!is_file(&link) && !is_dir(&link));
+        assert!(is_dir(&t.lstat(b"").unwrap()));
+        assert!(t.lstat(b"../outside/a.rs").is_err());
         let _ = fs::remove_dir_all(&d);
     }
 
