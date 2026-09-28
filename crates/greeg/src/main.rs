@@ -577,20 +577,40 @@ unsafe impl Sync for Argv {}
 unsafe impl Send for Argv {}
 static REEXEC: std::sync::OnceLock<(Vec<std::ffi::CString>, Argv)> = std::sync::OnceLock::new();
 
-/// SIGBUS means an mmapped index file was truncated underneath us. Re-exec the
-/// same command with `--no-index --after-sigbus` (execv is async-signal-safe):
-/// the answer comes from a scan and the index is rebuilt. The flags go first,
-/// where no `--` can turn them into patterns or paths.
+/// SIGBUS means an mmapped index file was truncated underneath us. Before
+/// any of the answer reached stdout, re-exec the same command once with
+/// `--no-index --after-sigbus` (execv is async-signal-safe): the answer comes
+/// from a scan and the index is rebuilt. The flags go first, where no `--`
+/// can turn them into patterns or paths. A run that already recovered, read
+/// stdin, or started its output ends with exit 2 instead: running again
+/// would loop, lack its input, or print rows twice.
 extern "C" fn on_sigbus(_: libc::c_int) {
-    if let Some((_, argv)) = REEXEC.get() {
+    fn say(msg: &[u8]) {
+        unsafe { libc::write(2, msg.as_ptr().cast(), msg.len()) };
+    }
+    if greeg_index::commit::committed() {
+        say(b"greeg: a mapped file changed while writing results; output is incomplete\n");
+        unsafe { libc::_exit(2) }
+    }
+    if !greeg_index::commit::stdin_read()
+        && let Some((_, argv)) = REEXEC.get()
+    {
         unsafe {
             libc::execv(argv.0[0], argv.0.as_ptr());
         }
     }
+    say(b"greeg: a mapped file changed while in use\n");
     unsafe { libc::_exit(2) }
 }
 
 fn install_sigbus_guard() {
+    unsafe {
+        let mut sa: libc::sigaction = std::mem::zeroed();
+        sa.sa_sigaction = on_sigbus as *const () as usize;
+        sa.sa_flags = libc::SA_RESETHAND | libc::SA_NODEFER;
+        libc::sigemptyset(&mut sa.sa_mask);
+        libc::sigaction(libc::SIGBUS, &sa, std::ptr::null_mut());
+    }
     let args: Vec<std::ffi::OsString> = std::env::args_os().collect();
     let flags = args.iter().skip(1).take_while(|a| *a != "--");
     if flags.clone().any(|a| a == "--after-sigbus") || flags.clone().any(|a| a == "--no-index") {
@@ -618,13 +638,6 @@ fn install_sigbus_guard() {
     let mut ptrs: Vec<*const libc::c_char> = cs.iter().map(|c| c.as_ptr()).collect();
     ptrs.push(std::ptr::null());
     let _ = REEXEC.set((cs, Argv(ptrs)));
-    unsafe {
-        let mut sa: libc::sigaction = std::mem::zeroed();
-        sa.sa_sigaction = on_sigbus as *const () as usize;
-        sa.sa_flags = libc::SA_RESETHAND | libc::SA_NODEFER;
-        libc::sigemptyset(&mut sa.sa_mask);
-        libc::sigaction(libc::SIGBUS, &sa, std::ptr::null_mut());
-    }
 }
 
 fn main() {
@@ -808,6 +821,17 @@ fn run() -> Result<()> {
     }
     let c = &cli.common;
     stats::begin();
+    if c.after_sigbus {
+        // the previous process died on a truncated index file: the index is
+        // unusable, for a verb as for a search
+        eprintln!(
+            "greeg: an index file was truncated while in use; answering from a scan and rebuilding the index"
+        );
+        if let Ok(o) = build_options(c, String::new(), vec![]) {
+            greeg_query::indexed::mark_corrupt(&o);
+        }
+    }
+    greeg_index::commit::inject("every-run");
     if let Some(cmd) = cli.cmd {
         let verb = match &cmd {
             Cmd::Def { .. } => "def",
@@ -911,14 +935,6 @@ fn run() -> Result<()> {
             });
         }
         return r;
-    }
-    if c.after_sigbus {
-        // the previous process died on a truncated index file: the index is unusable
-        eprintln!(
-            "greeg: an index file was truncated while in use; answering from a scan and rebuilding the index"
-        );
-        let o = build_options(c, String::new(), vec![])?;
-        greeg_query::indexed::mark_corrupt(&o);
     }
     let (pattern, paths, fixed) = if cli.regexp.is_empty() {
         match &cli.pattern {
@@ -1159,6 +1175,8 @@ fn run_stdin(c: &Common, mut opts: Options, fmt: Fmt) -> Result<()> {
     opts.max_columns = 0;
     let mut data = Vec::new();
     std::io::stdin().lock().read_to_end(&mut data)?;
+    greeg_index::commit::note_stdin_read();
+    greeg_index::commit::inject("after-stdin");
     let mut result = greeg_query::stdin::scan(&opts, data)?;
     let report = greeg_query::shape::shape(&mut result);
     emit(c, &result, &report, Fmt { stdin: true, ..fmt })?;

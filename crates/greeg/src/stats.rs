@@ -433,12 +433,15 @@ fn estimate_tokens(head: &[u8], bytes: usize) -> usize {
     }
 }
 
-/// A writer that also feeds [`observe`].
+/// A writer of the answer: it commits the run's output
+/// (`greeg_index::commit`) and feeds [`observe`].
 pub struct Tee<W: Write>(pub W);
 
 impl<W: Write> Write for Tee<W> {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        greeg_index::commit::commit();
         let n = self.0.write(buf)?;
+        greeg_index::commit::inject("after-output");
         observe(&buf[..n]);
         Ok(n)
     }

@@ -221,6 +221,10 @@ fn note_corruption(o: &Options) {
 /// wrong: queue a rebuild and answer again without the index, before any
 /// output.
 pub fn answered<T>(o: &Options, f: impl Fn(&Options) -> Result<T>) -> Result<T> {
+    debug_assert!(
+        !greeg_index::commit::committed(),
+        "a verb answered after output started"
+    );
     let r = f(o);
     if !o.use_index || !greeg_index::integrity::failed() {
         return r;
@@ -408,7 +412,11 @@ fn open_fresh_with(
             }));
         }
         Err(_) => {
-            spawn_build(&o.root, &dir);
+            if greeg_index::integrity::failed() {
+                note_corruption(o);
+            } else {
+                spawn_build(&o.root, &dir);
+            }
             return Ok(Err(Rebuilding {
                 reason: "no-index",
                 estimate_ms: None,
@@ -490,10 +498,7 @@ pub(crate) fn try_index(cx: &Ctx, threads: usize, t0: Instant) -> Result<Option<
     if std::env::var_os("GREEG_DEBUG_PANIC").is_some() {
         panic!("injected panic (GREEG_DEBUG_PANIC)");
     }
-    #[cfg(unix)]
-    if std::env::var_os("GREEG_DEBUG_SIGBUS").is_some() {
-        unsafe { libc::raise(libc::SIGBUS) };
-    }
+    greeg_index::commit::inject("index");
     let mut stats = Stats {
         threads,
         source: "index",
