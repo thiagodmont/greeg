@@ -26,8 +26,8 @@ fn ago(unix_ms: u64) -> String {
 }
 
 pub fn run(c: &Common) -> Result<()> {
-    let stdout = std::io::stdout();
-    let mut w = stdout.lock();
+    // the whole report, written once the index is closed
+    let mut w: Vec<u8> = Vec::new();
     let root = c.root.clone().unwrap_or_else(|| PathBuf::from("."));
     let exe = std::env::current_exe().ok();
     let exe_size = exe
@@ -170,7 +170,9 @@ pub fn run(c: &Common) -> Result<()> {
                 ago(m.verified_unix_ms)
             )?;
             // languages from the file table
-            if let Ok(idx) = greeg_index::Index::open(&dir) {
+            if !c.no_index
+                && let Ok(idx) = greeg_index::Index::open(&dir)
+            {
                 let mut per: BTreeMap<String, (usize, usize, bool)> = BTreeMap::new();
                 for (_, rel, rec) in idx.live_files() {
                     let l = Lang::from_path(greeg_index::rel::as_path(rel));
@@ -260,6 +262,9 @@ pub fn run(c: &Common) -> Result<()> {
     for a in &advice {
         writeln!(w, "advice    {a}")?;
     }
+    let mut out = crate::stats::Tee(std::io::stdout().lock());
+    out.write_all(&w)?;
+    out.flush()?;
     Ok(())
 }
 

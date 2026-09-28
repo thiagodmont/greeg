@@ -483,42 +483,54 @@ fn run_index(
         return Ok(());
     }
     if check {
-        let idx = greeg_index::Index::open(&dir)?;
-        if !idx.built_for(&root) {
-            anyhow::bail!(
-                "the index in {} was built for another root; run `greeg index` to rebuild it",
-                dir.display()
-            );
-        }
         let mode = greeg_index::fresh::Mode::parse(&fresh)
             .ok_or_else(|| anyhow::anyhow!("bad --fresh"))?;
-        let t = std::time::Instant::now();
-        match greeg_index::fresh::check(&idx, &root, mode, 4) {
-            Some(ch) => {
-                println!(
-                    "{}: modified {} deleted {} added {} added_dirs {} touched_dirs {} rebuild {} in {:.1} ms",
-                    ch.method,
-                    ch.modified.len(),
-                    ch.deleted.len(),
-                    ch.added.len(),
-                    ch.added_dirs.len(),
-                    ch.touched_dirs.len(),
-                    greeg_index::fresh::rebuild_reason(&idx, &ch).map_or("none", |r| r.name()),
-                    ch.ms
+        // printed once the index is closed
+        let mut report = String::new();
+        let applied = {
+            let idx = greeg_index::Index::open(&dir)?;
+            if !idx.built_for(&root) {
+                anyhow::bail!(
+                    "the index in {} was built for another root; run `greeg index` to rebuild it",
+                    dir.display()
                 );
-                if greeg_index::fresh::needs_rebuild(&idx, &ch) {
-                    println!("needs full rebuild");
-                } else {
-                    let n = greeg_index::fresh::apply(&idx, &root, &ch)?;
-                    println!(
-                        "applied delta with {n} files in {:.1} ms total",
-                        t.elapsed().as_secs_f64() * 1e3
+            }
+            let t = std::time::Instant::now();
+            match greeg_index::fresh::check(&idx, &root, mode, 4) {
+                Some(ch) => {
+                    report += &format!(
+                        "{}: modified {} deleted {} added {} added_dirs {} touched_dirs {} rebuild {} in {:.1} ms\n",
+                        ch.method,
+                        ch.modified.len(),
+                        ch.deleted.len(),
+                        ch.added.len(),
+                        ch.added_dirs.len(),
+                        ch.touched_dirs.len(),
+                        greeg_index::fresh::rebuild_reason(&idx, &ch).map_or("none", |r| r.name()),
+                        ch.ms
                     );
+                    if greeg_index::fresh::needs_rebuild(&idx, &ch) {
+                        report += "needs full rebuild\n";
+                        Ok(())
+                    } else {
+                        greeg_index::fresh::apply(&idx, &root, &ch).map(|n| {
+                            report += &format!(
+                                "applied delta with {n} files in {:.1} ms total\n",
+                                t.elapsed().as_secs_f64() * 1e3
+                            );
+                        })
+                    }
+                }
+                None => {
+                    report += "skipped (ttl or mode none)\n";
+                    Ok(())
                 }
             }
-            None => println!("skipped (ttl or mode none)"),
-        }
-        return Ok(());
+        };
+        let mut w = stats::Tee(std::io::stdout().lock());
+        w.write_all(report.as_bytes())?;
+        w.flush()?;
+        return applied;
     }
     greeg_index::create_private_dir(&dir)?;
     let marker = dir.join("BUILDING");
