@@ -834,7 +834,6 @@ fn a_fifo_replacing_an_indexed_file_does_not_block_the_search() {
 
 #[cfg(unix)]
 #[test]
-#[ignore = "known gap: reads follow a symlink that replaces an indexed file's directory"]
 fn a_symlinked_ancestor_directory_is_not_followed() {
     let f = Fixture::with_filler(&[("src/a.rs", "fn plain() {}\n")]);
     f.indexed();
@@ -846,15 +845,68 @@ fn a_symlinked_ancestor_directory_is_not_followed() {
     for args in [
         &["--fresh", "stat", "--budget", "0", "ancestorneedle"][..],
         &["--fresh", "stat", "def", "ancestorneedle"],
+        &[
+            "--fresh",
+            "stat",
+            "def",
+            "--mode",
+            "block",
+            "ancestorneedle",
+        ],
+        &["--fresh", "stat", "refs", "ancestorneedle"],
     ] {
         assert_eq!(f.scan(args).status.code(), Some(1), "{args:?}");
+        // a verb names what it looked for, but no file from outside
         let o = f.run(args);
         assert_eq!(
-            (o.status.code(), stdout(&o).contains("ancestorneedle")),
+            (o.status.code(), stdout(&o).contains("a.rs")),
             (Some(1), false),
             "{args:?}: {o:?}"
         );
     }
+}
+
+/// A path named on the command line is resolved as given, symlinks
+/// included, as ripgrep resolves it; only what lies below it is read
+/// without following one.
+#[cfg(unix)]
+#[test]
+fn explicit_symlink_paths_follow_the_documented_policy() {
+    let f = Fixture::with_filler(&[("src/a.rs", "fn plain() {}\n")]);
+    let outside = f.base.join("outside");
+    w(&outside.join("b.rs"), "fn explicitneedle() {}\n");
+    w(&outside.join("deep/c.rs"), "fn explicitneedle() {}\n");
+    std::os::unix::fs::symlink(&outside, f.root.join("linked")).unwrap();
+    f.indexed();
+    for args in [
+        &[
+            "--budget",
+            "0",
+            "--sort",
+            "path",
+            "explicitneedle",
+            "linked",
+        ][..],
+        &[
+            "--budget",
+            "0",
+            "--sort",
+            "path",
+            "explicitneedle",
+            "linked/deep/c.rs",
+        ],
+    ] {
+        for o in [f.run(args), f.scan(args)] {
+            assert_eq!(o.status.code(), Some(0), "{args:?}: {o:?}");
+            assert!(
+                stdout(&o).contains("c.rs:1:fn explicitneedle"),
+                "{args:?}: {o:?}"
+            );
+        }
+    }
+    // an unnamed symlinked directory is not walked
+    let o = f.run(&["--budget", "0", "explicitneedle"]);
+    assert_eq!(o.status.code(), Some(1), "{o:?}");
 }
 
 #[test]

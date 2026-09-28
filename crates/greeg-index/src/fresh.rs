@@ -6,6 +6,7 @@ use crate::build::{Noted, Stamp, WalkedDir, WalkedFile, build_delta, walker_noti
 use crate::format::{self, FileRec, NONE, is_ignore_file};
 use crate::rel::{self, as_path, parent as parent_of};
 use crate::skipped;
+use crate::tree::{self, Tree};
 use crate::{Index, now_ms, read_manifest, write_manifest};
 use anyhow::Result;
 use hashbrown::{HashMap, HashSet};
@@ -186,7 +187,7 @@ fn stat_many<T: Sync>(
     root: &Path,
     items: &[T],
     rel: impl Fn(&T) -> &[u8] + Sync,
-    kind: fn(&fs::FileType) -> bool,
+    kind: fn(&tree::Stat) -> bool,
     threads: usize,
 ) -> Vec<Option<Stamp>> {
     let n = items.len();
@@ -194,6 +195,11 @@ fn stat_many<T: Sync>(
     if n == 0 {
         return out;
     }
+    // an entry the tree cannot reach without a symlink is gone
+    let Ok(tree) = Tree::open(root) else {
+        return out;
+    };
+    let tree = &tree;
     let threads = threads.clamp(1, 8).min(n);
     let chunk = n.div_ceil(threads);
     std::thread::scope(|sc| {
@@ -201,11 +207,13 @@ fn stat_many<T: Sync>(
             let items = &items[i * chunk..(i * chunk + part.len())];
             let rel = &rel;
             sc.spawn(move || {
+                let mut dirs = tree::Dirs::default();
                 for (o, it) in part.iter_mut().zip(items) {
-                    *o = fs::symlink_metadata(root.join(as_path(rel(it))))
+                    *o = tree
+                        .stat(rel(it), &mut dirs)
                         .ok()
-                        .filter(|md| kind(&md.file_type()))
-                        .map(|md| Stamp::of(&md));
+                        .filter(kind)
+                        .map(|st| Stamp::of_stat(&st));
                 }
             });
         }
@@ -365,10 +373,10 @@ pub fn check_stat(idx: &Index, root: &Path, threads: usize) -> Changes {
         fsevents_id,
         ..Default::default()
     };
-    let st = stat_many(root, &k.files, |f| f.1, fs::FileType::is_file, threads);
+    let st = stat_many(root, &k.files, |f| f.1, tree::is_file, threads);
     let no_ino = classify_all(&mut ch, idx.no_ino(), &k.files, st, k.files.len());
     let dirs: Vec<(&[u8], Stamp)> = k.dirs.iter().map(|(p, m)| (*p, *m)).collect();
-    let ds = stat_many(root, &dirs, |d| d.0, fs::FileType::is_dir, threads);
+    let ds = stat_many(root, &dirs, |d| d.0, tree::is_dir, threads);
     let mut changed_dirs: Vec<(Vec<u8>, Stamp)> = Vec::new();
     for ((rel, old), s) in dirs.iter().zip(ds) {
         match s {
@@ -465,15 +473,13 @@ pub fn check_fsevents(idx: &Index, root: &Path, threads: usize) -> Option<Change
     // reports only the parent, so every known file below it is re-stat'd too
     let mut changed_dirs = Vec::new();
     let mut moved: HashSet<&[u8]> = HashSet::new();
+    let tree = Tree::open(&abs_root).ok()?;
+    let mut on_way = tree::Dirs::default();
     for r in &rels {
         if let Some(old) = k.dirs.get(r.as_slice())
-            && let Ok(md) = fs::symlink_metadata(if r.is_empty() {
-                abs_root.clone()
-            } else {
-                abs_root.join(as_path(r))
-            })
+            && let Ok(st) = tree.stat(r, &mut on_way)
         {
-            let st = Stamp::of(&md);
+            let st = Stamp::of_stat(&st);
             if !st.same_dir(old, idx.no_ino()) {
                 changed_dirs.push((r.clone(), st));
                 moved.insert(r.as_slice());
@@ -503,7 +509,7 @@ pub fn check_fsevents(idx: &Index, root: &Path, threads: usize) -> Option<Change
         .filter(|f| rels.contains(parent_of(f.1)) || under_moved(f.1))
         .copied()
         .collect();
-    let st = stat_many(root, &files, |f| f.1, fs::FileType::is_file, threads);
+    let st = stat_many(root, &files, |f| f.1, tree::is_file, threads);
     classify_all(&mut ch, idx.no_ino(), &files, st, k.files.len());
     relist_dirs(root, &k, &changed_dirs, &mut ch);
     ch.ms = t.elapsed().as_secs_f64() * 1e3;

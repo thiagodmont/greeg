@@ -965,6 +965,7 @@ mod tests {
             refined: true,
             file_id: None,
             src: None,
+            below: None,
         }
     }
 

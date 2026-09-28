@@ -22,6 +22,7 @@ pub mod resolve;
 pub mod skipped;
 pub mod snapshot;
 pub mod symtab;
+pub mod tree;
 pub mod words;
 
 pub use index::Index;
@@ -70,21 +71,6 @@ pub fn create_private(path: &Path) -> std::io::Result<std::fs::File> {
         .truncate(true)
         .open(path)?;
     owner_only(&f)?;
-    Ok(f)
-}
-
-/// Open an indexed path only while it is still a regular file: a symlink is
-/// not followed and a FIFO or device cannot block the open. This checks the
-/// file itself, not its parent directories.
-pub fn open_regular(path: &Path) -> std::io::Result<std::fs::File> {
-    use std::os::unix::fs::OpenOptionsExt;
-    let f = std::fs::OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
-        .open(path)?;
-    if !f.metadata()?.is_file() {
-        return Err(std::io::Error::other("not a regular file"));
-    }
     Ok(f)
 }
 
@@ -359,7 +345,6 @@ pub fn write_manifest(dir: &Path, m: &Manifest) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
 
     #[test]
     fn utf8_roots_keep_the_directory_names_of_earlier_releases() {
@@ -375,25 +360,5 @@ mod tests {
         let b = Path::new(std::ffi::OsStr::from_bytes(b"/src/r\xfe"));
         assert_eq!(a.to_string_lossy(), b.to_string_lossy());
         assert_ne!(repo_dir_name(a), repo_dir_name(b));
-    }
-
-    #[test]
-    fn open_regular_refuses_symlinks_and_fifos_without_blocking() {
-        let d = (0..1000)
-            .map(|n| {
-                std::env::temp_dir().join(format!("greeg-open-regular-{}-{n}", std::process::id()))
-            })
-            .find(|d| fs::create_dir(d).is_ok())
-            .unwrap();
-        fs::write(d.join("file"), "x").unwrap();
-        std::os::unix::fs::symlink(d.join("file"), d.join("link")).unwrap();
-        let fifo = std::ffi::CString::new(d.join("fifo").as_os_str().as_encoded_bytes()).unwrap();
-        // SAFETY: a valid NUL-terminated path.
-        assert_eq!(unsafe { libc::mkfifo(fifo.as_ptr(), 0o600) }, 0);
-        assert!(open_regular(&d.join("file")).is_ok());
-        assert!(open_regular(&d.join("link")).is_err());
-        assert!(open_regular(&d.join("fifo")).is_err());
-        assert!(open_regular(&d).is_err());
-        let _ = fs::remove_dir_all(&d);
     }
 }
