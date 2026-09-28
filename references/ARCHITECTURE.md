@@ -446,8 +446,13 @@ root, following no symlink in any component (`tree.rs`): a directory swapped
 for a symlink cannot redirect a read, and its files count as deleted. macOS
 11+ does this in one call (`O_NOFOLLOW_ANY`), Linux 5.6+ opens with
 `openat2(RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS)`, and otherwise each
-directory on the way is opened with `O_NOFOLLOW`; the freshness pass keeps
-the directories of the previous path, so it opens each one once. Files are
+directory on the way is opened with `O_NOFOLLOW`. Where a stat cannot refuse
+symlinks in one call (Linux), the freshness pass stats by name without
+following the last component, and whatever lies below a known directory
+that is gone or no longer a directory counts as deleted: the directory pass
+already stats every known directory, so this adds no system call, where
+opening each directory cost django +28 % per check. On macOS before 11 the
+FSEvents check defers to this full pass. Files are
 opened without blocking and checked to be regular. A path named on the
 command line is resolved as given, symlinks included, as ripgrep does; only
 what lies below it is read this way. The walk still lists directories by
