@@ -1421,6 +1421,131 @@ fn legacy_index_directories_become_private_without_chmodding_chosen_ones() {
     assert_eq!((mode(&base), mode(&repo)), (0o700, 0o700));
 }
 
+/// Every file under `base` except the searched tree: path, mode, length,
+/// modification time and a hash of the contents.
+fn owned_state(base: &Path, skip: &Path) -> Vec<(PathBuf, u32, u64, i128, u64)> {
+    use std::hash::{Hash, Hasher};
+    use std::os::unix::fs::MetadataExt;
+    let mut out = Vec::new();
+    let mut stack = vec![base.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        for e in fs::read_dir(&dir).unwrap().flatten() {
+            let p = e.path();
+            if p == skip {
+                continue;
+            }
+            let m = fs::symlink_metadata(&p).unwrap();
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            if m.is_dir() {
+                stack.push(p.clone());
+            } else if m.is_file() {
+                fs::read(&p).unwrap().hash(&mut h);
+            }
+            let mtime = m.mtime() as i128 * 1_000_000_000 + m.mtime_nsec() as i128;
+            out.push((p, m.mode(), m.len(), mtime, h.finish()));
+        }
+    }
+    out.sort();
+    out
+}
+
+/// `--no-persist` (or `GREEG_NO_PERSIST=1`) writes nothing greeg owns: no
+/// index, manifest stamp, delta, corruption mark, session, statistic or
+/// detached build, whether the query misses, errs, recovers or answers
+/// around an edit; commands that exist to write refuse.
+#[cfg(unix)]
+#[test]
+fn no_persist_leaves_every_owned_directory_unchanged() {
+    let f = Fixture::with_filler(&[("a.rs", "pub fn needle() {}\nfn caller() { needle(); }\n")]);
+    let np = |args: &[&str]| {
+        let mut c = f.command();
+        c.env("GREEG_STATS", "1").arg("--no-persist").args(args);
+        c.output().unwrap()
+    };
+    let settled = || {
+        // long enough for a detached build or refresh to have written
+        std::thread::sleep(Duration::from_secs(1));
+        owned_state(&f.base, &f.root)
+    };
+
+    // a miss with no index: answered by a scan, nothing created
+    let before = owned_state(&f.base, &f.root);
+    let o = np(&["-l", "needle"]);
+    assert_eq!(
+        (o.status.code(), stdout(&o)),
+        (Some(0), "a.rs\n".into()),
+        "{o:?}"
+    );
+    let o = np(&["def", "needle"]);
+    assert_eq!(o.status.code(), Some(0), "{o:?}");
+    let mut c = f.command();
+    c.env("GREEG_NO_PERSIST", "1")
+        .env("GREEG_STATS", "1")
+        .arg("needle");
+    assert_eq!(c.output().unwrap().status.code(), Some(0));
+    assert_eq!(settled(), before, "a miss wrote");
+
+    // warm queries, an edit, an error and a failed check
+    f.indexed();
+    assert!(mutate(&f, "words.", b"corruptword") == 0);
+    w(&f.root.join("b.rs"), "fn checked() { corruptword(); }\n");
+    let o = f.command().args(["index", "--quiet"]).output().unwrap();
+    assert!(o.status.success(), "{o:?}");
+    std::thread::sleep(PAST_FRESHNESS_WINDOW);
+    assert!(mutate(&f, "words.", b"corruptword") > 0);
+    let before = settled();
+    for args in [
+        &["-l", "needle"][..],
+        &["def", "needle"],
+        &["refs", "needle"],
+        &["callers", "needle"],
+        &["outline", "a.rs"],
+    ] {
+        let o = np(args);
+        assert_eq!(o.status.code(), Some(0), "{args:?}: {o:?}");
+    }
+    let o = np(&["-l", "corruptword"]);
+    assert_eq!(
+        (o.status.code(), stdout(&o)),
+        (Some(0), "b.rs\n".into()),
+        "{o:?}"
+    );
+    w(
+        &f.root.join("a.rs"),
+        "pub fn needle() {}\nfn fresh_word() {}\n",
+    );
+    let o = np(&["-l", "fresh_word"]);
+    assert_eq!(
+        (o.status.code(), stdout(&o)),
+        (Some(0), "a.rs\n".into()),
+        "{o:?}"
+    );
+    let o = np(&["def", "fresh_word"]);
+    assert_eq!(o.status.code(), Some(0), "{o:?}");
+    assert!(stdout(&o).contains("a.rs"), "{o:?}");
+    // the graph of the edited file would have to be published first
+    let o = np(&["map", "."]);
+    assert_eq!(o.status.code(), Some(2), "{o:?}");
+    assert!(
+        String::from_utf8_lossy(&o.stderr).contains("--no-persist"),
+        "{o:?}"
+    );
+    assert_eq!(np(&["("]).status.code(), Some(2));
+    let o = np(&["index", "--quiet"]);
+    assert_eq!(o.status.code(), Some(2), "{o:?}");
+    assert!(
+        String::from_utf8_lossy(&o.stderr).contains("--no-persist"),
+        "{o:?}"
+    );
+    assert_eq!(settled(), before, "a query wrote");
+
+    // the same query without it records a session, a statistic and a stamp
+    let mut c = f.command();
+    c.env("GREEG_STATS", "1").args(["-l", "fresh_word"]);
+    assert!(c.output().unwrap().status.success());
+    assert_ne!(settled(), before);
+}
+
 /// Other layouts' indexes go once nothing has verified them for two weeks;
 /// a recently verified one, sessions and the chosen directory stay.
 #[test]

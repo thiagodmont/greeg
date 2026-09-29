@@ -172,7 +172,7 @@ pub enum Source {
     Default,
 }
 
-fn env_on(v: &str) -> bool {
+pub(crate) fn env_on(v: &str) -> bool {
     !matches!(
         v.trim().to_ascii_lowercase().as_str(),
         "" | "0" | "false" | "off" | "no"
@@ -192,7 +192,7 @@ fn decide() -> (bool, Source) {
 /// Is collection on? Decided once per process.
 pub fn enabled() -> bool {
     static ON: OnceLock<bool> = OnceLock::new();
-    *ON.get_or_init(|| decide().0)
+    *ON.get_or_init(|| greeg_index::persist::allowed() && decide().0)
 }
 
 /// The stats directory: `GREEG_STATS_DIR` or `<cache dir>/stats`.

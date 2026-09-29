@@ -14,7 +14,7 @@ use greeg_index::index::SymId;
 use greeg_index::snapshot::Snapshot;
 use greeg_index::symtab::kind_from_code;
 use greeg_index::tree::Tree;
-use greeg_index::{Index, lock, plan, read_manifest};
+use greeg_index::{Index, lock, persist, plan, read_manifest};
 use greeg_lang::sym::SYM_OBJ_MEMBER;
 use greeg_lang::{DefKind, FileFlags, Lang};
 use grep_searcher::{BinaryDetection, SearcherBuilder};
@@ -35,6 +35,9 @@ static PENDING_BUILD: Mutex<Option<(PathBuf, PathBuf, bool)>> = Mutex::new(None)
 /// scan that answers this query (measured: 0.2–0.4 s instead of 0.09 s on
 /// django when the build started first).
 pub fn spawn_build(root: &Path, dir: &Path) {
+    if !persist::allowed() {
+        return;
+    }
     if let Ok(mut g) = PENDING_BUILD.lock() {
         *g = Some((root.to_path_buf(), dir.to_path_buf(), false));
     }
@@ -44,6 +47,9 @@ pub fn spawn_build(root: &Path, dir: &Path) {
 /// answered around the changed files itself, and the delta is published after
 /// the output so an edit never delays the search that follows it.
 pub fn spawn_refresh(root: &Path, dir: &Path) {
+    if !persist::allowed() {
+        return;
+    }
     if let Ok(mut g) = PENDING_BUILD.lock()
         && !matches!(&*g, Some((_, _, false)))
     {
@@ -77,6 +83,9 @@ fn marker_younger_than(marker: &Path, secs: u64) -> bool {
 /// refresh a `REFRESHING` marker younger than thirty seconds (a running full
 /// build also makes a refresh pointless).
 pub fn spawn_build_now(root: &Path, dir: &Path, refresh: bool) {
+    if !persist::allowed() {
+        return;
+    }
     let _ = greeg_index::create_private_dir(dir);
     let building = dir.join("BUILDING");
     if marker_younger_than(&building, 600) {
@@ -190,6 +199,9 @@ pub fn mark_corrupt(o: &Options) {
 
 /// `mark_corrupt` for the snapshot `opened`.
 fn mark_corrupt_opened(o: &Options, opened: Option<Snapshot>) {
+    if !persist::allowed() {
+        return;
+    }
     let Ok(dir) = greeg_index::index_dir(&o.root, o.index_dir.as_deref()) else {
         return;
     };
@@ -211,7 +223,12 @@ fn note_corruption(o: &Options) {
     static NOTED: std::sync::Once = std::sync::Once::new();
     NOTED.call_once(|| {
         eprintln!(
-            "greeg: index component failed its check; answering from a scan and rebuilding the index"
+            "greeg: index component failed its check; answering from a scan{}",
+            if persist::allowed() {
+                " and rebuilding the index"
+            } else {
+                ""
+            }
         );
         mark_corrupt(o);
     });
@@ -331,7 +348,8 @@ fn retry_mode(idx: &Index, mode: Fresh) -> Fresh {
 /// No index answer: a build of it is queued, for `reason`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Rebuilding {
-    /// `fresh::RebuildReason::name`, `no-index`, `other-root` or `corrupt`.
+    /// `fresh::RebuildReason::name`, `no-index`, `other-root`, `corrupt`, or
+    /// `no-persist` when changes would have to be published first.
     pub reason: &'static str,
     /// How long the build it replaces took, when there was one.
     pub estimate_ms: Option<u64>,
@@ -341,6 +359,13 @@ pub struct Rebuilding {
 
 impl std::fmt::Display for Rebuilding {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        if !persist::allowed() {
+            return write!(
+                f,
+                "the index cannot answer this (reason: {}) and --no-persist leaves it as it is; retry without --no-persist, or run `greeg index`",
+                self.reason
+            );
+        }
         match self.estimate_ms {
             Some(ms) => write!(
                 f,
@@ -374,7 +399,7 @@ pub fn open_for_graph(o: &Options, threads: usize) -> Result<Opened> {
     let quick = rb
         .estimate_ms
         .is_some_and(|ms| ms < GRAPH_WAIT.as_millis() as u64);
-    if o.fresh == Fresh::None || !quick {
+    if o.fresh == Fresh::None || !quick || !persist::allowed() {
         return Err(rb.into());
     }
     flush_pending_build();
@@ -455,13 +480,19 @@ fn open_fresh_with(
             return Ok(Err(rebuilding(&idx, reason.name())));
         }
         if ch.is_empty() {
-            let _ = fresh::apply(&idx, &o.root, &ch); // refresh TTL and event id
+            if persist::allowed() {
+                let _ = fresh::apply(&idx, &o.root, &ch); // refresh TTL and event id
+            }
             break;
         }
         if defer {
             spawn_refresh(&o.root, &dir);
             pending = Some(ch);
             break;
+        }
+        // the changed files have no symbols in the index: a scan answers
+        if !persist::allowed() {
+            return Ok(Err(rebuilding(&idx, "no-persist")));
         }
         before_apply();
         let applied = fresh::apply(&idx, &o.root, &ch).context("apply delta")?;

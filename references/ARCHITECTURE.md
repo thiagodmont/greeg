@@ -110,6 +110,18 @@ find 30 with a real match. One posting list per distinct word cuts it to 31,
 and `-w node` from 6,086 files to 1,879. The word section costs 0.4–0.6× of the
 gram section, and it answers the question agents ask most.
 
+**`--no-persist` writes nothing.** With it (or `GREEG_NO_PERSIST=1`), a query
+opens the index read-only and never publishes: no build, delta, manifest
+stamp, corruption mark, session, statistic or detached process
+(`greeg_index::persist`). A search answers changed files from disk, as it
+does before any delta is published; a verb whose changed files would need
+publishing first answers from a scan, and `map`, which has no scan answer,
+exits 2 and says so. Commands that exist to write (`greeg index`, hook
+installs, `stats enable|disable|clear|replay`) refuse; `index --check`
+reports without applying. Every write primitive (the writer lock, private
+directories and files) also refuses, so a path that forgets to check fails
+instead of writing.
+
 ## Building the index
 
 The first query in a new repository is answered by a ripgrep-speed scan while

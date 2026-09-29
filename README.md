@@ -320,7 +320,9 @@ binary files ripgrep would have searched.
 `--mode files|outline|content|block` · `--kind def,call,…` · `--near PATH` ·
 `--no-tests --no-vendored --no-generated --all` · `--per-file N` · `--chain` ·
 `--matching exact|discover` · `--no-ladder` · `--fresh auto|none|stat|fsevents` · `--no-index` ·
-`--index-dir DIR` · `--stats` · `--precise` · `--session ID` · `--no-session`
+`--index-dir DIR` · `--stats` · `--precise` · `--session ID` · `--no-session` ·
+`--no-persist` (write nothing to disk: no index build or refresh, session or
+statistic; also `GREEG_NO_PERSIST=1`)
 
 **Languages with full syntax support**: Python, TypeScript/TSX, JavaScript,
 Rust, Kotlin. Everything else gets a regex-based definition extractor, so

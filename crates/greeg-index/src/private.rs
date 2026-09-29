@@ -171,6 +171,7 @@ impl PrivateDir {
     }
 
     fn open_with(parent: &Path, name: &OsStr, repair: bool) -> io::Result<Self> {
+        crate::persist::check()?;
         fs::DirBuilder::new()
             .recursive(true)
             .mode(0o700)

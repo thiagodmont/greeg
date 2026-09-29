@@ -13,6 +13,7 @@ pub struct WriterLock {
 
 /// `<dir>/LOCK`, created owner-only when missing (an existing one is reused).
 fn open_lock(dir: &Path) -> Result<(std::path::PathBuf, File)> {
+    crate::persist::check()?;
     crate::legacy::secure(crate::repo_of(dir));
     crate::create_private_dir(dir)?;
     let path = dir.join("LOCK");
