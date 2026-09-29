@@ -524,3 +524,11 @@ filename = "purge-2026-09-29-darwin-arm64.json"
 title = "Purge: exact-search regression (2026-09-29)"
 pr = 44
 notes = "v0.8.0 against the branch that adds greeg purge (query paths unchanged apart from the legacy cleanup's shared removal helper). All 34 cases keep their exit status and stdout (JSON compared without elapsed fields), and every contract passes. Token counts are unchanged except hit_json in the scan backend, 4 tokens from the digits of its elapsed fields. Medians range from −6.0% to +4.3%, with no flag. Purge over 100 synthetic repository directories is in the PR. The harness records no execution time; the result file was written at 2026-09-29T18:16:24Z."
+
+[[datasets]]
+id = "mixed_versions"
+section = "matching_review"
+filename = "mixed-versions-2026-09-29-darwin-arm64.json"
+title = "Per-build index directories: exact-search regression (2026-09-29)"
+pr = 45
+notes = "v0.8.0 against the branch that keeps each build's index in v<N>-<key>/ and adds the mixed-version CI job. All 34 cases keep their exit status and stdout (JSON compared without elapsed fields), and every contract passes. Token counts are unchanged except case_miss_json in the scan backend, 4 tokens from the digits of its elapsed fields. Medians range from −4.5% to +4.2%, with no flag. Rebuilds and first-query cost when alternating two versions on django are in the PR. The harness records no execution time; the result file was written at 2026-09-29T18:38:19Z."
