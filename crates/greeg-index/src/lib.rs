@@ -14,6 +14,7 @@ pub mod gram;
 pub mod ignores;
 pub mod index;
 pub mod integrity;
+pub mod legacy;
 pub mod lock;
 pub mod plan;
 pub mod private;
@@ -229,7 +230,8 @@ fn repo_dir_name(real: &Path) -> String {
 }
 
 /// This layout's index inside a repository directory. Other layouts' files,
-/// including the top-level files of releases before 0.8, are never touched.
+/// including the top-level files of releases before 0.8, are never read;
+/// `legacy::clean` removes them once they go unverified.
 pub fn format_dir(repo: &Path) -> PathBuf {
     repo.join(format!("v{FORMAT_VERSION}"))
 }

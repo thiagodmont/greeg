@@ -1378,3 +1378,80 @@ fn index_files_are_private_under_a_permissive_umask() {
     assert!(permissive(c).status.success());
     private_below(&chosen, 0o755);
 }
+
+/// greeg's default cache and repository directories are tightened to 0700
+/// when greeg writes, so files an older release left readable cannot be
+/// reached by other users; a directory someone chose keeps its mode.
+#[cfg(unix)]
+#[test]
+fn legacy_index_directories_become_private_without_chmodding_chosen_ones() {
+    use std::os::unix::fs::PermissionsExt;
+    let mode = |p: &Path| fs::metadata(p).unwrap().permissions().mode() & 0o777;
+    let open = |p: &Path| fs::set_permissions(p, fs::Permissions::from_mode(0o755)).unwrap();
+    let f = Fixture::new(&[("a.rs", "fn needle() {}\n")]);
+    let base = if cfg!(target_os = "macos") {
+        f.base.join("home/Library/Caches/greeg")
+    } else {
+        f.base.join("cache/greeg")
+    };
+    // what an older release left: a readable cache with a readable index
+    let other = base.join("other-0123456789abcdef");
+    fs::create_dir_all(&other).unwrap();
+    w(&other.join("files.3.bin"), "legacy");
+    open(&base);
+    open(&other);
+    let index = || {
+        let mut c = f.command();
+        c.env_remove("GREEG_INDEX_DIR").args(["index", "--quiet"]);
+        assert!(c.output().unwrap().status.success());
+    };
+    index();
+    assert_eq!(mode(&base), 0o700);
+    assert_eq!(mode(&other), 0o755, "only reached through the cache");
+    let repo = fs::read_dir(&base)
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .find(|p| p != &other)
+        .expect("a repository directory");
+    assert_eq!(mode(&repo), 0o700);
+    // a repository directory an older release made readable
+    open(&base);
+    open(&repo);
+    index();
+    assert_eq!((mode(&base), mode(&repo)), (0o700, 0o700));
+}
+
+/// Other layouts' indexes go once nothing has verified them for two weeks;
+/// a recently verified one, sessions and the chosen directory stay.
+#[test]
+fn legacy_indexes_go_once_unverified_for_two_weeks() {
+    let f = Fixture::new(&[("a.rs", "fn needle() {}\n")]);
+    let old = greeg_index::now_ms() - greeg_index::legacy::UNVERIFIED_MS - 1;
+    let recent = greeg_index::now_ms();
+    w(
+        &f.index.join("manifest"),
+        format!(r#"{{"format":5,"generation":2,"verified_unix_ms":{old}}}"#),
+    );
+    for name in ["LOCK", "files.2.bin", "grams.2.bin", "delta/0001.bin"] {
+        w(&f.index.join(name), "");
+    }
+    w(&f.index.join("session/s.jsonl"), "{}\n");
+    for (n, verified) in [(6, old), (7, recent)] {
+        let v = f.index.join(format!("v{n}"));
+        w(&v.join("OWNER"), format!("greeg 0.8.0 {n}\n"));
+        w(
+            &v.join("manifest"),
+            format!(r#"{{"format":{n},"verified_unix_ms":{verified}}}"#),
+        );
+    }
+    let mut c = f.command();
+    c.args(["index", "--quiet"]);
+    assert!(c.output().unwrap().status.success());
+    let mut left: Vec<String> = fs::read_dir(&f.index)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().into_string().unwrap())
+        .collect();
+    left.sort();
+    let current = format!("v{}", greeg_index::FORMAT_VERSION);
+    assert_eq!(left, ["session", &current, "v7"]);
+}
