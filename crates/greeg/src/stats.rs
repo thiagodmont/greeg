@@ -2346,16 +2346,14 @@ impl Greeg {
                 .and_then(|d| greeg_index::read_manifest(&d))
                 .is_some(),
             // another build's format: its manifest is not ours to parse, and
-            // it sits at the top level (before 0.8) or in a `v<N>/` directory
+            // it sits at the top level (before 0.8) or in a layout directory
             Some(_) => self.index_dir(cwd).is_ok_and(|d| {
                 d.join("manifest").is_file()
                     || std::fs::read_dir(&d).is_ok_and(|rd| {
                         rd.flatten().any(|e| {
-                            let name = e.file_name();
-                            let name = name.to_string_lossy();
-                            name.strip_prefix('v').is_some_and(|n| {
-                                !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit())
-                            }) && e.path().is_dir()
+                            greeg_index::legacy::layout_number(&e.file_name().to_string_lossy())
+                                .is_some()
+                                && e.path().is_dir()
                                 && e.path().join("manifest").is_file()
                         })
                     })
@@ -3910,5 +3908,30 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn another_builds_index_is_found_in_any_layout_directory() {
+        let base = tmp();
+        let cwd = tmp();
+        let g = Greeg {
+            bin: PathBuf::from("greeg"),
+            version: "0.9.0".into(),
+            index_base: Some(base.clone()),
+        };
+        let repo = g.index_dir(&cwd).unwrap();
+        assert!(!g.has_index(&cwd));
+        for (layout, found) in [
+            ("v1x", false),
+            ("v11", true),
+            ("v12-0123456789abcdef", true),
+        ] {
+            let _ = std::fs::remove_dir_all(&repo);
+            std::fs::create_dir_all(repo.join(layout)).unwrap();
+            std::fs::write(repo.join(layout).join("manifest"), "{}").unwrap();
+            assert_eq!(g.has_index(&cwd), found, "{layout}");
+        }
+        let _ = std::fs::remove_dir_all(&base);
+        let _ = std::fs::remove_dir_all(&cwd);
     }
 }

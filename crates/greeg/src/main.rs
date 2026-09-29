@@ -232,7 +232,7 @@ struct Common {
     /// Do not use (or build) the index; scan the tree
     #[arg(long = "no-index", global = true)]
     no_index: bool,
-    /// Directory for this repository's index, kept in its v<N>/ subdirectory
+    /// Directory for this repository's index, kept in its v<N>-<key>/ subdirectory
     /// (default: per-repo directory under the user cache dir)
     #[arg(long = "index-dir", global = true)]
     index_dir: Option<PathBuf>,
@@ -261,7 +261,7 @@ enum Cmd {
         /// Repository root (default: current directory)
         #[arg(long = "root", default_value = ".")]
         root: PathBuf,
-        /// Directory for this repository's index, kept in its v<N>/ subdirectory
+        /// Directory for this repository's index, kept in its v<N>-<key>/ subdirectory
         #[arg(long = "index-dir")]
         index_dir: Option<PathBuf>,
         /// Print the manifest and exit

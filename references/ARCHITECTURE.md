@@ -29,21 +29,26 @@ realpath's bytes>` on macOS or `$XDG_CACHE_HOME/greeg/…` elsewhere. It
 never dirties the working tree and survives `git clean`. `GREEG_INDEX_DIR` or
 `--index-dir` override that repository directory.
 
-Inside it, each on-disk layout has its own directory, `v<N>/` for
-`FORMAT_VERSION` N, holding the components, manifest, lock, markers and an
-`OWNER` file (`greeg <version> <N>`); sessions sit beside them in `session/`.
-Every change to what a build writes gets a new N, and a test pins each N to a
-digest of a fixture build, so two binaries with different layouts never share
-each other's files. Releases before 0.8 kept their files at the top of the
-repository directory; newer ones build in `v<N>/` once. Another layout's index
-is never read, and it is removed (`legacy.rs`) only once nothing has verified
-it for 14 days, which a binary still using it does on every refresh, and only
-when its writer lock is free. It must be greeg's: an older `v<N>/` with
-`OWNER`, or the top-level files a pre-0.8 manifest vouches for, by the names
-those releases wrote. Newer layouts, sessions and a chosen directory itself
-stay. When greeg writes, it also tightens its default cache directory and the
-repository directory to 0700, so files an older release left readable are out
-of other users' reach; a chosen directory keeps its mode.
+Inside it, each build has its own directory, `v<N>-<key>/` for
+`FORMAT_VERSION` N and the first 16 hex of the blake3 hash of the version and
+the built-in tags queries (`derive::build_key`). It holds the components,
+manifest, lock, markers and an `OWNER` file (`greeg <version> <N>`); sessions
+sit beside them in `session/`. Every change to what a build writes gets a new
+N, and a test pins each N to a digest of a fixture build, so two binaries with
+different layouts never share each other's files. The key keeps versions of
+one layout apart too: each would rebuild an index another derived (below), so
+two used in turn on one repository would rebuild on every switch. Releases
+before 0.8 kept their files at the top of the repository directory, and 0.8.0
+in `v11/`; newer ones build their own directory once. Another layout's or
+build's index is never read, and it is removed (`legacy.rs`) only once nothing
+has verified it for 14 days, which a binary still using it does on every
+refresh, and only when its writer lock is free. It must be greeg's: a layout
+directory with `OWNER` whose N is at most this layout's, or the top-level
+files a pre-0.8 manifest vouches for, by the names those releases wrote. Newer
+layouts, sessions and a chosen directory itself stay. When greeg writes, it
+also tightens its default cache directory and the repository directory to
+0700, so files an older release left readable are out of other users' reach; a
+chosen directory keeps its mode.
 
 `greeg purge` lists what greeg keeps and `greeg purge --yes` removes it
 (`purge.rs`): in the cache, every repository directory named as greeg names
@@ -531,10 +536,11 @@ query with a scan:
   the build records a digest of those, as it does of the ignore inputs. Edges
   of files that did not change move with them, and a delta re-resolves only
   the files it re-extracts;
-* the index was derived otherwise: by another greeg version, or another set
-  of extra languages (their spec, query or grammar file). The manifest
-  records the derivation, and the name of every language code in the file
-  table (`builtin:rust`, `extra:zig@<fingerprint>`);
+* the index was derived otherwise: with another set of extra languages (their
+  spec, query or grammar file). Another greeg version builds in its own
+  directory instead (above). The manifest records the derivation, and the name
+  of every language code in the file table (`builtin:rust`,
+  `extra:zig@<fingerprint>`);
 * a threshold: more than 2,000 changed files, 16 accumulated deltas, or 5 % of
   the tree.
 

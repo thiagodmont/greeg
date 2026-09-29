@@ -50,6 +50,10 @@ class IndexCostTests(unittest.TestCase):
             (new / "vendor").mkdir()
             (new / "vendor" / "manifest").write_text("{}")
             self.assertEqual(manifest_path(new), new / "v6" / "manifest")
+            keyed = Path(d, "keyed", "v11-0123456789abcdef")
+            keyed.mkdir(parents=True)
+            (keyed / "manifest").write_text("{}")
+            self.assertEqual(manifest_path(keyed.parent), keyed / "manifest")
 
 
 if __name__ == "__main__":
