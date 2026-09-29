@@ -203,6 +203,38 @@ impl<'a> Resolver<'a> {
         &self.config_inputs
     }
 
+    /// Last path components configuration names outright, which a bare
+    /// import can reach without naming them: `paths` targets whose file name
+    /// is not the matched `*`, a workspace package's `main`, and the index or
+    /// main file a package falls back to. `*` when a target's file name mixes
+    /// the match with fixed text, so any bare import may reach any file.
+    pub fn configured_names(&self) -> Vec<String> {
+        let mut out = Vec::new();
+        for c in &self.ts_configs {
+            for (pat, targets) in &c.paths {
+                for t in targets {
+                    let last = t.rsplit('/').next().unwrap_or(t);
+                    if last == "*" && pat.ends_with('*') {
+                        continue;
+                    }
+                    let fixed = !last.contains('*') && !matches!(last, "" | "." | "..");
+                    out.push(if fixed { last } else { "*" }.to_string());
+                }
+            }
+        }
+        if !self.js_packages.is_empty() {
+            for p in self.js_packages.values() {
+                if let Some(m) = &p.main {
+                    out.push(m.rsplit('/').next().unwrap_or(m).to_string());
+                }
+            }
+            out.extend(["index", "main"].map(String::from));
+        }
+        out.sort();
+        out.dedup();
+        out
+    }
+
     pub fn ts_configs(&self) -> &[TsConfig] {
         &self.ts_configs
     }
@@ -265,14 +297,27 @@ impl<'a> Resolver<'a> {
     }
 
     pub fn resolve_with(&self, lang: Lang, from_rel: &str, ctx: &FileCtx, im: &Import) -> Vec<u32> {
+        self.resolve_module(lang, from_rel, ctx, &im.module, im.wildcard)
+    }
+
+    /// `resolve_with` for an import as the index stores it: its module and
+    /// wildcard flag, which is all resolution reads.
+    pub fn resolve_module(
+        &self,
+        lang: Lang,
+        from_rel: &str,
+        ctx: &FileCtx,
+        module: &str,
+        wildcard: bool,
+    ) -> Vec<u32> {
         let from_id = self.get(from_rel);
         let mut out = match lang {
-            Lang::Python => self.python(from_rel, &im.module).into_iter().collect(),
-            Lang::Rust => self.rust(ctx, &im.module).into_iter().collect(),
+            Lang::Python => self.python(from_rel, module).into_iter().collect(),
+            Lang::Rust => self.rust(ctx, module).into_iter().collect(),
             Lang::JavaScript | Lang::TypeScript => {
-                self.js(from_rel, ctx, &im.module).into_iter().collect()
+                self.js(from_rel, ctx, module).into_iter().collect()
             }
-            Lang::Kotlin => self.kotlin(&im.module, im.wildcard),
+            Lang::Kotlin => self.kotlin(module, wildcard),
             _ => Vec::new(),
         };
         out.retain(|id| Some(*id) != from_id);
@@ -1014,6 +1059,40 @@ mod tests {
         assert!(glob_dir("tools/cli", "tools/cli"));
         assert!(glob_dir("packages/@scope-*", "packages/@scope-ui"));
         assert!(!glob_dir("packages/*", "tools/a"));
+    }
+
+    #[test]
+    fn configured_names_are_the_file_names_configuration_fixes() {
+        let root = temp_root("names");
+        write(
+            &root,
+            "tsconfig.json",
+            "{ \"compilerOptions\": { \"baseUrl\": \".\", \"paths\": { \"@app/*\": [\"src/*\"], \"@x\": [\"src/x/impl.ts\"], \"@lib/*\": [\"lib/*/entry\"] } } }",
+        );
+        let files: Vec<(u32, &str)> = vec![(0, "tsconfig.json")];
+        let r = Resolver::new(&root, &files, std::iter::empty());
+        assert_eq!(r.configured_names(), ["entry", "impl.ts"]);
+        write(
+            &root,
+            "tsconfig.json",
+            "{ \"compilerOptions\": { \"paths\": { \"@y/*\": [\"y/pre-*\"] } } }",
+        );
+        let r = Resolver::new(&root, &files, std::iter::empty());
+        assert_eq!(r.configured_names(), ["*"]);
+        write(
+            &root,
+            "package.json",
+            "{ \"name\": \"mono\", \"workspaces\": [\"packages/*\"] }",
+        );
+        write(
+            &root,
+            "packages/a/package.json",
+            "{ \"name\": \"a\", \"main\": \"dist/start.js\" }",
+        );
+        let files: Vec<(u32, &str)> = vec![(0, "package.json"), (1, "packages/a/package.json")];
+        let r = Resolver::new(&root, &files, std::iter::empty());
+        assert_eq!(r.configured_names(), ["index", "main", "start.js"]);
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

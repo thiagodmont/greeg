@@ -189,7 +189,7 @@ fn layout_fingerprint_matches_format_version() {
     unsafe { std::env::set_var("GREEG_DEBUG_FIXED_STAMPS", "1") };
     // built-in languages only, whatever this machine registers
     unsafe { std::env::set_var("GREEG_LANG_DIR", "/nonexistent/greeg-lang") };
-    const LAYOUT: (u32, &str) = (11, "1445fcc1248145ed");
+    const LAYOUT: (u32, &str) = (12, "0f312a3192c9b9e4");
     let t = fingerprint_tree();
     let digest = layout_digest(&t);
     assert_eq!(

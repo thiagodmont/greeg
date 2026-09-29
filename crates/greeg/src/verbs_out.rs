@@ -1000,9 +1000,9 @@ pub fn run_map(c: &Common, o: &Options, dir: &str) -> Result<()> {
             w,
             "{} added or removed since the graph was built: imports of unchanged files may miss them (`greeg index` rebuilds it)",
             if r.graph_changes == 1 {
-                "1 file".to_string()
+                "1 Kotlin file".to_string()
             } else {
-                format!("{} files", fmt_n(r.graph_changes as usize))
+                format!("{} Kotlin files", fmt_n(r.graph_changes as usize))
             }
         )?;
     }

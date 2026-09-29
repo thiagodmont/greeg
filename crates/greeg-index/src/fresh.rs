@@ -620,7 +620,234 @@ pub fn check(idx: &Index, root: &Path, mode: Mode, threads: usize) -> Option<Cha
     {
         ch.rebuild.get_or_insert(RebuildReason::ResolverInputs);
     }
+    if ch.rebuild.is_none() && !(ch.added.is_empty() && ch.deleted.is_empty()) {
+        reresolve(idx, root, &mut ch);
+    }
     Some(ch)
+}
+
+/// Add to `ch.modified` the unchanged files whose imports resolve to another
+/// file once `ch` adds and deletes files, so the delta extracts them again
+/// and their edges match a clean build. Resolution reads only the stored
+/// module and the file set; Kotlin's is not repeated (`graph_changes`).
+fn reresolve(idx: &Index, root: &Path, ch: &mut Changes) {
+    use greeg_lang::Lang;
+    let deleted: HashSet<u32> = ch.deleted.iter().copied().collect();
+    let modified: HashSet<u32> = ch.modified.iter().map(|(id, _)| *id).collect();
+    let skip = |id: u32| deleted.contains(&id) || modified.contains(&id);
+    let changed: Vec<&str> = ch
+        .added
+        .iter()
+        .map(|w| &w.rel[..])
+        .chain(ch.deleted.iter().filter_map(|&id| idx.path(id)))
+        .filter_map(|r| std::str::from_utf8(r).ok())
+        .collect();
+    let configured = idx.manifest.resolver_names.as_deref();
+    let reach = Reach::of(&changed, configured, |dir| {
+        idx.live_files()
+            .any(|(_, rel, _)| rel.starts_with(dir.as_bytes()))
+    });
+    let candidates: Vec<(u32, &str, Lang)> = idx
+        .live_files()
+        .filter(|(id, _, _)| !idx.imports_of(*id).is_empty() && !skip(*id))
+        .filter_map(|(id, rel, _)| {
+            let rel = std::str::from_utf8(rel).ok()?;
+            let lang = Lang::from_path(Path::new(rel));
+            idx.imports_of(id)
+                .iter()
+                .any(|im| reach.may_move(lang, idx.import_raw(id, im)))
+                .then_some((id, rel, lang))
+        })
+        .collect();
+    if candidates.is_empty() {
+        return;
+    }
+    let next = idx.next_id();
+    let mut rels: Vec<(u32, &str)> = idx
+        .live_files()
+        .filter(|(id, _, _)| !deleted.contains(id))
+        .filter_map(|(id, rel, _)| Some((id, std::str::from_utf8(rel).ok()?)))
+        .collect();
+    rels.extend(
+        ch.added
+            .iter()
+            .enumerate()
+            .filter_map(|(i, w)| Some((next + i as u32, std::str::from_utf8(&w.rel).ok()?))),
+    );
+    let path_of = |id: u32| -> Option<&[u8]> {
+        if id >= next {
+            ch.added.get((id - next) as usize).map(|w| &w.rel[..])
+        } else {
+            idx.path(id)
+        }
+    };
+    let resolver = crate::resolve::Resolver::new(root, &rels, std::iter::empty());
+    let mut again = Vec::new();
+    for (id, rel, lang) in candidates {
+        let ctx = resolver.file_ctx(lang, rel);
+        let moved = idx.imports_of(id).iter().any(|im| {
+            let module = idx.import_raw(id, im);
+            if !reach.may_move(lang, module) {
+                return false;
+            }
+            let now = resolver
+                .resolve_module(lang, rel, &ctx, module, false)
+                .first()
+                .and_then(|&t| path_of(t));
+            let was = (im.target != NONE)
+                .then(|| idx.latest(im.target))
+                .filter(|&t| idx.is_live(t) && !deleted.contains(&t))
+                .and_then(|t| idx.path(t));
+            now != was
+        });
+        if moved && let Some(rec) = idx.rec(id) {
+            again.push((
+                id,
+                WalkedFile {
+                    rel: rel.as_bytes().to_vec(),
+                    stamp: rec.stamp(),
+                    dir: rec.dir,
+                },
+            ));
+        }
+    }
+    ch.modified.extend(again);
+}
+
+/// A JS import's name without the extension resolution may swap for another.
+fn js_stem(name: &str) -> &str {
+    [".js", ".jsx", ".mjs", ".cjs"]
+        .iter()
+        .find_map(|e| name.strip_suffix(e))
+        .unwrap_or(name)
+}
+
+/// Which stored imports a set of added and deleted files can move, per
+/// language. Resolution probes paths built from an import's module; an
+/// import none of whose probes is a changed file resolves as before. Where a
+/// probe's name does not come from the module text, every import is resolved.
+#[derive(Default)]
+struct Reach<'a> {
+    py: Names<'a>,
+    rs: Names<'a>,
+    js: Names<'a>,
+    /// A bare JS or TS import (an alias or package name) may reach a changed
+    /// file through configuration, whatever it names.
+    bare: bool,
+}
+
+#[derive(Default)]
+enum Names<'a> {
+    #[default]
+    None,
+    Some(HashSet<&'a str>),
+    All,
+}
+
+impl<'a> Names<'a> {
+    fn add(&mut self, name: &'a str) {
+        match self {
+            Names::None => *self = Names::Some(HashSet::from_iter([name])),
+            Names::Some(s) => {
+                s.insert(name);
+            }
+            Names::All => {}
+        }
+    }
+    fn any<'b>(&self, mut names: impl Iterator<Item = &'b str>) -> bool {
+        match self {
+            Names::None => false,
+            Names::Some(s) => names.any(|n| s.contains(n)),
+            Names::All => true,
+        }
+    }
+}
+
+impl<'a> Reach<'a> {
+    /// `configured`: the build's `Manifest::resolver_names`. `has_dir(d)`:
+    /// does a live path start with `d` (ending in `/`)?
+    fn of(
+        changed: &[&'a str],
+        configured: Option<&[String]>,
+        has_dir: impl Fn(&str) -> bool,
+    ) -> Self {
+        let mut r = Reach::default();
+        for &p in changed {
+            let (dir, name) = p.rsplit_once('/').unwrap_or(("", p));
+            let parent = dir.rsplit('/').next().unwrap_or("");
+            if let Some(stem) = name.strip_suffix(".py") {
+                // `pkg/__init__.py` also answers imports that name no file
+                if name == "__init__.py" {
+                    r.py = Names::All;
+                } else {
+                    r.py.add(stem);
+                }
+            }
+            if let Some(stem) = name.strip_suffix(".rs") {
+                // `lib.rs`, `mod.rs` and `main.rs`, or `x.rs` beside a
+                // directory `x/`, are probed for a module's own directory
+                let dir_named = if dir.is_empty() {
+                    format!("{stem}/")
+                } else {
+                    format!("{dir}/{stem}/")
+                };
+                if matches!(name, "lib.rs" | "mod.rs" | "main.rs") || has_dir(&dir_named) {
+                    r.rs = Names::All;
+                } else {
+                    r.rs.add(stem);
+                }
+            }
+            // a JS or TS import may name any file: as written, without its
+            // extension, or as its directory's index
+            r.js.add(name);
+            if let Some((stem, ext)) = name.rsplit_once('.')
+                && matches!(
+                    ext,
+                    "ts" | "tsx" | "js" | "jsx" | "mjs" | "cjs" | "mts" | "cts"
+                )
+            {
+                r.js.add(stem.strip_suffix(".d").unwrap_or(stem));
+                r.js.add(stem);
+            }
+            if name.starts_with("index.") {
+                r.js.add(parent);
+            }
+        }
+        r.bare = match configured {
+            None => !changed.is_empty(),
+            Some(names) => names
+                .iter()
+                .any(|n| n == "*" || r.js.any([n.as_str(), js_stem(n)].into_iter())),
+        };
+        r
+    }
+
+    /// Can an import of `module` in a `lang` file resolve to another file?
+    fn may_move(&self, lang: greeg_lang::Lang, module: &'a str) -> bool {
+        use greeg_lang::Lang;
+        match lang {
+            Lang::Python => self.py.any(module.split('.')),
+            Lang::Rust => self.rs.any(module.split("::")),
+            Lang::JavaScript | Lang::TypeScript => {
+                if module.starts_with('/') || module.starts_with("node:") {
+                    return false;
+                }
+                let relative = module.starts_with("./") || module.starts_with("../");
+                let last = module.rsplit('/').next().unwrap_or("");
+                // `.` or `..` names a directory by the importer's path
+                if matches!(last, "" | "." | "..") {
+                    return !matches!(self.js, Names::None);
+                }
+                if !relative && self.bare {
+                    return true;
+                }
+                // a relative import, an alias ending in `*`, `baseUrl` and a
+                // package's subpath all probe the module's own last name
+                self.js.any([last, js_stem(last)].into_iter())
+            }
+            _ => false,
+        }
+    }
 }
 
 fn check_tree(idx: &Index, root: &Path, mode: Mode, threads: usize) -> Option<Changes> {
@@ -764,7 +991,7 @@ pub fn apply(idx: &Index, root: &Path, ch: &Changes) -> Result<usize> {
     let gone = ch.deleted.iter().filter_map(|&id| idx.path(id));
     m.graph_changes += membership
         .chain(gone)
-        .filter(|r| resolves_imports(r))
+        .filter(|r| not_resolved_again(r))
         .count() as u32;
     if ch.no_ino {
         m.stamp_mode = crate::STAMP_NO_INO.into();
@@ -790,13 +1017,10 @@ fn current_fsevents_id() -> u64 {
     }
 }
 
-/// Files whose imports resolution maps to other files.
-fn resolves_imports(rel: &[u8]) -> bool {
-    use greeg_lang::Lang;
-    matches!(
-        Lang::from_path(as_path(rel)),
-        Lang::Python | Lang::Rust | Lang::JavaScript | Lang::TypeScript | Lang::Kotlin
-    )
+/// Files whose importers `reresolve` does not resolve again when they are
+/// added or deleted.
+fn not_resolved_again(rel: &[u8]) -> bool {
+    greeg_lang::Lang::from_path(as_path(rel)) == greeg_lang::Lang::Kotlin
 }
 
 /// Should a full rebuild be spawned instead of applying inline?
@@ -818,6 +1042,56 @@ pub fn rebuild_reason(idx: &Index, ch: &Changes) -> Option<RebuildReason> {
 mod tests {
     use super::*;
     use std::fs;
+
+    #[test]
+    fn only_imports_a_changed_file_can_answer_are_resolved_again() {
+        use greeg_lang::Lang::{JavaScript, Python, Rust, TypeScript};
+        let dirs = ["src/net/"];
+        let reach = |changed: &[&'static str]| Reach::of(changed, None, |d| dirs.contains(&d));
+        let r = reach(&["src/other.rs", "pkg/util.py", "web/lib/index.ts"]);
+        assert!(r.may_move(Rust, "crate::other::Thing"));
+        assert!(!r.may_move(Rust, "super::Thing"));
+        assert!(r.may_move(Python, "pkg.util"));
+        assert!(r.may_move(Python, "..util"));
+        assert!(!r.may_move(Python, "pkg.other"));
+        assert!(r.may_move(TypeScript, "../lib"));
+        assert!(r.may_move(TypeScript, "./index.js"));
+        assert!(!r.may_move(TypeScript, "./other"));
+        // a directory's own name, an alias or a package can name any file
+        for m in [".", "..", "../..", "@app/x", "react"] {
+            assert!(r.may_move(JavaScript, m), "{m}");
+        }
+        let r = reach(&["types/x.d.ts"]);
+        assert!(r.may_move(TypeScript, "./x"));
+        assert!(!r.may_move(Rust, "crate::x") && !r.may_move(Python, "x"));
+        // probed for a module's own directory, whatever the module says
+        for changed in ["src/net.rs", "src/a/mod.rs", "lib.rs"] {
+            assert!(
+                reach(&[changed]).may_move(Rust, "super::Thing"),
+                "{changed}"
+            );
+        }
+        assert!(reach(&["pkg/__init__.py"]).may_move(Python, "."));
+        assert!(!reach(&["notes.md"]).may_move(Python, "notes"));
+        assert!(!r.may_move(TypeScript, "node:fs") && !r.may_move(TypeScript, "/abs"));
+
+        // with the names configuration fixes, a bare import is resolved
+        // again only when it or the configuration can name a changed file
+        let with = |changed: &[&'static str], names: &[&str]| {
+            let names: Vec<String> = names.iter().map(|n| n.to_string()).collect();
+            Reach::of(changed, Some(&names), |_| false).may_move(TypeScript, "@x")
+        };
+        assert!(!with(&["notes.md"], &[]));
+        assert!(!with(&["src/other.ts"], &["impl.ts"]));
+        assert!(with(&["src/x/impl.ts"], &["impl.ts"]));
+        assert!(with(&["dist/start.ts"], &["start.js"]));
+        assert!(with(&["packages/a/src/index.ts"], &["index", "main"]));
+        assert!(with(&["notes.md"], &["*"]));
+        let names = Vec::new();
+        let r = Reach::of(&["src/react.ts"], Some(&names), |_| false);
+        assert!(r.may_move(TypeScript, "react") && r.may_move(TypeScript, "@app/react"));
+        assert!(!r.may_move(TypeScript, "vue"));
+    }
 
     #[test]
     fn inode_only_changes_switch_to_no_ino_mode_only_when_most_files_show_them() {

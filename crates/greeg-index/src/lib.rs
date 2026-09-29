@@ -38,7 +38,7 @@ use std::path::{Path, PathBuf};
 /// The on-disk layout. Every change to what a build or refresh writes gets a
 /// new number, released or not, so binaries of different layouts never share
 /// files (`format_dir`); `layout_fingerprint_matches_format_version` enforces it.
-pub const FORMAT_VERSION: u32 = 11;
+pub const FORMAT_VERSION: u32 = 12;
 
 /// Create an index directory and any missing parents owner-only (0700).
 /// Existing directories are left as they are, never chmodded.
@@ -162,9 +162,14 @@ pub struct Manifest {
     pub resolver_files: Vec<String>,
     #[serde(default)]
     pub resolver_inputs: String,
-    /// Files of a language with import resolution that deltas added or
-    /// removed since the build: their importers were not resolved again, so
-    /// the graph may miss or keep edges to them.
+    /// `Resolver::configured_names` of the build: file names a bare import
+    /// can reach through configuration. `None` in an index built before they
+    /// were recorded, where every bare import is resolved again.
+    #[serde(default)]
+    pub resolver_names: Option<Vec<String>>,
+    /// Kotlin files deltas added or removed since the build: their importers
+    /// were not resolved again (`fresh::reresolve`), so the graph may miss or
+    /// keep edges to them.
     #[serde(default)]
     pub graph_changes: u32,
 }

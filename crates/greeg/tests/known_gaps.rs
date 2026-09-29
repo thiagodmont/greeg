@@ -1105,31 +1105,49 @@ fn adding_an_extra_language_does_not_reuse_symbols_from_another_grammar() {
     }
 }
 
-/// Files added since the graph was built are not resolved against its
-/// unchanged importers, and the graph says so.
+/// A file added since the graph was built is resolved against its unchanged
+/// importers; a Kotlin file is not, and the graph says so.
 #[test]
 fn a_graph_discloses_files_added_since_it_was_built() {
     let f = Fixture::with_filler(&[
-        ("main.py", "import util\n"),
+        ("main.py", "import util\nimport helpers\n"),
         ("util.py", "def helper():\n    pass\n"),
+        ("app/Main.kt", "package app\n\nfun main() {}\n"),
     ]);
     f.indexed();
-    let changes = |o: &Output| {
+    let map = |o: &Output| -> Vec<serde_json::Value> {
         stdout(o)
             .lines()
             .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
+            .collect()
+    };
+    let changes = |o: &Output| {
+        map(o)
+            .into_iter()
             .find(|v| v["type"] == "footer")
             .map(|v| v["data"]["graph_changes"].clone())
     };
     let o = f.run(&["--fresh", "stat", "--json", "map", "."]);
     assert_eq!(changes(&o), Some(serde_json::json!(0)), "{o:?}");
-    w(&f.root.join("extra.py"), "import util\n");
+    w(&f.root.join("helpers.py"), "def help():\n    pass\n");
+    std::thread::sleep(PAST_FRESHNESS_WINDOW);
+    let o = f.run(&["--fresh", "stat", "--json", "map", "."]);
+    assert_eq!(changes(&o), Some(serde_json::json!(0)), "{o:?}");
+    let helpers = map(&o)
+        .into_iter()
+        .find(|v| v["type"] == "file" && v["data"]["path"] == "helpers.py")
+        .map(|v| v["data"]["imported_by"].clone());
+    assert_eq!(helpers, Some(serde_json::json!(1)), "{o:?}");
+    w(
+        &f.root.join("app/Extra.kt"),
+        "package app\n\nfun extra() {}\n",
+    );
     std::thread::sleep(PAST_FRESHNESS_WINDOW);
     let o = f.run(&["--fresh", "stat", "--json", "map", "."]);
     assert_eq!(changes(&o), Some(serde_json::json!(1)), "{o:?}");
     let text = stdout(&f.run(&["--fresh", "stat", "map", "."]));
     assert!(
-        text.contains("1 file added or removed since the graph was built"),
+        text.contains("1 Kotlin file added or removed since the graph was built"),
         "{text}"
     );
 }
@@ -1652,7 +1670,7 @@ fn legacy_indexes_go_once_unverified_for_two_weeks() {
         w(&f.index.join(name), "");
     }
     w(&f.index.join("session/s.jsonl"), "{}\n");
-    // v11 as 0.8.0 wrote it: this layout, another build
+    // `v<N>` as 0.8.0 wrote it: this layout number, another build
     for (n, verified) in [(6, old), (7, recent), (greeg_index::FORMAT_VERSION, old)] {
         let v = f.index.join(format!("v{n}"));
         w(&v.join("OWNER"), format!("greeg 0.8.0 {n}\n"));
