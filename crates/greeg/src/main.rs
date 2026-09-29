@@ -245,6 +245,10 @@ struct Common {
     /// Disable session memory (dedup, focus, loop detection)
     #[arg(long = "no-session", global = true)]
     no_session: bool,
+    /// Write nothing to disk: no index build or refresh, session or
+    /// statistic; answer from the index as it is, or a scan (env GREEG_NO_PERSIST=1)
+    #[arg(long = "no-persist", global = true)]
+    no_persist: bool,
     /// Internal: re-executed after a SIGBUS on an index file
     #[arg(long = "after-sigbus", hide = true, global = true)]
     after_sigbus: bool,
@@ -511,6 +515,9 @@ fn run_index(
                     );
                     if greeg_index::fresh::needs_rebuild(&idx, &ch) {
                         report += "needs full rebuild\n";
+                        Ok(())
+                    } else if !greeg_index::persist::allowed() {
+                        report += "not applied (--no-persist)\n";
                         Ok(())
                     } else {
                         greeg_index::fresh::apply(&idx, &root, &ch).map(|n| {
@@ -832,12 +839,20 @@ fn run() -> Result<()> {
         eprintln!("greeg: args parsed at {:?} µs", stats::since_start_us());
     }
     let c = &cli.common;
+    if c.no_persist || std::env::var("GREEG_NO_PERSIST").is_ok_and(|v| stats::env_on(&v)) {
+        greeg_index::persist::disable();
+    }
     stats::begin();
     if c.after_sigbus {
         // the previous process died on a truncated index file: the index is
         // unusable, for a verb as for a search
         eprintln!(
-            "greeg: an index file was truncated while in use; answering from a scan and rebuilding the index"
+            "greeg: an index file was truncated while in use; answering from a scan{}",
+            if greeg_index::persist::allowed() {
+                " and rebuilding the index"
+            } else {
+                ""
+            }
         );
         if let Ok(o) = build_options(c, String::new(), vec![]) {
             greeg_query::indexed::mark_corrupt(&o);
@@ -845,6 +860,13 @@ fn run() -> Result<()> {
     }
     greeg_index::commit::inject("every-run");
     if let Some(cmd) = cli.cmd {
+        if let Some(what) = writes(&cmd)
+            && !greeg_index::persist::allowed()
+        {
+            anyhow::bail!(
+                "--no-persist: `greeg {what}` writes to disk; run it without --no-persist"
+            );
+        }
         let verb = match &cmd {
             Cmd::Def { .. } => "def",
             Cmd::Refs { .. } => "refs",
@@ -1066,6 +1088,33 @@ fn run() -> Result<()> {
         },
         &Outcome::of_search(&result, report.footer.hits_shown),
     )
+}
+
+/// The command, when it exists to write to disk.
+fn writes(cmd: &Cmd) -> Option<&'static str> {
+    match cmd {
+        Cmd::Index {
+            status: false,
+            check: false,
+            ..
+        } => Some("index"),
+        Cmd::Hook {
+            which: HookCmd::Claude { dry_run: false, .. },
+        } => Some("hook claude"),
+        Cmd::Hook {
+            which: HookCmd::Codex { dry_run: false, .. },
+        } => Some("hook codex"),
+        Cmd::Stats {
+            which: Some(which), ..
+        } => match which {
+            StatsCmd::Enable => Some("stats enable"),
+            StatsCmd::Disable => Some("stats disable"),
+            StatsCmd::Clear => Some("stats clear"),
+            StatsCmd::Replay { .. } => Some("stats replay"),
+            _ => None,
+        },
+        _ => None,
+    }
 }
 
 fn run_stats(

@@ -16,6 +16,7 @@ pub mod index;
 pub mod integrity;
 pub mod legacy;
 pub mod lock;
+pub mod persist;
 pub mod plan;
 pub mod private;
 pub mod rel;
@@ -42,6 +43,7 @@ pub const FORMAT_VERSION: u32 = 11;
 /// Existing directories are left as they are, never chmodded.
 pub fn create_private_dir(dir: &Path) -> std::io::Result<()> {
     use std::os::unix::fs::DirBuilderExt;
+    persist::check()?;
     std::fs::DirBuilder::new()
         .recursive(true)
         .mode(0o700)
@@ -66,6 +68,7 @@ pub fn owner_only(f: &std::fs::File) -> std::io::Result<()> {
 
 /// Create or truncate a file greeg owns in an index directory, owner-only.
 pub fn create_private(path: &Path) -> std::io::Result<std::fs::File> {
+    persist::check()?;
     let f = private_file()
         .write(true)
         .create(true)

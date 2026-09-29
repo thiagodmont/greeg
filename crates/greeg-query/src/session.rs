@@ -160,6 +160,10 @@ impl Session {
     /// Open (or create) the session for this query. `None` when no index
     /// directory can be determined or the private store cannot be accessed.
     pub fn open(o: &Options, id: Option<&str>) -> Option<Session> {
+        // a session is kept on disk
+        if !greeg_index::persist::allowed() {
+            return None;
+        }
         let dir = greeg_index::repo_dir(&o.root, o.index_dir.as_deref())
             .ok()?
             .join("session");
