@@ -1,0 +1,23 @@
+bench/results/no-persist-2026-09-29-darwin-arm64.json
+  s_b1057b2933cdb0::t_ab86ca8650d19c 1-5299
+bench/reports.toml
+  s_b1057b2933cdb0::t_5d25c83e77096a 511-518
+references/BENCH.md
+  s_b1057b2933cdb0::t_8afc5d516cee37 1035-1081
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "663c2b311968e33fd26af4c28903cc5f451b421f",
+  "prompts": {},
+  "sessions": {
+    "s_b1057b2933cdb0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0aa73425-0ec9-4b76-ae94-35b6bdff17bb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
