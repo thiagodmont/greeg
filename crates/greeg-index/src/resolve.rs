@@ -56,11 +56,11 @@ pub struct Resolver<'a> {
     config_inputs: Vec<String>,
 }
 
-fn dir_of(rel: &str) -> &str {
+pub(crate) fn dir_of(rel: &str) -> &str {
     rel.rsplit_once('/').map(|(d, _)| d).unwrap_or("")
 }
 
-fn join(dir: &str, name: &str) -> String {
+pub(crate) fn join(dir: &str, name: &str) -> String {
     if dir.is_empty() {
         name.to_string()
     } else {
@@ -73,7 +73,7 @@ fn parent(dir: &str) -> &str {
 }
 
 /// Normalize `a/./b/../c` → `a/c` (relative to repo root; cannot escape it).
-fn normalize(p: &str) -> String {
+pub(crate) fn normalize(p: &str) -> String {
     let mut parts: Vec<&str> = Vec::new();
     for seg in p.split('/') {
         match seg {
@@ -205,12 +205,16 @@ impl<'a> Resolver<'a> {
 
     /// Last path components configuration names outright, which a bare
     /// import can reach without naming them: `paths` targets whose file name
-    /// is not the matched `*`, a workspace package's `main`, and the index or
-    /// main file a package falls back to. `*` when a target's file name mixes
-    /// the match with fixed text, so any bare import may reach any file.
+    /// is not the matched `*`, a `baseUrl` directory (an empty module probes
+    /// it), a workspace package's `main`, and the index or main file a
+    /// package falls back to. `*` when a target's file name mixes the match
+    /// with fixed text, so any bare import may reach any file.
     pub fn configured_names(&self) -> Vec<String> {
         let mut out = Vec::new();
         for c in &self.ts_configs {
+            if let Some(b) = &c.base_url {
+                out.push(b.rsplit('/').next().unwrap_or(b).to_string());
+            }
             for (pat, targets) in &c.paths {
                 for t in targets {
                     let last = t.rsplit('/').next().unwrap_or(t);
@@ -1071,7 +1075,8 @@ mod tests {
         );
         let files: Vec<(u32, &str)> = vec![(0, "tsconfig.json")];
         let r = Resolver::new(&root, &files, std::iter::empty());
-        assert_eq!(r.configured_names(), ["entry", "impl.ts"]);
+        // `baseUrl` "." is the root, named ""
+        assert_eq!(r.configured_names(), ["", "entry", "impl.ts"]);
         write(
             &root,
             "tsconfig.json",

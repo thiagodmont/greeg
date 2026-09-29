@@ -655,7 +655,7 @@ fn reresolve(idx: &Index, root: &Path, ch: &mut Changes) {
             let lang = Lang::from_path(Path::new(rel));
             idx.imports_of(id)
                 .iter()
-                .any(|im| reach.may_move(lang, idx.import_raw(id, im)))
+                .any(|im| reach.may_move(lang, rel, idx.import_raw(id, im)))
                 .then_some((id, rel, lang))
         })
         .collect();
@@ -687,7 +687,7 @@ fn reresolve(idx: &Index, root: &Path, ch: &mut Changes) {
         let ctx = resolver.file_ctx(lang, rel);
         let moved = idx.imports_of(id).iter().any(|im| {
             let module = idx.import_raw(id, im);
-            if !reach.may_move(lang, module) {
+            if !reach.may_move(lang, rel, module) {
                 return false;
             }
             let now = resolver
@@ -822,8 +822,9 @@ impl<'a> Reach<'a> {
         r
     }
 
-    /// Can an import of `module` in a `lang` file resolve to another file?
-    fn may_move(&self, lang: greeg_lang::Lang, module: &'a str) -> bool {
+    /// Can an import of `module` in the `lang` file `from` resolve to
+    /// another file?
+    fn may_move(&self, lang: greeg_lang::Lang, from: &str, module: &str) -> bool {
         use greeg_lang::Lang;
         match lang {
             Lang::Python => self.py.any(module.split('.')),
@@ -832,11 +833,15 @@ impl<'a> Reach<'a> {
                 if module.starts_with('/') || module.starts_with("node:") {
                     return false;
                 }
-                let relative = module.starts_with("./") || module.starts_with("../");
+                let relative = matches!(module, "." | "..")
+                    || module.starts_with("./")
+                    || module.starts_with("../");
                 let last = module.rsplit('/').next().unwrap_or("");
-                // `.` or `..` names a directory by the importer's path
-                if matches!(last, "" | "." | "..") {
-                    return !matches!(self.js, Names::None);
+                if relative && matches!(last, "" | "." | "..") {
+                    // a directory named by the importer's path
+                    use crate::resolve::{dir_of, join, normalize};
+                    let dir = normalize(&join(dir_of(from), module));
+                    return self.js.any(dir.rsplit('/').take(1));
                 }
                 if !relative && self.bare {
                     return true;
@@ -1049,37 +1054,52 @@ mod tests {
         let dirs = ["src/net/"];
         let reach = |changed: &[&'static str]| Reach::of(changed, None, |d| dirs.contains(&d));
         let r = reach(&["src/other.rs", "pkg/util.py", "web/lib/index.ts"]);
-        assert!(r.may_move(Rust, "crate::other::Thing"));
-        assert!(!r.may_move(Rust, "super::Thing"));
-        assert!(r.may_move(Python, "pkg.util"));
-        assert!(r.may_move(Python, "..util"));
-        assert!(!r.may_move(Python, "pkg.other"));
-        assert!(r.may_move(TypeScript, "../lib"));
-        assert!(r.may_move(TypeScript, "./index.js"));
-        assert!(!r.may_move(TypeScript, "./other"));
-        // a directory's own name, an alias or a package can name any file
-        for m in [".", "..", "../..", "@app/x", "react"] {
-            assert!(r.may_move(JavaScript, m), "{m}");
+        assert!(r.may_move(Rust, "web/app/main.ts", "crate::other::Thing"));
+        assert!(!r.may_move(Rust, "web/app/main.ts", "super::Thing"));
+        assert!(r.may_move(Python, "web/app/main.ts", "pkg.util"));
+        assert!(r.may_move(Python, "web/app/main.ts", "..util"));
+        assert!(!r.may_move(Python, "web/app/main.ts", "pkg.other"));
+        assert!(r.may_move(TypeScript, "web/app/main.ts", "../lib"));
+        assert!(r.may_move(TypeScript, "web/app/main.ts", "./index.js"));
+        assert!(!r.may_move(TypeScript, "web/app/main.ts", "./other"));
+        // `.` and `..` name a directory by the importer's path
+        assert!(r.may_move(JavaScript, "web/lib/x.ts", "."));
+        assert!(r.may_move(JavaScript, "web/lib/sub/y.ts", ".."));
+        assert!(!r.may_move(JavaScript, "web/app/main.ts", "."));
+        assert!(!r.may_move(JavaScript, "web/app/main.ts", ".."));
+        // without the names configuration fixes, any bare import may move
+        for m in ["@app/x", "react", ""] {
+            assert!(r.may_move(JavaScript, "web/app/main.ts", m), "{m}");
         }
         let r = reach(&["types/x.d.ts"]);
-        assert!(r.may_move(TypeScript, "./x"));
-        assert!(!r.may_move(Rust, "crate::x") && !r.may_move(Python, "x"));
+        assert!(r.may_move(TypeScript, "web/app/main.ts", "./x"));
+        assert!(
+            !r.may_move(Rust, "web/app/main.ts", "crate::x")
+                && !r.may_move(Python, "web/app/main.ts", "x")
+        );
         // probed for a module's own directory, whatever the module says
         for changed in ["src/net.rs", "src/a/mod.rs", "lib.rs"] {
             assert!(
-                reach(&[changed]).may_move(Rust, "super::Thing"),
+                reach(&[changed]).may_move(Rust, "web/app/main.ts", "super::Thing"),
                 "{changed}"
             );
         }
-        assert!(reach(&["pkg/__init__.py"]).may_move(Python, "."));
-        assert!(!reach(&["notes.md"]).may_move(Python, "notes"));
-        assert!(!r.may_move(TypeScript, "node:fs") && !r.may_move(TypeScript, "/abs"));
+        assert!(reach(&["pkg/__init__.py"]).may_move(Python, "web/app/main.ts", "."));
+        assert!(!reach(&["notes.md"]).may_move(Python, "web/app/main.ts", "notes"));
+        assert!(
+            !r.may_move(TypeScript, "web/app/main.ts", "node:fs")
+                && !r.may_move(TypeScript, "web/app/main.ts", "/abs")
+        );
 
         // with the names configuration fixes, a bare import is resolved
         // again only when it or the configuration can name a changed file
         let with = |changed: &[&'static str], names: &[&str]| {
             let names: Vec<String> = names.iter().map(|n| n.to_string()).collect();
-            Reach::of(changed, Some(&names), |_| false).may_move(TypeScript, "@x")
+            Reach::of(changed, Some(&names), |_| false).may_move(
+                TypeScript,
+                "web/app/main.ts",
+                "@x",
+            )
         };
         assert!(!with(&["notes.md"], &[]));
         assert!(!with(&["src/other.ts"], &["impl.ts"]));
@@ -1089,8 +1109,11 @@ mod tests {
         assert!(with(&["notes.md"], &["*"]));
         let names = Vec::new();
         let r = Reach::of(&["src/react.ts"], Some(&names), |_| false);
-        assert!(r.may_move(TypeScript, "react") && r.may_move(TypeScript, "@app/react"));
-        assert!(!r.may_move(TypeScript, "vue"));
+        assert!(
+            r.may_move(TypeScript, "web/app/main.ts", "react")
+                && r.may_move(TypeScript, "web/app/main.ts", "@app/react")
+        );
+        assert!(!r.may_move(TypeScript, "web/app/main.ts", "vue"));
     }
 
     #[test]
