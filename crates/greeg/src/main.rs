@@ -329,6 +329,13 @@ enum Cmd {
     Impact { name: String },
     /// Index health, freshness mode, language coverage, disk use
     Doctor,
+    /// Remove greeg's indexes, sessions and statistics: every repository in
+    /// the cache, or what `--index-dir` holds (lists them unless --yes)
+    Purge {
+        /// Remove them
+        #[arg(long)]
+        yes: bool,
+    },
     /// Print the man page (roff) to stdout
     Man,
     /// Agent integrations: `greeg hook claude` / `greeg hook codex` install the rg→greeg hook and the skill file
@@ -929,6 +936,7 @@ fn run() -> Result<()> {
                 verbs_out::run_impact(c, &build_options(c, name.clone(), vec![])?, &name)
             }
             Cmd::Doctor => doctor::run(c),
+            Cmd::Purge { yes } => run_purge(c, yes),
             Cmd::Man => {
                 let mut out = Vec::new();
                 clap_mangen::Man::new(Cli::command()).render(&mut out)?;
@@ -1090,6 +1098,75 @@ fn run() -> Result<()> {
     )
 }
 
+/// `greeg purge`: what the cache (or `--index-dir`) holds, removed with
+/// `yes`. Exits 1 when something in use was kept.
+fn run_purge(c: &Common, yes: bool) -> Result<()> {
+    use greeg_index::purge::{Kind, Scope, State, purge};
+    let scope = match c
+        .index_dir
+        .clone()
+        .or_else(|| std::env::var_os("GREEG_INDEX_DIR").map(PathBuf::from))
+    {
+        Some(d) => Scope::Chosen(d),
+        None => Scope::Cache(greeg_index::cache_base()?),
+    };
+    let items = purge(&scope, yes);
+    let (Scope::Cache(where_) | Scope::Chosen(where_)) = &scope;
+    let mut out = stats::Tee(std::io::stdout().lock());
+    if items.is_empty() {
+        writeln!(
+            out,
+            "greeg purge: nothing to remove in {}",
+            where_.display()
+        )?;
+        return Ok(());
+    }
+    let mb = |b: u64| match b {
+        0..1_000_000 => format!("{:.1} KB", b as f64 / 1e3),
+        _ => format!("{:.1} MB", b as f64 / 1e6),
+    };
+    let mut text = String::new();
+    for i in &items {
+        let what = match i.kind {
+            Kind::Index => "index",
+            Kind::TopLevel => "pre-0.8 index",
+            Kind::Sessions => "sessions",
+            Kind::Stats => "statistics",
+        };
+        let state = match i.state {
+            State::Found | State::Removed => "",
+            State::Busy => "  (in use, kept)",
+            State::Failed => "  (could not remove)",
+        };
+        text += &format!(
+            "{:>10}  {what:<13}  {}{state}\n",
+            mb(i.bytes),
+            i.path.display()
+        );
+    }
+    let done = |s: State| items.iter().filter(move |i| i.state == s);
+    let kept = done(State::Busy).count() + done(State::Failed).count();
+    if yes {
+        let removed: Vec<_> = done(State::Removed).collect();
+        let bytes = removed.iter().map(|i| i.bytes).sum();
+        text += &format!("removed {} entries, {}\n", removed.len(), mb(bytes));
+    } else {
+        let bytes = items.iter().map(|i| i.bytes).sum();
+        text += &format!(
+            "{} entries, {}; run `greeg purge --yes` to remove them\n",
+            items.len(),
+            mb(bytes)
+        );
+    }
+    out.write_all(text.as_bytes())?;
+    out.flush()?;
+    if yes && kept > 0 {
+        eprintln!("greeg purge: {kept} entries were kept; run it again once they are free");
+        std::process::exit(1);
+    }
+    Ok(())
+}
+
 /// The command, when it exists to write to disk.
 fn writes(cmd: &Cmd) -> Option<&'static str> {
     match cmd {
@@ -1098,6 +1175,7 @@ fn writes(cmd: &Cmd) -> Option<&'static str> {
             check: false,
             ..
         } => Some("index"),
+        Cmd::Purge { yes: true } => Some("purge --yes"),
         Cmd::Hook {
             which: HookCmd::Claude { dry_run: false, .. },
         } => Some("hook claude"),

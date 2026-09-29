@@ -1546,6 +1546,97 @@ fn no_persist_leaves_every_owned_directory_unchanged() {
     assert_ne!(settled(), before);
 }
 
+/// `greeg purge` lists what greeg keeps and removes nothing; `--yes` removes
+/// only what greeg wrote, keeps what is in use and never a chosen directory.
+#[cfg(unix)]
+#[test]
+fn purge_previews_and_removes_only_owned_paths() {
+    let f = Fixture::new(&[("a.rs", "fn needle() {}\n")]);
+    let base = if cfg!(target_os = "macos") {
+        f.base.join("home/Library/Caches/greeg")
+    } else {
+        f.base.join("cache/greeg")
+    };
+    let greeg = |args: &[&str]| {
+        let mut c = f.command();
+        c.env_remove("GREEG_INDEX_DIR")
+            .env("GREEG_STATS", "1")
+            .args(args);
+        c.output().unwrap()
+    };
+    assert!(greeg(&["index", "--quiet"]).status.success());
+    assert_eq!(greeg(&["needle"]).status.code(), Some(0));
+    let old = base.join("tokio-fedcba9876543210");
+    w(
+        &old.join("manifest"),
+        r#"{"format":5,"generation":2,"verified_unix_ms":1}"#,
+    );
+    w(&old.join("files.2.bin"), "legacy");
+    w(&base.join("other-0123456789abcdef/manifest"), "{}");
+    w(&base.join("mine.txt"), "mine\n");
+    let repo = fs::read_dir(&base)
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .find(|p| {
+            p.file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with("tree-")
+        })
+        .expect("the repository directory");
+    w(&repo.join("notes.txt"), "mine\n");
+
+    let before = owned_state(&f.base, &f.root);
+    let o = greeg(&["purge"]);
+    assert_eq!(o.status.code(), Some(0), "{o:?}");
+    let listed = stdout(&o);
+    for p in [
+        repo.join("v11"),
+        repo.join("session"),
+        old.clone(),
+        base.join("stats"),
+    ] {
+        assert!(listed.contains(&*p.to_string_lossy()), "{p:?} in {listed}");
+    }
+    assert!(
+        !listed.contains("other-") && !listed.contains("mine.txt"),
+        "{listed}"
+    );
+    assert_eq!(owned_state(&f.base, &f.root), before, "a preview removed");
+
+    // a build holding the index keeps it
+    let lock = repo.join(format!("v{}/LOCK", greeg_index::FORMAT_VERSION));
+    let held = fs::File::options().write(true).open(&lock).unwrap();
+    held.lock().unwrap();
+    let o = greeg(&["purge", "--yes"]);
+    assert_eq!(o.status.code(), Some(1), "{o:?}");
+    assert!(stdout(&o).contains("in use"), "{o:?}");
+    assert!(lock.exists());
+    drop(held);
+    let o = greeg(&["purge", "--yes"]);
+    assert_eq!(o.status.code(), Some(0), "{o:?}");
+    let mut left: Vec<String> = fs::read_dir(&base)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().into_string().unwrap())
+        .collect();
+    left.sort();
+    let repo_name = repo.file_name().unwrap().to_string_lossy().into_owned();
+    assert_eq!(
+        left,
+        ["mine.txt", "other-0123456789abcdef", repo_name.as_str()]
+    );
+    assert_eq!(fs::read_dir(&repo).unwrap().count(), 1, "notes.txt stays");
+
+    // a chosen directory keeps itself; --no-persist refuses to remove
+    f.indexed();
+    let o = f.run(&["--no-persist", "purge", "--yes"]);
+    assert_eq!(o.status.code(), Some(2), "{o:?}");
+    assert!(f.layout().exists());
+    let o = f.run(&["purge", "--yes"]);
+    assert_eq!(o.status.code(), Some(0), "{o:?}");
+    assert!(f.index.exists() && !f.layout().exists());
+}
+
 /// Other layouts' indexes go once nothing has verified them for two weeks;
 /// a recently verified one, sessions and the chosen directory stay.
 #[test]

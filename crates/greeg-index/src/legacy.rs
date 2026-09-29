@@ -59,14 +59,7 @@ pub fn clean(repo: &Path, now_ms: u64) -> usize {
         && stale(verified)
         && let Some(_lock) = try_lock(repo)
     {
-        #[cfg(test)]
-        tests::assert_locked(repo);
-        // the lock file goes last, while it is still held
-        let (lock, rest): (Vec<&String>, Vec<&String>) =
-            top.into_iter().partition(|n| n.as_str() == "LOCK");
-        for name in rest.into_iter().chain(lock) {
-            removed += usize::from(remove(&repo.join(name)));
-        }
+        removed += remove_top_level(repo, &top);
     }
     for name in &names {
         let Some(n) = layout_number(name) else {
@@ -85,10 +78,22 @@ pub fn clean(repo: &Path, now_ms: u64) -> usize {
     removed
 }
 
+/// Remove the top-level entries `top` of a pre-0.8 index, held by its lock,
+/// which goes last. Returns how many went.
+pub(crate) fn remove_top_level(repo: &Path, top: &[&String]) -> usize {
+    #[cfg(test)]
+    tests::assert_locked(repo);
+    let (lock, rest): (Vec<&String>, Vec<&String>) = top.iter().partition(|n| n.as_str() == "LOCK");
+    rest.into_iter()
+        .chain(lock)
+        .filter(|name| remove(&repo.join(name)))
+        .count()
+}
+
 /// Remove a layout's directory, held by its writer lock. Its manifest and
 /// `OWNER` go after everything else, so a removal that stops partway leaves
 /// a stale layout the next cleanup still recognizes; the lock goes last.
-fn remove_layout(dir: &Path) -> bool {
+pub(crate) fn remove_layout(dir: &Path) -> bool {
     #[cfg(test)]
     tests::assert_locked(dir);
     let last = ["manifest", "OWNER", "LOCK"];
@@ -108,7 +113,7 @@ fn remove_layout(dir: &Path) -> bool {
     }
 }
 
-fn entries(dir: &Path) -> Vec<String> {
+pub(crate) fn entries(dir: &Path) -> Vec<String> {
     fs::read_dir(dir)
         .into_iter()
         .flatten()
@@ -118,7 +123,7 @@ fn entries(dir: &Path) -> Vec<String> {
 }
 
 /// A name the top-level layouts wrote.
-fn is_top_level(name: &str) -> bool {
+pub(crate) fn is_top_level(name: &str) -> bool {
     let generation_bin = |prefix: &str| {
         name.strip_prefix(prefix)
             .and_then(|r| r.strip_prefix('.'))
@@ -139,7 +144,7 @@ fn is_top_level(name: &str) -> bool {
 /// When a top-level index was last verified, from its manifest; `None` when
 /// there is no manifest of a top-level layout, so nothing shows the files
 /// are greeg's.
-fn top_level_verified(repo: &Path) -> Option<u64> {
+pub(crate) fn top_level_verified(repo: &Path) -> Option<u64> {
     let m = manifest(repo)?;
     let format = m.get("format")?.as_u64()?;
     (format <= TOP_LEVEL_FORMAT && m.get("generation").is_some())
@@ -155,7 +160,7 @@ fn manifest(dir: &Path) -> Option<serde_json::Value> {
 }
 
 /// `N` of a `v<N>` directory name.
-fn layout_number(name: &str) -> Option<u32> {
+pub(crate) fn layout_number(name: &str) -> Option<u32> {
     let n = name.strip_prefix('v')?;
     if n.is_empty() || !n.bytes().all(|b| b.is_ascii_digit()) {
         return None;
@@ -164,7 +169,7 @@ fn layout_number(name: &str) -> Option<u32> {
 }
 
 /// A real directory whose `OWNER` a greeg layout wrote.
-fn owned_layout(dir: &Path) -> bool {
+pub(crate) fn owned_layout(dir: &Path) -> bool {
     fs::symlink_metadata(dir).is_ok_and(|m| m.is_dir())
         && fs::read(dir.join("OWNER")).is_ok_and(|o| o.starts_with(b"greeg "))
 }
@@ -182,19 +187,20 @@ fn layout_verified(dir: &Path) -> u64 {
 }
 
 /// The writer lock of the layout in `dir`, when it is free (or absent).
-fn try_lock(dir: &Path) -> Option<Option<File>> {
-    match File::options()
-        .read(true)
-        .write(true)
-        .open(dir.join("LOCK"))
-    {
+pub(crate) fn try_lock(dir: &Path) -> Option<Option<File>> {
+    try_lock_file(&dir.join("LOCK"))
+}
+
+/// The lock file `path`, when it is free (or absent); never created.
+pub(crate) fn try_lock_file(path: &Path) -> Option<Option<File>> {
+    match File::options().read(true).write(true).open(path) {
         Ok(f) => f.try_lock().ok().map(|()| Some(f)),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Some(None),
         Err(_) => None,
     }
 }
 
-fn remove(path: &Path) -> bool {
+pub(crate) fn remove(path: &Path) -> bool {
     match fs::symlink_metadata(path) {
         Ok(m) if m.is_dir() => fs::remove_dir_all(path).is_ok(),
         Ok(_) => fs::remove_file(path).is_ok(),
