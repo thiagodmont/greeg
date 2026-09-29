@@ -500,3 +500,11 @@ filename = "linux-stat-pass-2026-09-28-darwin-arm64.json"
 title = "Linux stat pass: exact-search regression (2026-09-28)"
 pr = 39
 notes = "v0.7.0 against the branch whose freshness pass stats by name where a stat cannot refuse symlinks in one call (Linux), and drops what lies below a directory that is no longer one. macOS keeps the one-call stat. All 34 cases keep their exit status and stdout, token counts are unchanged, and every contract passes. Medians range from −0.8% to +4.1%, with no flag. Index costs on Linux (tokio, django, TypeScript-5.9 on a hosted runner) and macOS (django, TypeScript-5.9) are in the PR. The harness records no execution time; the result file was written at 2026-09-28T20:13:48Z."
+
+[[datasets]]
+id = "legacy_cleanup"
+section = "matching_review"
+filename = "legacy-cleanup-2026-09-29-darwin-arm64.json"
+title = "Legacy cleanup: exact-search regression (2026-09-29)"
+pr = 42
+notes = "v0.8.0 against the branch that tightens greeg's default cache and repository directories to 0700 when it writes, and removes other layouts' indexes once unverified for 14 days. All 34 cases keep their exit status and stdout (JSON compared without elapsed fields), and every contract passes. Token counts are unchanged except case_miss_json and hit_json in the scan backend, 3 to 4 tokens from the digits of their elapsed fields. Medians range from −2.1% to +4.2%, with no flag. Index costs on tokio and django (bench/index_costs.py, against main) are in the PR. The harness records no execution time; the result file was written at 2026-09-29T17:17:30Z."
