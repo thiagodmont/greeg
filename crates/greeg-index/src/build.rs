@@ -1527,6 +1527,14 @@ mod tests {
         let mut buf = Vec::new();
         for (edit, changed) in [(false, false), (true, true)] {
             fs::write(&p, "alpha\n").unwrap();
+            // stamped ahead, so the read is racy however late it starts
+            let ahead = std::time::SystemTime::now() + std::time::Duration::from_millis(500);
+            fs::File::options()
+                .write(true)
+                .open(&p)
+                .unwrap()
+                .set_modified(ahead)
+                .unwrap();
             let walk = Stamp::of(&fs::symlink_metadata(&p).unwrap());
             let mut c = read_file(&tree, b"a.txt", &walk, &mut buf).unwrap();
             assert!(c.racy.is_some() && !c.changed, "just written");
