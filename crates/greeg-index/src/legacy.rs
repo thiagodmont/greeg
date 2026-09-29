@@ -52,25 +52,25 @@ pub fn secure(repo: &Path) {
 pub fn clean(repo: &Path, now_ms: u64) -> usize {
     let mut removed = 0;
     let stale = |verified: u64| now_ms.saturating_sub(verified) >= UNVERIFIED_MS;
-    let top: Vec<String> = entries(repo)
-        .into_iter()
-        .filter(|n| is_top_level(n))
-        .collect();
-    if let Some(verified) = top_level_verified(repo)
+    let names = entries(repo);
+    let top: Vec<&String> = names.iter().filter(|n| is_top_level(n)).collect();
+    if !top.is_empty()
+        && let Some(verified) = top_level_verified(repo)
         && stale(verified)
         && let Some(_lock) = try_lock(repo)
     {
         // the lock file goes last, while it is still held
-        let (lock, rest): (Vec<_>, Vec<_>) = top.iter().partition(|n| *n == "LOCK");
+        let (lock, rest): (Vec<&String>, Vec<&String>) =
+            top.into_iter().partition(|n| n.as_str() == "LOCK");
         for name in rest.into_iter().chain(lock) {
             removed += usize::from(remove(&repo.join(name)));
         }
     }
-    for name in entries(repo) {
-        let Some(n) = layout_number(&name) else {
+    for name in &names {
+        let Some(n) = layout_number(name) else {
             continue;
         };
-        let dir = repo.join(&name);
+        let dir = repo.join(name);
         if n >= crate::FORMAT_VERSION || !owned_layout(&dir) {
             continue;
         }
