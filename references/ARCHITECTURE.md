@@ -544,9 +544,25 @@ query with a scan:
 * a threshold: more than 2,000 changed files, 16 accumulated deltas, or 5 % of
   the tree.
 
-A delta that adds or removes a file with import resolution does not resolve
-the imports of unchanged files again: the manifest counts such files, and
-`map` says how many the graph may miss.
+A check that finds added or deleted files resolves the stored imports of
+unchanged Python, Rust, JavaScript and TypeScript files again against the new
+file set (`fresh::reresolve`); resolution reads only an import's module and the
+file set, both stored. A file whose import now names another file, or none,
+joins the delta as if edited, so its edges match a clean build's: an import
+that now resolves, one a new file shadows (`a.ts` beside `a.js`, `net.rs`
+beside `net/mod.rs`), and one whose target was deleted, recreated or renamed.
+Only imports that can reach a changed file are resolved (`Reach`): resolution
+probes paths built from the module, so an import whose module names none of
+the changed files' names resolves as before. The exceptions resolve every
+import of their language: an added or deleted `__init__.py`, `mod.rs`,
+`lib.rs` or `main.rs`, an `x.rs` beside a directory `x/`, and `.` or `..` in
+JavaScript. A bare JavaScript import (an alias or a package name) also
+resolves again when a changed file bears a name configuration fixes: an exact
+`paths` target, a package's `main`, or the `index` and `main` files a package
+falls back to. The build records those names in the manifest
+(`resolver_names`). Kotlin resolution in a delta is approximate and is not
+repeated: the manifest counts Kotlin files added or removed since the build,
+and `map` says how many the graph may miss.
 
 `map` needs the graph. When a rebuild is needed and the last build took under
 2 s, it starts the rebuild at once and waits for it, up to 2 s (not under

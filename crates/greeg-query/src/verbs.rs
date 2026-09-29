@@ -1320,8 +1320,8 @@ pub struct MapResult {
     pub files: Vec<MapFile>,
     pub elapsed_ms: f64,
     pub source: &'static str,
-    /// Files added or removed since the graph was built, whose importers were
-    /// not resolved again (`Manifest::graph_changes`).
+    /// Kotlin files added or removed since the graph was built, whose
+    /// importers were not resolved again (`Manifest::graph_changes`).
     pub graph_changes: u32,
 }
 

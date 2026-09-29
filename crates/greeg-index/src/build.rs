@@ -1014,6 +1014,7 @@ fn phase2(
     drop(rels);
     // right after the reads: a later edit then differs from the digest
     let resolver_files = resolver.config_inputs().to_vec();
+    let resolver_names = resolver.configured_names();
     let resolver_inputs = crate::ignores::digest_under(root, &resolver_files);
     let n = ft.files.len() as u32;
     let mut graph = GraphBuilder::new(n);
@@ -1124,6 +1125,7 @@ fn phase2(
     m.graph_changes = cur.graph_changes;
     m.resolver_inputs = resolver_inputs;
     m.resolver_files = resolver_files;
+    m.resolver_names = Some(resolver_names);
     m.skipped = cur.skipped;
     m.verified_unix_ms = cur.verified_unix_ms;
     m.fsevents_id = cur.fsevents_id;
