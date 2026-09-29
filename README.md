@@ -249,6 +249,8 @@ background; so does an edit to a file import resolution reads (`tsconfig.json`,
 greeg index                 # build now instead of on first query
 greeg index --status        # manifest: files, generation, deltas, build peak RSS
 greeg --no-index PATTERN    # scan the tree like ripgrep, ignore the index
+greeg purge                 # list every index, session and statistic greeg keeps
+greeg purge --yes           # remove them (what is in use is kept)
 ```
 
 How all of this is put together, what each index component holds, and why the

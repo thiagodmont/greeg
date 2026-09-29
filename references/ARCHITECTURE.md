@@ -43,7 +43,17 @@ when its writer lock is free. It must be greeg's: an older `v<N>/` with
 those releases wrote. Newer layouts, sessions and a chosen directory itself
 stay. When greeg writes, it also tightens its default cache directory and the
 repository directory to 0700, so files an older release left readable are out
-of other users' reach; a chosen directory keeps its mode. The manifest records the root it was built for (a hash of the canonical
+of other users' reach; a chosen directory keeps its mode.
+
+`greeg purge` lists what greeg keeps and `greeg purge --yes` removes it
+(`purge.rs`): in the cache, every repository directory named as greeg names
+them that holds a layout with `OWNER` or a pre-0.8 index, plus `stats/`; with
+`--index-dir`, the owned entries of that directory, never the directory
+itself. Each layout, pre-0.8 index and `session/` goes under its own lock, and
+one in use is kept and reported (exit 1). A repository directory goes once
+empty; files greeg did not write stay. `--no-persist` refuses `--yes`.
+
+The manifest records the root it was built for (a hash of the canonical
 path's bytes, its device and inode), and a query from any other root scans
 instead and rebuilds.
 

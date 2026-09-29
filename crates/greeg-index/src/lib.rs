@@ -19,6 +19,7 @@ pub mod lock;
 pub mod persist;
 pub mod plan;
 pub mod private;
+pub mod purge;
 pub mod rel;
 pub mod resolve;
 pub mod skipped;
