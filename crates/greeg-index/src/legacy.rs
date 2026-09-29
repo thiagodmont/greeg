@@ -59,6 +59,8 @@ pub fn clean(repo: &Path, now_ms: u64) -> usize {
         && stale(verified)
         && let Some(_lock) = try_lock(repo)
     {
+        #[cfg(test)]
+        tests::assert_locked(repo);
         // the lock file goes last, while it is still held
         let (lock, rest): (Vec<&String>, Vec<&String>) =
             top.into_iter().partition(|n| n.as_str() == "LOCK");
@@ -74,11 +76,36 @@ pub fn clean(repo: &Path, now_ms: u64) -> usize {
         if n >= crate::FORMAT_VERSION || !owned_layout(&dir) {
             continue;
         }
-        if stale(layout_verified(&dir)) && try_lock(&dir).is_some() {
-            removed += usize::from(fs::remove_dir_all(&dir).is_ok());
+        if stale(layout_verified(&dir))
+            && let Some(_lock) = try_lock(&dir)
+        {
+            removed += usize::from(remove_layout(&dir));
         }
     }
     removed
+}
+
+/// Remove a layout's directory, held by its writer lock. Its manifest and
+/// `OWNER` go after everything else, so a removal that stops partway leaves
+/// a stale layout the next cleanup still recognizes; the lock goes last.
+fn remove_layout(dir: &Path) -> bool {
+    #[cfg(test)]
+    tests::assert_locked(dir);
+    let last = ["manifest", "OWNER", "LOCK"];
+    let mut all = true;
+    for name in entries(dir) {
+        if !last.contains(&name.as_str()) {
+            all &= remove(&dir.join(name));
+        }
+    }
+    let gone = |name: &str| {
+        let p = dir.join(name);
+        remove(&p) || fs::symlink_metadata(&p).is_err()
+    };
+    all && gone("manifest") && gone("OWNER") && {
+        let _ = fs::remove_file(dir.join("LOCK"));
+        fs::remove_dir(dir).is_ok()
+    }
 }
 
 fn entries(dir: &Path) -> Vec<String> {
@@ -179,6 +206,18 @@ fn remove(path: &Path) -> bool {
 mod tests {
     use super::*;
     use std::path::PathBuf;
+
+    /// Removal happens under the layout's writer lock: another open of it
+    /// cannot take it.
+    pub(super) fn assert_locked(dir: &Path) {
+        if let Ok(other) = File::options().write(true).open(dir.join("LOCK")) {
+            assert!(
+                other.try_lock().is_err(),
+                "{} removed unlocked",
+                dir.display()
+            );
+        }
+    }
 
     const DAY_MS: u64 = 24 * 3600 * 1000;
     const NOW: u64 = 100 * DAY_MS;
@@ -284,20 +323,41 @@ mod tests {
         let recent = layout(&r, 7, Some(now - DAY_MS));
         let newer = layout(&r, crate::FORMAT_VERSION + 1, Some(now - 30 * DAY_MS));
         let current = layout(&r, crate::FORMAT_VERSION, Some(now - 30 * DAY_MS));
-        // no manifest: the directory's own time, which is now
+        // no manifest: the directory's own time
         let bare = layout(&r, 8, None);
+        let bare_old = layout(&r, 5, None);
+        let past = std::time::SystemTime::now() - std::time::Duration::from_millis(15 * DAY_MS);
+        File::open(&bare_old).unwrap().set_modified(past).unwrap();
         let foreign = r.join("v9");
         fs::create_dir(&foreign).unwrap();
         fs::write(foreign.join("manifest"), r#"{"verified_unix_ms":1}"#).unwrap();
         let busy = layout(&r, 10, Some(now - 15 * DAY_MS));
         let held = File::options().write(true).open(busy.join("LOCK")).unwrap();
         held.lock().unwrap();
-        assert_eq!(clean(&r, now), 1);
-        assert!(!old.exists());
+        assert_eq!(clean(&r, now), 2);
+        assert!(!old.exists() && !bare_old.exists());
         for kept in [&recent, &newer, &current, &bare, &foreign, &busy] {
             assert!(kept.exists(), "{}", kept.display());
         }
         drop(held);
+        let _ = fs::remove_dir_all(&r);
+    }
+
+    #[test]
+    fn a_layout_removed_partway_keeps_its_owner_for_the_next_cleanup() {
+        use std::os::unix::fs::PermissionsExt;
+        let r = repo("partway");
+        let now = crate::now_ms();
+        let old = layout(&r, 6, Some(now - 15 * DAY_MS));
+        let stuck = old.join("g-0000000000000001");
+        fs::write(stuck.join("files.bin"), "").unwrap();
+        let mode = |m| fs::set_permissions(&stuck, fs::Permissions::from_mode(m)).unwrap();
+        mode(0o500);
+        assert_eq!(clean(&r, now), 0);
+        assert!(old.join("OWNER").exists() && old.join("LOCK").exists());
+        mode(0o700);
+        assert_eq!(clean(&r, now), 1);
+        assert!(!old.exists());
         let _ = fs::remove_dir_all(&r);
     }
 
