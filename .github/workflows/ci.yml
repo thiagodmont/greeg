@@ -64,6 +64,34 @@ jobs:
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # 1.90
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
       - run: cargo check --workspace --all-targets --locked
+  mixed-versions:
+    # The last release and this build take turns on one index and run at once: neither
+    # rebuilds nor removes the other's. This build gets the next version, as its release would.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          workspaces: |
+            .
+            .release -> target
+      - name: build the last release
+        shell: bash
+        run: |
+          tag=$(git describe --tags --abbrev=0 --match 'v[0-9]*')
+          echo "last release: $tag"
+          git worktree add .release "$tag"
+          cargo build --release --locked --manifest-path .release/Cargo.toml -p greeg
+      - name: alternate it with this build
+        shell: bash
+        run: |
+          sed -i 's/^version = "\(.*\)"$/version = "\1-next"/' Cargo.toml
+          grep -m1 '^version' Cargo.toml
+          GREEG_OTHER_BIN="$PWD/.release/target/release/greeg" \
+            cargo test -p greeg --test mixed_versions -- --ignored
   kernels:
     # criterion kernels. Hosted runners have no baseline under bench/baselines/, so they only
     # record (the JSON is uploaded as an artifact); the 5 % gate runs on the reference machine

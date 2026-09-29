@@ -1,7 +1,7 @@
-//! Data other layouts left in a repository directory: releases before 0.8
-//! kept one index at its top level, and each layout since keeps `v<N>/`
-//! (ARCHITECTURE.md). It goes once nothing has verified it for
-//! [`UNVERIFIED_MS`], and is never read.
+//! Data other layouts and builds left in a repository directory: releases
+//! before 0.8 kept one index at its top level, 0.8.0 kept `v<N>/`, and each
+//! build since keeps `v<N>-<key>/` (ARCHITECTURE.md). It goes once nothing
+//! has verified it for [`UNVERIFIED_MS`], and is never read.
 
 use crate::private::PrivateDir;
 use std::fs::{self, File};
@@ -44,15 +44,17 @@ pub fn secure(repo: &Path) {
     });
 }
 
-/// Remove the indexes of other layouts in `repo` that nothing has verified
-/// for [`UNVERIFIED_MS`]: the top-level files of releases before 0.8 when a
-/// manifest of theirs says so, and each older `v<N>/` that carries `OWNER`.
-/// One whose writer lock is held is kept. Newer layouts, sessions and
-/// anything greeg did not write stay. Returns how many entries went.
+/// Remove the indexes of other layouts and builds in `repo` that nothing has
+/// verified for [`UNVERIFIED_MS`]: the top-level files of releases before 0.8
+/// when a manifest of theirs says so, and each layout directory of an older
+/// layout or another build of this one that carries `OWNER`. One whose writer
+/// lock is held is kept. Newer layouts, sessions and anything greeg did not
+/// write stay. Returns how many entries went.
 pub fn clean(repo: &Path, now_ms: u64) -> usize {
     let mut removed = 0;
     let stale = |verified: u64| now_ms.saturating_sub(verified) >= UNVERIFIED_MS;
     let names = entries(repo);
+    let own = crate::layout_name();
     let top: Vec<&String> = names.iter().filter(|n| is_top_level(n)).collect();
     if !top.is_empty()
         && let Some(verified) = top_level_verified(repo)
@@ -66,7 +68,7 @@ pub fn clean(repo: &Path, now_ms: u64) -> usize {
             continue;
         };
         let dir = repo.join(name);
-        if n >= crate::FORMAT_VERSION || !owned_layout(&dir) {
+        if n > crate::FORMAT_VERSION || *name == own || !owned_layout(&dir) {
             continue;
         }
         if stale(layout_verified(&dir))
@@ -159,9 +161,18 @@ fn manifest(dir: &Path) -> Option<serde_json::Value> {
         .filter(serde_json::Value::is_object)
 }
 
-/// `N` of a `v<N>` directory name.
-pub(crate) fn layout_number(name: &str) -> Option<u32> {
-    let n = name.strip_prefix('v')?;
+/// `N` of a layout directory name, `v<N>` or `v<N>-<16 hex>`.
+pub fn layout_number(name: &str) -> Option<u32> {
+    let rest = name.strip_prefix('v')?;
+    let n = match rest.split_once('-') {
+        Some((n, key))
+            if key.len() == 16 && key.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')) =>
+        {
+            n
+        }
+        Some(_) => return None,
+        None => rest,
+    };
     if n.is_empty() || !n.bytes().all(|b| b.is_ascii_digit()) {
         return None;
     }
@@ -263,7 +274,12 @@ mod tests {
     }
 
     fn layout(repo: &Path, n: u32, verified: Option<u64>) -> PathBuf {
-        let d = repo.join(format!("v{n}"));
+        layout_named(repo, &format!("v{n}"), verified)
+    }
+
+    fn layout_named(repo: &Path, name: &str, verified: Option<u64>) -> PathBuf {
+        let n = layout_number(name).unwrap();
+        let d = repo.join(name);
         fs::create_dir_all(d.join("g-0000000000000001")).unwrap();
         fs::write(d.join("OWNER"), format!("greeg 0.8.0 {n}\n")).unwrap();
         fs::write(d.join("LOCK"), "").unwrap();
@@ -288,16 +304,9 @@ mod tests {
         let r = repo("top");
         top_level(&r, NOW - 15 * DAY_MS);
         fs::write(r.join("notes.txt"), "mine\n").unwrap();
-        let current = layout(&r, crate::FORMAT_VERSION, Some(NOW - 30 * DAY_MS));
+        let current = layout_named(&r, &crate::layout_name(), Some(NOW - 30 * DAY_MS));
         assert_eq!(clean(&r, NOW), 9);
-        assert_eq!(
-            names(&r),
-            [
-                "notes.txt",
-                "session",
-                &format!("v{}", crate::FORMAT_VERSION)
-            ]
-        );
+        assert_eq!(names(&r), ["notes.txt", "session", &crate::layout_name()]);
         assert!(current.join("OWNER").exists());
         assert!(r.join("session/s.jsonl").exists());
         let _ = fs::remove_dir_all(&r);
@@ -322,13 +331,17 @@ mod tests {
     }
 
     #[test]
-    fn older_layouts_go_once_unverified_and_newer_or_foreign_ones_stay() {
+    fn other_layouts_and_builds_go_once_unverified_and_newer_or_foreign_ones_stay() {
         let r = repo("layouts");
         let now = crate::now_ms();
+        let f = crate::FORMAT_VERSION;
         let old = layout(&r, 6, Some(now - 15 * DAY_MS));
         let recent = layout(&r, 7, Some(now - DAY_MS));
-        let newer = layout(&r, crate::FORMAT_VERSION + 1, Some(now - 30 * DAY_MS));
-        let current = layout(&r, crate::FORMAT_VERSION, Some(now - 30 * DAY_MS));
+        let newer = layout(&r, f + 1, Some(now - 30 * DAY_MS));
+        let current = layout_named(&r, &crate::layout_name(), Some(now - 30 * DAY_MS));
+        // this layout, written by other builds
+        let unkeyed = layout(&r, f, Some(now - 15 * DAY_MS));
+        let other_build = layout_named(&r, &format!("v{f}-0123456789abcdef"), Some(now - DAY_MS));
         // no manifest: the directory's own time
         let bare = layout(&r, 8, None);
         let bare_old = layout(&r, 5, None);
@@ -340,9 +353,17 @@ mod tests {
         let busy = layout(&r, 10, Some(now - 15 * DAY_MS));
         let held = File::options().write(true).open(busy.join("LOCK")).unwrap();
         held.lock().unwrap();
-        assert_eq!(clean(&r, now), 2);
-        assert!(!old.exists() && !bare_old.exists());
-        for kept in [&recent, &newer, &current, &bare, &foreign, &busy] {
+        assert_eq!(clean(&r, now), 3);
+        assert!(!old.exists() && !bare_old.exists() && !unkeyed.exists());
+        for kept in [
+            &recent,
+            &newer,
+            &current,
+            &other_build,
+            &bare,
+            &foreign,
+            &busy,
+        ] {
             assert!(kept.exists(), "{}", kept.display());
         }
         drop(held);
@@ -399,7 +420,22 @@ mod tests {
             assert!(!is_top_level(n), "{n}");
         }
         assert_eq!(layout_number("v10"), Some(10));
-        for n in ["v", "vx", "v1a", "version"] {
+        assert_eq!(layout_number("v11-0123456789abcdef"), Some(11));
+        assert_eq!(
+            layout_number(&crate::layout_name()),
+            Some(crate::FORMAT_VERSION)
+        );
+        for n in [
+            "v",
+            "vx",
+            "v1a",
+            "version",
+            "v11-",
+            "v11-0123",
+            "v11-0123456789ABCDEF",
+            "v-0123456789abcdef",
+            "v11-0123456789abcdef0",
+        ] {
             assert_eq!(layout_number(n), None, "{n}");
         }
     }

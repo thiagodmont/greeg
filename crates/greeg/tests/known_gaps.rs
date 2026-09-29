@@ -1591,7 +1591,7 @@ fn purge_previews_and_removes_only_owned_paths() {
     assert_eq!(o.status.code(), Some(0), "{o:?}");
     let listed = stdout(&o);
     for p in [
-        repo.join("v11"),
+        greeg_index::format_dir(&repo),
         repo.join("session"),
         old.clone(),
         base.join("stats"),
@@ -1605,7 +1605,7 @@ fn purge_previews_and_removes_only_owned_paths() {
     assert_eq!(owned_state(&f.base, &f.root), before, "a preview removed");
 
     // a build holding the index keeps it
-    let lock = repo.join(format!("v{}/LOCK", greeg_index::FORMAT_VERSION));
+    let lock = greeg_index::format_dir(&repo).join("LOCK");
     let held = fs::File::options().write(true).open(&lock).unwrap();
     held.lock().unwrap();
     let o = greeg(&["purge", "--yes"]);
@@ -1637,8 +1637,8 @@ fn purge_previews_and_removes_only_owned_paths() {
     assert!(f.index.exists() && !f.layout().exists());
 }
 
-/// Other layouts' indexes go once nothing has verified them for two weeks;
-/// a recently verified one, sessions and the chosen directory stay.
+/// Other layouts' and builds' indexes go once nothing has verified them for
+/// two weeks; a recently verified one, sessions and the chosen directory stay.
 #[test]
 fn legacy_indexes_go_once_unverified_for_two_weeks() {
     let f = Fixture::new(&[("a.rs", "fn needle() {}\n")]);
@@ -1652,7 +1652,8 @@ fn legacy_indexes_go_once_unverified_for_two_weeks() {
         w(&f.index.join(name), "");
     }
     w(&f.index.join("session/s.jsonl"), "{}\n");
-    for (n, verified) in [(6, old), (7, recent)] {
+    // v11 as 0.8.0 wrote it: this layout, another build
+    for (n, verified) in [(6, old), (7, recent), (greeg_index::FORMAT_VERSION, old)] {
         let v = f.index.join(format!("v{n}"));
         w(&v.join("OWNER"), format!("greeg 0.8.0 {n}\n"));
         w(
@@ -1668,6 +1669,5 @@ fn legacy_indexes_go_once_unverified_for_two_weeks() {
         .map(|e| e.unwrap().file_name().into_string().unwrap())
         .collect();
     left.sort();
-    let current = format!("v{}", greeg_index::FORMAT_VERSION);
-    assert_eq!(left, ["session", &current, "v7"]);
+    assert_eq!(left, ["session", &greeg_index::layout_name(), "v7"]);
 }

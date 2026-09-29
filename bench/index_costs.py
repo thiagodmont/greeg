@@ -17,6 +17,7 @@ import os
 from pathlib import Path
 import platform
 import random
+import re
 import shutil
 import statistics
 import subprocess
@@ -81,11 +82,14 @@ def tree_listing(path):
     return dict(sorted(listing.items()))
 
 
+LAYOUT_RE = re.compile(r"v\d+(-[0-9a-f]{16})?")
+
+
 def manifest_path(index):
-    """The manifest of the layout directory, `v<N>/`, a binary from 0.8 on
-    writes; a top-level one (releases before 0.8, which newer binaries leave
-    in place) only when there is none."""
-    found = sorted(p for p in Path(index).glob("v*/manifest") if p.parent.name[1:].isdigit())
+    """The manifest of the layout directory a binary from 0.8 on writes,
+    `v<N>/` or `v<N>-<key>/`; a top-level one (releases before 0.8, which newer
+    binaries leave in place) only when there is none."""
+    found = sorted(p for p in Path(index).glob("v*/manifest") if LAYOUT_RE.fullmatch(p.parent.name))
     if len(found) > 1:
         raise RuntimeError(f"expected one layout manifest in {index}, found {found}")
     if found:

@@ -209,8 +209,8 @@ pub fn cache_base() -> Result<PathBuf> {
 }
 
 /// The directory that holds everything greeg keeps for `root`: sessions, and
-/// one index per layout in `v<N>/` (ARCHITECTURE.md). `GREEG_INDEX_DIR`
-/// overrides it, as `--index-dir` does (`repo_dir`).
+/// one index per layout and build in `v<N>-<key>/` (ARCHITECTURE.md).
+/// `GREEG_INDEX_DIR` overrides it, as `--index-dir` does (`repo_dir`).
 pub fn repo_dir_for(root: &Path) -> Result<PathBuf> {
     if let Some(d) = std::env::var_os("GREEG_INDEX_DIR") {
         return Ok(PathBuf::from(d));
@@ -233,11 +233,16 @@ fn repo_dir_name(real: &Path) -> String {
     format!("{}-{}", sanitize(&name), &hex[..16])
 }
 
-/// This layout's index inside a repository directory. Other layouts' files,
-/// including the top-level files of releases before 0.8, are never read;
-/// `legacy::clean` removes them once they go unverified.
+/// This build's index inside a repository directory. Other layouts' and
+/// other builds' files, including the top-level files of releases before
+/// 0.8, are never read; `legacy::clean` removes them once they go unverified.
 pub fn format_dir(repo: &Path) -> PathBuf {
-    repo.join(format!("v{FORMAT_VERSION}"))
+    repo.join(layout_name())
+}
+
+/// `v<FORMAT_VERSION>-<derive::build_key>`.
+pub fn layout_name() -> String {
+    format!("v{FORMAT_VERSION}-{}", derive::build_key())
 }
 
 /// The repository directory an index directory from `format_dir` belongs to.

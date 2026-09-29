@@ -7,17 +7,30 @@ use greeg_lang::extra::{self, ExtraLang};
 use greeg_lang::{BUILTINS, sym};
 use std::os::unix::fs::MetadataExt;
 
-/// This process's derivation. Computed once: a few small reads and stats
-/// per extra language.
-pub fn derivation() -> &'static str {
-    static D: std::sync::OnceLock<String> = std::sync::OnceLock::new();
-    D.get_or_init(|| {
+/// What this binary derives with, whatever extra languages are registered:
+/// its version and built-in tags queries. It names the index directory
+/// (`format_dir`), so builds that derive differently keep separate indexes
+/// instead of rebuilding each other's.
+pub fn build_key() -> &'static str {
+    static K: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    K.get_or_init(|| {
         let mut h = blake3::Hasher::new();
         h.update(env!("CARGO_PKG_VERSION").as_bytes());
         for q in sym::QUERIES {
             h.update(&(q.len() as u64).to_le_bytes());
             h.update(q.as_bytes());
         }
+        h.finalize().to_hex()[..16].to_string()
+    })
+}
+
+/// This process's derivation. Computed once: a few small reads and stats
+/// per extra language.
+pub fn derivation() -> &'static str {
+    static D: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    D.get_or_init(|| {
+        let mut h = blake3::Hasher::new();
+        h.update(build_key().as_bytes());
         for f in fingerprints() {
             h.update(f.as_bytes());
         }

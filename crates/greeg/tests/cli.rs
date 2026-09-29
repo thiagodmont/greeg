@@ -888,9 +888,9 @@ fn generation(layout: &Path) -> u64 {
 }
 
 /// Releases before 0.8 keep their index at the top of the directory. This
-/// layout lives in its own `v<N>/` beside it and never touches those files, so
-/// an old and a new binary on one repository neither rebuild nor delete each
-/// other's index.
+/// build lives in its own `v<N>-<key>/` beside it and never touches those
+/// files, so an old and a new binary on one repository neither rebuild nor
+/// delete each other's index.
 #[test]
 fn an_older_layout_in_the_same_directory_is_left_alone() {
     let f = fixture();
