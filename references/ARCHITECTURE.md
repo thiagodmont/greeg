@@ -34,9 +34,16 @@ Inside it, each on-disk layout has its own directory, `v<N>/` for
 `OWNER` file (`greeg <version> <N>`); sessions sit beside them in `session/`.
 Every change to what a build writes gets a new N, and a test pins each N to a
 digest of a fixture build, so two binaries with different layouts never share
-or delete each other's files. Releases before 0.8 kept their files at the top
-of the repository directory; newer ones leave them alone and build in `v<N>/`
-once. The manifest records the root it was built for (a hash of the canonical
+each other's files. Releases before 0.8 kept their files at the top of the
+repository directory; newer ones build in `v<N>/` once. Another layout's index
+is never read, and it is removed (`legacy.rs`) only once nothing has verified
+it for 14 days, which a binary still using it does on every refresh, and only
+when its writer lock is free. It must be greeg's: an older `v<N>/` with
+`OWNER`, or the top-level files a pre-0.8 manifest vouches for, by the names
+those releases wrote. Newer layouts, sessions and a chosen directory itself
+stay. When greeg writes, it also tightens its default cache directory and the
+repository directory to 0700, so files an older release left readable are out
+of other users' reach; a chosen directory keeps its mode. The manifest records the root it was built for (a hash of the canonical
 path's bytes, its device and inode), and a query from any other root scans
 instead and rebuilds.
 

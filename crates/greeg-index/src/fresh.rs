@@ -775,6 +775,7 @@ pub fn apply(idx: &Index, root: &Path, ch: &Changes) -> Result<usize> {
     }
     write_manifest(&idx.dir, &m)?;
     crate::snapshot::clean(&idx.dir, &m, &due, false, now);
+    crate::legacy::clean(crate::repo_of(&idx.dir), now_ms());
     Ok(files.len())
 }
 

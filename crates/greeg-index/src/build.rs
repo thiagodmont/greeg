@@ -867,6 +867,7 @@ pub fn build(root: &Path, dir: &Path, opts: &BuildOpts) -> Result<Manifest> {
     };
     write_manifest(dir, &m)?;
     snapshot::clean(dir, &m, &due, true, now);
+    crate::legacy::clean(crate::repo_of(dir), now_ms());
     drop(lock);
     if !opts.quiet {
         eprintln!(
