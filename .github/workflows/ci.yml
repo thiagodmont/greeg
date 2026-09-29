@@ -83,7 +83,9 @@ jobs:
         run: |
           tag=$(git describe --tags --abbrev=0 --match 'v[0-9]*')
           echo "last release: $tag"
-          git worktree add .release "$tag"
+          # the cache may have restored .release/target already
+          mkdir -p .release
+          git archive "$tag" | tar -x -C .release
           cargo build --release --locked --manifest-path .release/Cargo.toml -p greeg
       - name: alternate it with this build
         shell: bash
