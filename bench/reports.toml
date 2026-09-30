@@ -548,3 +548,11 @@ filename = "owned-dirs-2026-09-29-darwin-arm64.json"
 title = "greeg's own directories left out of walks: exact-search regression (2026-09-29)"
 pr = 48
 notes = "v0.8.0 against the branch that leaves greeg's own directories (a chosen index directory, the cache) out of every walk when they lie inside the tree. All 34 cases keep their exit status and stdout (JSON compared without elapsed fields), and every contract passes. Token counts are unchanged except hit_json in the index backend, 4 tokens from the digits of its elapsed fields. Medians range from −3.8% to +5.4%, with no flag. Index build, freshness and post-edit costs against main are in the PR. The harness records no execution time; the result file was written at 2026-09-29T23:53:17Z."
+
+[[datasets]]
+id = "parse_budget"
+section = "matching_review"
+filename = "parse-budget-2026-09-30-darwin-arm64.json"
+title = "Counted parse budget: exact-search regression (2026-09-30)"
+pr = 49
+notes = "v0.8.0 against the branch that bounds extraction parses by 20,000 tree-sitter progress reports instead of a 200 ms clock (query paths unchanged; --precise keeps its clock). All 34 cases keep their exit status and stdout (JSON compared without elapsed fields), and every contract passes. Token counts are unchanged except case_miss_json in the index backend, 4 tokens from the digits of its elapsed fields. Medians range from −2.6% to +4.2%, with no flag. Build determinism under load and build cost against main are in the PR. The harness records no execution time; the result file was written at 2026-09-30T00:16:26Z."
