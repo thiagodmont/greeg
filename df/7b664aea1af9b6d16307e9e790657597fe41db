@@ -2,6 +2,9 @@ references/BENCH.md
   s_b1057b2933cdb0::t_4b7d16f0f3ca09 1270-1316
 bench/reports.toml
   s_b1057b2933cdb0::t_4b7d16f0f3ca09 535,552-558
+  s_b1057b2933cdb0::t_abb1116d045301 551
+bench/results/parse-budget-2026-09-30-darwin-arm64.json
+  s_b1057b2933cdb0::t_e2a25cba9aaa3c 1-5299
 ---
 {
   "schema_version": "authorship/3.0.0",
