@@ -9,8 +9,10 @@ bench/results/owned-dirs-2026-09-29-darwin-arm64.json
   s_b1057b2933cdb0::t_2d4e7b65072315 1-5299
 bench/reports.toml
   s_b1057b2933cdb0::t_83036a662c3110 535-536,544-549
+  s_b1057b2933cdb0::t_9a4d8ab9600e07 543
 references/BENCH.md
   s_b1057b2933cdb0::t_83036a662c3110 1224-1269,1271
+  s_b1057b2933cdb0::t_9a4d8ab9600e07 1176,1223,1270
 crates/greeg-index/src/lib.rs
   s_b1057b2933cdb0::t_5b7506d5f98fce 260-274,278-309
   s_b1057b2933cdb0::t_5ff0d2e23c872b 310
