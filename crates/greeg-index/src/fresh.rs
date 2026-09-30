@@ -52,6 +52,9 @@ pub struct Changes {
     /// FSEvents id captured *before* the check ran, so edits made while the
     /// check was running are replayed by the next check (C15).
     pub fsevents_id: u64,
+    /// When the check began to read the tree (unix ms): the manifest is
+    /// verified as of then, so the TTL never covers a change made during it.
+    pub checked_ms: u64,
     /// This check found that the file system does not keep inode numbers
     /// (`classify_all`); `apply` records it in the manifest.
     pub no_ino: bool,
@@ -386,6 +389,7 @@ pub fn check_stat(idx: &Index, root: &Path, threads: usize) -> Changes {
 
 fn check_stat_with(idx: &Index, root: &Path, lookup: Option<Lookup>, threads: usize) -> Changes {
     let t = Instant::now();
+    let checked_ms = now_ms();
     let tree = Tree::open(root).ok();
     let lookup = lookup.unwrap_or_else(|| tree.as_ref().map_or(Lookup::Refusing, Lookup::of));
     let fsevents_id = current_fsevents_id();
@@ -393,6 +397,7 @@ fn check_stat_with(idx: &Index, root: &Path, lookup: Option<Lookup>, threads: us
     let mut ch = Changes {
         method: "stat",
         fsevents_id,
+        checked_ms,
         ..Default::default()
     };
     let tree = tree.as_ref();
@@ -505,6 +510,7 @@ pub fn check_fsevents(idx: &Index, root: &Path, threads: usize) -> Option<Change
         return None;
     }
     let t = Instant::now();
+    let checked_ms = now_ms();
     let fsevents_id = current_fsevents_id();
     let abs_root = std::fs::canonicalize(root).ok()?;
     // a root that is not UTF-8 cannot be named to FSEvents: the stat pass runs
@@ -514,6 +520,7 @@ pub fn check_fsevents(idx: &Index, root: &Path, threads: usize) -> Option<Change
     let mut ch = Changes {
         method: "fsevents",
         fsevents_id,
+        checked_ms,
         ..Default::default()
     };
     if dirs.is_empty() {
@@ -896,8 +903,9 @@ pub fn apply(idx: &Index, root: &Path, ch: &Changes) -> Result<usize> {
         current_fsevents_id()
     };
     if ch.is_empty() {
+        let now = now_ms();
         // nothing to publish: refresh the TTL stamp, at most once per second
-        if !ch.no_ino && now_ms().saturating_sub(idx.manifest.verified_unix_ms) < VERIFY_WRITE_MS {
+        if !ch.no_ino && now.saturating_sub(idx.manifest.verified_unix_ms) < VERIFY_WRITE_MS {
             return Ok(0);
         }
         let _lock = crate::lock::writer(&idx.dir)?;
@@ -907,7 +915,7 @@ pub fn apply(idx: &Index, root: &Path, ch: &Changes) -> Result<usize> {
         if !same_index(idx, &m) {
             return Ok(0);
         }
-        m.verified_unix_ms = now_ms();
+        m.verified_unix_ms = m.verified_unix_ms.max(ch.checked_ms);
         if fsid != 0 {
             m.fsevents_id = fsid;
         }
@@ -915,10 +923,10 @@ pub fn apply(idx: &Index, root: &Path, ch: &Changes) -> Result<usize> {
             m.stamp_mode = crate::STAMP_NO_INO.into();
         }
         // an idle index drops what the last publication superseded here
-        let (retired, due) = crate::snapshot::retire(&m.retired, [], m.verified_unix_ms);
+        let (retired, due) = crate::snapshot::retire(&m.retired, [], now);
         m.retired = retired;
         write_manifest(&idx.dir, &m)?;
-        crate::snapshot::clean(&idx.dir, &m, &due, false, m.verified_unix_ms);
+        crate::snapshot::clean(&idx.dir, &m, &due, false, now);
         return Ok(0);
     }
     let first_id = idx.next_id();
@@ -1001,7 +1009,7 @@ pub fn apply(idx: &Index, root: &Path, ch: &Changes) -> Result<usize> {
     if ch.no_ino {
         m.stamp_mode = crate::STAMP_NO_INO.into();
     }
-    m.verified_unix_ms = now_ms();
+    m.verified_unix_ms = ch.checked_ms;
     if fsid != 0 {
         m.fsevents_id = fsid;
     }
