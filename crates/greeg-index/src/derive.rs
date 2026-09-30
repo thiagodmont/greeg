@@ -1,6 +1,6 @@
 //! What an index's symbols, spans and imports were derived with
-//! (ARCHITECTURE.md): the version, the built-in tags queries and every
-//! registered extra language. The manifest records it, and an index derived
+//! (ARCHITECTURE.md): the version, the built-in tags queries, the parse
+//! budget and every registered extra language. The manifest records it, and an index derived
 //! otherwise is rebuilt; it also names each language code of the file table.
 
 use greeg_lang::extra::{self, ExtraLang};
@@ -8,20 +8,23 @@ use greeg_lang::{BUILTINS, sym};
 use std::os::unix::fs::MetadataExt;
 
 /// What this binary derives with, whatever extra languages are registered:
-/// its version and built-in tags queries. It names the index directory
-/// (`format_dir`), so builds that derive differently keep separate indexes
-/// instead of rebuilding each other's.
+/// its version, built-in tags queries and parse budget. It names the index
+/// directory (`format_dir`), so builds that derive differently keep separate
+/// indexes instead of rebuilding each other's.
 pub fn build_key() -> &'static str {
     static K: std::sync::OnceLock<String> = std::sync::OnceLock::new();
-    K.get_or_init(|| {
-        let mut h = blake3::Hasher::new();
-        h.update(env!("CARGO_PKG_VERSION").as_bytes());
-        for q in sym::QUERIES {
-            h.update(&(q.len() as u64).to_le_bytes());
-            h.update(q.as_bytes());
-        }
-        h.finalize().to_hex()[..16].to_string()
-    })
+    K.get_or_init(|| key_of(env!("CARGO_PKG_VERSION"), &sym::QUERIES, sym::PARSE_BUDGET))
+}
+
+fn key_of(version: &str, queries: &[&str], parse_budget: u32) -> String {
+    let mut h = blake3::Hasher::new();
+    h.update(version.as_bytes());
+    for q in queries {
+        h.update(&(q.len() as u64).to_le_bytes());
+        h.update(q.as_bytes());
+    }
+    h.update(&parse_budget.to_le_bytes());
+    h.finalize().to_hex()[..16].to_string()
 }
 
 /// This process's derivation. Computed once: a few small reads and stats
@@ -89,4 +92,18 @@ fn fingerprint(l: &ExtraLang) -> String {
         }
     }
     h.finalize().to_hex().to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Two builds of one version whose parses stop at different points
+    /// extract differently, so they keep separate indexes.
+    #[test]
+    fn the_parse_budget_is_part_of_the_build_key() {
+        let key = |budget| key_of("1.0.0", &sym::QUERIES, budget);
+        assert_eq!(key(sym::PARSE_BUDGET), key(sym::PARSE_BUDGET));
+        assert_ne!(key(sym::PARSE_BUDGET), key(sym::PARSE_BUDGET / 2));
+    }
 }
