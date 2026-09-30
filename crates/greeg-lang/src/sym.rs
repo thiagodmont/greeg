@@ -1,7 +1,8 @@
 //! Stage-B extraction (ARCHITECTURE.md): tree-sitter parse, one tags query
 //! per language, and a small amount of post-processing into symbols, noncode
-//! spans and import statements. Falls back to the regex outline in `defs` on
-//! parse timeout or when `ERROR` nodes cover more than 20 % of the file.
+//! spans and import statements. Falls back to the regex outline in `defs`
+//! when a parse exceeds its budget or `ERROR` nodes cover more than 20 % of
+//! the file.
 
 use crate::lexer::{Span, SpanKind};
 use crate::{DefKind, Lang, defs, lexer};
@@ -10,7 +11,7 @@ use std::ops::ControlFlow;
 use std::sync::{LazyLock, OnceLock};
 use std::time::{Duration, Instant};
 use streaming_iterator::StreamingIterator;
-use tree_sitter::{Language, Node, ParseOptions, Parser, Query, QueryCursor};
+use tree_sitter::{Language, Node, ParseOptions, Parser, Query, QueryCursor, Tree};
 
 /// Symbol flags (stored as `u8` in the index).
 pub const SYM_EXPORTED: u8 = 1;
@@ -21,6 +22,12 @@ pub const SYM_TEST: u8 = 4;
 /// agent asks for: hits on its name classify as `member`, and `def` ranks it low.
 pub const SYM_OBJ_MEMBER: u8 = 8;
 
+/// Extraction parse budget, in tree-sitter progress reports (one per 100
+/// parser operations). Counted, not timed, so a build does not depend on load.
+pub const PARSE_BUDGET: u32 = 20_000;
+/// Stops an extraction parse that stays within the budget but never ends.
+pub const PARSE_WALL_LIMIT: Duration = Duration::from_secs(5);
+/// `--precise` parses at query time, where latency comes first.
 pub const PARSE_TIMEOUT: Duration = Duration::from_millis(200);
 /// Files whose `ERROR` nodes cover more than this fraction fall back to regexes.
 pub const MAX_ERROR_RATIO: f32 = 0.20;
@@ -272,19 +279,13 @@ fn extract_raw(lang: Lang, tsx: bool, src: &[u8], depth: u8) -> Extract {
             return None;
         }
         let t0 = Instant::now();
-        let mut cb = |_: &tree_sitter::ParseState| {
-            if t0.elapsed() > PARSE_TIMEOUT {
-                ControlFlow::Break(())
-            } else {
-                ControlFlow::Continue(())
-            }
-        };
-        let opts = ParseOptions::new().progress_callback(&mut cb);
-        p.parse_with_options(
-            &mut |off, _| if off < src.len() { &src[off..] } else { &[] },
-            None,
-            Some(opts),
-        )
+        let mut reports = 0u32;
+        parse_while(&mut p, src, || {
+            #[cfg(test)]
+            tests::slow_down();
+            reports += 1;
+            reports <= PARSE_BUDGET && t0.elapsed() <= PARSE_WALL_LIMIT
+        })
     });
     let Some(tree) = tree else {
         return regex_extract(lang, src);
@@ -1117,21 +1118,26 @@ pub fn parse(lang: Lang, tsx: bool, src: &[u8]) -> Option<Parsed> {
         let mut p = p.borrow_mut();
         p.set_language(&lq.lang).ok()?;
         let t0 = Instant::now();
-        let mut cb = |_: &tree_sitter::ParseState| {
-            if t0.elapsed() > PARSE_TIMEOUT {
-                ControlFlow::Break(())
-            } else {
-                ControlFlow::Continue(())
-            }
-        };
-        let opts = ParseOptions::new().progress_callback(&mut cb);
-        p.parse_with_options(
-            &mut |off, _| if off < src.len() { &src[off..] } else { &[] },
-            None,
-            Some(opts),
-        )
+        parse_while(&mut p, src, || t0.elapsed() <= PARSE_TIMEOUT)
     })?;
     Some(Parsed { tree, lang })
+}
+
+/// Parses `src`, asking `more` at each progress report; `None` once it says no.
+fn parse_while(p: &mut Parser, src: &[u8], mut more: impl FnMut() -> bool) -> Option<Tree> {
+    let mut cb = |_: &tree_sitter::ParseState| {
+        if more() {
+            ControlFlow::Continue(())
+        } else {
+            ControlFlow::Break(())
+        }
+    };
+    let opts = ParseOptions::new().progress_callback(&mut cb);
+    p.parse_with_options(
+        &mut |off, _| if off < src.len() { &src[off..] } else { &[] },
+        None,
+        Some(opts),
+    )
 }
 
 impl Parsed {
@@ -1530,6 +1536,52 @@ fn join_path(a: &str, b: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    thread_local! {
+        static SLOW: std::cell::Cell<Duration> = const { std::cell::Cell::new(Duration::ZERO) };
+    }
+
+    /// A busy machine, as the parse sees it: each progress report waits.
+    pub(super) fn slow_down() {
+        let d = SLOW.get();
+        if !d.is_zero() {
+            std::thread::sleep(d);
+        }
+    }
+
+    /// The same bytes extract the same way however fast the parse runs (N6).
+    #[test]
+    fn extraction_does_not_depend_on_how_fast_the_parse_runs() {
+        let src: String = (0..600)
+            .map(|i| format!("pub fn f{i}(x: u32) -> u32 {{\n    x + {i}\n}}\n\n"))
+            .collect();
+        let names = |e: &Extract| {
+            e.symbols
+                .iter()
+                .map(|s| src[s.name_start as usize..s.name_end as usize].to_string())
+                .collect::<Vec<_>>()
+        };
+        let fast = extract(Lang::Rust, false, src.as_bytes());
+        assert!(fast.tree_sitter);
+        SLOW.set(Duration::from_millis(2));
+        let slow = extract(Lang::Rust, false, src.as_bytes());
+        SLOW.set(Duration::ZERO);
+        assert!(slow.tree_sitter, "a slow parse fell back to regexes");
+        assert_eq!(names(&slow), names(&fast));
+    }
+
+    /// Past the budget, extraction falls back to the regex outline, which
+    /// still finds every function.
+    #[test]
+    fn a_parse_over_budget_falls_back_to_the_outline() {
+        let n = 50_000;
+        let src: String = (0..n)
+            .map(|i| format!("pub fn f{i}(x: u32) -> u32 {{\n    x + {i}\n}}\n\n"))
+            .collect();
+        let e = extract(Lang::Rust, false, src.as_bytes());
+        assert!(!e.tree_sitter);
+        assert_eq!(e.symbols.len(), n);
+    }
 
     /// `GREEG_DUMP=path cargo test -p greeg-lang dump_parse_errors -- --ignored --nocapture`:
     /// print every ERROR/MISSING node of a file with its line, for grammar triage.
