@@ -1689,3 +1689,58 @@ fn legacy_indexes_go_once_unverified_for_two_weeks() {
     left.sort();
     assert_eq!(left, ["session", &greeg_index::layout_name(), "v7"]);
 }
+
+/// greeg's own directories inside the tree it searches, a chosen index
+/// directory or the cache when the tree is the home directory, are neither
+/// indexed nor searched, and their writes are not changes to the tree (N5).
+#[test]
+fn greeg_directories_inside_the_root_are_left_out() {
+    let f = Fixture::with_filler(&[("a.rs", "fn needle() {}\n")]);
+    let chosen = f.root.join("idx");
+    let setups: [(&str, Vec<(&str, PathBuf)>); 2] = [
+        (
+            "an index directory",
+            vec![("GREEG_INDEX_DIR", chosen.clone())],
+        ),
+        (
+            "the cache",
+            vec![
+                ("HOME", f.root.clone()),
+                ("XDG_CACHE_HOME", f.root.join("cache")),
+            ],
+        ),
+    ];
+    for (what, env) in setups {
+        let run = |args: &[&str]| {
+            let mut c = f.command();
+            c.env_remove("GREEG_INDEX_DIR");
+            for (k, v) in &env {
+                c.env(k, v);
+            }
+            c.args(args).arg("--no-session").output().unwrap()
+        };
+        let o = run(&["index", "--quiet"]);
+        assert!(o.status.success(), "{what}: {o:?}");
+        std::thread::sleep(PAST_FRESHNESS_WINDOW);
+        let o = run(&["index", "--check"]);
+        let text = format!("{}{}", stdout(&o), String::from_utf8_lossy(&o.stderr));
+        assert!(
+            text.contains("modified 0 deleted 0 added 0") && text.contains("rebuild none"),
+            "{what}: {text}"
+        );
+        for mode in [&[][..], &["--no-index"][..]] {
+            let mut args = vec!["-l", "greeg"];
+            args.extend_from_slice(mode);
+            let o = run(&args);
+            assert_eq!(
+                (o.status.code(), stdout(&o)),
+                (Some(1), String::new()),
+                "{what} {mode:?}: {o:?}"
+            );
+        }
+        let o = run(&["--json", "-c", "needle"]);
+        assert!(stdout(&o).contains("\"a.rs\""), "{what}: {o:?}");
+        // a directory no setting names is the tree's own
+        let _ = fs::remove_dir_all(&chosen);
+    }
+}

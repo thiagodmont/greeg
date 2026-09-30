@@ -576,9 +576,12 @@ fn walker(o: &Options, threads: usize, bounds: &ScanBounds) -> Result<ignore::Wa
         .ignore(!o.no_ignore)
         .parents(!o.no_ignore)
         .threads(threads);
-    if bounds.skip_git {
-        wb.filter_entry(|e| e.file_name() != ".git");
-    }
+    // greeg's own directories are never searched
+    let owned = greeg_index::owned_ids(o.index_dir.as_deref());
+    let skip_git = bounds.skip_git;
+    wb.filter_entry(move |e| {
+        !(greeg_index::is_owned(&owned, e) || skip_git && e.file_name() == ".git")
+    });
     if !o.types.is_empty() || !o.types_not.is_empty() {
         wb.types(build_types(o)?);
     }

@@ -257,10 +257,55 @@ pub fn repo_of(index_dir: &Path) -> &Path {
 
 /// `repo_dir_for`, or the directory `--index-dir` named.
 pub fn repo_dir(root: &Path, explicit: Option<&Path>) -> Result<PathBuf> {
-    match explicit {
-        Some(d) => Ok(d.to_path_buf()),
-        None => repo_dir_for(root),
+    let dir = match explicit {
+        Some(d) => d.to_path_buf(),
+        None => repo_dir_for(root)?,
+    };
+    note_owned(&dir);
+    Ok(dir)
+}
+
+/// Repository directories this process named (`owned_ids`).
+static OWNED: std::sync::Mutex<Vec<PathBuf>> = std::sync::Mutex::new(Vec::new());
+
+fn note_owned(dir: &Path) {
+    let mut owned = OWNED.lock().unwrap_or_else(|e| e.into_inner());
+    if !owned.iter().any(|d| d == dir) {
+        owned.push(dir.to_path_buf());
     }
+}
+
+/// (device, inode) of the directories greeg keeps its data in, those that
+/// exist: the cache, `GREEG_INDEX_DIR`, `extra`, and every repository
+/// directory this process named. Walks leave them out, so an index inside
+/// the tree it indexes never holds its own files and no search reads them.
+pub fn owned_ids(extra: Option<&Path>) -> Vec<(u64, u64)> {
+    use std::os::unix::fs::MetadataExt;
+    let mut dirs = OWNED.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    dirs.extend(cache_base().ok());
+    dirs.extend(std::env::var_os("GREEG_INDEX_DIR").map(PathBuf::from));
+    dirs.extend(extra.map(Path::to_path_buf));
+    let mut ids: Vec<(u64, u64)> = dirs
+        .iter()
+        .filter_map(|d| std::fs::metadata(d).ok())
+        .filter(|m| m.is_dir())
+        .map(|m| (m.dev(), m.ino()))
+        .collect();
+    ids.sort_unstable();
+    ids.dedup();
+    ids
+}
+
+/// Is the walked entry `e` one of the `owned` directories? Only a directory
+/// whose inode matches pays a `stat`.
+pub fn is_owned(owned: &[(u64, u64)], e: &ignore::DirEntry) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    !owned.is_empty()
+        && e.file_type().is_some_and(|t| t.is_dir())
+        && e.ino()
+            .is_some_and(|ino| owned.iter().any(|&(_, i)| i == ino))
+        && e.metadata()
+            .is_ok_and(|m| owned.contains(&(m.dev(), m.ino())))
 }
 
 /// Where this layout's index for `root` lives.

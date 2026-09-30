@@ -27,7 +27,11 @@ The index lives outside the repository, under
 `~/Library/Caches/greeg/<sanitized name>-<first 16 hex of the blake3 hash of the
 realpath's bytes>` on macOS or `$XDG_CACHE_HOME/greeg/…` elsewhere. It
 never dirties the working tree and survives `git clean`. `GREEG_INDEX_DIR` or
-`--index-dir` override that repository directory.
+`--index-dir` override that repository directory. When greeg's own
+directories lie inside the tree (a chosen index directory there, or the cache
+when the tree is the home directory), every walk leaves them out, by device
+and inode (`owned_ids`): the index never holds its own files, its writes are
+not changes to the tree, and no search, indexed or scan, reads them.
 
 Inside it, each build has its own directory, `v<N>-<key>/` for
 `FORMAT_VERSION` N and the first 16 hex of the blake3 hash of the version and
