@@ -591,6 +591,12 @@ A file that fails to parse, or whose language has no grammar, falls back to
 anchored regexes per language. `def` and `refs` still work everywhere; you lose
 the precise kinds and nothing else.
 
+A parse stops, and the file falls back, after a budget of parser work: 20,000
+tree-sitter progress reports, about 2 MB of ordinary source. The budget counts
+work, not time, so two builds of one tree extract the same symbols however
+loaded the machine is. A 5 s clock stops only a parse that never ends. The
+query-time parse of `--precise` keeps a 200 ms clock instead.
+
 Imports are resolved to file ids at index time, per language: Python package
 paths and relative dots, TypeScript/JavaScript through the nearest
 `tsconfig.json` `paths` and `baseUrl` plus workspace packages, Rust `use` and
