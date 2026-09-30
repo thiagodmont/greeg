@@ -1744,3 +1744,55 @@ fn greeg_directories_inside_the_root_are_left_out() {
         let _ = fs::remove_dir_all(&chosen);
     }
 }
+
+/// An index whose walk kept a directory that is now greeg's own, as indexes
+/// built before such directories were left out did, no longer answers with
+/// its files.
+#[test]
+fn an_index_holding_greeg_directories_is_rebuilt() {
+    let f = Fixture::with_filler(&[("a.rs", "fn needle() {}\n"), ("idx/old.txt", "needle\n")]);
+    let o = f.run(&["index", "--quiet"]);
+    assert!(o.status.success(), "{o:?}");
+    std::thread::sleep(PAST_FRESHNESS_WINDOW);
+    // the same index, with idx/ now greeg's own
+    let o = f
+        .command()
+        .env("GREEG_INDEX_DIR", f.root.join("idx"))
+        .args(["-l", "needle", "--no-session", "--index-dir"])
+        .arg(&f.index)
+        .output()
+        .unwrap();
+    assert_eq!(stdout(&o), "a.rs\n", "{o:?}");
+}
+
+/// An index directory that is the tree itself would put greeg's files among
+/// the tree's, so it is refused; a search still answers from a scan.
+#[test]
+fn an_index_directory_that_is_the_tree_is_refused() {
+    let f = Fixture::with_filler(&[("a.rs", "fn needle() {}\n")]);
+    let run = |args: &[&str]| {
+        f.command()
+            .args(args)
+            .args(["--no-session", "--index-dir", "."])
+            .output()
+            .unwrap()
+    };
+    let o = run(&["index", "--quiet"]);
+    assert_eq!(o.status.code(), Some(2), "{o:?}");
+    assert!(
+        String::from_utf8_lossy(&o.stderr).contains("is the tree it indexes"),
+        "{o:?}"
+    );
+    let o = run(&["-l", "needle"]);
+    assert_eq!(
+        (o.status.code(), stdout(&o)),
+        (Some(0), "a.rs\n".into()),
+        "{o:?}"
+    );
+    let kept: Vec<_> = fs::read_dir(&f.root)
+        .unwrap()
+        .map(|e| e.unwrap().file_name())
+        .filter(|n| n.to_string_lossy().starts_with('v'))
+        .collect();
+    assert!(kept.is_empty(), "{kept:?}");
+}

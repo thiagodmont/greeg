@@ -3,6 +3,8 @@
 //! configuration that names it. They decide which files the walk yields, so
 //! the index records a digest of them and rebuilds when it changes. Ignore
 //! files inside the tree are tracked as files instead (`format::is_ignore_file`).
+//! greeg's own directories inside the tree (`owned_ids`) are inputs too: the
+//! walk leaves them out.
 
 use std::fs;
 use std::os::unix::fs::MetadataExt;
@@ -15,6 +17,11 @@ pub fn digest(root: &Path) -> String {
     for p in inputs(root) {
         h.update(p.as_os_str().as_encoded_bytes());
         stamp_into(&mut h, &p);
+    }
+    let real = fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
+    for rel in crate::owned_inside(&real) {
+        h.update(b"\0owned\0");
+        h.update(rel.as_os_str().as_encoded_bytes());
     }
     h.finalize().to_hex()[..32].to_string()
 }

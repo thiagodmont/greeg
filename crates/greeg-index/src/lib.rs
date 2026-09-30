@@ -256,11 +256,21 @@ pub fn repo_of(index_dir: &Path) -> &Path {
 }
 
 /// `repo_dir_for`, or the directory `--index-dir` named.
+/// Refused when it is `root` itself: greeg's files would sit among the tree's.
 pub fn repo_dir(root: &Path, explicit: Option<&Path>) -> Result<PathBuf> {
+    use std::os::unix::fs::MetadataExt;
     let dir = match explicit {
         Some(d) => d.to_path_buf(),
         None => repo_dir_for(root)?,
     };
+    if let (Ok(d), Ok(r)) = (std::fs::metadata(&dir), std::fs::metadata(root))
+        && (d.dev(), d.ino()) == (r.dev(), r.ino())
+    {
+        anyhow::bail!(
+            "index directory {} is the tree it indexes; choose one inside it or outside it",
+            dir.display()
+        );
+    }
     note_owned(&dir);
     Ok(dir)
 }
@@ -281,11 +291,7 @@ fn note_owned(dir: &Path) {
 /// the tree it indexes never holds its own files and no search reads them.
 pub fn owned_ids(extra: Option<&Path>) -> Vec<(u64, u64)> {
     use std::os::unix::fs::MetadataExt;
-    let mut dirs = OWNED.lock().unwrap_or_else(|e| e.into_inner()).clone();
-    dirs.extend(cache_base().ok());
-    dirs.extend(std::env::var_os("GREEG_INDEX_DIR").map(PathBuf::from));
-    dirs.extend(extra.map(Path::to_path_buf));
-    let mut ids: Vec<(u64, u64)> = dirs
+    let mut ids: Vec<(u64, u64)> = owned_dirs(extra)
         .iter()
         .filter_map(|d| std::fs::metadata(d).ok())
         .filter(|m| m.is_dir())
@@ -294,6 +300,33 @@ pub fn owned_ids(extra: Option<&Path>) -> Vec<(u64, u64)> {
     ids.sort_unstable();
     ids.dedup();
     ids
+}
+
+fn owned_dirs(extra: Option<&Path>) -> Vec<PathBuf> {
+    let mut dirs = OWNED.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    dirs.extend(cache_base().ok());
+    dirs.extend(std::env::var_os("GREEG_INDEX_DIR").map(PathBuf::from));
+    dirs.extend(extra.map(Path::to_path_buf));
+    dirs
+}
+
+/// The owned directories inside the canonical `root`, relative to it, the
+/// outermost only.
+pub(crate) fn owned_inside(root: &Path) -> Vec<PathBuf> {
+    let mut rels: Vec<PathBuf> = owned_dirs(None)
+        .iter()
+        .filter_map(|d| std::fs::canonicalize(d).ok())
+        .filter_map(|d| d.strip_prefix(root).ok().map(Path::to_path_buf))
+        .filter(|r| !r.as_os_str().is_empty())
+        .collect();
+    rels.sort();
+    let mut outer: Vec<PathBuf> = Vec::new();
+    for r in rels {
+        if !outer.iter().any(|o| r.starts_with(o)) {
+            outer.push(r);
+        }
+    }
+    outer
 }
 
 /// Is the walked entry `e` one of the `owned` directories? Only a directory
