@@ -38,17 +38,26 @@ pub fn is_readable_stdin() -> bool {
 }
 
 /// Search `data` (the whole of stdin) with the user's pattern and flags.
-pub fn scan(o: &Options, data: Vec<u8>) -> Result<ScanResult> {
+pub fn scan(o: &Options, mut data: Vec<u8>) -> Result<ScanResult> {
     let t0 = Instant::now();
+    // Same as `process_file`: transcode BOM-marked UTF-16 and search past a
+    // UTF-8 BOM while offsets keep indexing the whole buffer.
+    greeg_lang::transcode_utf16(&mut data);
+    let bom = if data.starts_with(&[0xEF, 0xBB, 0xBF]) {
+        3
+    } else {
+        0
+    };
     let matcher = build_matcher(o)?;
     let mut sink = CollectSink::new(&matcher, Lang::None, usize::MAX, false, o.multiline);
+    sink.base = bom as u32;
     sink.first_only = o.mode == Mode::Files;
     let mut sb = SearcherBuilder::new();
     sb.line_number(true)
         .binary_detection(BinaryDetection::quit(0))
         .multi_line(o.multiline)
         .bom_sniffing(false);
-    sb.build().search_slice(&matcher, &data, &mut sink)?;
+    sb.build().search_slice(&matcher, &data[bom..], &mut sink)?;
     let src = Source::new(data);
     let bytes: &[u8] = &src.bytes;
     let mut hits = Vec::with_capacity(sink.hits.len());
@@ -159,5 +168,36 @@ mod tests {
         assert_eq!(r.files[0].hits[1].raw, b"xa");
         let r = scan(&o, b"b\n".to_vec()).unwrap();
         assert!(r.files.is_empty());
+    }
+
+    #[test]
+    fn stdin_scan_skips_utf8_bom() {
+        let o = Options {
+            pattern: "^foo".into(),
+            budget: 0,
+            ..Default::default()
+        };
+        let mut data = vec![0xEF, 0xBB, 0xBF];
+        data.extend_from_slice(b"foo bar\nfoo baz\n");
+        let r = scan(&o, data).unwrap();
+        assert_eq!(r.stats.total_hits, 2);
+        let hits = &r.files[0].hits;
+        assert_eq!(hits.iter().map(|h| h.line).collect::<Vec<_>>(), vec![1, 2]);
+        assert_eq!(hits[0].raw, b"foo bar");
+    }
+
+    #[test]
+    fn stdin_scan_transcodes_utf16() {
+        let o = Options {
+            pattern: "foo".into(),
+            budget: 0,
+            ..Default::default()
+        };
+        let mut data = vec![0xFF, 0xFE];
+        data.extend("foo\nbar\n".encode_utf16().flat_map(u16::to_le_bytes));
+        let r = scan(&o, data).unwrap();
+        assert_eq!(r.stats.total_hits, 1);
+        assert_eq!(r.files[0].hits[0].line, 1);
+        assert_eq!(r.stats.skipped_binary, 0);
     }
 }

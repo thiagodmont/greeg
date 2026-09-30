@@ -2090,7 +2090,7 @@ fn scan_once(o: &Options, bounds: &ScanBounds) -> Result<ScanResult> {
         let mut sb = SearcherBuilder::new();
         // bom_sniffing(false): offsets must index the buffer we read (the
         // searcher would otherwise strip a UTF-8 BOM and shift every offset by 3).
-        // UTF-16 files are therefore searched as raw bytes (ripgrep transcodes them).
+        // `process_file` transcodes UTF-16 files and skips a UTF-8 BOM itself.
         sb.line_number(true)
             .binary_detection(BinaryDetection::quit(0))
             .multi_line(o.multiline)

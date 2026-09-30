@@ -799,6 +799,30 @@ fn stdin_is_searched_like_ripgrep() {
 }
 
 #[test]
+fn stdin_with_utf8_bom_matches_anchored_first_line() {
+    use std::io::Write;
+    use std::process::Stdio;
+    let mut c = Command::new(BIN)
+        .args(["--no-session", "^foo"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .env("GREEG_STATS", "0")
+        .spawn()
+        .unwrap();
+    c.stdin
+        .take()
+        .unwrap()
+        .write_all(b"\xEF\xBB\xBFfoo bar\nfoo baz\n")
+        .unwrap();
+    let o = c.wait_with_output().unwrap();
+    let out = String::from_utf8_lossy(&o.stdout);
+    assert!(out.contains("foo bar"), "{out}");
+    assert!(out.contains("foo baz"), "{out}");
+    assert_eq!(o.status.code(), Some(0));
+}
+
+#[test]
 fn stdin_does_not_silently_accept_discovery() {
     use std::io::Write;
     use std::process::Stdio;
