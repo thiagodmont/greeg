@@ -1,0 +1,42 @@
+crates/greeg-index/src/build.rs
+  s_b1057b2933cdb0::t_5b7506d5f98fce 199,204-205
+  s_b1057b2933cdb0::t_ffbfc01c58c895 206
+README.md
+  s_b1057b2933cdb0::t_0fc6b71b0ec069 241
+  s_b1057b2933cdb0::t_45ba1db2e219b1 242-244
+  s_b1057b2933cdb0::t_91f315b8aeda14 245-248
+bench/results/owned-dirs-2026-09-29-darwin-arm64.json
+  s_b1057b2933cdb0::t_2d4e7b65072315 1-5299
+bench/reports.toml
+  s_b1057b2933cdb0::t_83036a662c3110 535-542
+references/BENCH.md
+  s_b1057b2933cdb0::t_83036a662c3110 1176-1222
+crates/greeg-index/src/lib.rs
+  s_b1057b2933cdb0::t_5b7506d5f98fce 255-269,273-304
+  s_b1057b2933cdb0::t_5ff0d2e23c872b 305
+references/ARCHITECTURE.md
+  s_b1057b2933cdb0::t_0fc6b71b0ec069 30-34
+crates/greeg-query/src/lib.rs
+  s_b1057b2933cdb0::t_5b7506d5f98fce 579-582,584
+  s_b1057b2933cdb0::t_b556e9223293e1 583
+crates/greeg/tests/known_gaps.rs
+  s_b1057b2933cdb0::t_04e4c725d16eaf 1725-1726
+  s_b1057b2933cdb0::t_8820f694aed122 1674-1683,1688-1716,1722-1724,1727-1728
+  s_b1057b2933cdb0::t_3e344a41e7f865 1684-1687,1717-1721
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "c499477286e7aa7aa95ab96ce1978a0a8bd0da0e",
+  "prompts": {},
+  "sessions": {
+    "s_b1057b2933cdb0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0aa73425-0ec9-4b76-ae94-35b6bdff17bb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
