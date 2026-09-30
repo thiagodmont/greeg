@@ -1199,3 +1199,50 @@ fn verb_json_paths_name_the_file_exactly() {
         assert_eq!(got, want, "{backend:?}");
     }
 }
+
+/// A build killed at any point never changes an answer: the next query
+/// answers as a scan does, including files added since, and the next build
+/// publishes.
+#[test]
+fn a_build_killed_partway_never_changes_an_answer() {
+    let f = empty_fixture();
+    for i in 0..3000 {
+        w(
+            &f.root.join(format!("d{:02}/f{i:04}.rs", i % 40)),
+            &format!(
+                "pub fn f{i}() -> u32 {{\n    {i}\n}}\n// needle {}\n",
+                i % 7
+            ),
+        );
+    }
+    let answers = |f: &Fixture| {
+        let scan = f.out(&["-l", "--sort", "path", "needle 3", "--no-index"]);
+        let indexed = f.out(&["-l", "--sort", "path", "needle 3"]);
+        (scan, indexed)
+    };
+    for (round, delay_ms) in [0u64, 2, 5, 10, 20, 40, 80, 160].into_iter().enumerate() {
+        w(&f.root.join(format!("new/n{round}.rs")), "// needle 3\n");
+        // past the 100 ms in which a verified index is trusted unchecked
+        std::thread::sleep(std::time::Duration::from_millis(150));
+        let mut build = Command::new(BIN)
+            .args(["index", "--quiet", "--no-session", "--index-dir"])
+            .arg(&f.index)
+            .current_dir(&f.root)
+            .env("GREEG_STATS", "0")
+            .spawn()
+            .unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(delay_ms));
+        let _ = build.kill();
+        build.wait().unwrap();
+        let (scan, indexed) = answers(&f);
+        assert!(scan.contains(&format!("new/n{round}.rs")), "{scan}");
+        assert_eq!(indexed, scan, "killed after {delay_ms} ms");
+    }
+    f.indexed();
+    let (scan, indexed) = answers(&f);
+    assert_eq!(indexed, scan, "after a full build");
+    let check = f.run(&["index", "--check"]);
+    let text = String::from_utf8_lossy(&check.stdout).into_owned()
+        + &String::from_utf8_lossy(&check.stderr);
+    assert!(text.contains("rebuild none"), "{text}");
+}

@@ -652,6 +652,11 @@ pub fn build(root: &Path, dir: &Path, opts: &BuildOpts) -> Result<Manifest> {
     let ignore_inputs = crate::ignores::digest(root);
     let walked_ns = now_ns();
     let (walked, dirs, skipped) = walk_with_skipped(root)?;
+    AFTER_WALK.with(|h| {
+        if let Some(f) = h.borrow_mut().as_mut() {
+            f()
+        }
+    });
     let walk_ms = t0.elapsed().as_secs_f64() * 1e3;
 
     let pool = rayon::ThreadPoolBuilder::new()
@@ -858,7 +863,8 @@ pub fn build(root: &Path, dir: &Path, opts: &BuildOpts) -> Result<Manifest> {
         peak_rss: crate::peak_rss_bytes().unwrap_or(0),
         spilled,
         fsevents_id,
-        verified_unix_ms: now_ms(),
+        // what the walk saw, not what changed while the build ran
+        verified_unix_ms: (walked_ns / 1_000_000) as u64,
         deltas: 0,
         tombstones: 0,
         ignore_inputs,
@@ -901,8 +907,17 @@ pub fn build(root: &Path, dir: &Path, opts: &BuildOpts) -> Result<Manifest> {
 }
 
 thread_local! {
+    static AFTER_WALK: std::cell::RefCell<Option<Box<dyn FnMut()>>> =
+        const { std::cell::RefCell::new(None) };
     static AFTER_PHASE1: std::cell::RefCell<Option<Box<dyn FnMut()>>> =
         const { std::cell::RefCell::new(None) };
+}
+
+/// Run `f` after the walk of every build on this thread: a writer racing the
+/// build in tests.
+#[doc(hidden)]
+pub fn after_walk_on_this_thread(f: Option<Box<dyn FnMut()>>) {
+    AFTER_WALK.with(|h| *h.borrow_mut() = f);
 }
 
 /// Run `f` between the two publications of every build on this thread: a

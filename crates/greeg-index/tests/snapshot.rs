@@ -2,7 +2,9 @@
 //! whatever writers publish or clean up meanwhile, and cleanup removes what
 //! no reader can need.
 
-use greeg_index::build::{BuildOpts, after_phase1_on_this_thread, build};
+use greeg_index::build::{
+    BuildOpts, after_phase1_on_this_thread, after_walk_on_this_thread, build,
+};
 use greeg_index::fresh::{self, Mode};
 use greeg_index::snapshot::{MAX_REMOVALS, OPEN_ATTEMPTS, RETIRED_BUILDS, expire_retired, gen_dir};
 use greeg_index::{Index, format, read_manifest, write_manifest};
@@ -324,4 +326,46 @@ fn phase_two_does_not_revive_an_abandoned_build() {
     let m = read_manifest(&t.dir).unwrap();
     assert!(!m.phase1 && !m.phase2);
     assert!(Index::open(&t.dir).is_err());
+}
+
+/// Longer than the TTL, so only a stamp from before the change can make the
+/// next check run.
+const SLOW_PUBLISH: Duration = Duration::from_millis(150);
+
+fn added_by_next_check(t: &Tmp) -> bool {
+    let idx = Index::open(&t.dir).unwrap();
+    fresh::check(&idx, &t.root, Mode::Auto, 1)
+        .is_some_and(|ch| ch.added.iter().any(|w| w.rel == b"src/late.rs"))
+}
+
+/// A build vouches for what its walk saw: a file added while it runs is found
+/// by the first check after it publishes.
+#[test]
+fn a_file_added_while_a_build_runs_is_found_by_the_next_check() {
+    let t = tree();
+    let root = t.root.clone();
+    after_walk_on_this_thread(Some(Box::new(move || {
+        fs::write(root.join("src/late.rs"), "pub fn late() {}\n").unwrap();
+        std::thread::sleep(SLOW_PUBLISH);
+    })));
+    let built = build(&t.root, &t.dir, &opts());
+    after_walk_on_this_thread(None);
+    built.unwrap();
+    assert!(added_by_next_check(&t));
+}
+
+/// A delta vouches for what its check saw: a file added while it publishes is
+/// found by the first check after it.
+#[test]
+fn a_file_added_while_a_delta_publishes_is_found_by_the_next_check() {
+    let t = tree();
+    build(&t.root, &t.dir, &opts()).unwrap();
+    std::thread::sleep(Duration::from_millis(30));
+    fs::write(t.root.join("src/util.rs"), "pub fn helper_beta() {}\n").unwrap();
+    let idx = Index::open(&t.dir).unwrap();
+    let ch = fresh::check(&idx, &t.root, Mode::Stat, 1).unwrap();
+    fs::write(t.root.join("src/late.rs"), "pub fn late() {}\n").unwrap();
+    std::thread::sleep(SLOW_PUBLISH);
+    assert_eq!(fresh::apply(&idx, &t.root, &ch).unwrap(), 1);
+    assert!(added_by_next_check(&t));
 }

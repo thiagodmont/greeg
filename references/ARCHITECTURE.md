@@ -476,7 +476,9 @@ to keep it there.
   41 ms for 66k files. Below about 8,000 files this beats FSEvents, whose
   stream setup costs ~11 ms no matter how small the tree.
 * **Back-to-back calls**: a manifest verified in the last 100 ms is trusted, so
-  several tool calls in one agent turn pay for a single check.
+  several tool calls in one agent turn pay for a single check. It is verified
+  as of when its check or build began reading the tree, not when it was
+  published, so a change made while either ran is found by the next check.
 
 A known file that is no longer a regular file (replaced by a symlink, FIFO
 or device) counts as deleted, and added entries are indexed only when they
