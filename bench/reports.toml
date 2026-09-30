@@ -556,3 +556,11 @@ filename = "parse-budget-2026-09-30-darwin-arm64.json"
 title = "Counted parse budget: exact-search regression (2026-09-30)"
 pr = 49
 notes = "v0.8.0 against the branch that bounds extraction parses by 20,000 tree-sitter progress reports instead of a 200 ms clock (query paths unchanged; --precise keeps its clock). All 34 cases keep their exit status and stdout (JSON compared without elapsed fields), and every contract passes. Token counts are unchanged except case_miss_json in the index backend, 4 tokens from the digits of its elapsed fields. Medians range from −2.6% to +4.2%, with no flag. Build determinism under load and build cost against main are in the PR. The harness records no execution time; the result file was written at 2026-09-30T00:16:26Z."
+
+[[datasets]]
+id = "verified_at_walk"
+section = "matching_review"
+filename = "verified-at-walk-2026-09-30-darwin-arm64.json"
+title = "Verification stamped when the tree was read: exact-search regression (2026-09-30)"
+pr = 51
+notes = "v0.8.0 against the branch that stamps an index verified when its walk or check began rather than when it was published. All 34 cases keep their exit status and stdout (JSON compared without elapsed fields), and every contract passes. Token counts are unchanged except hit_json in both backends, 1 and 4 tokens from the digits of its elapsed fields. Medians range from −6.5% to +5.6%, with no flag. Index costs against main are in the PR. The harness records no execution time; the result file was written at 2026-09-30T18:33:59Z."
