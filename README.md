@@ -238,12 +238,14 @@ hidden**. `--budget 0`, `-l` and `-c` disable query relaxation by default.
 
 The index lives outside your repo (under `~/Library/Caches/greeg` on macOS,
 `$XDG_CACHE_HOME/greeg` elsewhere), so it never dirties the working tree and
-survives `git clean`. Each greeg version has its own `v<N>-<key>/` directory
-there, so two versions used on one repository in turn never rebuild each
-other's index; another version's index is removed once it has gone unused for
-14 days. A new greeg version, or a change to the extra languages, rebuilds once
-in the background; so does an edit to a file import resolution reads (`tsconfig.json`,
-`package.json`, `Cargo.toml`, ...), since it moves the edges of unchanged files.
+survives `git clean`; an `--index-dir` inside the tree is left out of searches.
+Each greeg version has its own `v<N>-<key>/` directory there, so two versions
+used on one repository in turn never rebuild each other's index; another
+version's index is removed once it has gone unused for 14 days. A new greeg
+version, or a change to the extra languages, rebuilds once in the background;
+so does an edit to a file import resolution reads (`tsconfig.json`,
+`package.json`, `Cargo.toml`, ...), since it moves the edges of unchanged
+files.
 
 ```bash
 greeg index                 # build now instead of on first query

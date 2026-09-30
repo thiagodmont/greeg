@@ -196,9 +196,13 @@ pub(crate) type Noted = std::sync::Arc<Mutex<Vec<std::path::PathBuf>>>;
 /// The filter only sees entries no ignore rule excluded first.
 pub(crate) fn walker_noting(path: &Path, noted: Option<Noted>) -> ignore::WalkBuilder {
     let mut wb = ignore::WalkBuilder::new(path);
+    let owned = crate::owned_ids(None);
     wb.hidden(false).filter_entry(move |e| {
         if e.depth() == 0 {
             return true;
+        }
+        if crate::is_owned(&owned, e) {
+            return false;
         }
         let name = e.file_name().as_bytes();
         let keep = !name.starts_with(b".")
