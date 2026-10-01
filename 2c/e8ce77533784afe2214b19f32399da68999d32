@@ -1,0 +1,54 @@
+README.md
+  s_b1057b2933cdb0::t_7dbc9513a6d60b 188,330-333
+bench/edits.py
+  s_b1057b2933cdb0::t_84d129c77d7f79 13-14,17-19,26,44,54-55,59,83,85-86
+references/ARCHITECTURE.md
+  s_b1057b2933cdb0::t_1633e4c52d9392 661-664
+references/JSON.md
+  s_b1057b2933cdb0::t_7dbc9513a6d60b 9,11,14-40
+  s_b1057b2933cdb0::t_49d492f93dff57 41
+bench/matching.py
+  s_b1057b2933cdb0::t_73533df74f00a7 36
+bench/soak.py
+  s_b1057b2933cdb0::t_84d129c77d7f79 10,38-39,45-48,52
+bench/parity.py
+  s_b1057b2933cdb0::t_84d129c77d7f79 7,37,62-76
+crates/greeg/src/main.rs
+  s_b1057b2933cdb0::t_dead79a3733826 73-75,149-152,160,747-757,963-965,1076
+crates/greeg/tests/known_gaps.rs
+  s_b1057b2933cdb0::t_f4cc34e65dac2c 179,191,277-280,467-472,502,572-573,590,602,622,755,1000,1061,1072,1133,1137,1149,1275,1302,1331-1334,1781
+crates/greeg/src/hook.rs
+  s_b1057b2933cdb0::t_dead79a3733826 34,43-47
+bench/bench.py
+  s_b1057b2933cdb0::t_84d129c77d7f79 154-157,165-174,455,459,812,821,827-828,832-833
+  s_b1057b2933cdb0::t_2f72fa10f9f2e2 451,462
+crates/greeg/tests/cli.rs
+  s_b1057b2933cdb0::t_32fa526fd1a107 1676-1682,1684
+  s_b1057b2933cdb0::t_f4cc34e65dac2c 470,505,706,731,1080,1120,1145,1159,1186,1395-1402,1644-1675,1683,1685-1692,1694-1738,1740-1744,1746-1751
+  s_b1057b2933cdb0::t_7f4a7631e7bbc8 1693,1745
+  s_b1057b2933cdb0::t_69c8bc2dc0e605 1739
+bench/reports.toml
+  s_b1057b2933cdb0::t_c01cbf7cb32b6d 599-614
+bench/results/json-migration-2026-10-01-darwin-arm64.json
+  s_b1057b2933cdb0::t_ac79a901c74ba3 1-5695
+bench/results/json-migration-recheck-2026-10-01-darwin-arm64.json
+  s_b1057b2933cdb0::t_1b8819272e1efa 1-776
+references/BENCH.md
+  s_b1057b2933cdb0::t_9e04ec18025107 1520-1581
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "2ce8ce77533784afe2214b19f32399da68999d32",
+  "prompts": {},
+  "sessions": {
+    "s_b1057b2933cdb0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0aa73425-0ec9-4b76-ae94-35b6bdff17bb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
