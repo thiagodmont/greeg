@@ -70,6 +70,9 @@ enum JsonDialect {
     Rg,
     /// greeg's own records, schema 1: typed, byte-safe, shaped by the budget
     Greeg,
+    /// Bare `--json`: `legacy` until it becomes `greeg` in 0.11
+    #[value(hide = true)]
+    Default,
 }
 
 /// Flags shared by search and the verbs (accepted before or after a verb).
@@ -143,9 +146,10 @@ struct Common {
     /// Skip files larger than this many bytes
     #[arg(long = "max-filesize", default_value_t = 4 << 20, global = true)]
     max_filesize: u64,
-    /// JSON Lines output. `--json`: ripgrep's schema plus kind/symbol/facets/footer,
-    /// shaped by the budget. `--json=rg`: exactly ripgrep's records and semantics.
-    /// `--json=greeg`: greeg's own records, schema 1
+    /// JSON Lines output. `--json=greeg`: greeg's own records, schema 1.
+    /// `--json=rg`: exactly ripgrep's records and semantics. `--json=legacy`:
+    /// ripgrep's schema plus kind/symbol/facets/footer, shaped by the budget.
+    /// Bare `--json` is `legacy`, and becomes `greeg` in 0.11
     #[arg(
         long = "json",
         global = true,
@@ -153,7 +157,7 @@ struct Common {
         value_enum,
         num_args = 0..=1,
         require_equals = true,
-        default_missing_value = "legacy"
+        default_missing_value = "default"
     )]
     json_dialect: Option<JsonDialect>,
     /// Sort output: `path` (for -l, -c and --budget 0); other kinds are ignored
@@ -740,6 +744,17 @@ fn main_inner() -> Result<()> {
     run()
 }
 
+/// Bare `--json` changes meaning in 0.11; say so to a person, not to a pipe.
+fn json_notice(c: &Common) {
+    use std::io::IsTerminal;
+    if c.json_dialect == Some(JsonDialect::Default)
+        && !c._no_messages
+        && std::io::stderr().is_terminal()
+    {
+        eprintln!("greeg: --json will mean --json=greeg in 0.11; --json=legacy keeps this output");
+    }
+}
+
 fn build_options(c: &Common, pattern: String, paths: Vec<PathBuf>) -> Result<Options> {
     if c.json_rg() && c.budget_arg.is_some() {
         anyhow::bail!("--json=rg returns every match, as ripgrep does; it takes no --budget");
@@ -945,6 +960,9 @@ fn run() -> Result<()> {
                 "--json=greeg covers searches and the symbol verbs; this command takes --json"
             );
         }
+        if !verb.is_empty() {
+            json_notice(c);
+        }
         let r = match cmd {
             Cmd::Index {
                 root,
@@ -1055,6 +1073,7 @@ fn run() -> Result<()> {
     };
     let mut opts = build_options(c, pattern, paths)?;
     opts.fixed_strings = fixed;
+    json_notice(c);
     let fmt = Fmt {
         chain: c.chain,
         stats: c.stats,

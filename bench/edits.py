@@ -10,18 +10,20 @@ def run(args, **kw):
         args = [greeg, "--no-session", *args[1:]]
     return corpus.run(args, **kw)
 def pairs(out):
-    s=set()
+    """(path, line) of each match record: rg's carry both, greeg's follow their file's `begin`."""
+    s=set(); path=None
     for line in out.splitlines():
         if not line.startswith('{'): continue
-        j=json.loads(line)
-        if j.get('type')=='match': d=j['data']; s.add((d['path']['text'].removeprefix('./'), d['line_number']))
+        j=json.loads(line); d=j['data']
+        if j.get('type')=='begin': path=d['path']['text'].removeprefix('./')
+        elif j.get('type')=='match': s.add((d['path']['text'].removeprefix('./') if 'path' in d else path, d.get('line_number', d.get('line'))))
     return s
 def compare(q, label):
     time.sleep(0.12)  # past the 100 ms freshness TTL
     oracle = run(["rg","--json","-n",*q,"."])
     rg = pairs(oracle.stdout.decode(errors="replace"))
     t=time.perf_counter()
-    p = run([greeg,"--json","--budget","0","--no-ladder","--max-columns","0","--stats",*q,"."])
+    p = run([greeg,"--json=greeg","--budget","0","--no-ladder","--max-columns","0","--stats",*q,"."])
     ms=(time.perf_counter()-t)*1e3
     gg = pairs(p.stdout.decode(errors="replace"))
     src = "index" if "greeg: index" in p.stderr.decode() else "scan"
@@ -39,7 +41,7 @@ def rows(out):
             except ValueError: pass
 def defs(out):
     for j in rows(out):
-        if j.get("type") == "def": yield j
+        if j.get("type") == "def": yield {**j["data"], "path": j["data"]["path"]["text"]}
 def graph_check():
     """Pick an imported file with symbols from `map`, find a file that imports it
     (reach 1.0 from `def --from`), edit both, and check the reach survives the deltas."""
@@ -49,12 +51,12 @@ def graph_check():
         if '"phase2": true' in st: break
         time.sleep(0.1)
     time.sleep(0.12)
-    p = run([greeg,"--json","--fresh","stat","map","."])
-    ranked = [j["data"] for j in rows(p.stdout) if j.get("type")=="file"]
+    p = run([greeg,"--json=greeg","--fresh","stat","map","."])
+    ranked = [{**j["data"], "path": j["data"]["path"]["text"]} for j in rows(p.stdout) if j.get("type")=="file"]
     ranked = [f for f in ranked if f.get("imported_by",0) > 0 and f.get("top")]
     ranked.sort(key=lambda f: -f["imported_by"])
     def reach_of(name, origin, target):
-        d = run([greeg,"--json","--fresh","none","def",name,"--from",origin])
+        d = run([greeg,"--json=greeg","--fresh","none","def",name,"--from",origin])
         for e in defs(d.stdout):
             if e.get("path") == target: return e.get("reach")
         return None
@@ -78,12 +80,10 @@ def graph_check():
         with open(corpus.path(edit),"a") as fh: fh.write("\n# ZZEDITMARK graph\n")
         time.sleep(0.12)
         t=time.perf_counter()
-        d = run([greeg,"--json","--stats","--fresh","stat","def",name,"--from",origin])
+        d = run([greeg,"--json=greeg","--stats","--fresh","stat","def",name,"--from",origin])
         ms=(time.perf_counter()-t)*1e3
-        reach = None; src = "?"
-        for j in rows(d.stdout):
-            if j.get("type") == "def" and j.get("path") == target: reach = j.get("reach")
-            if j.get("type") == "footer": src = j["data"].get("source", "?")
+        reach = next((e.get("reach") for e in defs(d.stdout) if e["path"] == target), None)
+        src = next((j["data"]["outcome"]["source"] for j in rows(d.stdout) if j.get("type") == "footer"), "?")
         good = reach == 1.0
         ok &= good
         print(f"  {label:28} def {name} --from {origin[-44:]:44} reach={reach} {'OK ' if good else 'DIFF'} via {src} {ms:6.1f} ms")

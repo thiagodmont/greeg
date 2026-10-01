@@ -7,7 +7,7 @@ greeg vs rg, for a wall-clock duration.
 Every iteration picks a corpus and a query from a family (identifiers from
 the index's symbol names, words, phrases, regexes, with random -w/-i/-t/-g
 flags), compares the (path, line) sets of `rg --json` and
-`greeg --json --budget 0 --no-ladder --max-columns 0`, and runs one random verb
+`greeg --json=greeg --budget 0 --no-ladder --max-columns 0`, and runs one random verb
 to catch crashes (exit code 2). Every 20 iterations it applies a burst of
 edits (modify, create, delete, rename) in disposable snapshots. Source corpora
 are read-only inputs; restores return to their initial snapshot contents.
@@ -35,19 +35,21 @@ def rg_lines(pattern, flags, cwd):
     return out, r.returncode
 
 def greeg_lines(pattern, flags, cwd):
-    r = run([greeg, "--json", "--budget", "0", "--no-ladder", "--max-columns", "0", "--no-session"] + flags + ["-e", pattern, "."], cwd)
-    out = set()
+    r = run([greeg, "--json=greeg", "--budget", "0", "--no-ladder", "--max-columns", "0", "--no-session"] + flags + ["-e", pattern, "."], cwd)
+    out, path = set(), None
     for line in r.stdout.decode("utf8", "replace").splitlines():
         try:
             j = json.loads(line)
         except ValueError:
             continue
-        if j.get("type") == "match":
-            out.add((j["data"]["path"]["text"].removeprefix("./"), j["data"]["line_number"]))
+        if j.get("type") == "begin":
+            path = j["data"]["path"]["text"]
+        elif j.get("type") == "match":
+            out.add((path, j["data"]["line"]))
     return out, r.returncode, r.stderr.decode("utf8", "replace")
 
 def names_of(cwd):
-    r = run([greeg, "map", "--json", "--budget", "0", "--no-session"], cwd)
+    r = run([greeg, "map", "--json=greeg", "--budget", "0", "--no-session"], cwd)
     if r.returncode not in (0, 1):
         raise RuntimeError(r.stderr.decode(errors="replace"))
     names = []

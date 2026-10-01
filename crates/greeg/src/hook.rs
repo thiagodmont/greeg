@@ -31,7 +31,7 @@ description: Code search for agents. Use `greeg` instead of rg/grep: ranked, syn
 
 # greeg
 
-`greeg PATTERN [PATHS]` accepts ripgrep flags (`-i -w -F -t rs -g '*.py' -A/-B/-C --json`)
+`greeg PATTERN [PATHS]` accepts ripgrep flags (`-i -w -F -t rs -g '*.py' -A/-B/-C`)
 and returns hits classified as def/import/call/type/member/ident/doc/comment/string with
 the enclosing symbol, tests and vendored code demoted, within a token budget
 (`--budget N`, default 2000). Broad queries return facets first; the footer says what
@@ -40,7 +40,11 @@ discovery ladder found word-boundary, case, split-token or fuzzy-name suggestion
 
 `-l` prints only paths and `-c` prints `path:count`, one per line on stdout, so both
 use the machine output modes. Filenames are newline-delimited, not NUL-delimited.
-File searches with `-l`, `-c`, `--mode files|count`, `--budget 0` or `--json`
+For machine-readable output use `--json=greeg`: typed JSON Lines records (searches and
+every verb) whose last record, the footer, holds the `outcome` (exit, total, shown,
+complete). `--json=rg` prints exactly ripgrep's records.
+
+File searches with `-l`, `-c`, `--mode files|count`, `--budget 0` or JSON
 use exact matching by default. Ranked text uses discovery. `--matching exact`
 (also `--no-ladder`) disables discovery; `--matching discover` opts into it.
 Relaxed file/count/unlimited results put their rung in the stderr footer and

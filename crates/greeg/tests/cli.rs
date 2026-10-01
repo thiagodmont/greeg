@@ -467,7 +467,7 @@ fn machine_modes_do_not_emit_relaxed_matches() {
         }
         for query in ["LOAD_CONFIG", "LoadConfig", "load_confiq"] {
             let mut args = backend.clone();
-            args.extend(["--json", query]);
+            args.extend(["--json=legacy", query]);
             let out = f.run(&args);
             assert_eq!(out.status.code(), Some(1), "{args:?}");
             let records: Vec<serde_json::Value> = String::from_utf8(out.stdout)
@@ -502,7 +502,7 @@ fn matching_policy_is_explicit_and_keeps_the_legacy_opt_out() {
             vec!["-l"],
             vec!["-c"],
             vec!["--budget", "0"],
-            vec!["--json"],
+            vec!["--json=legacy"],
         ] {
             let mut args = backend.clone();
             args.extend(mode);
@@ -703,7 +703,7 @@ fn def_exact_honors_case_flags_on_both_backends() {
                 "{args:?}"
             );
             assert!(out.stderr.is_empty(), "{args:?}: {:?}", out.stderr);
-            args.push("--json");
+            args.push("--json=legacy");
             let out = f.run(&args);
             let records: Vec<serde_json::Value> = String::from_utf8(out.stdout)
                 .unwrap()
@@ -728,7 +728,7 @@ fn def_exact_honors_case_flags_on_both_backends() {
             );
         }
     }
-    let module = f.run(&["def", "módulo", "--matching", "exact", "--json"]);
+    let module = f.run(&["def", "módulo", "--matching", "exact", "--json=legacy"]);
     assert!(String::from_utf8_lossy(&module.stdout).contains("src/módulo.rs"));
 }
 
@@ -1077,7 +1077,7 @@ fn file_lists_name_every_path_byte_for_byte() {
             parity,
             "{backend:?}"
         );
-        let json = run(&["--json", "pathneedle"]);
+        let json = run(&["--json=legacy", "pathneedle"]);
         let want: Vec<serde_json::Value> = names
             .iter()
             .map(|n| serde_json::json!({"text": std::str::from_utf8(n).unwrap()}))
@@ -1117,7 +1117,7 @@ fn a_non_utf8_file_name_round_trips_through_the_index() {
             run(&["-l", "--sort", "path", "needle"]),
             b"caf\xff.txt\nd\xfe/x.txt\n"
         );
-        let json = run(&["--json", "needle"]);
+        let json = run(&["--json=legacy", "needle"]);
         assert_eq!(
             json_paths(&json, "begin"),
             [
@@ -1142,7 +1142,7 @@ fn a_non_utf8_file_name_round_trips_through_the_index() {
         );
         std::thread::sleep(std::time::Duration::from_millis(500));
     }
-    let json = f.run(&["--json", "freshterm"]).stdout;
+    let json = f.run(&["--json=legacy", "freshterm"]).stdout;
     assert_eq!(source(&json), "index");
     assert_eq!(
         json_paths(&json, "begin"),
@@ -1156,7 +1156,7 @@ fn skipped_entries_with_non_utf8_names_keep_coverage_known() {
     let f = empty_fixture();
     byte_tree(&f.root, &[b".h\xff.txt", b"seen.txt"], "needle\n");
     f.indexed();
-    let args = ["--json", "-g", "*.txt", "needle"];
+    let args = ["--json=legacy", "-g", "*.txt", "needle"];
     let json = f.run(&args).stdout;
     assert_eq!(source(&json), "index", "the skipped record lists the name");
     assert_eq!(
@@ -1183,7 +1183,7 @@ fn verb_json_paths_name_the_file_exactly() {
     }
     f.indexed();
     for backend in [&[][..], &["--no-index"][..]] {
-        let o = f.run(&[&["def", "exact_path_fn", "--json"][..], backend].concat());
+        let o = f.run(&[&["def", "exact_path_fn", "--json=legacy"][..], backend].concat());
         assert_eq!(o.status.code(), Some(0), "{o:?}");
         let mut want: Vec<_> = names.iter().map(|(_, p)| p.clone()).collect();
         want.sort_by_key(|p| p.to_string());
@@ -1392,7 +1392,14 @@ fn json_rg_counts_every_occurrence_and_only_searched_bytes() {
 fn a_context_line_after_a_bom_holds_only_its_text() {
     let f = empty_fixture();
     fs::write(f.root.join("bom.txt"), b"\xef\xbb\xbfx\nneedle\n").unwrap();
-    let out = f.out(&["--json", "--no-index", "-B", "1", "needle", "bom.txt"]);
+    let out = f.out(&[
+        "--json=legacy",
+        "--no-index",
+        "-B",
+        "1",
+        "needle",
+        "bom.txt",
+    ]);
     assert!(
         out.contains(r#""lines":{"text":"x\n"},"line_number":1,"absolute_offset":3"#),
         "{out}"
@@ -1632,5 +1639,113 @@ fn json_greeg_covers_stdin_and_refuses_other_commands() {
             (Some(2), true),
             "{args:?}"
         );
+    }
+}
+
+/// Run greeg with stderr on a terminal (a pty); returns stdout, stderr and
+/// the exit status.
+fn run_on_terminal(f: &Fixture, args: &[&str]) -> (String, String, Option<i32>) {
+    use std::io::Read;
+    use std::os::fd::{FromRawFd, OwnedFd};
+    use std::process::Stdio;
+    let (mut master, mut slave) = (0, 0);
+    let r = unsafe {
+        libc::openpty(
+            &mut master,
+            &mut slave,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+        )
+    };
+    assert_eq!(r, 0, "openpty");
+    let master = unsafe { OwnedFd::from_raw_fd(master) };
+    let slave = unsafe { OwnedFd::from_raw_fd(slave) };
+    let mut cmd = Command::new(BIN);
+    cmd.args(args)
+        .args(["--no-session", "--index-dir"])
+        .arg(&f.index)
+        .current_dir(&f.root)
+        .env("GREEG_STATS", "0")
+        .env("GREEG_INDEX_DIR", &f.index)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::from(slave));
+    let child = cmd.spawn().expect("run greeg");
+    drop(cmd);
+    // read while greeg runs: a terminal may drop what nobody read once it closes
+    let reader = std::thread::spawn(move || {
+        let mut err = Vec::new();
+        // ends with an error once greeg, the last writer, exits
+        let _ = std::fs::File::from(master).read_to_end(&mut err);
+        err
+    });
+    let o = child.wait_with_output().unwrap();
+    let err = reader.join().unwrap();
+    (
+        String::from_utf8_lossy(&o.stdout).into_owned(),
+        String::from_utf8_lossy(&err).into_owned(),
+        o.status.code(),
+    )
+}
+
+/// Bare `--json` is `legacy` in this release. On a terminal it says, once,
+/// that it becomes `greeg` in 0.11; a pipe, `--no-messages`, a named dialect and
+/// commands that keep their own JSON hear nothing.
+#[test]
+fn bare_json_is_legacy_and_names_its_change_only_to_a_person() {
+    let f = empty_fixture();
+    w(
+        &f.root.join("src/lib.rs"),
+        "pub fn needle() {}\nfn caller() { needle(); }\n",
+    );
+    f.indexed();
+    let elapsed = |s: &str| -> String {
+        s.lines()
+            .map(|l| {
+                let mut v: serde_json::Value = serde_json::from_str(l).unwrap();
+                if let Some(d) = v.get_mut("data").and_then(|d| d.as_object_mut()) {
+                    for k in ["elapsed_total", "elapsed_ms"] {
+                        d.shift_remove(k);
+                    }
+                    if let Some(s) = d.get_mut("stats").and_then(|s| s.as_object_mut()) {
+                        s.shift_remove("elapsed");
+                    }
+                }
+                v.to_string()
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    for args in [&["needle"][..], &["def", "needle"][..]] {
+        let bare = f.run(&[&["--json"][..], args].concat());
+        let legacy = f.run(&[&["--json=legacy"][..], args].concat());
+        assert_eq!(bare.status.code(), legacy.status.code(), "{args:?}");
+        assert_eq!(
+            elapsed(&String::from_utf8_lossy(&bare.stdout)),
+            elapsed(&String::from_utf8_lossy(&legacy.stdout)),
+            "{args:?}"
+        );
+        assert!(
+            bare.stderr.is_empty(),
+            "{args:?}: {}",
+            String::from_utf8_lossy(&bare.stderr)
+        );
+    }
+    let notice = "greeg: --json will mean --json=greeg in 0.11; --json=legacy keeps this output";
+    for args in [&["--json", "needle"][..], &["--json", "def", "needle"][..]] {
+        let (out, err, code) = run_on_terminal(&f, args);
+        assert_eq!(code, Some(0), "{args:?}: {err}");
+        assert!(!json_lines(&out).is_empty(), "{args:?}: {out}");
+        assert_eq!(err.matches(notice).count(), 1, "{args:?}: {err}");
+    }
+    for args in [
+        &["--json=legacy", "needle"][..],
+        &["--json=greeg", "needle"][..],
+        &["--json", "--no-messages", "needle"][..],
+        &["--json", "stats"][..],
+    ] {
+        let (_, err, _) = run_on_terminal(&f, args);
+        assert!(!err.contains("--json will mean"), "{args:?}: {err}");
     }
 }
