@@ -4,7 +4,7 @@
     bench/parity.py CORPORA_DIR GREEG [--corpora a,b] [--no-sets] [--no-matrix]
 
 Two parts. *Sets*: for each fetched corpus, the (path, line) sets of
-`greeg --json --budget 0 --no-ladder --max-columns 0` and `rg --json` must be
+`greeg --json=greeg --budget 0 --no-ladder --max-columns 0` and `rg --json` must be
 equal for a table of queries. Corpora that are not fetched are skipped with a
 message (CI fetches only the small tier). *Matrix*: behavioural cases run on
 the first fetched corpus plus a scratch directory: absolute path arguments,
@@ -34,7 +34,7 @@ MATRIX_PARAMS = {
     "TypeScript-5.9": {"name": "SyntaxKind", "subdir": "src/compiler", "glob": "src/compiler/**"},
     "rust": {"name": "HirId", "subdir": "compiler/rustc_hir/src", "glob": "compiler/rustc_hir/**"},
 }
-GREEG_RAW = ["--json", "--budget", "0", "--no-ladder", "--max-columns", "0"]
+GREEG_RAW = ["--json=greeg", "--budget", "0", "--no-ladder", "--max-columns", "0"]
 
 
 NO_STATS = {**os.environ, "GREEG_STATS": "0"}  # parity runs are not usage: keep them out of `greeg stats`
@@ -59,7 +59,21 @@ def records(out, kind="match"):
 
 
 def pairs(out):
-    return {(d["path"]["text"].removeprefix("./"), d["line_number"]) for d in records(out)}
+    """(path, line) of each match record: rg's carry both, greeg's follow their file's `begin`."""
+    found, path = set(), None
+    for line in out.splitlines():
+        if not line.startswith("{"):
+            continue
+        try:
+            j = json.loads(line)
+        except ValueError:
+            continue
+        d = j.get("data", {})
+        if j.get("type") == "begin":
+            path = d["path"]["text"].removeprefix("./")
+        elif j.get("type") == "match":
+            found.add((d["path"]["text"].removeprefix("./") if "path" in d else path, d.get("line_number", d.get("line"))))
+    return found
 
 
 def rg_pairs(args, cwd):

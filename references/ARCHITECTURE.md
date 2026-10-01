@@ -658,9 +658,10 @@ paths and content as `{"text"}` or `{"bytes"}`, each file's encoding and
 offset coordinates, and an `outcome` in every footer. It is shaped by the
 budget, as text is. Serde structs in `json_native.rs` define it.
 
-`--json` keeps ripgrep's JSON Lines schema, adding `kind`, `symbol`,
-`file_flags` and `score` to match records, plus `facets` and `footer` record
-types. It is budget-shaped like text: `footer.outcome.complete` is false when
+`--json=legacy`, which bare `--json` means until 0.11
+([migrating](JSON.md#migrating-from-bare---json)), keeps ripgrep's JSON Lines
+schema, adding `kind`, `symbol`, `file_flags` and `score` to match records,
+plus `facets` and `footer` record types. It is budget-shaped like text: `footer.outcome.complete` is false when
 the budget left matches out. Its `absolute_offset` counts a UTF-8 BOM, as it
 always has. Every search and search-verb footer has the `outcome` object
 described under [When nothing matches](#when-nothing-matches).

@@ -6,10 +6,38 @@ greeg writes JSON Lines in three dialects:
 |---|---|---|
 | `--json=greeg` | greeg's own records, schema 1 (this page) | agents and tools that read greeg |
 | `--json=rg` | ripgrep's records, nothing else | tools written for `rg --json` |
-| `--json` | ripgrep's records plus greeg's fields (`legacy`) | existing consumers |
+| `--json=legacy` | ripgrep's records plus greeg's fields | consumers of greeg 0.9 and earlier |
 
-`--json=rg` and `--json` are described under
+`--json=rg` and `--json=legacy` are described under
 [JSON output](ARCHITECTURE.md#json-output).
+
+## Migrating from bare `--json`
+
+Bare `--json` names no dialect, so its meaning changes:
+
+| Release | Bare `--json` | `--json=legacy` |
+|---|---|---|
+| 0.10 | `legacy`; on a terminal, stderr says it will change | available |
+| 0.11 | `greeg` | available |
+| 0.12 | `greeg` | removed |
+
+Pass a dialect to keep today's output whatever the release: `--json=legacy`
+for the records you read now, `--json=greeg` or `--json=rg` for the formats
+that stay. The notice goes only to a terminal, never to a pipe, so scripts and
+agents see no change in 0.10. `greeg stats --json` is a report of its own and
+does not change.
+
+From `legacy` to `greeg`:
+- Read the header first; `command` says which records follow.
+- A search's `match` records no longer carry the path: take it from the
+  `begin` before them. `line_number` is `line`, `absolute_offset` is
+  `byte_offset` (check `begin.coordinates`), `lines` is `text` without its
+  terminator, and `submatches` are `[start, end]` pairs.
+- `end` and `summary` records are gone; `begin.matched_lines` and the footer
+  hold the counts. `hits_total`, `hits_shown`, `rung` and `source` are in the
+  footer's `outcome` (`total`, `shown`, `rung`, `source`).
+- `def` and `impl` records are `{"type", "data"}` like the rest, and every
+  path is `{"text"}` or `{"bytes"}`.
 
 ## Schema 1 (`--json=greeg`)
 

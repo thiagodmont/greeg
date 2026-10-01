@@ -151,9 +151,10 @@ def greeg_text_hits(text):
     return out
 
 
-def json_hits(text):
-    """(path, line) set from rg/greeg --json match records."""
-    s = set()
+def json_matches(text):
+    """(path, data) of each match record of rg --json or greeg --json=greeg, whose
+    match records follow their file's `begin` instead of naming the path."""
+    path = None
     for line in text.splitlines():
         if not line.startswith("{"):
             continue
@@ -161,10 +162,16 @@ def json_hits(text):
             j = json.loads(line)
         except ValueError:
             continue
-        if j.get("type") == "match":
-            d = j["data"]
-            s.add((d["path"]["text"].removeprefix("./"), d["line_number"]))
-    return s
+        d = j.get("data", {})
+        if j.get("type") == "begin":
+            path = d["path"]["text"].removeprefix("./")
+        elif j.get("type") == "match":
+            yield (d["path"]["text"].removeprefix("./") if "path" in d else path), d
+
+
+def json_hits(text):
+    """(path, line) set from rg --json or greeg --json=greeg match records."""
+    return {(p, d.get("line_number", d.get("line"))) for p, d in json_matches(text)}
 
 
 # ───────────────────────────── fetch ─────────────────────────────
@@ -441,18 +448,18 @@ def speed(args):
             cmds = [tool_cmd(t, greeg, fam, pat, spec.get("kind"), target) for t in timed]
             # match-set verification. rg --json is the reference. `greeg-full`: the (path, line) set parsed
             # from the text the *timed* command prints. `greeg` (budgeted digest) cannot be verified from
-            # its own output: it is checked as `--json --budget 0` with the same query, which is what
+            # its own output: it is checked as `--json=greeg --budget 0` with the same query, which is what
             # `rg_eq_greeg` means. grep is compared by text (no gitignore: its set may exceed rg's).
             if is_file:
                 rgj = json_hits(out_of(["rg", "--json", "-n", *FAMILY_FLAGS[fam], "-e", pat, target], cwd))
-                ggj = json_hits(out_of([greeg, "--json", "--no-index", "--no-session", "--budget", "0", "--no-ladder", "--max-columns", "0", "--max-filesize", HUGE_FILE, *FAMILY_FLAGS[fam], "-e", pat, target], cwd))
+                ggj = json_hits(out_of([greeg, "--json=greeg", "--no-index", "--no-session", "--budget", "0", "--no-ladder", "--max-columns", "0", "--max-filesize", HUGE_FILE, *FAMILY_FLAGS[fam], "-e", pat, target], cwd))
                 full_txt = None
             else:
                 rgj = json_hits(out_of(["rg", "--json", "-n", *FAMILY_FLAGS[fam], "-e", pat, "."], cwd))
-                ggj = json_hits(out_of([greeg, "--json", "--no-session", "--budget", "0", "--no-ladder", "--max-columns", "0", *FAMILY_FLAGS[fam], "-e", pat, "."], cwd))
+                ggj = json_hits(out_of([greeg, "--json=greeg", "--no-session", "--budget", "0", "--no-ladder", "--max-columns", "0", *FAMILY_FLAGS[fam], "-e", pat, "."], cwd))
                 full_txt = {h for h in greeg_text_hits(out_of(tool_cmd("greeg-full", greeg, fam, pat, None), cwd)) if h}
             grp = {h for h in text_hits(out_of(cmds[0], cwd)) if h}
-            verified = {"rg": len(rgj), "greeg": len(ggj), "grep": len(grp), "rg_eq_greeg": rgj == ggj, "grep_eq_rg": grp == rgj, "greeg_verified_as": "greeg --json --budget 0 (same query, unbudgeted JSON); the timed budgeted digest is not verifiable from its own output"}
+            verified = {"rg": len(rgj), "greeg": len(ggj), "grep": len(grp), "rg_eq_greeg": rgj == ggj, "grep_eq_rg": grp == rgj, "greeg_verified_as": "greeg --json=greeg --budget 0 (same query, unbudgeted JSON); the timed budgeted digest is not verifiable from its own output"}
             if full_txt is not None:
                 verified.update({"greeg_full_text": len(full_txt), "rg_eq_greeg_full_text": full_txt == rgj})
             states = [("warm", PREPARE_SLEEP)] + ([("cold", PURGE_CMD)] if cold else [])
@@ -802,7 +809,7 @@ def oracle(args):
             row = {"name": nm, "bucket": bucket, "kind": e["kind"], "defs": len(truth_def), "refs": len(truth_ref)}
             # definitions: greeg def (JSON); rg -nw and grep -rnw first lines (thread order, what an
             # agent sees); rg with the language's definition regex, --sort path (deterministic)
-            gd = [(j["path"], j["line"]) for j in map(json.loads, (l for l in out_of([greeg, "def", nm, "--json", "--no-session"], cwd).splitlines() if l.startswith("{"))) if j.get("type") == "def"]
+            gd = [(j["data"]["path"]["text"], j["data"]["line"]) for j in map(json.loads, (l for l in out_of([greeg, "def", nm, "--json=greeg", "--no-session"], cwd).splitlines() if l.startswith("{"))) if j.get("type") == "def"]
             rgd = [h for h in text_hits(out_of(["rg", "-n", "-w", "-e", nm, "."], cwd)) if h]
             rgdef = [h for h in text_hits(out_of(rg_def_cmd(lang, nm), cwd)) if h]
             grd = [h for h in text_hits(out_of(["grep", "-rnwI", "--exclude-dir=.git", "--exclude-dir=node_modules", "-e", nm, "."], cwd)) if h]
@@ -811,26 +818,19 @@ def oracle(args):
             row["greeg_def_shown"] = len(gd)
             row["rgdef_shown"] = len(rgdef)
             # references: greeg refs (JSON, unbudgeted) recall; classification vs roles
-            refs_out = out_of([greeg, "refs", nm, "--json", "--budget", "0", "--no-session"], cwd)
+            refs_out = out_of([greeg, "refs", nm, "--json=greeg", "--budget", "0", "--no-session"], cwd)
             found = set()
             for l in refs_out.splitlines():
                 if not l.startswith("{"):
                     continue
                 j = json.loads(l)
-                if j.get("type") == "ref":
-                    found.add((j["data"]["path"], j["data"]["line"]))
-                elif j.get("type") == "def":
-                    found.add((j["path"], j["line"]))
+                if j.get("type") in ("ref", "def"):
+                    found.add((j["data"]["path"]["text"], j["data"]["line"]))
             row["ref_recall"] = (len(truth_ref & found) / len(truth_ref)) if truth_ref else None
             row["def_recall"] = (len(truth_def & found) / len(truth_def)) if truth_def else None
             for precise in (False, True):
-                cmd = [greeg, "--json", "--no-session", "--budget", "0", "--no-ladder", "--max-columns", "0", "-w", "-e", nm, "."] + (["--precise"] if precise else [])
-                hits = []
-                for l in out_of(cmd, cwd).splitlines():
-                    if l.startswith("{"):
-                        j = json.loads(l)
-                        if j.get("type") == "match":
-                            hits.append(((j["data"]["path"]["text"].removeprefix("./"), j["data"]["line_number"]), j["data"]["kind"], (j["data"].get("symbol") or {}).get("kind")))
+                cmd = [greeg, "--json=greeg", "--no-session", "--budget", "0", "--no-ladder", "--max-columns", "0", "-w", "-e", nm, "."] + (["--precise"] if precise else [])
+                hits = [((p, d["line"]), d["kind"], (d.get("symbol") or {}).get("kind")) for p, d in json_matches(out_of(cmd, cwd))]
                 tp = fp = fn = fp_impl = 0  # def classification
                 code_hit_on_scip = code_hits = noncode_on_scip = noncode_hits = 0
                 for loc, kind, symkind in hits:

@@ -33,6 +33,7 @@ CASES = {
     "glob_files": ["-l", "load_config", "-g", "*.rs"],
     "hit_count": ["-c", "-i", "LOAD_CONFIG"],
     "hit_unlimited": ["--budget", "0", "load_config"],
+    # bare `--json`, which every baseline accepts: the legacy records until 0.11
     "case_miss_json": ["--json", "LOAD_CONFIG"],
     "hit_json": ["--json", "load_config"],
     "def_hit": ["def", "load_config", "--matching", "exact"],

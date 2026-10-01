@@ -596,3 +596,19 @@ filename = "json-greeg-schema-2026-10-01-darwin-arm64.json"
 title = "`--json=greeg` schema 1: exact-search regression and ripgrep equality (2026-10-01)"
 pr = 55
 notes = "v0.9.0 against the branch that adds --json=greeg, greeg's own JSON records (schema 1). All 34 cases keep their exit status and stdout (JSON compared without elapsed fields), every contract passes, and token counts are unchanged. Under --json=rg all 14 search cases equal rg --json in both backends, timings aside (28/28); under --json=greeg --budget 0 every case holds ripgrep's matches, lines and submatches, and its status (28/28). Medians range from −2.3% to +2.9% and p95 from −13.9% to +5.4%, with no flag. Output size and timing of --json=greeg against --json on tokio are in the PR. The harness records no execution time; the result file was written at 2026-10-01T22:06:09Z."
+
+[[datasets]]
+id = "json_migration"
+section = "matching_review"
+filename = "json-migration-2026-10-01-darwin-arm64.json"
+title = "Bare `--json` migration notice: exact-search regression (2026-10-01)"
+pr = 56
+notes = "v0.9.0 against the branch where bare --json prints, on a terminal only, that it becomes --json=greeg in 0.11, and the repository's own consumers name their dialect. All 34 cases keep their exit status and stdout (JSON compared without elapsed fields), every contract passes, and token counts are unchanged; --json=rg equals rg --json (28/28) and --json=greeg --budget 0 holds ripgrep's matches (28/28). Run under a 5-minute load near 10: medians range from −3.6% to +5.3% and p95 from −51.1% to +52.0%. The one flag, index ranked_discovery p95 +52.0%, did not reproduce in a 151-pair recheck at a lower load (see below). The harness records no execution time; the result file was written at 2026-10-01T22:44:16Z."
+
+[[datasets]]
+id = "json_migration_recheck"
+section = "matching_review"
+filename = "json-migration-recheck-2026-10-01-darwin-arm64.json"
+title = "Bare `--json` migration notice: ranked_discovery recheck (2026-10-01)"
+pr = 56
+notes = "151-pair recheck of ranked_discovery, started once the 1- and 5-minute loads were below 5. Medians +0.1% (scan) and +1.5% (index); p95 −1.4% and −1.7%. The flag did not reproduce. Run without --tokens. The harness records no execution time; the result file was written at 2026-10-01T22:58:56Z."
