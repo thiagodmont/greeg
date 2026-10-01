@@ -6,8 +6,8 @@ import subprocess
 import tempfile
 import unittest
 
-from matching import (definition_contract, json_exact_contract, rg_dialect_checks,
-                      rg_dialect_contract, rg_dialect_query, stable_stdout)
+from matching import (definition_contract, json_exact_contract, native_dialect_contract,
+                      rg_dialect_checks, rg_dialect_contract, rg_dialect_query, stable_stdout)
 
 
 class JsonContractTests(unittest.TestCase):
@@ -136,6 +136,47 @@ class RgDialectTests(unittest.TestCase):
         self.assertEqual(rg_dialect_query(["--budget", "0", "x"]), ["x"])
         self.assertEqual(rg_dialect_query(["--json", "x"]), ["x"])
         self.assertEqual(rg_dialect_query(["-c", "-w", "x"]), ["-c", "-w", "x"])
+
+
+class NativeDialectTests(unittest.TestCase):
+    @staticmethod
+    def lines(*records):
+        return b"\n".join(json.dumps(r).encode() for r in records) + b"\n"
+
+    def native(self, text, subs=((0, 6),), line=1, status=0):
+        return subprocess.CompletedProcess([], status, self.lines(
+            {"type": "greeg", "data": {"schema": 1}},
+            {"type": "begin", "data": {"path": {"text": "src/a.rs"}}},
+            {"type": "match", "data": {"line": line, "text": text, "submatches": [list(s) for s in subs]}},
+            {"type": "footer", "data": {}}), b"")
+
+    def rg(self, lines, status=0):
+        return subprocess.CompletedProcess([], status, self.lines(
+            {"type": "begin", "data": {"path": {"text": "src/a.rs"}}},
+            {"type": "match", "data": {"path": {"text": "src/a.rs"}, "lines": lines, "line_number": 1,
+                                       "absolute_offset": 0, "submatches": [{"match": {"text": "needle"},
+                                                                             "start": 0, "end": 6}]}},
+            {"type": "summary", "data": {}}), b"")
+
+    def test_matches_lines_and_submatches_must_agree(self):
+        oracle = self.rg({"text": "needle\r\n"})
+        self.assertTrue(native_dialect_contract(self.native({"text": "needle"}), oracle, ["needle"]))
+        self.assertFalse(native_dialect_contract(self.native({"text": "needle"}, line=2), oracle, ["needle"]))
+        self.assertFalse(native_dialect_contract(self.native({"text": "needle"}, subs=((0, 5),)), oracle, ["needle"]))
+        self.assertFalse(native_dialect_contract(self.native({"text": "needle"}, status=1), oracle, ["needle"]))
+
+    def test_bytes_compare_as_bytes(self):
+        oracle = self.rg({"bytes": "/25lZWRsZQo="})
+        self.assertTrue(native_dialect_contract(self.native({"bytes": "/25lZWRsZQ=="}), oracle, ["needle"]))
+        self.assertFalse(native_dialect_contract(self.native({"text": "needle"}), oracle, ["needle"]))
+
+    def test_file_layouts_compare_with_text(self):
+        native = subprocess.CompletedProcess([], 0, self.lines(
+            {"type": "file", "data": {"path": {"text": "src/a.rs"}, "count": 2}}), b"")
+        counted = subprocess.CompletedProcess([], 0, b"src/a.rs:2\n", b"")
+        self.assertTrue(native_dialect_contract(native, counted, ["-c", "x"]))
+        self.assertFalse(native_dialect_contract(native, subprocess.CompletedProcess([], 0, b"src/a.rs:3\n", b""),
+                                                 ["-c", "x"]))
 
 
 if __name__ == "__main__":

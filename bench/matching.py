@@ -6,6 +6,7 @@ Requires installed rg; --tokens counts o200k_base tokens with installed tiktoken
 """
 
 import argparse
+import base64
 import hashlib
 import json
 import math
@@ -258,24 +259,98 @@ def main():
                 metadata["results"].append(row)
         metadata["rg_json_dialect"] = rg_dialect_checks(binaries["candidate"], rg, root,
                                                         environments["candidate"], common, args.cases)
+        metadata["greeg_json_dialect"] = native_dialect_checks(binaries["candidate"], rg, root,
+                                                               environments["candidate"], common, args.cases)
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(json.dumps(metadata, indent=2) + "\n")
     print(f"Wrote {len(metadata['results'])} paired cases to {args.output}")
     failures = [r for r in metadata["results"] if r["candidate"]["rg_stdout_and_status_equal"] is False
                 or r["candidate"]["json_exact_contract"] is False or r["candidate"]["definition_contract"] is False]
-    failures += [r for r in metadata["rg_json_dialect"] or [] if not r["equal"]]
+    failures += [r for r in (metadata["rg_json_dialect"] or []) + (metadata["greeg_json_dialect"] or [])
+                 if not r["equal"]]
     if failures:
         raise SystemExit(f"candidate parity failures: {[(r['backend'], r['case']) for r in failures]}")
 
 
+def supports(binary, root, env, dialect):
+    """Whether the binary takes `--json=DIALECT`; any failure but rejecting the value stops the run."""
+    probe = subprocess.run([str(binary), f"--json={dialect}", "--no-index", "probe", "."], cwd=root, env=env,
+                           stdin=subprocess.DEVNULL, capture_output=True, check=False)
+    if probe.returncode in (0, 1):
+        return True
+    if (f"unexpected value '{dialect}' for '--json'".encode() in probe.stderr
+            or f"invalid value '{dialect}' for '--json".encode() in probe.stderr):
+        return False
+    raise RuntimeError(f"--json={dialect} probe failed: {probe.returncode}: {probe.stderr!r}")
+
+
+def text_bytes(t):
+    return t["text"].encode() if "text" in t else base64.b64decode(t["bytes"])
+
+
+def line_bytes(t):
+    return text_bytes(t).removesuffix(b"\n").removesuffix(b"\r")
+
+
+def native_matches(stdout):
+    """`--json=greeg` as (path, line, text, submatches) per match, or (path, count) per file."""
+    rows, path = [], None
+    for line in stdout.splitlines():
+        record = json.loads(line)
+        data = record["data"]
+        if record["type"] == "begin":
+            path = text_bytes(data["path"])
+        elif record["type"] == "match":
+            rows.append((path, data["line"], text_bytes(data["text"]), [tuple(s) for s in data["submatches"]]))
+        elif record["type"] == "file":
+            rows.append((text_bytes(data["path"]), data.get("count")))
+    return sorted(rows)
+
+
+def rg_matches(stdout, query):
+    """ripgrep's answer in `native_matches`' form; `-l` and `-c` print text."""
+    if "-l" in query:
+        return sorted((p, None) for p in stdout.splitlines())
+    if "-c" in query:
+        return sorted((p, int(n)) for p, n in (line.rsplit(b":", 1) for line in stdout.splitlines()))
+    rows = []
+    for line in stdout.splitlines():
+        record = json.loads(line)
+        if record["type"] == "match":
+            data = record["data"]
+            rows.append((text_bytes(data["path"]), data["line_number"], line_bytes(data["lines"]),
+                         [(s["start"], s["end"]) for s in data["submatches"]]))
+    return sorted(rows)
+
+
+def native_dialect_contract(output, oracle, query):
+    """Unbudgeted `--json=greeg` holds ripgrep's matches, lines and submatches, and its status."""
+    return output.returncode == oracle.returncode and native_matches(output.stdout) == rg_matches(oracle.stdout, query)
+
+
+def native_dialect_checks(binary, rg, root, env, common, cases):
+    """Every search case under `--json=greeg --budget 0` against ripgrep, or None before 0.10."""
+    if not supports(binary, root, env, "greeg"):
+        return None
+    checks = []
+    for backend in ("scan", "index"):
+        for name in cases:
+            if CASES[name][0] == "def":
+                continue
+            query = rg_dialect_query(CASES[name])
+            extra = ["--no-index"] if backend == "scan" else []
+            output, _ = run([str(binary), "--json=greeg", "--budget", "0", *query, ".", *common, *extra], root, env)
+            oracle, _ = run([rg, "--no-config", "--color", "never", "--json", *query, "src"], root, env)
+            checks.append({"case": name, "backend": backend, "exit": output.returncode,
+                           "stdout_bytes": len(output.stdout),
+                           "equal": native_dialect_contract(output, oracle, query)})
+    return checks
+
+
 def rg_dialect_checks(binary, rg, root, env, common, cases):
     """Every search case under `--json=rg` against `rg --json`, or None before 0.10."""
-    probe = subprocess.run([str(binary), "--json=rg", "--no-index", "probe", "."], cwd=root, env=env,
-                           stdin=subprocess.DEVNULL, capture_output=True, check=False)
-    if probe.returncode not in (0, 1):
-        if b"unexpected value 'rg' for '--json'" in probe.stderr:
-            return None
-        raise RuntimeError(f"--json=rg probe failed: {probe.returncode}: {probe.stderr!r}")
+    if not supports(binary, root, env, "rg"):
+        return None
     checks = []
     for backend in ("scan", "index"):
         for name in cases:

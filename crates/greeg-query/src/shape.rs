@@ -973,6 +973,7 @@ mod tests {
             src: None,
             bom: 0,
             searched: 0,
+            encoding: crate::Encoding::Utf8,
             below: None,
         }
     }

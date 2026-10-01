@@ -1414,3 +1414,223 @@ fn path_order_follows_names_within_each_directory() {
         assert_eq!(f.out(&args), "a/x.txt\na-b/x.txt\na.txt\n", "{backend:?}");
     }
 }
+
+fn json_lines(out: &str) -> Vec<serde_json::Value> {
+    out.lines()
+        .map(|l| serde_json::from_str(l).unwrap_or_else(|e| panic!("{e}: {l}")))
+        .collect()
+}
+
+/// `--json=greeg` search records, schema 1: a header, then per file a
+/// `begin` stating encoding and coordinates and its lines without their
+/// terminators, offsets in those coordinates, content as `{"text"}` or
+/// `{"bytes"}`.
+#[test]
+fn json_greeg_search_records_follow_schema_1() {
+    let f = empty_fixture();
+    fs::write(f.root.join("a.txt"), "a needle\nb\r\nneedle needle\n").unwrap();
+    fs::write(f.root.join("bad.txt"), b"inv\xffneedle\n").unwrap();
+    fs::write(f.root.join("bom.txt"), b"\xef\xbb\xbfx\nneedle\n").unwrap();
+    fs::write(
+        f.root.join("u16.txt"),
+        b"\xff\xfen\x00e\x00e\x00d\x00l\x00e\x00\n\x00",
+    )
+    .unwrap();
+    let args = [
+        "--json=greeg",
+        "--no-index",
+        "--budget",
+        "0",
+        "-B",
+        "1",
+        "needle",
+    ];
+    let mut records = json_lines(&f.out(&args));
+    let footer = records.pop().unwrap();
+    for r in &mut records {
+        r["data"].as_object_mut().unwrap().shift_remove("score");
+    }
+    let got: Vec<String> = records.iter().map(|r| r.to_string()).collect();
+    let header = format!(
+        r#"{{"type":"greeg","data":{{"schema":1,"dialect":"greeg","command":"search","version":"{}"}}}}"#,
+        env!("CARGO_PKG_VERSION")
+    );
+    let want = [
+        header.as_str(),
+        r#"{"type":"begin","data":{"path":{"text":"a.txt"},"encoding":"utf-8","coordinates":"bytes","file_flags":[],"matched_lines":2}}"#,
+        r#"{"type":"match","data":{"line":1,"byte_offset":0,"text":{"text":"a needle"},"submatches":[[2,8]],"kind":"ident","symbol":null,"clipped":false}}"#,
+        r#"{"type":"context","data":{"line":2,"byte_offset":9,"text":{"text":"b"}}}"#,
+        r#"{"type":"match","data":{"line":3,"byte_offset":12,"text":{"text":"needle needle"},"submatches":[[0,6],[7,13]],"kind":"ident","symbol":null,"clipped":false}}"#,
+        r#"{"type":"begin","data":{"path":{"text":"bad.txt"},"encoding":"utf-8","coordinates":"bytes","file_flags":[],"matched_lines":1}}"#,
+        r#"{"type":"match","data":{"line":1,"byte_offset":0,"text":{"bytes":"aW52/25lZWRsZQ=="},"submatches":[[4,10]],"kind":"ident","symbol":null,"clipped":false}}"#,
+        r#"{"type":"begin","data":{"path":{"text":"bom.txt"},"encoding":"utf-8-bom","coordinates":"bytes","file_flags":[],"matched_lines":1}}"#,
+        r#"{"type":"context","data":{"line":1,"byte_offset":3,"text":{"text":"x"}}}"#,
+        r#"{"type":"match","data":{"line":2,"byte_offset":5,"text":{"text":"needle"},"submatches":[[0,6]],"kind":"ident","symbol":null,"clipped":false}}"#,
+        r#"{"type":"begin","data":{"path":{"text":"u16.txt"},"encoding":"utf-16le","coordinates":"decoded","file_flags":[],"matched_lines":1}}"#,
+        r#"{"type":"match","data":{"line":1,"byte_offset":0,"text":{"text":"needle"},"submatches":[[0,6]],"kind":"ident","symbol":null,"clipped":false}}"#,
+    ];
+    assert_eq!(got, want);
+    assert_eq!(footer["type"], "footer");
+    assert_eq!(
+        footer["data"]["outcome"].to_string(),
+        r#"{"exit":0,"exact":true,"rung":"exact","total":5,"shown":5,"complete":true,"source":"scan","fresh":"","deferred":0}"#
+    );
+    let files = |args: &[&str]| -> Vec<String> {
+        json_lines(&f.out(args))
+            .iter()
+            .filter(|r| r["type"] == "file")
+            .map(|r| r["data"].to_string())
+            .collect()
+    };
+    assert_eq!(
+        files(&["--json=greeg", "--no-index", "-c", "needle", "a.txt"]),
+        [r#"{"path":{"text":"a.txt"},"count":2}"#]
+    );
+    assert_eq!(
+        files(&["--json=greeg", "--no-index", "-l", "needle", "a.txt"]),
+        [r#"{"path":{"text":"a.txt"}}"#]
+    );
+}
+
+/// Every path in `v` is `{"text"}` or `{"bytes"}`, never a bare string.
+fn assert_paths_are_text(v: &serde_json::Value, at: &str) {
+    match v {
+        serde_json::Value::Object(m) => {
+            for (k, x) in m {
+                if k == "path" || k == "imported_by" && x.is_array() {
+                    let items = x.as_array().cloned().unwrap_or_else(|| vec![x.clone()]);
+                    for p in items {
+                        let o = p.as_object().unwrap_or_else(|| panic!("{at}: {k} {p}"));
+                        assert!(
+                            o.len() == 1 && (o.contains_key("text") || o.contains_key("bytes")),
+                            "{at}: {k} {p}"
+                        );
+                    }
+                } else {
+                    assert_paths_are_text(x, at);
+                }
+            }
+        }
+        serde_json::Value::Array(a) => a.iter().for_each(|x| assert_paths_are_text(x, at)),
+        _ => {}
+    }
+}
+
+/// Every `--json=greeg` answer, search or verb, in both backends: a header
+/// naming the command, `{"type","data"}` records only, paths as text, and a
+/// footer last whose `outcome.exit` is the status the run returns.
+#[test]
+fn every_json_greeg_answer_is_typed_and_ends_with_its_outcome() {
+    let f = empty_fixture();
+    w(
+        &f.root.join("src/lib.rs"),
+        "pub trait Shape {}\npub struct Square;\nimpl Shape for Square {}\n\
+         pub fn needle() -> u32 { 1 }\nfn caller() -> u32 { needle() }\n",
+    );
+    w(
+        &f.root.join("src/use.rs"),
+        "use crate::needle;\nfn more() { needle(); }\n",
+    );
+    f.indexed();
+    let cases: &[&[&str]] = &[
+        &["needle"],
+        &["-C", "1", "needle"],
+        &["-l", "needle"],
+        &["-c", "needle"],
+        &["--budget", "0", "needle"],
+        &["absent_zzz"],
+        &["NEEDLE"],
+        &["def", "needle"],
+        &["def", "absent_zzz"],
+        &["refs", "needle"],
+        &["callers", "needle"],
+        &["impls", "Shape"],
+        &["impls", "absent_zzz"],
+        &["impact", "needle"],
+        &["show", "src/lib.rs:5"],
+        &["outline", "src/lib.rs"],
+        &["map", "."],
+    ];
+    for backend in [&["--no-index"][..], &[][..]] {
+        for case in cases {
+            // `map` reads the import graph, which only the index holds
+            if case[0] == "map" && !backend.is_empty() {
+                continue;
+            }
+            let mut args = vec!["--json=greeg"];
+            args.extend_from_slice(case);
+            args.extend_from_slice(backend);
+            let o = f.run(&args);
+            let at = format!("{args:?}");
+            let records = json_lines(&String::from_utf8_lossy(&o.stdout));
+            let command = match case[0] {
+                "def" | "refs" | "callers" | "impls" | "impact" | "show" | "outline" | "map" => {
+                    case[0]
+                }
+                _ => "search",
+            };
+            assert!(
+                !records.is_empty(),
+                "{at}: {}",
+                String::from_utf8_lossy(&o.stderr)
+            );
+            assert_eq!(records[0]["type"], "greeg", "{at}");
+            assert_eq!(records[0]["data"]["schema"], 1, "{at}");
+            assert_eq!(records[0]["data"]["command"], command, "{at}");
+            for r in &records {
+                let m = r.as_object().unwrap();
+                assert!(
+                    m.len() == 2 && m["type"].is_string() && m["data"].is_object(),
+                    "{at}: {r}"
+                );
+                assert_paths_are_text(r, &at);
+            }
+            let footer = records.last().unwrap();
+            assert_eq!(footer["type"], "footer", "{at}");
+            assert_eq!(
+                footer["data"]["outcome"]["exit"].as_i64().map(|e| e as i32),
+                o.status.code(),
+                "{at}: {footer}"
+            );
+            assert_eq!(
+                records.iter().filter(|r| r["type"] == "footer").count(),
+                1,
+                "{at}"
+            );
+        }
+    }
+}
+
+/// `--json=greeg` reads stdin like a file, and commands that are not
+/// answers refuse it.
+#[test]
+fn json_greeg_covers_stdin_and_refuses_other_commands() {
+    use std::io::Write;
+    use std::process::Stdio;
+    let mut c = Command::new(BIN)
+        .args(["--no-session", "--json=greeg", "alpha"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .env("GREEG_STATS", "0")
+        .spawn()
+        .unwrap();
+    c.stdin.take().unwrap().write_all(b"alpha\nbeta\n").unwrap();
+    let o = c.wait_with_output().unwrap();
+    let records = json_lines(&String::from_utf8_lossy(&o.stdout));
+    assert_eq!(records[0]["data"]["command"], "search");
+    assert_eq!(records[1]["data"]["path"]["text"], "<stdin>", "{records:?}");
+    assert_eq!(records[2]["data"]["text"]["text"], "alpha", "{records:?}");
+    let f = empty_fixture();
+    for args in [
+        &["stats", "--json=greeg"][..],
+        &["index", "--json=greeg"][..],
+    ] {
+        let o = f.run(args);
+        assert_eq!(
+            (o.status.code(), o.stdout.is_empty()),
+            (Some(2), true),
+            "{args:?}"
+        );
+    }
+}
