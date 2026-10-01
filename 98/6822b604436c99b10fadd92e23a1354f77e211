@@ -1,0 +1,58 @@
+bench/test_matching_report.py
+  s_b1057b2933cdb0::t_cf4f27fcacf858 69,75
+  s_b1057b2933cdb0::t_e557f8263622be 70-74
+bench/matching.py
+  s_b1057b2933cdb0::t_666b4a410df56a 87-111,259-260,266,271-290
+  s_b1057b2933cdb0::t_f9058d36b3e431 291-292
+crates/greeg-query/src/stdin.rs
+  s_b1057b2933cdb0::t_2ccee8f74eee46 61,122-123,130
+bench/reports.toml
+  s_b1057b2933cdb0::t_69c0a71e69689a 575-582
+crates/greeg/src/verbs_out.rs
+  s_b1057b2933cdb0::t_2ccee8f74eee46 306,393,474,493,624,731,737,796,934,959,1124
+crates/greeg/src/main.rs
+  s_b1057b2933cdb0::t_987b8482d4e18a 739-742
+  s_b1057b2933cdb0::t_2ccee8f74eee46 64-71,143-154,203-205,274-293,736-738,812,823-824,914-916,1271,1281,1288,1384-1391,2094-2204,2219-2222,2225,2269-2311,2315
+  s_b1057b2933cdb0::t_1dba3f97d603e2 2312-2314,2316
+bench/bench.py
+  s_b1057b2933cdb0::t_cf4f27fcacf858 1151-1158,1180
+crates/greeg-query/src/lib.rs
+  s_b1057b2933cdb0::t_2ccee8f74eee46 349-352,380-381,415-416,1629-1630,1798-1799,2026,2208
+README.md
+  s_b1057b2933cdb0::t_987b8482d4e18a 327
+  s_b1057b2933cdb0::t_9f6bbf60ce8552 189,325-326,328-329
+  s_b1057b2933cdb0::t_d2f8b446ed0e41 330
+references/ARCHITECTURE.md
+  s_b1057b2933cdb0::t_987b8482d4e18a 666-667
+  s_b1057b2933cdb0::t_9f6bbf60ce8552 653-655,657-665,668-683
+bench/test_matching.py
+  s_b1057b2933cdb0::t_666b4a410df56a 6-7,83-122
+  s_b1057b2933cdb0::t_445e629a0ac21e 123-124
+bench/results/json-rg-dialect-2026-10-01-darwin-arm64.json
+  s_b1057b2933cdb0::t_2d24ae4d048f0d 1-5497
+references/BENCH.md
+  s_b1057b2933cdb0::t_69c0a71e69689a 1411-1457
+crates/greeg-query/src/shape.rs
+  s_b1057b2933cdb0::t_2ccee8f74eee46 444,716,920-925,974-975
+crates/greeg/tests/cli.rs
+  s_b1057b2933cdb0::t_107bd46180a572 1249-1263,1266-1270,1272-1295,1297-1298,1300-1302,1304-1311,1313-1320,1323-1345,1351-1381
+  s_b1057b2933cdb0::t_45cc5f393074e4 1271,1296,1299,1303,1312
+  s_b1057b2933cdb0::t_987b8482d4e18a 1321-1322,1346-1350
+  s_b1057b2933cdb0::t_d7e0286ffebb33 1264-1265
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "986822b604436c99b10fadd92e23a1354f77e211",
+  "prompts": {},
+  "sessions": {
+    "s_b1057b2933cdb0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0aa73425-0ec9-4b76-ae94-35b6bdff17bb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
