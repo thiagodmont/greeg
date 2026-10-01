@@ -1,0 +1,63 @@
+crates/greeg/src/main.rs
+  s_b1057b2933cdb0::t_60920a9c332072 944-946
+  s_b1057b2933cdb0::t_ddd4910518edcb 147-148
+  s_b1057b2933cdb0::t_b393ae1a640915 2120-2130,2132,2136,2144,2146,2156,2168,2170-2174,2181,2187-2241
+  s_b1057b2933cdb0::t_d4cfd01501f10a 7,71-72,284-287,943,947,1402-1403,2091,2242
+crates/greeg-query/src/lib.rs
+  s_b1057b2933cdb0::t_2658c2fd2120ed 322-362,394,424,1660,1846
+references/BENCH.md
+  s_b1057b2933cdb0::t_77599766c461c9 1473-1519
+references/ARCHITECTURE.md
+  s_b1057b2933cdb0::t_69e3965dc83dca 655-660
+crates/greeg-query/src/stdin.rs
+  s_b1057b2933cdb0::t_2658c2fd2120ed 45,125
+README.md
+  s_b1057b2933cdb0::t_69e3965dc83dca 190,328-333
+bench/test_matching_report.py
+  s_b1057b2933cdb0::t_0b873b2016eec1 75-76
+bench/bench.py
+  s_b1057b2933cdb0::t_e2f1c8b70899b9 1151-1161,1185
+bench/results/json-greeg-schema-2026-10-01-darwin-arm64.json
+  s_b1057b2933cdb0::t_77599766c461c9 1-5695
+bench/reports.toml
+  s_b1057b2933cdb0::t_77599766c461c9 591-598
+bench/test_matching.py
+  s_b1057b2933cdb0::t_0b873b2016eec1 9-10,141-179
+  s_b1057b2933cdb0::t_582bd042edb744 180-181
+bench/matching.py
+  s_b1057b2933cdb0::t_e2f1c8b70899b9 9,262-263,269-270,275-349,352-353
+references/JSON.md
+  s_b1057b2933cdb0::t_061fe889db4065 1-102,105-144
+  s_b1057b2933cdb0::t_69e3965dc83dca 103-104
+crates/greeg/src/verbs_out.rs
+  s_b1057b2933cdb0::t_ddd4910518edcb 92,306-309,397-401,502-504,510-514,646-649,763-766,826-830,969-975,1000-1004,1170-1173
+  s_b1057b2933cdb0::t_60920a9c332072 505-509
+crates/greeg-query/src/shape.rs
+  s_b1057b2933cdb0::t_2658c2fd2120ed 976
+crates/greeg/src/json_native.rs
+  s_b1057b2933cdb0::t_60920a9c332072 587-591,777-781
+  s_b1057b2933cdb0::t_ddd4910518edcb 768
+  s_b1057b2933cdb0::t_698d6c6d15548f 152,189-194,237,323,345-346,362-363,388,436,450,491,504,561,618,670,681,687,723,733,753,865
+  s_b1057b2933cdb0::t_1af8adb0553bc0 1-151,153-179,181-188,195-236,238-320,322,324-344,347-361,364-387,389-435,437-449,451-490,492-503,505-560,562-586,592-617,619-669,671-680,682-686,688-722,724-732,734-752,754-767,769-776,782-864,866-869
+  s_b1057b2933cdb0::t_69e3965dc83dca 180,321
+crates/greeg/tests/cli.rs
+  s_b1057b2933cdb0::t_60920a9c332072 1417-1555,1560-1571,1577-1636
+  s_b1057b2933cdb0::t_09d0c1351e5611 1572-1576
+  s_b1057b2933cdb0::t_5c26ce06173f24 1556-1559
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "a9ef8d2e273c3448932440cd4f3d9dcedb5bebac",
+  "prompts": {},
+  "sessions": {
+    "s_b1057b2933cdb0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0aa73425-0ec9-4b76-ae94-35b6bdff17bb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
