@@ -1502,7 +1502,7 @@ pub struct ImpactFile {
     pub flags: FileFlags,
     pub hits: usize,
     /// Sample lines (line, text).
-    pub sample: Vec<(u32, String)>,
+    pub sample: Vec<(u32, Vec<u8>)>,
 }
 
 pub struct ImpactResult {
@@ -1536,19 +1536,19 @@ pub fn impact(o: &Options, name: &str) -> Result<ImpactResult> {
             || kinds.contains_key(&HitKind::Type)
             || kinds.contains_key(&HitKind::Import);
         let weak = kinds.contains_key(&HitKind::Member) || kinds.contains_key(&HitKind::Ident);
-        let mut sample: Vec<(u32, String)> = f
+        let mut sample: Vec<(u32, Vec<u8>)> = f
             .hits
             .iter()
             .filter(|h| !matches!(h.kind, HitKind::Comment | HitKind::Str | HitKind::Docstring))
             .take(3)
-            .map(|h| (h.line, String::from_utf8_lossy(&h.text).to_string()))
+            .map(|h| (h.line, h.text.clone()))
             .collect();
         if sample.is_empty() {
             sample = f
                 .hits
                 .iter()
                 .take(2)
-                .map(|h| (h.line, String::from_utf8_lossy(&h.text).to_string()))
+                .map(|h| (h.line, h.text.clone()))
                 .collect();
         }
         let entry = ImpactFile {

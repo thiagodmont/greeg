@@ -1290,14 +1290,51 @@ fn a_backslash_in_a_file_name_is_preserved() {
     }
 }
 
+/// JSON keeps a line that is not UTF-8 as ripgrep does, as `{"bytes"}`,
+/// and a submatch that is UTF-8 as text (F12b).
 #[test]
-#[ignore = "known gap: JSON output replaces invalid UTF-8 content"]
 fn json_output_preserves_invalid_utf8_content() {
     let f = Fixture::new(&[]);
     w(&f.root.join("bad.txt"), b"inv\xffneedle\n");
     let o = f.scan(&["--json", "needle", "bad.txt"]);
     assert_eq!(o.status.code(), Some(0));
-    assert!(!stdout(&o).contains('\u{FFFD}'), "{}", stdout(&o));
+    let out = stdout(&o);
+    assert!(!out.contains('\u{FFFD}'), "{out}");
+    assert!(
+        out.contains(r#""lines":{"bytes":"aW52/25lZWRsZQo="}"#),
+        "{out}"
+    );
+    assert!(
+        out.contains(r#""submatches":[{"match":{"text":"needle"},"start":4,"end":10}]"#),
+        "{out}"
+    );
+}
+
+/// Every output that reproduces file content keeps bytes that are not UTF-8:
+/// context lines, `--budget 0` text, and `show`, `refs` and `impact` JSON.
+#[test]
+fn file_content_that_is_not_utf8_survives_every_output() {
+    let f = Fixture::new(&[]);
+    w(
+        &f.root.join("bad.rs"),
+        b"fn needle() {}\n// inv\xff needle\nfn other() {\n    needle(); // \xff\n}\n",
+    );
+    let json = |args: &[&str]| {
+        let o = f.scan(args);
+        let out = stdout(&o);
+        assert!(!out.contains('\u{FFFD}'), "{args:?}: {out}");
+        assert!(out.contains(r#"{"bytes":"#), "{args:?}: {out}");
+    };
+    json(&["--json", "-A", "1", "fn needle", "bad.rs"]);
+    json(&["show", "bad.rs:2", "--json"]);
+    json(&["refs", "needle", "--json"]);
+    json(&["impact", "needle", "--json"]);
+    let o = f.scan(&["--budget", "0", "inv", "bad.rs"]);
+    assert!(
+        o.stdout.windows(2).any(|w| w == b"v\xff"),
+        "{}",
+        String::from_utf8_lossy(&o.stdout)
+    );
 }
 
 #[test]

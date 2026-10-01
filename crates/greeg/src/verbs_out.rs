@@ -393,13 +393,7 @@ pub fn run_show(c: &Common, o: &Options, locs: &[(String, u32)]) -> Result<()> {
     if c.json {
         for it in &r.items {
             let shown_to = it.body.first + it.body.lines.len().saturating_sub(1) as u32;
-            let text = it
-                .body
-                .lines
-                .iter()
-                .map(|l| String::from_utf8_lossy(l).into_owned())
-                .collect::<Vec<_>>()
-                .join("\n");
+            let text = crate::json_rel(&it.body.lines.join(&b'\n'));
             let symbol = it.def.as_ref().map(|d| {
                 json!({"name":d.name,"kind":d.kind.name(),"container":chain_str(&d.chain[..d.chain.len().saturating_sub(1)])})
             });
@@ -511,7 +505,7 @@ pub fn run_refs(c: &Common, o: &Options, name: &str) -> Result<()> {
                 let h = &f.hits[hi];
                 serde_json::to_writer(
                     &mut w,
-                    &json!({"type":"ref","data":{"kind":k.name(),"path":crate::json_rel(&f.rel),"line":h.line,"text":String::from_utf8_lossy(&h.text),"symbol":chain_str(&h.chain),"file_flags":f.flags.names(),"score":h.score}}),
+                    &json!({"type":"ref","data":{"kind":k.name(),"path":crate::json_rel(&f.rel),"line":h.line,"text":crate::json_rel(&h.text),"symbol":chain_str(&h.chain),"file_flags":f.flags.names(),"score":h.score}}),
                 )?;
                 writeln!(w)?;
             }
@@ -1119,7 +1113,12 @@ pub fn run_impact(c: &Common, o: &Options, name: &str) -> Result<()> {
                     .max()
                     .unwrap_or(1);
                 for (l, t) in f.sample.iter().take(2) {
-                    writeln!(w, "  {:>lw$}  {}", l, t.trim())?;
+                    writeln!(
+                        w,
+                        "  {:>lw$}  {}",
+                        l,
+                        String::from_utf8_lossy(t.trim_ascii())
+                    )?;
                 }
             }
             if files.len() > per_group {
@@ -1129,7 +1128,7 @@ pub fn run_impact(c: &Common, o: &Options, name: &str) -> Result<()> {
         };
     if c.json {
         let grp = |files: &[verbs::ImpactFile]| -> Vec<serde_json::Value> {
-            files.iter().map(|f| json!({"path":crate::json_rel(&f.rel),"hits":f.hits,"kinds":f.kinds.iter().map(|(k,n)| json!([k.name(), n])).collect::<Vec<_>>(),"file_flags":f.flags.names(),"sample":f.sample})).collect()
+            files.iter().map(|f| json!({"path":crate::json_rel(&f.rel),"hits":f.hits,"kinds":f.kinds.iter().map(|(k,n)| json!([k.name(), n])).collect::<Vec<_>>(),"file_flags":f.flags.names(),"sample":f.sample.iter().map(|(l, t)| json!([l, crate::json_rel(t)])).collect::<Vec<_>>()})).collect()
         };
         serde_json::to_writer(
             &mut w,
