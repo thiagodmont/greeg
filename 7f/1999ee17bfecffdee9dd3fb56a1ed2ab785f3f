@@ -1,0 +1,23 @@
+bench/reports.toml
+  s_b1057b2933cdb0::t_1f71e221b892e6 567-574
+references/BENCH.md
+  s_b1057b2933cdb0::t_76c000faa8b22a 1364-1410
+bench/results/json-bytes-2026-10-01-darwin-arm64.json
+  s_b1057b2933cdb0::t_06d18448fe8a89 1-5299
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "7f1999ee17bfecffdee9dd3fb56a1ed2ab785f3f",
+  "prompts": {},
+  "sessions": {
+    "s_b1057b2933cdb0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0aa73425-0ec9-4b76-ae94-35b6bdff17bb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
