@@ -66,6 +66,13 @@ class MatchingReportTests(unittest.TestCase):
                 for link in links:
                     self.assertTrue((output.parent / unquote(link)).is_file(), link)
 
+    def test_rg_dialect_checks_are_summarized_when_measured(self):
+        self.assertEqual(bench.rg_dialect_summary(None), "")
+        checks = [{"case": "hit_json", "backend": b, "exit": 0, "stdout_bytes": 9, "equal": b == "scan"}
+                  for b in ("scan", "index")]
+        self.assertEqual(bench.rg_dialect_summary(checks),
+                         "`--json=rg` equal to `rg --json` (timings aside): **1/2** case/backend pairs. ")
+
     def test_repeat_generation_and_default_path(self):
         _, first = self.render(default=True)
         _, second = self.render(default=True)

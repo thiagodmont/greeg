@@ -303,7 +303,7 @@ pub fn run_def(
         deferred: 0,
     };
     let mut w = out();
-    if c.json {
+    if c.json() {
         for e in &r.entries {
             let mut v = def_json(e);
             v["type"] = json!("def");
@@ -390,7 +390,7 @@ pub fn run_def(
 pub fn run_show(c: &Common, o: &Options, locs: &[(String, u32)]) -> Result<()> {
     let r = answered(o, |o| verbs::show(o, locs))?;
     let mut w = out();
-    if c.json {
+    if c.json() {
         for it in &r.items {
             let shown_to = it.body.first + it.body.lines.len().saturating_sub(1) as u32;
             let text = crate::json_rel(&it.body.lines.join(&b'\n'));
@@ -471,7 +471,7 @@ pub fn run_refs(c: &Common, o: &Options, name: &str) -> Result<()> {
         (o.budget / 26).max(6)
     };
     // imports collapse to one line in text mode; other kinds share the budget by √count
-    let collapse_imports = !c.json && o.kinds.is_empty();
+    let collapse_imports = !c.json() && o.kinds.is_empty();
     let nonempty: Vec<&(HitKind, Vec<(usize, usize)>)> = by_kind
         .iter()
         .filter(|(k, v)| !(v.is_empty() || collapse_imports && *k == HitKind::Import))
@@ -490,7 +490,7 @@ pub fn run_refs(c: &Common, o: &Options, name: &str) -> Result<()> {
     } else {
         String::new()
     };
-    if c.json {
+    if c.json() {
         for e in &r.defs {
             let mut v = def_json(e);
             v["type"] = json!("def");
@@ -621,7 +621,7 @@ pub fn run_callers(c: &Common, o: &Options, name: &str, depth: usize) -> Result<
         shown: r.callers.len().min(limit),
         ..r.outcome.clone()
     };
-    if c.json {
+    if c.json() {
         for cl in r.callers.iter().take(limit) {
             serde_json::to_writer(
                 &mut w,
@@ -728,13 +728,13 @@ pub fn run_impls(c: &Common, o: &Options, name: &str) -> Result<()> {
         shown: r.direct.len().min(limit)
             + r.extras
                 .len()
-                .min(if c.json { limit } else { limit / 2 + 1 }),
+                .min(if c.json() { limit } else { limit / 2 + 1 }),
         rung: greeg_query::Rung::Exact,
         source: r.source,
         fresh: r.fresh,
         deferred: 0,
     };
-    if c.json {
+    if c.json() {
         for e in r.direct.iter().take(limit) {
             let mut v = def_json(e);
             v["type"] = json!("impl");
@@ -793,7 +793,7 @@ pub fn run_impls(c: &Common, o: &Options, name: &str) -> Result<()> {
 pub fn run_outline(c: &Common, o: &Options, file: &str, imports: bool) -> Result<()> {
     let r = answered(o, |o| verbs::outline(o, file))?;
     let mut w = out();
-    if c.json {
+    if c.json() {
         for d in &r.defs {
             serde_json::to_writer(
                 &mut w,
@@ -931,7 +931,7 @@ pub fn run_map(c: &Common, o: &Options, dir: &str) -> Result<()> {
     let r = match verbs::map(o, dir) {
         Ok(r) => r,
         Err(e) => {
-            if c.json
+            if c.json()
                 && let Some(rb) = e.downcast_ref::<greeg_query::indexed::Rebuilding>()
             {
                 let mut w = out();
@@ -956,7 +956,7 @@ pub fn run_map(c: &Common, o: &Options, dir: &str) -> Result<()> {
     } else {
         (o.budget / 60).clamp(4, 24)
     };
-    if c.json {
+    if c.json() {
         for d in r.dirs.iter().take(dir_limit) {
             serde_json::to_writer(
                 &mut w,
@@ -1121,7 +1121,7 @@ pub fn run_impact(c: &Common, o: &Options, name: &str) -> Result<()> {
             }
             Ok(())
         };
-    if c.json {
+    if c.json() {
         let grp = |files: &[verbs::ImpactFile]| -> Vec<serde_json::Value> {
             files.iter().map(|f| json!({"path":crate::json_rel(&f.rel),"hits":f.hits,"kinds":f.kinds.iter().map(|(k,n)| json!([k.name(), n])).collect::<Vec<_>>(),"file_flags":f.flags.names(),"sample":f.sample.iter().map(|(l, t)| json!([l, crate::json_rel(t)])).collect::<Vec<_>>()})).collect()
         };

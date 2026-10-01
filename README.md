@@ -186,6 +186,7 @@ greeg get_queryset                  # ranked hits, definitions first, ~600 token
 greeg -w respond -l                 # files only, rg-shaped, pipe-safe
 greeg 'fn poll_read' -t rs -C 3     # ripgrep flags behave as they do in rg
 greeg createSourceFile --json       # ripgrep JSON Lines + kind/symbol/facets/footer
+greeg createSourceFile --json=rg    # exactly what rg --json prints: every match
 greeg respond --budget 0            # unlimited exact matches, path order
 ```
 
@@ -320,6 +321,12 @@ Cosmetic flags (`-N -H --color --no-heading --column --trim`) are accepted and
 ignored, because the output they ask for is the output greeg already gives.
 `-a`/`--text` and `-uuu` exit `2` rather than quietly answering without the
 binary files ripgrep would have searched.
+
+`--json=rg` prints ripgrep's JSON Lines records and nothing else, for every
+match: no budget, ripgrep's offsets (after a UTF-8 BOM) and exit status. It
+takes no `--budget`, no command and no `-U` (exit `2`). Bare `--json` keeps greeg's
+budgeted records with `kind`, `score`, `facets` and `footer`. See
+[JSON output](references/ARCHITECTURE.md#json-output).
 
 **greeg flags**: `--budget N` (tokens, default 2000, `0` = unlimited) ·
 `--mode files|outline|content|block` · `--kind def,call,…` · `--near PATH` ·

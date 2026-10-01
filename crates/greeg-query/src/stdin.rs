@@ -58,6 +58,7 @@ pub fn scan(o: &Options, mut data: Vec<u8>) -> Result<ScanResult> {
         .multi_line(o.multiline)
         .bom_sniffing(false);
     sb.build().search_slice(&matcher, &data[bom..], &mut sink)?;
+    let searched = (data.len() - bom) as u64;
     let src = Source::new(data);
     let bytes: &[u8] = &src.bytes;
     let mut hits = Vec::with_capacity(sink.hits.len());
@@ -118,12 +119,15 @@ pub fn scan(o: &Options, mut data: Vec<u8>) -> Result<ScanResult> {
             refined: true,
             file_id: None,
             src: Some(src),
+            bom: bom as u32,
+            searched,
             below: None,
         });
     }
     let mut stats = Stats {
         files_walked: 1,
         files_searched: 1,
+        bytes_searched: searched,
         files_matched: files.len(),
         total_hits: total,
         total_unfiltered: total,

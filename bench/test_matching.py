@@ -3,7 +3,8 @@ import json
 import subprocess
 import unittest
 
-from matching import definition_contract, json_exact_contract, stable_stdout
+from matching import (definition_contract, json_exact_contract, rg_dialect_contract,
+                      rg_dialect_query, stable_stdout)
 
 
 class JsonContractTests(unittest.TestCase):
@@ -77,6 +78,48 @@ class JsonContractTests(unittest.TestCase):
         self.assertTrue(definition_contract(miss, empty))
         miss.stdout += b"src/unexpected.rs\n"
         self.assertFalse(definition_contract(miss, empty))
+
+
+class RgDialectTests(unittest.TestCase):
+    MATCH = (b'{"type":"match","data":{"path":{"text":"src/a.rs"},"lines":{"text":"load_config\\n"},'
+             b'"line_number":1,"absolute_offset":0,"submatches":[]}}')
+    END = (b'{"type":"end","data":{"path":{"text":"src/a.rs"},"binary_offset":null,"stats":{"elapsed":'
+           b'{"secs":0,"nanos":%d,"human":"x"},"searches":1,"searches_with_match":1,"bytes_searched":%d,'
+           b'"bytes_printed":9,"matched_lines":1,"matches":1}}}')
+    SUMMARY = (b'{"data":{"elapsed_total":{"human":"x","nanos":%d,"secs":0},"stats":{"bytes_printed":9,'
+               b'"bytes_searched":%d,"elapsed":{"human":"x","nanos":0,"secs":0},"matched_lines":1,'
+               b'"matches":1,"searches":%d,"searches_with_match":1}},"type":"summary"}')
+
+    def output(self, nanos=0, file_bytes=12, total_bytes=12, searches=1, status=0, match=MATCH):
+        lines = [match, self.END % (nanos, file_bytes), self.SUMMARY % (nanos, total_bytes, searches)]
+        return subprocess.CompletedProcess([], status, b"\n".join(lines) + b"\n", b"")
+
+    def test_only_timings_differ(self):
+        oracle = self.output(nanos=5)
+        self.assertTrue(rg_dialect_contract(self.output(), oracle, "scan"))
+        self.assertFalse(rg_dialect_contract(self.output(status=1), oracle, "scan"))
+        self.assertFalse(rg_dialect_contract(self.output(file_bytes=13), oracle, "scan"))
+        self.assertFalse(rg_dialect_contract(self.output(match=self.MATCH.replace(b':1,"abs', b':2,"abs')),
+                                             oracle, "scan"))
+        reordered = self.MATCH.replace(b'"line_number":1,"absolute_offset":0',
+                                       b'"absolute_offset":0,"line_number":1')
+        self.assertFalse(rg_dialect_contract(self.output(match=reordered), oracle, "scan"))
+
+    def test_an_index_may_read_fewer_files_but_not_report_other_ones(self):
+        oracle = self.output(total_bytes=99, searches=8)
+        self.assertFalse(rg_dialect_contract(self.output(), oracle, "scan"))
+        self.assertTrue(rg_dialect_contract(self.output(), oracle, "index"))
+        self.assertFalse(rg_dialect_contract(self.output(file_bytes=13), self.output(), "index"))
+
+    def test_text_layouts_compare_as_text(self):
+        plain = subprocess.CompletedProcess([], 0, b"src/a.rs\n", b"")
+        self.assertTrue(rg_dialect_contract(plain, plain, "scan"))
+        self.assertFalse(rg_dialect_contract(plain, subprocess.CompletedProcess([], 0, b"src/b.rs\n", b""), "scan"))
+
+    def test_query_drops_budget_and_bare_json(self):
+        self.assertEqual(rg_dialect_query(["--budget", "0", "x"]), ["x"])
+        self.assertEqual(rg_dialect_query(["--json", "x"]), ["x"])
+        self.assertEqual(rg_dialect_query(["-c", "-w", "x"]), ["-c", "-w", "x"])
 
 
 if __name__ == "__main__":
