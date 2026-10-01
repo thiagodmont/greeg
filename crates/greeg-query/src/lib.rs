@@ -346,6 +346,10 @@ pub struct FileResult {
     pub file_id: Option<u32>,
     /// The file's bytes once something needed them (read at most once per query).
     pub src: Option<Source>,
+    /// Where the first line starts: 3 after a UTF-8 BOM, otherwise 0.
+    pub bom: u32,
+    /// Bytes searched: decoded, and without a UTF-8 BOM.
+    pub searched: u64,
     /// Where it is read from: a path below a tree, or `path` as named.
     pub(crate) below: Option<(Arc<Tree>, Vec<u8>)>,
 }
@@ -373,6 +377,8 @@ impl FileResult {
             refined: false,
             file_id: None,
             src: None,
+            bom: 0,
+            searched: 0,
             below: None,
         }
     }
@@ -406,6 +412,8 @@ pub struct DefSummary {
 pub struct Stats {
     pub files_walked: usize,
     pub files_searched: usize,
+    /// Bytes searched, as decoded and without a UTF-8 BOM, as ripgrep counts.
+    pub bytes_searched: u64,
     pub files_matched: usize,
     /// Matched lines after `--kind` filtering.
     pub total_hits: usize,
@@ -1618,6 +1626,8 @@ pub(crate) fn process_file(
         cx.stats.binary.fetch_add(1, Relaxed);
         return None;
     }
+    let searched = body.len() as u64;
+    cx.stats.bytes.fetch_add(searched, Relaxed);
     let lang = Lang::from_path(path);
     let cap = if o.budget == 0 {
         usize::MAX
@@ -1785,6 +1795,8 @@ pub(crate) fn process_file(
         refined: false,
         file_id: None,
         src: None,
+        bom: bom as u32,
+        searched,
         below: below.map(|(tree, sub)| (tree.clone(), sub.to_vec())),
     })
 }
@@ -2011,6 +2023,7 @@ pub fn refine(r: &mut ScanResult, indices: &[usize]) {
 #[derive(Default)]
 pub(crate) struct StatsAcc {
     pub(crate) searched: AtomicUsize,
+    pub(crate) bytes: std::sync::atomic::AtomicU64,
     pub(crate) binary: AtomicUsize,
     pub(crate) huge: AtomicUsize,
     pub(crate) walked: AtomicUsize,
@@ -2192,6 +2205,7 @@ pub(crate) fn finish_stats(
     }
     stats.total_unfiltered += acc.unqualified.load(Relaxed);
     stats.files_searched = acc.searched.load(Relaxed);
+    stats.bytes_searched = acc.bytes.load(Relaxed);
     stats.skipped_binary = acc.binary.load(Relaxed);
     stats.skipped_huge = acc.huge.load(Relaxed);
     stats.elapsed_ms = t0.elapsed().as_secs_f64() * 1e3;

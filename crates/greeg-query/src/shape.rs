@@ -441,7 +441,7 @@ pub fn shape(r: &mut ScanResult) -> Report {
                         .then(r.files[a.file].rel.cmp(&r.files[b.file].rel))
                 });
             } else {
-                files.sort_by(|a, b| r.files[a.file].rel.cmp(&r.files[b.file].rel));
+                files.sort_by(|a, b| path_order(&r.files[a.file].rel, &r.files[b.file].rel));
             }
             let est: usize = files
                 .iter()
@@ -713,7 +713,7 @@ pub fn shape(r: &mut ScanResult) -> Report {
         }
     }
     if parity {
-        files.sort_by(|a, b| r.files[a.file].rel.cmp(&r.files[b.file].rel));
+        files.sort_by(|a, b| path_order(&r.files[a.file].rel, &r.files[b.file].rel));
     }
 
     // adaptive context (content layout only) and blocks
@@ -917,6 +917,12 @@ fn hints(
     }
 }
 
+/// Path order as `rg --sort path` gives it: by name within each directory,
+/// so `a/x` comes before `a-b/x` although `-` sorts before `/`.
+pub fn path_order(a: &[u8], b: &[u8]) -> std::cmp::Ordering {
+    a.split(|&c| c == b'/').cmp(b.split(|&c| c == b'/'))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -965,6 +971,8 @@ mod tests {
             refined: true,
             file_id: None,
             src: None,
+            bom: 0,
+            searched: 0,
             below: None,
         }
     }

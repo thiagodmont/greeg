@@ -1148,6 +1148,14 @@ def matching_report(output_dir, datasets=None):
     return out
 
 
+def rg_dialect_summary(checks):
+    if not checks:
+        return ""
+    equal = sum(c["equal"] for c in checks)
+    return (f"`--json=rg` equal to `rg --json` (timings aside): **{equal}/{len(checks)}** "
+            f"case/backend pairs. ")
+
+
 def matching_review_report(output_dir, datasets=None):
     datasets = datasets or ReportDatasets(RESULTS)
     out = []
@@ -1169,7 +1177,7 @@ def matching_review_report(output_dir, datasets=None):
                 f"`{data['binaries']['baseline']['version']}` → `{data['binaries']['candidate']['version']}`; "
                 f"{data['runs']} randomized pairs per case, {data['warmups']} warmups on the same {data['corpus']['files']}-file warm synthetic corpus. "
                 f"Contract checks passed: **{passed('baseline')} → {passed('candidate')}**. "
-                + timing, ""]
+                + rg_dialect_summary(data.get("rg_json_dialect")) + timing, ""]
         if entry.show_rows:
             out += paired_table(rows, "backend", "Backend", tokenizer=data.get("tokenizer"),
                                 token_key="tokens_both_streams")

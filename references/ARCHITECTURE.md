@@ -650,10 +650,37 @@ identifiers stop competing for answer lines and collapse into one `related`
 line naming them with their file counts. If nothing matches the whole word,
 those near-misses become the answer instead.
 
-`--json` keeps ripgrep's JSON Lines schema exactly, adding `kind`, `symbol`,
+### JSON output
+
+`--json` keeps ripgrep's JSON Lines schema, adding `kind`, `symbol`,
 `file_flags` and `score` to match records, plus `facets` and `footer` record
-types. Every search and search-verb footer has the `outcome` object described
-under [When nothing matches](#when-nothing-matches).
+types. It is budget-shaped like text: `footer.outcome.complete` is false when
+the budget left matches out. Its `absolute_offset` counts a UTF-8 BOM, as it
+always has. Every search and search-verb footer has the `outcome` object
+described under [When nothing matches](#when-nothing-matches).
+
+`--json=rg` is ripgrep's dialect, and nothing else:
+- `begin`, `match`, `context`, `end` and `summary` records with the fields
+  ripgrep 15 prints, for every match. It has no budget, and `--budget` with
+  it exits 2, as does a command (`def --json=rg`).
+- `-U` exits 2: ripgrep prints a match across lines as one record, and
+  greeg's hits are single lines.
+- Offsets are ripgrep's: from the start of the decoded stream, after a UTF-8
+  BOM, UTF-16 transcoded.
+- `-l` and `-c` print text, as `rg --json -l` does. Exit status is 0, 1 or 2.
+- Files come in path order (`--sort path`).
+- Timings differ: only the whole query is timed (`summary.elapsed_total`);
+  per-file and summed search times are 0.
+- `searches` and `bytes_searched` count what greeg read (the decoded bytes),
+  which an index makes less than what ripgrep reads.
+- Paths are relative to the root (`a.txt`), where ripgrep prefixes the path it
+  was given (`./a.txt` for `.`), as in every other format.
+
+`bench/matching.py` checks every search case under `--json=rg` against
+`rg --json` byte for byte, timings aside, in both backends.
+
+`--sort path` orders as `rg --sort path` does: by name within each directory,
+so `a/x` comes before `a-b/x`.
 
 ## Languages
 

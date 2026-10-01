@@ -84,6 +84,31 @@ def json_exact_contract(output, oracle):
             and footers[0]["hits_total"] == summaries[0]["matched_lines"])
 
 
+ELAPSED = re.compile(rb'"(elapsed|elapsed_total)":\{[^}]*\}')
+READ_COUNTS = re.compile(rb'"(bytes_searched|searches)":[0-9]+')
+
+
+def rg_dialect_query(query):
+    query = [arg for arg in query if arg != "--json"]
+    return query[2:] if query[:2] == ["--budget", "0"] else query
+
+
+def rg_dialect_contract(output, oracle, backend):
+    """`--json=rg` must print `rg --json`'s bytes but its timings.
+
+    An index reads fewer files than ripgrep, so its summary may count fewer.
+    """
+    def stable(stdout):
+        lines = []
+        for line in stdout.splitlines():
+            line = ELAPSED.sub(rb'"\1":0', line)
+            if backend == "index" and line.startswith(b'{"data":'):
+                line = READ_COUNTS.sub(rb'"\1":0', line)
+            lines.append(line)
+        return lines
+    return output.returncode == oracle.returncode and stable(output.stdout) == stable(oracle.stdout)
+
+
 def definition_contract(output, oracle):
     lines = [line for line in output.stdout.splitlines() if line]
     if not lines or not lines[0].startswith(b"def ") or b"matched " in lines[0]:
@@ -231,13 +256,38 @@ def main():
                 row["stdout_and_status_unchanged"] = (outputs["baseline"][0].returncode, stable_stdout(outputs["baseline"][0].stdout, is_json)) == (outputs["candidate"][0].returncode, stable_stdout(outputs["candidate"][0].stdout, is_json))
                 row["median_change_percent"] = 100 * (row["candidate"]["median_ms"] / row["baseline"]["median_ms"] - 1)
                 metadata["results"].append(row)
+        metadata["rg_json_dialect"] = rg_dialect_checks(binaries["candidate"], rg, root,
+                                                        environments["candidate"], common, args.cases)
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(json.dumps(metadata, indent=2) + "\n")
     print(f"Wrote {len(metadata['results'])} paired cases to {args.output}")
     failures = [r for r in metadata["results"] if r["candidate"]["rg_stdout_and_status_equal"] is False
                 or r["candidate"]["json_exact_contract"] is False or r["candidate"]["definition_contract"] is False]
+    failures += [r for r in metadata["rg_json_dialect"] or [] if not r["equal"]]
     if failures:
         raise SystemExit(f"candidate parity failures: {[(r['backend'], r['case']) for r in failures]}")
+
+
+def rg_dialect_checks(binary, rg, root, env, common, cases):
+    """Every search case under `--json=rg` against `rg --json`, or None before 0.10."""
+    probe = subprocess.run([str(binary), "--json=rg", "--no-index", "probe", "."], cwd=root, env=env,
+                           stdin=subprocess.DEVNULL, capture_output=True, check=False)
+    if probe.returncode not in (0, 1):
+        return None
+    checks = []
+    for backend in ("scan", "index"):
+        for name in cases:
+            if CASES[name][0] == "def":
+                continue
+            query = rg_dialect_query(CASES[name])
+            extra = ["--no-index"] if backend == "scan" else []
+            output, _ = run([str(binary), "--json=rg", *query, ".", *common, "--sort", "path", *extra], root, env)
+            oracle, _ = run([rg, "--no-config", "--color", "never", "--sort", "path", "--json", *query, "src"],
+                            root, env)
+            checks.append({"case": name, "backend": backend, "exit": output.returncode,
+                           "stdout_bytes": len(output.stdout),
+                           "equal": rg_dialect_contract(output, oracle, backend)})
+    return checks
 
 
 if __name__ == "__main__":

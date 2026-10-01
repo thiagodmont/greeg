@@ -1246,3 +1246,136 @@ fn a_build_killed_partway_never_changes_an_answer() {
         + &String::from_utf8_lossy(&check.stderr);
     assert!(text.contains("rebuild none"), "{text}");
 }
+
+fn json_rg(f: &Fixture, args: &[&str]) -> (Option<i32>, String) {
+    let mut a = vec!["--json=rg", "--no-index"];
+    a.extend_from_slice(args);
+    let o = f.run(&a);
+    (
+        o.status.code(),
+        String::from_utf8_lossy(&o.stdout).into_owned(),
+    )
+}
+
+/// The summary without its elapsed times, which no two runs share.
+fn without_elapsed(line: &str) -> String {
+    let mut v: serde_json::Value = serde_json::from_str(line).unwrap();
+    let d = &mut v["data"];
+    d.as_object_mut().unwrap().shift_remove("elapsed_total");
+    d["stats"].as_object_mut().unwrap().shift_remove("elapsed");
+    v.to_string()
+}
+
+/// `--json=rg` writes ripgrep's records and nothing else, in ripgrep's
+/// coordinates: past a UTF-8 BOM, in UTF-16 decoded, with `{"bytes"}` for a
+/// line that is not UTF-8. The expected records are ripgrep 15's output.
+#[test]
+fn json_rg_writes_ripgreps_records() {
+    let f = empty_fixture();
+    fs::write(f.root.join("a.txt"), "a needle\nb\nneedle needle\n").unwrap();
+    fs::write(f.root.join("bad.txt"), b"inv\xffneedle\n").unwrap();
+    fs::write(f.root.join("bom.txt"), b"\xef\xbb\xbfx\nneedle\n").unwrap();
+    fs::write(
+        f.root.join("u16.txt"),
+        b"\xff\xfen\x00e\x00e\x00d\x00l\x00e\x00\n\x00",
+    )
+    .unwrap();
+    let (code, out) = json_rg(
+        &f,
+        &[
+            "-B", "1", "needle", "a.txt", "bad.txt", "bom.txt", "u16.txt",
+        ],
+    );
+    assert_eq!(code, Some(0));
+    let lines: Vec<&str> = out.lines().collect();
+    let want = [
+        r#"{"type":"begin","data":{"path":{"text":"a.txt"}}}"#,
+        r#"{"type":"match","data":{"path":{"text":"a.txt"},"lines":{"text":"a needle\n"},"line_number":1,"absolute_offset":0,"submatches":[{"match":{"text":"needle"},"start":2,"end":8}]}}"#,
+        r#"{"type":"context","data":{"path":{"text":"a.txt"},"lines":{"text":"b\n"},"line_number":2,"absolute_offset":9,"submatches":[]}}"#,
+        r#"{"type":"match","data":{"path":{"text":"a.txt"},"lines":{"text":"needle needle\n"},"line_number":3,"absolute_offset":11,"submatches":[{"match":{"text":"needle"},"start":0,"end":6},{"match":{"text":"needle"},"start":7,"end":13}]}}"#,
+        r#"{"type":"end","data":{"path":{"text":"a.txt"},"binary_offset":null,"stats":{"elapsed":{"secs":0,"nanos":0,"human":"0.000000s"},"searches":1,"searches_with_match":1,"bytes_searched":25,"bytes_printed":584,"matched_lines":2,"matches":3}}}"#,
+        r#"{"type":"begin","data":{"path":{"text":"bad.txt"}}}"#,
+        r#"{"type":"match","data":{"path":{"text":"bad.txt"},"lines":{"bytes":"aW52/25lZWRsZQo="},"line_number":1,"absolute_offset":0,"submatches":[{"match":{"text":"needle"},"start":4,"end":10}]}}"#,
+        r#"{"type":"end","data":{"path":{"text":"bad.txt"},"binary_offset":null,"stats":{"elapsed":{"secs":0,"nanos":0,"human":"0.000000s"},"searches":1,"searches_with_match":1,"bytes_searched":11,"bytes_printed":239,"matched_lines":1,"matches":1}}}"#,
+        r#"{"type":"begin","data":{"path":{"text":"bom.txt"}}}"#,
+        r#"{"type":"context","data":{"path":{"text":"bom.txt"},"lines":{"text":"x\n"},"line_number":1,"absolute_offset":0,"submatches":[]}}"#,
+        r#"{"type":"match","data":{"path":{"text":"bom.txt"},"lines":{"text":"needle\n"},"line_number":2,"absolute_offset":2,"submatches":[{"match":{"text":"needle"},"start":0,"end":6}]}}"#,
+        r#"{"type":"end","data":{"path":{"text":"bom.txt"},"binary_offset":null,"stats":{"elapsed":{"secs":0,"nanos":0,"human":"0.000000s"},"searches":1,"searches_with_match":1,"bytes_searched":9,"bytes_printed":358,"matched_lines":1,"matches":1}}}"#,
+        r#"{"type":"begin","data":{"path":{"text":"u16.txt"}}}"#,
+        r#"{"type":"match","data":{"path":{"text":"u16.txt"},"lines":{"text":"needle\n"},"line_number":1,"absolute_offset":0,"submatches":[{"match":{"text":"needle"},"start":0,"end":6}]}}"#,
+        r#"{"type":"end","data":{"path":{"text":"u16.txt"},"binary_offset":null,"stats":{"elapsed":{"secs":0,"nanos":0,"human":"0.000000s"},"searches":1,"searches_with_match":1,"bytes_searched":7,"bytes_printed":229,"matched_lines":1,"matches":1}}}"#,
+    ];
+    assert_eq!(lines[..want.len()], want[..], "{out}");
+    assert_eq!(lines.len(), want.len() + 1, "{out}");
+    assert_eq!(
+        without_elapsed(lines[want.len()]),
+        r#"{"data":{"stats":{"bytes_printed":1410,"bytes_searched":52,"matched_lines":5,"matches":6,"searches":4,"searches_with_match":4}},"type":"summary"}"#
+    );
+    assert!(
+        lines[want.len()].starts_with(r#"{"data":{"elapsed_total":{"human":"#),
+        "{out}"
+    );
+}
+
+/// `--json=rg` keeps ripgrep's semantics: every match whatever the budget,
+/// `-l` and `-c` as text, exit 1 without a match; `--budget`, commands and
+/// `-U`, whose records it cannot match, refuse it.
+#[test]
+fn json_rg_keeps_ripgreps_semantics() {
+    let f = empty_fixture();
+    let body: String = (0..400).map(|i| format!("needle {i}\n")).collect();
+    fs::write(f.root.join("a.txt"), body).unwrap();
+    let (code, out) = json_rg(&f, &["needle"]);
+    assert_eq!(code, Some(0));
+    assert_eq!(out.matches(r#""type":"match""#).count(), 400);
+    assert!(
+        !out.contains(r#""type":"footer""#) && !out.contains(r#""kind""#),
+        "{out}"
+    );
+    assert_eq!(json_rg(&f, &["-l", "needle"]), (Some(0), "a.txt\n".into()));
+    assert_eq!(
+        json_rg(&f, &["-c", "needle"]),
+        (Some(0), "a.txt:400\n".into())
+    );
+    let (code, out) = json_rg(&f, &["zzz"]);
+    assert_eq!(code, Some(1));
+    assert!(
+        out.starts_with(r#"{"data":"#) && out.lines().count() == 1,
+        "{out}"
+    );
+    for args in [
+        &["--budget", "10", "needle"][..],
+        &["def", "needle"][..],
+        &["-U", "needle"][..],
+    ] {
+        let (code, out) = json_rg(&f, args);
+        assert_eq!((code, out.as_str()), (Some(2), ""), "{args:?}");
+    }
+}
+
+/// A context line never carries a UTF-8 BOM, as a matched line never does.
+#[test]
+fn a_context_line_after_a_bom_holds_only_its_text() {
+    let f = empty_fixture();
+    fs::write(f.root.join("bom.txt"), b"\xef\xbb\xbfx\nneedle\n").unwrap();
+    let out = f.out(&["--json", "--no-index", "-B", "1", "needle", "bom.txt"]);
+    assert!(
+        out.contains(r#""lines":{"text":"x\n"},"line_number":1,"absolute_offset":3"#),
+        "{out}"
+    );
+}
+
+/// `--sort path` orders as `rg --sort path` does: by name within each
+/// directory, so `a/x` comes before `a-b/x`.
+#[test]
+fn path_order_follows_names_within_each_directory() {
+    let f = empty_fixture();
+    for p in ["a/x.txt", "a-b/x.txt", "a.txt"] {
+        w(&f.root.join(p), "needle\n");
+    }
+    for backend in [&["--no-index"][..], &[][..]] {
+        let mut args = vec!["-l", "--sort", "path", "needle"];
+        args.extend_from_slice(backend);
+        assert_eq!(f.out(&args), "a/x.txt\na-b/x.txt\na.txt\n", "{backend:?}");
+    }
+}
