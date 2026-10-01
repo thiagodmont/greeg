@@ -109,7 +109,10 @@ and is never converted, in the file table, the `skipped` record, freshness
 checks or scans. `--budget 0`, `-l` and `-c` write paths byte for byte, as
 ripgrep does, so each can be opened again. ripgrep-shaped JSON gives a path
 as `{"text"}` when it is UTF-8 and as `{"bytes"}` (base64) otherwise; greeg's
-own JSON fields give the string, or `{"bytes"}`. Ranked headers and verb text
+own JSON fields give the string, or `{"bytes"}`. File content follows the same
+rule: matched and context lines and submatches in ripgrep-shaped JSON, and
+`show` text, `refs` text and `impact` samples in verb JSON, are never
+replaced; `--budget 0` writes lines byte for byte. Ranked headers and verb text
 show invalid UTF-8 and control bytes as `\xNN`, and path heuristics (test,
 vendored and generated flags) read that form. Sessions keep the UTF-8 path,
 or a NUL and the bytes in hex. A file whose path is not UTF-8 resolves no

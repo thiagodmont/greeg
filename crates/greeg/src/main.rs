@@ -1765,14 +1765,16 @@ fn render_parity(w: &mut impl Write, r: &ScanResult, rep: &Report, fmt: Fmt) -> 
                             continue;
                         }
                         prefix(w, ln, if hit_lines.contains(&ln) { ':' } else { '-' })?;
-                        writeln!(w, "{}", String::from_utf8_lossy(l))?;
+                        w.write_all(l)?;
+                        writeln!(w)?;
                         last = ln;
                     }
                 }
                 None => {
                     if h.line > last {
                         prefix(w, h.line, ':')?;
-                        writeln!(w, "{}", String::from_utf8_lossy(&h.raw))?;
+                        w.write_all(&h.raw)?;
+                        writeln!(w)?;
                         last = h.line;
                     }
                 }
@@ -2064,18 +2066,17 @@ fn render_json(w: &mut impl Write, r: &ScanResult, rep: &Report) -> Result<()> {
         let mut file_lines = 0usize;
         let mut emit_match = |w: &mut dyn Write, hi: usize| -> Result<()> {
             let h = &f.hits[hi];
-            let text: String = match src.and_then(|b| {
-                line_span(b, h.line, h.line_start, h.line)
-                    .map(|(s, e)| String::from_utf8_lossy(&b[s..e]).into_owned())
+            let text: Vec<u8> = match src.and_then(|b| {
+                line_span(b, h.line, h.line_start, h.line).map(|(s, e)| b[s..e].to_vec())
             }) {
                 Some(t) => t,
                 None => {
-                    let mut t = String::from_utf8_lossy(&h.raw).into_owned();
-                    t.push('\n');
+                    let mut t = h.raw.clone();
+                    t.push(b'\n');
                     t
                 }
             };
-            let subs: Vec<serde_json::Value> = h.raw_submatches().iter().map(|&(s, e)| json!({"match":{"text":String::from_utf8_lossy(&h.raw[s as usize..e as usize])},"start":s,"end":e})).collect();
+            let subs: Vec<serde_json::Value> = h.raw_submatches().iter().map(|&(s, e)| json!({"match":json_data(&h.raw[s as usize..e as usize]),"start":s,"end":e})).collect();
             let sym = h.chain.last().map(|(k, n)| json!({"name": n, "kind": k.name(), "container": chain_str(&h.chain[..h.chain.len()-1])}));
             file_matches += subs.len();
             file_lines += 1;
@@ -2084,7 +2085,7 @@ fn render_json(w: &mut impl Write, r: &ScanResult, rep: &Report) -> Result<()> {
                 &mut *w,
                 &json!({"type":"match","data":{
                     "path":json_data(&f.rel),
-                    "lines":{"text":text},
+                    "lines":json_data(&text),
                     "line_number":h.line,
                     "absolute_offset":h.line_start,
                     "submatches":subs,
@@ -2110,10 +2111,9 @@ fn render_json(w: &mut impl Write, r: &ScanResult, rep: &Report) -> Result<()> {
                         if let Some(&hi) = hit_lines.get(&ln) {
                             emit_match(w, hi)?;
                         } else if let Some((s, e)) = line_span(b, h.line, h.line_start, ln) {
-                            let text = String::from_utf8_lossy(&b[s..e]);
                             serde_json::to_writer(
                                 &mut *w,
-                                &json!({"type":"context","data":{"path":json_data(&f.rel),"lines":{"text":text},"line_number":ln,"absolute_offset":s,"submatches":[]}}),
+                                &json!({"type":"context","data":{"path":json_data(&f.rel),"lines":json_data(&b[s..e]),"line_number":ln,"absolute_offset":s,"submatches":[]}}),
                             )?;
                             writeln!(w)?;
                         }
