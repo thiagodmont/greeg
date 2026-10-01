@@ -89,7 +89,7 @@ fn parse_def_kind(s: &str) -> Result<DefKind> {
     })
 }
 
-fn sym_flags(flags: u8, file_flags: FileFlags) -> Vec<&'static str> {
+pub(crate) fn sym_flags(flags: u8, file_flags: FileFlags) -> Vec<&'static str> {
     let mut v = Vec::new();
     if flags & SYM_EXPORTED != 0 {
         v.push("exported");
@@ -303,6 +303,10 @@ pub fn run_def(
         deferred: 0,
     };
     let mut w = out();
+    if c.json_greeg() {
+        crate::json_native::defs(&mut w, &r, &oc)?;
+        return finish(w, "def", &oc);
+    }
     if c.json() {
         for e in &r.entries {
             let mut v = def_json(e);
@@ -390,6 +394,11 @@ pub fn run_def(
 pub fn run_show(c: &Common, o: &Options, locs: &[(String, u32)]) -> Result<()> {
     let r = answered(o, |o| verbs::show(o, locs))?;
     let mut w = out();
+    if c.json_greeg() {
+        crate::json_native::show(&mut w, &r)?;
+        w.flush()?;
+        return Ok(());
+    }
     if c.json() {
         for it in &r.items {
             let shown_to = it.body.first + it.body.lines.len().saturating_sub(1) as u32;
@@ -490,6 +499,19 @@ pub fn run_refs(c: &Common, o: &Options, name: &str) -> Result<()> {
     } else {
         String::new()
     };
+    if c.json_greeg() {
+        let shown: Vec<(HitKind, usize, usize)> = nonempty
+            .iter()
+            .flat_map(|(k, v)| {
+                v.iter()
+                    .take(share_of(v.len()))
+                    .map(|&(fi, hi)| (*k, fi, hi))
+            })
+            .collect();
+        let counts = nonempty.iter().map(|(k, v)| (k.name(), v.len())).collect();
+        crate::json_native::refs(&mut w, name, &r, &shown, counts)?;
+        return finish(w, "refs", &Outcome::of_search(s, shown.len()));
+    }
     if c.json() {
         for e in &r.defs {
             let mut v = def_json(e);
@@ -621,6 +643,10 @@ pub fn run_callers(c: &Common, o: &Options, name: &str, depth: usize) -> Result<
         shown: r.callers.len().min(limit),
         ..r.outcome.clone()
     };
+    if c.json_greeg() {
+        crate::json_native::callers(&mut w, &r, limit, &oc)?;
+        return finish(w, "callers", &oc);
+    }
     if c.json() {
         for cl in r.callers.iter().take(limit) {
             serde_json::to_writer(
@@ -734,6 +760,10 @@ pub fn run_impls(c: &Common, o: &Options, name: &str) -> Result<()> {
         fresh: r.fresh,
         deferred: 0,
     };
+    if c.json_greeg() {
+        crate::json_native::impls(&mut w, &r, limit, &oc)?;
+        return finish(w, "impls", &oc);
+    }
     if c.json() {
         for e in r.direct.iter().take(limit) {
             let mut v = def_json(e);
@@ -793,6 +823,11 @@ pub fn run_impls(c: &Common, o: &Options, name: &str) -> Result<()> {
 pub fn run_outline(c: &Common, o: &Options, file: &str, imports: bool) -> Result<()> {
     let r = answered(o, |o| verbs::outline(o, file))?;
     let mut w = out();
+    if c.json_greeg() {
+        crate::json_native::outline(&mut w, &r)?;
+        w.flush()?;
+        return Ok(());
+    }
     if c.json() {
         for d in &r.defs {
             serde_json::to_writer(
@@ -931,7 +966,13 @@ pub fn run_map(c: &Common, o: &Options, dir: &str) -> Result<()> {
     let r = match verbs::map(o, dir) {
         Ok(r) => r,
         Err(e) => {
-            if c.json()
+            if c.json_greeg()
+                && let Some(rb) = e.downcast_ref::<greeg_query::indexed::Rebuilding>()
+            {
+                let mut w = out();
+                crate::json_native::map_rebuilding(&mut w, rb.reason, rb.estimate_ms)?;
+                w.flush()?;
+            } else if c.json()
                 && let Some(rb) = e.downcast_ref::<greeg_query::indexed::Rebuilding>()
             {
                 let mut w = out();
@@ -956,6 +997,11 @@ pub fn run_map(c: &Common, o: &Options, dir: &str) -> Result<()> {
     } else {
         (o.budget / 60).clamp(4, 24)
     };
+    if c.json_greeg() {
+        crate::json_native::map(&mut w, &r, dir_limit, file_limit)?;
+        w.flush()?;
+        return Ok(());
+    }
     if c.json() {
         for d in r.dirs.iter().take(dir_limit) {
             serde_json::to_writer(
@@ -1121,6 +1167,10 @@ pub fn run_impact(c: &Common, o: &Options, name: &str) -> Result<()> {
             }
             Ok(())
         };
+    if c.json_greeg() {
+        crate::json_native::impact(&mut w, &r, per_group, &oc)?;
+        return finish(w, "impact", &oc);
+    }
     if c.json() {
         let grp = |files: &[verbs::ImpactFile]| -> Vec<serde_json::Value> {
             files.iter().map(|f| json!({"path":crate::json_rel(&f.rel),"hits":f.hits,"kinds":f.kinds.iter().map(|(k,n)| json!([k.name(), n])).collect::<Vec<_>>(),"file_flags":f.flags.names(),"sample":f.sample.iter().map(|(l, t)| json!([l, crate::json_rel(t)])).collect::<Vec<_>>()})).collect()

@@ -42,6 +42,7 @@ pub fn scan(o: &Options, mut data: Vec<u8>) -> Result<ScanResult> {
     let t0 = Instant::now();
     // Same as `process_file`: transcode BOM-marked UTF-16 and search past a
     // UTF-8 BOM while offsets keep indexing the whole buffer.
+    let encoding = crate::Encoding::sniff(&data);
     greeg_lang::transcode_utf16(&mut data);
     let bom = if data.starts_with(&[0xEF, 0xBB, 0xBF]) {
         3
@@ -121,6 +122,7 @@ pub fn scan(o: &Options, mut data: Vec<u8>) -> Result<ScanResult> {
             src: Some(src),
             bom: bom as u32,
             searched,
+            encoding,
             below: None,
         });
     }

@@ -72,6 +72,8 @@ class MatchingReportTests(unittest.TestCase):
                   for b in ("scan", "index")]
         self.assertEqual(bench.rg_dialect_summary(checks),
                          "`--json=rg` equal to `rg --json` (timings aside): **1/2** case/backend pairs. ")
+        self.assertEqual(bench.rg_dialect_summary(None, checks[:1]),
+                         "`--json=greeg --budget 0` holds ripgrep's matches: **1/1** case/backend pairs. ")
 
     def test_repeat_generation_and_default_path(self):
         _, first = self.render(default=True)

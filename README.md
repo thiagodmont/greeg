@@ -187,6 +187,7 @@ greeg -w respond -l                 # files only, rg-shaped, pipe-safe
 greeg 'fn poll_read' -t rs -C 3     # ripgrep flags behave as they do in rg
 greeg createSourceFile --json       # ripgrep JSON Lines + kind/symbol/facets/footer
 greeg createSourceFile --json=rg    # ripgrep JSON Lines only: every match
+greeg createSourceFile --json=greeg # greeg's typed records, schema 1
 greeg respond --budget 0            # unlimited exact matches, path order
 ```
 
@@ -324,9 +325,12 @@ binary files ripgrep would have searched.
 
 `--json=rg` prints ripgrep's JSON Lines records and nothing else, for every
 match: no budget, ripgrep's offsets (after a UTF-8 BOM) and exit status. It
-takes no `--budget`, no command and no `-U` (exit `2`). Bare `--json` keeps greeg's
-budgeted records with `kind`, `score`, `facets` and `footer`. See
-[JSON output](references/ARCHITECTURE.md#json-output).
+takes no `--budget`, no command and no `-U` (exit `2`). `--json=greeg` is greeg's
+own format for searches and verbs: a header naming the schema, typed records,
+paths and content that never lose a byte, each file's encoding and offset
+coordinates, and an `outcome` in every footer. Bare `--json` keeps greeg's
+earlier records with `kind`, `score`, `facets` and `footer`. See
+[`references/JSON.md`](references/JSON.md).
 
 **greeg flags**: `--budget N` (tokens, default 2000, `0` = unlimited) ·
 `--mode files|outline|content|block` · `--kind def,call,…` · `--near PATH` ·

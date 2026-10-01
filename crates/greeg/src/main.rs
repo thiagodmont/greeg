@@ -4,6 +4,7 @@ mod doctor;
 mod hook;
 mod hook_config;
 mod hook_skill;
+mod json_native;
 mod stats;
 mod verbs_out;
 
@@ -67,6 +68,8 @@ enum JsonDialect {
     Legacy,
     /// ripgrep's records and semantics only: every match, no budget
     Rg,
+    /// greeg's own records, schema 1: typed, byte-safe, shaped by the budget
+    Greeg,
 }
 
 /// Flags shared by search and the verbs (accepted before or after a verb).
@@ -141,7 +144,8 @@ struct Common {
     #[arg(long = "max-filesize", default_value_t = 4 << 20, global = true)]
     max_filesize: u64,
     /// JSON Lines output. `--json`: ripgrep's schema plus kind/symbol/facets/footer,
-    /// shaped by the budget. `--json=rg`: exactly ripgrep's records and semantics
+    /// shaped by the budget. `--json=rg`: exactly ripgrep's records and semantics.
+    /// `--json=greeg`: greeg's own records, schema 1
     #[arg(
         long = "json",
         global = true,
@@ -275,6 +279,10 @@ impl Common {
     /// Any JSON output.
     fn json(&self) -> bool {
         self.json_dialect.is_some()
+    }
+
+    fn json_greeg(&self) -> bool {
+        self.json_dialect == Some(JsonDialect::Greeg)
     }
 
     fn json_rg(&self) -> bool {
@@ -932,6 +940,11 @@ fn run() -> Result<()> {
             Cmd::Impact { .. } => "impact",
             _ => "",
         };
+        if c.json_greeg() && verb.is_empty() {
+            anyhow::bail!(
+                "--json=greeg covers searches and the symbol verbs; this command takes --json"
+            );
+        }
         let r = match cmd {
             Cmd::Index {
                 root,
@@ -1386,6 +1399,8 @@ fn emit(c: &Common, result: &ScanResult, report: &Report, fmt: Fmt) -> Result<()
     if c.json() && !plain {
         if c.json_rg() {
             render_rg_json(&mut w, result, report)?;
+        } else if c.json_greeg() {
+            json_native::search(&mut w, result, report)?;
         } else {
             render_json(&mut w, result, report)?;
         }
@@ -2073,7 +2088,7 @@ pub(crate) fn json_rel(b: &[u8]) -> serde_json::Value {
     }
 }
 
-fn base64(b: &[u8]) -> String {
+pub(crate) fn base64(b: &[u8]) -> String {
     const A: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::with_capacity(b.len().div_ceil(3) * 4);
     for c in b.chunks(3) {
@@ -2102,33 +2117,33 @@ struct JsonFile {
     text_bytes: usize,
 }
 
-/// One file's `match` and `context` records, in line order with explicit
-/// context merged. `rg` writes ripgrep's fields only, with offsets counted
-/// past a UTF-8 BOM, as ripgrep counts them.
-fn json_hit_records(
-    w: &mut dyn Write,
-    r: &ScanResult,
-    sf: &ShownFile,
-    rg: bool,
-) -> Result<JsonFile> {
-    use serde_json::json;
+/// A line of a file's answer: a hit, or a line of explicit context.
+pub(crate) enum FileLine {
+    /// `text` is the whole line with its terminator.
+    Match { hit: usize, text: Vec<u8> },
+    /// `start..end` in the file's bytes, terminator included, after any
+    /// UTF-8 BOM.
+    Context { line: u32, start: usize, end: usize },
+}
+
+/// One file's shown lines in line order, explicit context merged.
+pub(crate) fn file_lines(r: &ScanResult, sf: &ShownFile) -> Vec<FileLine> {
     let f = &r.files[sf.file];
-    let mut out = JsonFile::default();
+    let mut out = Vec::new();
     let mut hits: Vec<&greeg_query::shape::ShownHit> = sf.hits.iter().collect();
     hits.sort_by_key(|sh| f.hits[sh.hit].line);
     let src = f.src.as_ref().map(|s| &s.bytes[..]);
-    // a UTF-8 BOM is not part of the first line; ripgrep's offsets skip it too
+    // a UTF-8 BOM is not part of the first line
     let skip = f.bom as usize;
-    let bom = if rg { f.bom } else { 0 };
     let hit_lines: std::collections::BTreeMap<u32, usize> = sf
         .hits
         .iter()
         .map(|sh| (f.hits[sh.hit].line, sh.hit))
         .collect();
     let mut last = 0u32;
-    let emit_match = |w: &mut dyn Write, hi: usize, out: &mut JsonFile| -> Result<()> {
+    let line_of = |hi: usize| -> FileLine {
         let h = &f.hits[hi];
-        let text: Vec<u8> = match src
+        let text = match src
             .and_then(|b| line_span(b, h.line, h.line_start, h.line).map(|(s, e)| b[s..e].to_vec()))
         {
             Some(t) => t,
@@ -2138,36 +2153,7 @@ fn json_hit_records(
                 t
             }
         };
-        let subs: Vec<serde_json::Value> = h.raw_submatches().iter().map(|&(s, e)| json!({"match":json_data(&h.raw[s as usize..e as usize]),"start":s,"end":e})).collect();
-        out.matches += subs.len();
-        out.lines += 1;
-        out.text_bytes += text.len();
-        let record = if rg {
-            json!({"type":"match","data":{
-                "path":json_data(&f.rel),
-                "lines":json_data(&text),
-                "line_number":h.line,
-                "absolute_offset":h.line_start - bom,
-                "submatches":subs
-            }})
-        } else {
-            let sym = h.chain.last().map(|(k, n)| json!({"name": n, "kind": k.name(), "container": chain_str(&h.chain[..h.chain.len()-1])}));
-            json!({"type":"match","data":{
-                "path":json_data(&f.rel),
-                "lines":json_data(&text),
-                "line_number":h.line,
-                "absolute_offset":h.line_start,
-                "submatches":subs,
-                "kind":h.kind.name(),
-                "symbol":sym,
-                "file_flags":f.flags.names(),
-                "score":h.score,
-                "clipped":h.clipped
-            }})
-        };
-        serde_json::to_writer(&mut *w, &record)?;
-        writeln!(w)?;
-        Ok(())
+        FileLine::Match { hit: hi, text }
     };
     for sh in hits {
         let h = &f.hits[sh.hit];
@@ -2179,25 +2165,80 @@ fn json_hit_records(
                         continue;
                     }
                     if let Some(&hi) = hit_lines.get(&ln) {
-                        emit_match(w, hi, &mut out)?;
+                        out.push(line_of(hi));
                     } else if let Some((s, e)) = line_span(b, h.line, h.line_start, ln) {
-                        let s = s.max(skip);
-                        serde_json::to_writer(
-                            &mut *w,
-                            &json!({"type":"context","data":{"path":json_data(&f.rel),"lines":json_data(&b[s..e]),"line_number":ln,"absolute_offset":s as u32 - bom,"submatches":[]}}),
-                        )?;
-                        writeln!(w)?;
+                        out.push(FileLine::Context {
+                            line: ln,
+                            start: s.max(skip),
+                            end: e,
+                        });
                     }
                     last = ln;
                 }
             }
             _ => {
                 if h.line > last {
-                    emit_match(w, sh.hit, &mut out)?;
+                    out.push(line_of(sh.hit));
                     last = h.line;
                 }
             }
         }
+    }
+    out
+}
+
+/// One file's `match` and `context` records in ripgrep's shape. `rg` writes
+/// ripgrep's fields only, with offsets counted past a UTF-8 BOM, as ripgrep
+/// counts them.
+fn json_hit_records(
+    w: &mut dyn Write,
+    r: &ScanResult,
+    sf: &ShownFile,
+    rg: bool,
+) -> Result<JsonFile> {
+    use serde_json::json;
+    let f = &r.files[sf.file];
+    let mut out = JsonFile::default();
+    let bom = if rg { f.bom } else { 0 };
+    for line in file_lines(r, sf) {
+        let record = match line {
+            FileLine::Match { hit, text } => {
+                let h = &f.hits[hit];
+                let subs: Vec<serde_json::Value> = h.raw_submatches().iter().map(|&(s, e)| json!({"match":json_data(&h.raw[s as usize..e as usize]),"start":s,"end":e})).collect();
+                out.matches += subs.len();
+                out.lines += 1;
+                out.text_bytes += text.len();
+                if rg {
+                    json!({"type":"match","data":{
+                        "path":json_data(&f.rel),
+                        "lines":json_data(&text),
+                        "line_number":h.line,
+                        "absolute_offset":h.line_start - bom,
+                        "submatches":subs
+                    }})
+                } else {
+                    let sym = h.chain.last().map(|(k, n)| json!({"name": n, "kind": k.name(), "container": chain_str(&h.chain[..h.chain.len()-1])}));
+                    json!({"type":"match","data":{
+                        "path":json_data(&f.rel),
+                        "lines":json_data(&text),
+                        "line_number":h.line,
+                        "absolute_offset":h.line_start,
+                        "submatches":subs,
+                        "kind":h.kind.name(),
+                        "symbol":sym,
+                        "file_flags":f.flags.names(),
+                        "score":h.score,
+                        "clipped":h.clipped
+                    }})
+                }
+            }
+            FileLine::Context { line, start, end } => {
+                let b = &f.src.as_ref().expect("context comes from the source").bytes;
+                json!({"type":"context","data":{"path":json_data(&f.rel),"lines":json_data(&b[start..end]),"line_number":line,"absolute_offset":start as u32 - bom,"submatches":[]}})
+            }
+        };
+        serde_json::to_writer(&mut *w, &record)?;
+        writeln!(w)?;
     }
     Ok(out)
 }

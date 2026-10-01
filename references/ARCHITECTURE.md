@@ -652,6 +652,12 @@ those near-misses become the answer instead.
 
 ### JSON output
 
+`--json=greeg` is greeg's own format, schema 1, for searches and verbs,
+specified in [JSON.md](JSON.md): typed `{type, data}` records after a header,
+paths and content as `{"text"}` or `{"bytes"}`, each file's encoding and
+offset coordinates, and an `outcome` in every footer. It is shaped by the
+budget, as text is. Serde structs in `json_native.rs` define it.
+
 `--json` keeps ripgrep's JSON Lines schema, adding `kind`, `symbol`,
 `file_flags` and `score` to match records, plus `facets` and `footer` record
 types. It is budget-shaped like text: `footer.outcome.complete` is false when

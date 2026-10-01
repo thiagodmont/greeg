@@ -319,6 +319,47 @@ impl Source {
     }
 }
 
+/// How a file's bytes are encoded, as greeg decodes them before searching.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Encoding {
+    #[default]
+    Utf8,
+    /// UTF-8 after a byte order mark.
+    Utf8Bom,
+    /// UTF-16 after a byte order mark, transcoded to UTF-8.
+    Utf16Le,
+    Utf16Be,
+}
+
+impl Encoding {
+    /// The encoding a byte order mark at the start of `b` names.
+    pub fn sniff(b: &[u8]) -> Encoding {
+        if b.starts_with(&[0xFF, 0xFE]) {
+            Encoding::Utf16Le
+        } else if b.starts_with(&[0xFE, 0xFF]) {
+            Encoding::Utf16Be
+        } else if b.starts_with(&[0xEF, 0xBB, 0xBF]) {
+            Encoding::Utf8Bom
+        } else {
+            Encoding::Utf8
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Encoding::Utf8 => "utf-8",
+            Encoding::Utf8Bom => "utf-8-bom",
+            Encoding::Utf16Le => "utf-16le",
+            Encoding::Utf16Be => "utf-16be",
+        }
+    }
+
+    /// Whether offsets index the file's bytes or the UTF-8 decoded from it.
+    pub fn transcoded(self) -> bool {
+        matches!(self, Encoding::Utf16Le | Encoding::Utf16Be)
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct FileResult {
     /// Root-relative path bytes (`greeg_index::rel`).
@@ -350,6 +391,7 @@ pub struct FileResult {
     pub bom: u32,
     /// Bytes searched: decoded, and without a UTF-8 BOM.
     pub searched: u64,
+    pub encoding: Encoding,
     /// Where it is read from: a path below a tree, or `path` as named.
     pub(crate) below: Option<(Arc<Tree>, Vec<u8>)>,
 }
@@ -379,6 +421,7 @@ impl FileResult {
             src: None,
             bom: 0,
             searched: 0,
+            encoding: Encoding::Utf8,
             below: None,
         }
     }
@@ -1614,6 +1657,7 @@ pub(crate) fn process_file(
         cx.stats.huge.fetch_add(1, Relaxed);
         return None;
     }
+    let encoding = Encoding::sniff(buf);
     greeg_lang::transcode_utf16(buf);
     let src: &[u8] = buf;
     // A UTF-8 BOM is not part of the first line: search past it (offsets keep
@@ -1799,6 +1843,7 @@ pub(crate) fn process_file(
         src: None,
         bom: bom as u32,
         searched,
+        encoding,
         below: below.map(|(tree, sub)| (tree.clone(), sub.to_vec())),
     })
 }
