@@ -37,6 +37,10 @@ jobs:
             printf 'Fixed known gaps; remove their #[ignore]:\n%s\n' "$fixed"
             exit 1
           fi
+          # no ignored test left: no gap is open
+          if [ "$status" -eq 0 ] && grep -qE '^test result: ok\. 0 passed; 0 failed; 0 ignored' <<<"$out"; then
+            exit 0
+          fi
           if [ "$status" -eq 0 ] || ! grep -qE '^test result: FAILED\. 0 passed' <<<"$out"; then
             printf '%s\n' "$out"
             exit 1
