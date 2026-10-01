@@ -1113,12 +1113,7 @@ pub fn run_impact(c: &Common, o: &Options, name: &str) -> Result<()> {
                     .max()
                     .unwrap_or(1);
                 for (l, t) in f.sample.iter().take(2) {
-                    writeln!(
-                        w,
-                        "  {:>lw$}  {}",
-                        l,
-                        String::from_utf8_lossy(t.trim_ascii())
-                    )?;
+                    writeln!(w, "  {:>lw$}  {}", l, String::from_utf8_lossy(t).trim())?;
                 }
             }
             if files.len() > per_group {
