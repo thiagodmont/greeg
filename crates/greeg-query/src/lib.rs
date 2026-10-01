@@ -412,7 +412,8 @@ pub struct DefSummary {
 pub struct Stats {
     pub files_walked: usize,
     pub files_searched: usize,
-    /// Bytes searched, as decoded and without a UTF-8 BOM, as ripgrep counts.
+    /// Bytes searched, as decoded and without a UTF-8 BOM, as ripgrep counts;
+    /// a file skipped as binary counts none.
     pub bytes_searched: u64,
     pub files_matched: usize,
     /// Matched lines after `--kind` filtering.
@@ -668,7 +669,8 @@ impl<'a> CollectSink<'a> {
             total: 0,
             total_all: 0,
             filter: None,
-            max_per_line: 8,
+            // unlimited output keeps every occurrence, as ripgrep does
+            max_per_line: if cap == usize::MAX { usize::MAX } else { 8 },
             cap,
             keep_defs,
             def_cap: MAX_DEFS_PER_FILE,
@@ -1626,8 +1628,6 @@ pub(crate) fn process_file(
         cx.stats.binary.fetch_add(1, Relaxed);
         return None;
     }
-    let searched = body.len() as u64;
-    cx.stats.bytes.fetch_add(searched, Relaxed);
     let lang = Lang::from_path(path);
     let cap = if o.budget == 0 {
         usize::MAX
@@ -1668,6 +1668,8 @@ pub(crate) fn process_file(
         cx.stats.binary.fetch_add(1, Relaxed);
         return None;
     }
+    let searched = body.len() as u64;
+    cx.stats.bytes.fetch_add(searched, Relaxed);
     if r.is_err() || sink.total == 0 {
         cx.stats.unqualified.fetch_add(sink.total_all, Relaxed);
         return None;

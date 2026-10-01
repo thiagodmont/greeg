@@ -675,6 +675,10 @@ described under [When nothing matches](#when-nothing-matches).
   which an index makes less than what ripgrep reads.
 - Paths are relative to the root (`a.txt`), where ripgrep prefixes the path it
   was given (`./a.txt` for `.`), as in every other format.
+- A file with a NUL byte in its first 64 KiB is skipped as binary, as ripgrep
+  skips it. A NUL later on does not stop the search, so matches after it are
+  reported where ripgrep stops at it and sets `binary_offset` (a known gap, in
+  every format).
 
 `bench/matching.py` checks every search case under `--json=rg` against
 `rg --json` byte for byte, timings aside, in both backends.

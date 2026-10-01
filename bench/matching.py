@@ -273,7 +273,9 @@ def rg_dialect_checks(binary, rg, root, env, common, cases):
     probe = subprocess.run([str(binary), "--json=rg", "--no-index", "probe", "."], cwd=root, env=env,
                            stdin=subprocess.DEVNULL, capture_output=True, check=False)
     if probe.returncode not in (0, 1):
-        return None
+        if b"unexpected value 'rg' for '--json'" in probe.stderr:
+            return None
+        raise RuntimeError(f"--json=rg probe failed: {probe.returncode}: {probe.stderr!r}")
     checks = []
     for backend in ("scan", "index"):
         for name in cases:
