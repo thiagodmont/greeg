@@ -1,10 +1,13 @@
 import copy
 import json
+import os
+from pathlib import Path
 import subprocess
+import tempfile
 import unittest
 
-from matching import (definition_contract, json_exact_contract, rg_dialect_contract,
-                      rg_dialect_query, stable_stdout)
+from matching import (definition_contract, json_exact_contract, rg_dialect_checks,
+                      rg_dialect_contract, rg_dialect_query, stable_stdout)
 
 
 class JsonContractTests(unittest.TestCase):
@@ -115,6 +118,19 @@ class RgDialectTests(unittest.TestCase):
         plain = subprocess.CompletedProcess([], 0, b"src/a.rs\n", b"")
         self.assertTrue(rg_dialect_contract(plain, plain, "scan"))
         self.assertFalse(rg_dialect_contract(plain, subprocess.CompletedProcess([], 0, b"src/b.rs\n", b""), "scan"))
+
+    def test_only_a_binary_without_the_dialect_skips_the_checks(self):
+        with tempfile.TemporaryDirectory() as d:
+            def stub(message):
+                path = Path(d) / "greeg"
+                path.write_text(f"#!/bin/sh\necho \"{message}\" >&2\nexit 2\n")
+                path.chmod(0o755)
+                return path
+            old = stub("error: unexpected value 'rg' for '--json' found; no more were expected")
+            self.assertIsNone(rg_dialect_checks(old, "rg", d, dict(os.environ), [], []))
+            broken = stub("error: index unusable")
+            with self.assertRaises(RuntimeError):
+                rg_dialect_checks(broken, "rg", d, dict(os.environ), [], [])
 
     def test_query_drops_budget_and_bare_json(self):
         self.assertEqual(rg_dialect_query(["--budget", "0", "x"]), ["x"])

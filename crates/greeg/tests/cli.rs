@@ -1353,6 +1353,40 @@ fn json_rg_keeps_ripgreps_semantics() {
     }
 }
 
+/// `--json=rg` keeps every occurrence on a line, and its `bytes_searched`
+/// leaves out a file skipped as binary, as ripgrep does, in both backends.
+#[test]
+fn json_rg_counts_every_occurrence_and_only_searched_bytes() {
+    let f = empty_fixture();
+    let line = ["needle"; 10].join(" ") + "\n";
+    fs::write(f.root.join("a.txt"), &line).unwrap();
+    let mut near = b"needle\n".to_vec();
+    near.extend([b'x'; 9000]);
+    near.extend(b"\n\0\n");
+    fs::write(f.root.join("near.txt"), near).unwrap();
+    f.indexed();
+    for backend in [&["--no-index"][..], &[][..]] {
+        let mut args = vec!["--json=rg", "needle"];
+        args.extend_from_slice(backend);
+        let out = f.out(&args);
+        assert_eq!(
+            out.matches(r#"{"match":{"text":"needle"}"#).count(),
+            10,
+            "{out}"
+        );
+        assert!(
+            out.contains(
+                r#""bytes_searched":70,"bytes_printed":719,"matched_lines":1,"matches":10}"#
+            ),
+            "{out}"
+        );
+        assert!(
+            out.contains(r#""stats":{"bytes_printed":719,"bytes_searched":70,"#),
+            "{out}"
+        );
+    }
+}
+
 /// A context line never carries a UTF-8 BOM, as a matched line never does.
 #[test]
 fn a_context_line_after_a_bom_holds_only_its_text() {
@@ -1373,6 +1407,7 @@ fn path_order_follows_names_within_each_directory() {
     for p in ["a/x.txt", "a-b/x.txt", "a.txt"] {
         w(&f.root.join(p), "needle\n");
     }
+    f.indexed();
     for backend in [&["--no-index"][..], &[][..]] {
         let mut args = vec!["-l", "--sort", "path", "needle"];
         args.extend_from_slice(backend);

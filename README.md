@@ -186,7 +186,7 @@ greeg get_queryset                  # ranked hits, definitions first, ~600 token
 greeg -w respond -l                 # files only, rg-shaped, pipe-safe
 greeg 'fn poll_read' -t rs -C 3     # ripgrep flags behave as they do in rg
 greeg createSourceFile --json       # ripgrep JSON Lines + kind/symbol/facets/footer
-greeg createSourceFile --json=rg    # exactly what rg --json prints: every match
+greeg createSourceFile --json=rg    # ripgrep JSON Lines only: every match
 greeg respond --budget 0            # unlimited exact matches, path order
 ```
 
