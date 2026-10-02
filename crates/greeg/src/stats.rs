@@ -110,7 +110,7 @@ fn parse_config(s: &str) -> Config {
         match k.trim() {
             "stats" => c.enabled = v.parse().ok(),
             "stats_cap" => c.cap = v.parse().ok(),
-            "budget" => c.budget = Some(v.trim_matches('"').to_string()),
+            "budget" => c.budget = Some(v.trim_matches(['"', '\'']).to_string()),
             _ => {}
         }
     }
@@ -2846,7 +2846,7 @@ mod tests {
     #[test]
     fn config_subset() {
         let c = parse_config(
-            "# x\nstats = true\nstats_cap = 12000 # bytes\nbudget = \"low\"\n[other]\nstats = false\n",
+            "# x\nstats = true\nstats_cap = 12000 # bytes\nbudget = 'low'\n[other]\nstats = false\n",
         );
         assert_eq!(
             c,

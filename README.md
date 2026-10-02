@@ -288,7 +288,8 @@ greeg budget low      # 1000; also medium (2000), high (5000), a number, or none
 greeg budget none     # no limit: every search prints every match
 ```
 
-The level is saved as `budget = N` in `~/.config/greeg/config.toml`. `none`
+The level is saved as `budget = N` in `~/.config/greeg/config.toml`
+(`GREEG_CONFIG_DIR` names another directory). `none`
 suits a human at a terminal more than an agent: a search for a common word
 can print hundreds of thousands of tokens. `--json=rg`, `-l` and `-c` are
 never budgeted. A search for the word `budget` needs `greeg -e budget`, as

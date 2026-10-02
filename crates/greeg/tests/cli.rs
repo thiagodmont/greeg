@@ -106,14 +106,12 @@ fn empty_fixture() -> Fixture {
     Fixture { base, root, index }
 }
 
-/// greeg, isolated from the developer's config file and `GREEG_BUDGET`.
+/// greeg, isolated from the developer's config file (no file can exist under
+/// `/dev/null`) and `GREEG_BUDGET`.
 fn greeg() -> Command {
     let mut c = Command::new(BIN);
-    c.env(
-        "GREEG_CONFIG_DIR",
-        std::env::temp_dir().join("greeg-tests-no-config"),
-    )
-    .env_remove("GREEG_BUDGET");
+    c.env("GREEG_CONFIG_DIR", "/dev/null/greeg-config")
+        .env_remove("GREEG_BUDGET");
     c
 }
 
@@ -1870,9 +1868,40 @@ fn budget_levels_set_the_default() {
     let o = run(&["budget"], &[("GREEG_BUDGET", lots)]);
     assert!(String::from_utf8_lossy(&o.stderr).contains("ignoring GREEG_BUDGET"));
 
-    // a pattern spelled like the command is a search
-    let hits = text(run(&["-e", "budget", "--budget", "0"], &[]));
-    assert!(hits.is_empty() || !hits.starts_with("budget "), "{hits}");
+    // a pattern spelled like the command is a search: no hits, exit 1
+    let o = run(&["-e", "budget", "--budget", "0"], &[]);
+    assert_eq!(
+        o.status.code(),
+        Some(1),
+        "{}{}",
+        String::from_utf8_lossy(&o.stdout),
+        String::from_utf8_lossy(&o.stderr)
+    );
+    assert!(o.stdout.is_empty());
+
+    // `--budget` is this run's budget, also for `greeg budget`, which saves
+    // only its argument
+    assert!(
+        text(run(&["budget", "--budget", "low"], &[])).starts_with("budget 1000 (low) · --budget")
+    );
+    assert_eq!(
+        run(&["budget", "high", "--budget", "low"], &[])
+            .status
+            .code(),
+        Some(2)
+    );
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStrExt;
+        let o = run(
+            &["budget"],
+            &[("GREEG_BUDGET", std::ffi::OsStr::from_bytes(b"\xff"))],
+        );
+        assert!(String::from_utf8_lossy(&o.stderr).contains("not valid UTF-8"));
+    }
+    // a level written by hand as a TOML string
+    fs::write(config.join("config.toml"), "budget = 'high'\n").unwrap();
+    assert_eq!(search(None, &[]), at("5000"));
 }
 
 /// The last line of a text answer that states its outcome, before `next:`.
