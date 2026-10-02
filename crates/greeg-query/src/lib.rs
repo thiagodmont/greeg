@@ -19,7 +19,7 @@ use greeg_lang::lexer::{Lexed, SpanKind, lex};
 use greeg_lang::{DefKind, FileFlags, Lang, content_flags, is_import_line, path_flags};
 use grep_matcher::Matcher;
 use grep_regex::{RegexMatcher, RegexMatcherBuilder};
-use grep_searcher::{BinaryDetection, Searcher, SearcherBuilder, Sink, SinkMatch};
+use grep_searcher::{Searcher, SearcherBuilder, Sink, SinkMatch};
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -391,6 +391,9 @@ pub struct FileResult {
     pub bom: u32,
     /// Bytes searched: decoded, and without a UTF-8 BOM.
     pub searched: u64,
+    /// Where a NUL past the first 64 KiB ended the search (an offset in the
+    /// buffer, a UTF-8 BOM included).
+    pub binary_offset: Option<u64>,
     pub encoding: Encoding,
     /// Where it is read from: a path below a tree, or `path` as named.
     pub(crate) below: Option<(Arc<Tree>, Vec<u8>)>,
@@ -421,6 +424,7 @@ impl FileResult {
             src: None,
             bom: 0,
             searched: 0,
+            binary_offset: None,
             encoding: Encoding::Utf8,
             below: None,
         }
@@ -465,6 +469,8 @@ pub struct Stats {
     pub total_unfiltered: usize,
     pub by_kind: [usize; 9],
     pub skipped_binary: usize,
+    /// Files searched only up to a NUL past their first 64 KiB.
+    pub binary_tails: usize,
     pub skipped_huge: usize,
     pub demoted_files: usize,
     pub demoted_hits: usize,
@@ -693,7 +699,6 @@ pub(crate) struct CollectSink<'a> {
     pub(crate) first_only: bool,
     /// Offset of the searched slice within the file (3 after a UTF-8 BOM).
     pub(crate) base: u32,
-    pub(crate) binary: bool,
     pub(crate) multiline: bool,
 }
 
@@ -720,7 +725,6 @@ impl<'a> CollectSink<'a> {
             defs_kept: 0,
             first_only: false,
             base: 0,
-            binary: false,
             multiline,
         }
     }
@@ -831,9 +835,23 @@ impl Sink for CollectSink<'_> {
         });
         Ok(!stop)
     }
-    fn binary_data(&mut self, _s: &Searcher, _off: u64) -> Result<bool, io::Error> {
-        self.binary = true;
-        Ok(false)
+}
+
+/// ripgrep's first read of a file: a NUL in it makes the whole file binary.
+const BINARY_PROBE: usize = 64 * 1024;
+
+/// The end of the text to search in `body` and the offset of the NUL that
+/// ended it, or None when the file is binary. A NUL in the first 64 KiB makes
+/// it binary; a later one ends the search at the start of its line, where
+/// ripgrep stops reading.
+pub(crate) fn text_extent(body: &[u8]) -> Option<(usize, Option<usize>)> {
+    match memchr::memchr(0, body) {
+        None => Some((body.len(), None)),
+        Some(p) if p < BINARY_PROBE => None,
+        Some(p) => {
+            let line = memchr::memrchr(b'\n', &body[..p]).map_or(0, |i| i + 1);
+            Some((line, Some(p)))
+        }
     }
 }
 
@@ -1667,11 +1685,14 @@ pub(crate) fn process_file(
     } else {
         0
     };
-    let body = &src[bom..];
-    if memchr::memchr(0, &body[..body.len().min(8192)]).is_some() {
+    let Some((end, nul)) = text_extent(&src[bom..]) else {
         cx.stats.binary.fetch_add(1, Relaxed);
         return None;
+    };
+    if nul.is_some() {
+        cx.stats.binary_tails.fetch_add(1, Relaxed);
     }
+    let body = &src[bom..bom + end];
     let lang = Lang::from_path(path);
     let cap = if o.budget == 0 {
         usize::MAX
@@ -1707,11 +1728,6 @@ pub(crate) fn process_file(
     cx.stats
         .search_ns
         .fetch_add(t_search.elapsed().as_nanos() as u64, Relaxed);
-    if sink.binary {
-        // a NUL past the first 8 KiB: ripgrep skips the file too; count it
-        cx.stats.binary.fetch_add(1, Relaxed);
-        return None;
-    }
     let searched = body.len() as u64;
     cx.stats.bytes.fetch_add(searched, Relaxed);
     if r.is_err() || sink.total == 0 {
@@ -1843,6 +1859,7 @@ pub(crate) fn process_file(
         src: None,
         bom: bom as u32,
         searched,
+        binary_offset: nul.map(|p| (bom + p) as u64),
         encoding,
         below: below.map(|(tree, sub)| (tree.clone(), sub.to_vec())),
     })
@@ -2072,6 +2089,7 @@ pub(crate) struct StatsAcc {
     pub(crate) searched: AtomicUsize,
     pub(crate) bytes: std::sync::atomic::AtomicU64,
     pub(crate) binary: AtomicUsize,
+    pub(crate) binary_tails: AtomicUsize,
     pub(crate) huge: AtomicUsize,
     pub(crate) walked: AtomicUsize,
     pub(crate) matched: AtomicUsize,
@@ -2151,8 +2169,8 @@ fn scan_once(o: &Options, bounds: &ScanBounds) -> Result<ScanResult> {
         // bom_sniffing(false): offsets must index the buffer we read (the
         // searcher would otherwise strip a UTF-8 BOM and shift every offset by 3).
         // `process_file` transcodes UTF-16 files and skips a UTF-8 BOM itself.
+        // no binary detection: `process_file` searches only text
         sb.line_number(true)
-            .binary_detection(BinaryDetection::quit(0))
             .multi_line(o.multiline)
             .bom_sniffing(false);
         let mut searcher = sb.build();
@@ -2254,6 +2272,7 @@ pub(crate) fn finish_stats(
     stats.files_searched = acc.searched.load(Relaxed);
     stats.bytes_searched = acc.bytes.load(Relaxed);
     stats.skipped_binary = acc.binary.load(Relaxed);
+    stats.binary_tails = acc.binary_tails.load(Relaxed);
     stats.skipped_huge = acc.huge.load(Relaxed);
     stats.elapsed_ms = t0.elapsed().as_secs_f64() * 1e3;
     stats.cpu_read_ms = acc.read_ns.load(Relaxed) as f64 / 1e6;
@@ -2424,6 +2443,22 @@ pub fn scan(o: &Options) -> Result<ScanResult> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use grep_searcher::BinaryDetection;
+
+    #[test]
+    fn a_nul_past_the_first_read_ends_the_text_at_its_line() {
+        let mut b = vec![b'x'; BINARY_PROBE + 10];
+        b[100] = b'\n';
+        assert_eq!(text_extent(&b), Some((b.len(), None)));
+        b[BINARY_PROBE - 1] = 0;
+        assert_eq!(text_extent(&b), None);
+        b[BINARY_PROBE - 1] = b'x';
+        b[BINARY_PROBE] = 0;
+        assert_eq!(text_extent(&b), Some((101, Some(BINARY_PROBE))));
+        b[100] = b'x';
+        assert_eq!(text_extent(&b), Some((0, Some(BINARY_PROBE))));
+        assert_eq!(text_extent(b""), Some((0, None)));
+    }
 
     #[test]
     fn a_session_focus_on_a_non_utf8_path_is_near_its_directory() {

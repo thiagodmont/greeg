@@ -1124,7 +1124,7 @@ fn run() -> Result<()> {
         let s = &result.stats;
         let t_render = t0.elapsed() - t_scan - t_shape;
         eprintln!(
-            "greeg: {} · walked {} files, candidates {}, searched {}, matched {} ({} hits) with {} threads; binary {} huge {}",
+            "greeg: {} · walked {} files, candidates {}, searched {}, matched {} ({} hits) with {} threads; binary {} tails {} huge {}",
             s.source,
             s.files_walked,
             s.candidates,
@@ -1133,6 +1133,7 @@ fn run() -> Result<()> {
             s.total_hits,
             s.threads,
             s.skipped_binary,
+            s.binary_tails,
             s.skipped_huge
         );
         if s.source == "index" {
@@ -1869,6 +1870,17 @@ fn render_parity(w: &mut impl Write, r: &ScanResult, rep: &Report, fmt: Fmt) -> 
                 }
             }
         }
+        if let Some(off) = f.binary_offset {
+            if !fmt.stdin {
+                w.write_all(&f.rel)?;
+                write!(w, ": ")?;
+            }
+            writeln!(
+                w,
+                "WARNING: stopped searching binary file after match (found \"\\0\" byte around offset {})",
+                off - u64::from(f.bom)
+            )?;
+        }
     }
     Ok(())
 }
@@ -1892,7 +1904,7 @@ fn render_footer(
     let complete = r.stats.total_hits > 0
         && ft.hits_shown == ft.hits_total
         && ft.files_shown == ft.files_total
-        && ft.skipped_binary + ft.skipped_huge == 0
+        && ft.skipped_binary + ft.binary_tails + ft.skipped_huge == 0
         && ft.rung == greeg_query::Rung::Exact;
     if r.stats.total_hits == 0 {
         write!(w, "no hits")?;
@@ -1923,10 +1935,14 @@ fn render_footer(
     }
     // `skipped` only when non-zero, term by term: `skipped 1 binary, 0 huge`
     // spends five tokens saying nothing
-    if ft.skipped_binary + ft.skipped_huge > 0 {
-        let mut parts: Vec<String> = Vec::with_capacity(2);
+    if ft.skipped_binary + ft.binary_tails + ft.skipped_huge > 0 {
+        let mut parts: Vec<String> = Vec::with_capacity(3);
         if ft.skipped_binary > 0 {
             parts.push(format!("{} binary", ft.skipped_binary));
+        }
+        if ft.binary_tails > 0 {
+            let s = if ft.binary_tails == 1 { "" } else { "s" };
+            parts.push(format!("{} binary tail{s}", ft.binary_tails));
         }
         if ft.skipped_huge > 0 {
             parts.push(format!("{} huge", ft.skipped_huge));
@@ -2284,7 +2300,7 @@ fn render_json(w: &mut impl Write, r: &ScanResult, rep: &Report) -> Result<()> {
         printed_matches += n.matches;
         serde_json::to_writer(
             &mut *w,
-            &json!({"type":"end","data":{"path":json_data(&f.rel),"binary_offset":null,"stats":{"elapsed":{"secs":0,"nanos":0,"human":"0s"},"searches":1,"searches_with_match":1,"bytes_searched":f.size,"bytes_printed":0,"matched_lines":f.total,"matches":n.matches,"shown":n.lines}}}),
+            &json!({"type":"end","data":{"path":json_data(&f.rel),"binary_offset":f.binary_offset,"stats":{"elapsed":{"secs":0,"nanos":0,"human":"0s"},"searches":1,"searches_with_match":1,"bytes_searched":f.size,"bytes_printed":0,"matched_lines":f.total,"matches":n.matches,"shown":n.lines}}}),
         )?;
         writeln!(w)?;
         Ok(())
@@ -2347,7 +2363,7 @@ fn render_rg_json(w: &mut impl Write, r: &ScanResult, rep: &Report) -> Result<()
         w.write_all(&buf)?;
         serde_json::to_writer(
             &mut *w,
-            &json!({"type":"end","data":{"path":json_data(&f.rel),"binary_offset":null,"stats":{
+            &json!({"type":"end","data":{"path":json_data(&f.rel),"binary_offset":f.binary_offset.map(|o| o - u64::from(f.bom)),"stats":{
                 "elapsed":{"secs":0,"nanos":0,"human":"0.000000s"},
                 "searches":1,"searches_with_match":1,"bytes_searched":f.searched,
                 "bytes_printed":buf.len(),"matched_lines":n.lines,"matches":n.matches

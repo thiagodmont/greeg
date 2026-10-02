@@ -132,6 +132,8 @@ struct Begin<'a> {
     coordinates: &'static str,
     file_flags: Vec<&'static str>,
     matched_lines: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    binary_offset: Option<u64>,
 }
 
 #[derive(Serialize)]
@@ -165,6 +167,8 @@ struct FileRec<'a> {
     path: Text<'a>,
     #[serde(skip_serializing_if = "Option::is_none")]
     count: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    binary_offset: Option<u64>,
 }
 
 #[derive(Serialize)]
@@ -174,6 +178,8 @@ struct SearchFooter<'a> {
     demoted_files: usize,
     demoted_hits: usize,
     skipped_binary: usize,
+    #[serde(skip_serializing_if = "is_zero")]
+    binary_tails: usize,
     skipped_huge: usize,
     rung_names: &'a [String],
     ignored_only: Option<(usize, usize)>,
@@ -184,6 +190,10 @@ struct SearchFooter<'a> {
     related: &'a [(String, usize)],
     layout: String,
     outcome: OutcomeRec,
+}
+
+fn is_zero(n: &usize) -> bool {
+    *n == 0
 }
 
 /// Three decimals: scores and times carry no more meaning, and each digit
@@ -213,6 +223,7 @@ fn file_records(w: &mut dyn Write, r: &ScanResult, sf: &ShownFile) -> Result<()>
             },
             file_flags: f.flags.names(),
             matched_lines: f.total,
+            binary_offset: f.binary_offset,
         },
     )?;
     for line in file_lines(r, sf) {
@@ -288,6 +299,7 @@ pub(crate) fn search(w: &mut dyn Write, r: &ScanResult, rep: &Report) -> Result<
                 &FileRec {
                     path: Text::of(&f.rel),
                     count: None,
+                    binary_offset: f.binary_offset,
                 },
             )?,
             Layout::Count => put(
@@ -296,6 +308,7 @@ pub(crate) fn search(w: &mut dyn Write, r: &ScanResult, rep: &Report) -> Result<
                 &FileRec {
                     path: Text::of(&f.rel),
                     count: Some(f.total),
+                    binary_offset: f.binary_offset,
                 },
             )?,
             _ => file_records(w, r, sf)?,
@@ -315,6 +328,7 @@ pub(crate) fn search(w: &mut dyn Write, r: &ScanResult, rep: &Report) -> Result<
             demoted_files: ft.demoted_files,
             demoted_hits: ft.demoted_hits,
             skipped_binary: ft.skipped_binary,
+            binary_tails: ft.binary_tails,
             skipped_huge: ft.skipped_huge,
             rung_names,
             ignored_only: ft.ignored_only,

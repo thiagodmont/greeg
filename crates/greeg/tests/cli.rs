@@ -1387,6 +1387,147 @@ fn json_rg_counts_every_occurrence_and_only_searched_bytes() {
     }
 }
 
+/// A NUL past the first 64 KiB ends a file's search at the start of its
+/// line: the matches before it are kept and the output says where it stopped,
+/// in both backends, with `-U`, and on stdin. A NUL within 64 KiB skips the
+/// file.
+#[test]
+fn a_late_nul_ends_the_search_and_says_where() {
+    let f = empty_fixture();
+    let fill = format!("{}\n", "x".repeat(79)).repeat(2600);
+    let at = |t: &str| (7 + fill.len() + t.len()) as u64;
+    let late = format!("needle\n{fill}\0\nneedle after\n");
+    fs::write(f.root.join("far.txt"), &late).unwrap();
+    fs::write(f.root.join("bom.txt"), format!("\u{feff}{late}")).unwrap();
+    fs::write(
+        f.root.join("same.txt"),
+        format!("needle\n{fill}needle \0\nneedle after\n"),
+    )
+    .unwrap();
+    fs::write(
+        f.root.join("early.txt"),
+        format!("needle\n{}\0\nneedle after\n", &fill[..20_000]),
+    )
+    .unwrap();
+    let warn = |p: &str, off: u64| {
+        format!(
+            "{p}WARNING: stopped searching binary file after match (found \"\\0\" byte around offset {off})\n"
+        )
+    };
+    let (far, same) = (at(""), at("needle "));
+    f.indexed();
+    for backend in [&["--no-index"][..], &[][..]] {
+        let run = |args: &[&str]| {
+            let mut a = args.to_vec();
+            a.extend_from_slice(backend);
+            let o = f.run(&a);
+            assert_eq!(o.status.code(), Some(0), "{args:?} {o:?}");
+            String::from_utf8(o.stdout).unwrap()
+        };
+        let text = format!(
+            "bom.txt:1:needle\n{}far.txt:1:needle\n{}same.txt:1:needle\n{}",
+            warn("bom.txt: ", far),
+            warn("far.txt: ", far),
+            warn("same.txt: ", same)
+        );
+        assert_eq!(run(&["--budget", "0", "needle"]), text);
+        assert_eq!(run(&["--budget", "0", "-U", "needle"]), text);
+        assert_eq!(run(&["-c", "needle"]), "bom.txt:1\nfar.txt:1\nsame.txt:1\n");
+        assert_eq!(run(&["-l", "needle"]), "bom.txt\nfar.txt\nsame.txt\n");
+        let footer = run(&["needle"]);
+        assert!(
+            footer.contains("skipped 1 binary, 3 binary tails"),
+            "{footer}"
+        );
+
+        let ends = |dialect: &str| -> Vec<(String, u64, u64)> {
+            json_lines(&run(&[dialect, "needle"]))
+                .into_iter()
+                .filter(|r| r["type"] == "end")
+                .map(|r| {
+                    let d = &r["data"];
+                    (
+                        d["path"]["text"].as_str().unwrap().to_string(),
+                        d["binary_offset"].as_u64().unwrap(),
+                        d["stats"]["bytes_searched"].as_u64().unwrap(),
+                    )
+                })
+                .collect()
+        };
+        // searched up to the start of the NUL's line, which is where `far` is
+        assert_eq!(
+            ends("--json=rg"),
+            [
+                ("bom.txt".into(), far, far),
+                ("far.txt".into(), far, far),
+                ("same.txt".into(), same, far)
+            ]
+        );
+        let legacy: Vec<(String, u64)> = ends("--json=legacy")
+            .into_iter()
+            .map(|(p, b, _)| (p, b))
+            .collect();
+        assert_eq!(
+            legacy,
+            [
+                ("bom.txt".into(), far + 3),
+                ("far.txt".into(), far),
+                ("same.txt".into(), same)
+            ]
+        );
+
+        let native = json_lines(&run(&["--json=greeg", "needle"]));
+        let begins: Vec<(String, u64)> = native
+            .iter()
+            .filter(|r| r["type"] == "begin")
+            .map(|r| {
+                let d = &r["data"];
+                (
+                    d["path"]["text"].as_str().unwrap().to_string(),
+                    d["binary_offset"].as_u64().unwrap(),
+                )
+            })
+            .collect();
+        assert_eq!(begins, legacy);
+        let footer = &native.last().unwrap()["data"];
+        assert_eq!(
+            (&footer["skipped_binary"], &footer["binary_tails"]),
+            (&serde_json::json!(1), &serde_json::json!(3))
+        );
+    }
+
+    use std::io::Write;
+    use std::process::Stdio;
+    let mut c = Command::new(BIN)
+        .args(["--no-session", "needle"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .env("GREEG_STATS", "0")
+        .spawn()
+        .unwrap();
+    c.stdin.take().unwrap().write_all(late.as_bytes()).unwrap();
+    let o = c.wait_with_output().unwrap();
+    assert_eq!(
+        (o.status.code(), String::from_utf8(o.stdout).unwrap()),
+        (Some(0), format!("needle\n{}", warn("", far)))
+    );
+}
+
+/// A file without a late NUL has no `binary_offset`, in any dialect.
+#[test]
+fn a_text_file_has_no_binary_offset() {
+    let f = empty_fixture();
+    fs::write(f.root.join("a.txt"), "needle\n").unwrap();
+    for dialect in ["--json=rg", "--json=legacy"] {
+        let out = f.out(&[dialect, "--no-index", "needle"]);
+        assert!(out.contains(r#""binary_offset":null"#), "{out}");
+    }
+    let out = f.out(&["--json=greeg", "--no-index", "needle"]);
+    assert!(!out.contains("binary_offset"), "{out}");
+    assert!(!out.contains("binary_tails"), "{out}");
+}
+
 /// A context line never carries a UTF-8 BOM, as a matched line never does.
 #[test]
 fn a_context_line_after_a_bom_holds_only_its_text() {
