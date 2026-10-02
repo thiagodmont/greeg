@@ -295,6 +295,11 @@ can print hundreds of thousands of tokens. `--json=rg`, `-l` and `-c` are
 never budgeted. A search for the word `budget` needs `greeg -e budget`, as
 for any command name.
 
+Tokens are estimated, not counted: greeg splits text the way OpenAI's
+o200k_base tokenizer does and weights each piece. On search and verb answers
+the estimate is within 8 % of the real count for 95 % of answers; short
+answers with unusual words can be off by up to 24 %.
+
 ## Is it actually helping?
 
 Don't take my benchmarks on faith. greeg can measure itself against *your*
