@@ -1644,7 +1644,11 @@ fn json_greeg_covers_stdin_and_refuses_other_commands() {
 
 /// Run greeg with stderr on a terminal (a pty); returns stdout, stderr and
 /// the exit status.
-fn run_on_terminal(f: &Fixture, args: &[&str]) -> (String, String, Option<i32>) {
+fn run_on_terminal(
+    f: &Fixture,
+    args: &[&str],
+    env: &[(&str, &str)],
+) -> (String, String, Option<i32>) {
     use std::io::Read;
     use std::os::fd::{FromRawFd, OwnedFd};
     use std::process::Stdio;
@@ -1668,6 +1672,7 @@ fn run_on_terminal(f: &Fixture, args: &[&str]) -> (String, String, Option<i32>) 
         .current_dir(&f.root)
         .env("GREEG_STATS", "0")
         .env("GREEG_INDEX_DIR", &f.index)
+        .envs(env.iter().copied())
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::from(slave));
@@ -1734,7 +1739,7 @@ fn bare_json_is_legacy_and_names_its_change_only_to_a_person() {
     }
     let notice = "greeg: --json will mean --json=greeg in 0.11; --json=legacy keeps this output";
     for args in [&["--json", "needle"][..], &["--json", "def", "needle"][..]] {
-        let (out, err, code) = run_on_terminal(&f, args);
+        let (out, err, code) = run_on_terminal(&f, args, &[]);
         assert_eq!(code, Some(0), "{args:?}: {err}");
         assert!(!json_lines(&out).is_empty(), "{args:?}: {out}");
         assert_eq!(err.matches(notice).count(), 1, "{args:?}: {err}");
@@ -1745,7 +1750,17 @@ fn bare_json_is_legacy_and_names_its_change_only_to_a_person() {
         &["--json", "--no-messages", "needle"][..],
         &["--json", "stats"][..],
     ] {
-        let (_, err, _) = run_on_terminal(&f, args);
+        let (_, err, _) = run_on_terminal(&f, args, &[]);
         assert!(!err.contains("--json will mean"), "{args:?}: {err}");
     }
+    // a truncated index file re-runs greeg once; the notice is not repeated
+    let (out, err, code) = run_on_terminal(
+        &f,
+        &["--json", "needle"],
+        &[("GREEG_DEBUG_SIGBUS", "index")],
+    );
+    assert_eq!(code, Some(0), "{err}");
+    assert!(err.contains("answering from a scan"), "{err}");
+    assert!(!json_lines(&out).is_empty(), "{out}");
+    assert_eq!(err.matches(notice).count(), 1, "{err}");
 }

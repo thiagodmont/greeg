@@ -21,9 +21,8 @@ Bare `--json` names no dialect, so its meaning changes:
 | 0.11 | `greeg` | available |
 | 0.12 | `greeg` | removed |
 
-Pass a dialect to keep today's output whatever the release: `--json=legacy`
-for the records you read now, `--json=greeg` or `--json=rg` for the formats
-that stay. The notice goes only to a terminal, never to a pipe, so scripts and
+Name a dialect so the release does not choose for you: `--json=greeg` and
+`--json=rg` stay, and `--json=legacy` keeps today's records through 0.11 only. The notice goes only to a terminal, never to a pipe, so scripts and
 agents see no change in 0.10. `greeg stats --json` is a report of its own and
 does not change.
 

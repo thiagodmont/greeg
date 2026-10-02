@@ -744,10 +744,12 @@ fn main_inner() -> Result<()> {
     run()
 }
 
-/// Bare `--json` changes meaning in 0.11; say so to a person, not to a pipe.
+/// Bare `--json` changes meaning in 0.11; say so to a person, not to a pipe,
+/// and once: not again in the run that recovers from a SIGBUS.
 fn json_notice(c: &Common) {
     use std::io::IsTerminal;
     if c.json_dialect == Some(JsonDialect::Default)
+        && !c.after_sigbus
         && !c._no_messages
         && std::io::stderr().is_terminal()
     {

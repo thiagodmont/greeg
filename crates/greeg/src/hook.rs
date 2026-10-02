@@ -41,8 +41,8 @@ discovery ladder found word-boundary, case, split-token or fuzzy-name suggestion
 `-l` prints only paths and `-c` prints `path:count`, one per line on stdout, so both
 use the machine output modes. Filenames are newline-delimited, not NUL-delimited.
 For machine-readable output use `--json=greeg`: typed JSON Lines records (searches and
-every verb) whose last record, the footer, holds the `outcome` (exit, total, shown,
-complete). `--json=rg` prints exactly ripgrep's records.
+the symbol verbs below) whose last record, the footer, holds the `outcome` (exit, total,
+shown, complete). `--json=rg` prints exactly ripgrep's records.
 
 File searches with `-l`, `-c`, `--mode files|count`, `--budget 0` or JSON
 use exact matching by default. Ranked text uses discovery. `--matching exact`

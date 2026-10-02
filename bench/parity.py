@@ -14,6 +14,7 @@ glob-looking positional, exit codes, and JSON match-record counts. Exit 1 on
 any failure.
 """
 import argparse, json, os, shutil, subprocess, sys, tempfile, time
+from json_records import matches
 
 SET_CASES = {
     "tokio": [["fn poll_read"], ["-w", "Waker"], ["-i", "jOinHandle"], ["spawn_blocking", "-t", "rust"], ["-F", "Pin<&mut Self>"], [r"\bpoll_\w+\("]],
@@ -59,21 +60,8 @@ def records(out, kind="match"):
 
 
 def pairs(out):
-    """(path, line) of each match record: rg's carry both, greeg's follow their file's `begin`."""
-    found, path = set(), None
-    for line in out.splitlines():
-        if not line.startswith("{"):
-            continue
-        try:
-            j = json.loads(line)
-        except ValueError:
-            continue
-        d = j.get("data", {})
-        if j.get("type") == "begin":
-            path = d["path"]["text"].removeprefix("./")
-        elif j.get("type") == "match":
-            found.add((d["path"]["text"].removeprefix("./") if "path" in d else path, d.get("line_number", d.get("line"))))
-    return found
+    """(path, line) of each match record of rg --json or greeg --json=greeg."""
+    return {(path, line) for path, line, _ in matches(out)}
 
 
 def rg_pairs(args, cwd):

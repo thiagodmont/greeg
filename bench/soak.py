@@ -16,6 +16,7 @@ Prints a summary and exits 1 on any mismatch or crash.
 import argparse, json, os, random, sys, time, math
 from contextlib import ExitStack
 from corpus import Corpus, executable, interrupted_cleanup
+from json_records import matches
 
 def run(args, cwd, timeout=120):
     if args[0] == "rg":
@@ -24,28 +25,12 @@ def run(args, cwd, timeout=120):
 
 def rg_lines(pattern, flags, cwd):
     r = run(["rg", "--json", "-n"] + flags + ["-e", pattern, "."], cwd)
-    out = set()
-    for line in r.stdout.decode("utf8", "replace").splitlines():
-        try:
-            j = json.loads(line)
-        except ValueError:
-            continue
-        if j.get("type") == "match":
-            out.add((j["data"]["path"]["text"].removeprefix("./"), j["data"]["line_number"]))
+    out = {(path, line) for path, line, _ in matches(r.stdout.decode("utf8", "replace"))}
     return out, r.returncode
 
 def greeg_lines(pattern, flags, cwd):
     r = run([greeg, "--json=greeg", "--budget", "0", "--no-ladder", "--max-columns", "0", "--no-session"] + flags + ["-e", pattern, "."], cwd)
-    out, path = set(), None
-    for line in r.stdout.decode("utf8", "replace").splitlines():
-        try:
-            j = json.loads(line)
-        except ValueError:
-            continue
-        if j.get("type") == "begin":
-            path = j["data"]["path"]["text"]
-        elif j.get("type") == "match":
-            out.add((path, j["data"]["line"]))
+    out = {(path, line) for path, line, _ in matches(r.stdout.decode("utf8", "replace"))}
     return out, r.returncode, r.stderr.decode("utf8", "replace")
 
 def names_of(cwd):
