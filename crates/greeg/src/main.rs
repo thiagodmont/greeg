@@ -2300,7 +2300,7 @@ fn render_json(w: &mut impl Write, r: &ScanResult, rep: &Report) -> Result<()> {
         printed_matches += n.matches;
         serde_json::to_writer(
             &mut *w,
-            &json!({"type":"end","data":{"path":json_data(&f.rel),"binary_offset":f.binary_offset,"stats":{"elapsed":{"secs":0,"nanos":0,"human":"0s"},"searches":1,"searches_with_match":1,"bytes_searched":f.size,"bytes_printed":0,"matched_lines":f.total,"matches":n.matches,"shown":n.lines}}}),
+            &json!({"type":"end","data":{"path":json_data(&f.rel),"binary_offset":f.binary_offset,"stats":{"elapsed":{"secs":0,"nanos":0,"human":"0s"},"searches":1,"searches_with_match":1,"bytes_searched":legacy_bytes_searched(f),"bytes_printed":0,"matched_lines":f.total,"matches":n.matches,"shown":n.lines}}}),
         )?;
         writeln!(w)?;
         Ok(())
@@ -2326,22 +2326,35 @@ fn render_json(w: &mut impl Write, r: &ScanResult, rep: &Report) -> Result<()> {
     let elapsed = json!({"secs":el.as_secs(),"nanos":el.subsec_nanos(),"human":format!("{:.6}s", el.as_secs_f64())});
     serde_json::to_writer(
         &mut *w,
-        &json!({"type":"summary","data":{"elapsed_total":elapsed,"stats":{"elapsed":elapsed,"searches":r.stats.files_searched,"searches_with_match":r.stats.files_matched,"bytes_searched":r.files.iter().map(|f| f.size).sum::<u64>(),"bytes_printed":printed_bytes,"matched_lines":r.stats.total_hits,"matches":printed_matches,"matched_lines_shown":printed_lines}}}),
+        &json!({"type":"summary","data":{"elapsed_total":elapsed,"stats":{"elapsed":elapsed,"searches":r.stats.files_searched,"searches_with_match":r.stats.files_matched,"bytes_searched":r.files.iter().map(legacy_bytes_searched).sum::<u64>(),"bytes_printed":printed_bytes,"matched_lines":r.stats.total_hits,"matches":printed_matches,"matched_lines_shown":printed_lines}}}),
     )?;
     writeln!(w)?;
-    serde_json::to_writer(
-        &mut *w,
-        &json!({"type":"footer","data":{
-            "hits_shown":ft.hits_shown,"hits_total":ft.hits_total,"files_shown":ft.files_shown,"files_total":ft.files_total,
-            "demoted_files":ft.demoted_files,"demoted_hits":ft.demoted_hits,"skipped_binary":ft.skipped_binary,"skipped_huge":ft.skipped_huge,
-            "rung":ft.rung.name(),"rung_names":match &ft.rung { greeg_query::Rung::SplitTokens(v) | greeg_query::Rung::Fuzzy(v) => v.clone(), _ => vec![] },"ignored_only":ft.ignored_only,"est_tokens":ft.est_tokens,"elapsed_ms":ft.elapsed_ms,"hints":ft.hints,
-            "related":rep.related.iter().map(|(n,c)| json!([n, c])).collect::<Vec<_>>(),
-            "layout":format!("{:?}", rep.layout).to_lowercase(),
-            "outcome":verbs_out::outcome_json(&Outcome::of_search(r, ft.hits_shown))
-        }}),
-    )?;
+    let mut footer = json!({"type":"footer","data":{
+        "hits_shown":ft.hits_shown,"hits_total":ft.hits_total,"files_shown":ft.files_shown,"files_total":ft.files_total,
+        "demoted_files":ft.demoted_files,"demoted_hits":ft.demoted_hits,"skipped_binary":ft.skipped_binary,"skipped_huge":ft.skipped_huge,
+        "rung":ft.rung.name(),"rung_names":match &ft.rung { greeg_query::Rung::SplitTokens(v) | greeg_query::Rung::Fuzzy(v) => v.clone(), _ => vec![] },"ignored_only":ft.ignored_only,"est_tokens":ft.est_tokens,"elapsed_ms":ft.elapsed_ms,"hints":ft.hints,
+        "related":rep.related.iter().map(|(n,c)| json!([n, c])).collect::<Vec<_>>(),
+        "layout":format!("{:?}", rep.layout).to_lowercase(),
+        "outcome":verbs_out::outcome_json(&Outcome::of_search(r, ft.hits_shown))
+    }});
+    if ft.binary_tails > 0 {
+        let data = footer["data"].as_object_mut().expect("footer data");
+        let at = data.keys().position(|k| k == "skipped_binary").unwrap_or(0) + 1;
+        data.shift_insert(at, "binary_tails".into(), ft.binary_tails.into());
+    }
+    serde_json::to_writer(&mut *w, &footer)?;
     writeln!(w)?;
     Ok(())
+}
+
+/// Bytes searched as legacy offsets count them, a UTF-8 BOM included: the
+/// whole file, or up to the line of the NUL that ended its search.
+fn legacy_bytes_searched(f: &greeg_query::FileResult) -> u64 {
+    if f.binary_offset.is_some() {
+        f.searched + u64::from(f.bom)
+    } else {
+        f.size
+    }
 }
 
 /// `--json=rg`: ripgrep's records only, for every match, in path order.

@@ -1463,18 +1463,24 @@ fn a_late_nul_ends_the_search_and_says_where() {
                 ("same.txt".into(), same, far)
             ]
         );
-        let legacy: Vec<(String, u64)> = ends("--json=legacy")
-            .into_iter()
-            .map(|(p, b, _)| (p, b))
-            .collect();
+        // legacy offsets and searched bytes count a UTF-8 BOM
         assert_eq!(
-            legacy,
+            ends("--json=legacy"),
             [
-                ("bom.txt".into(), far + 3),
-                ("far.txt".into(), far),
-                ("same.txt".into(), same)
+                ("bom.txt".into(), far + 3, far + 3),
+                ("far.txt".into(), far, far),
+                ("same.txt".into(), same, far)
             ]
         );
+        let records = json_lines(&run(&["--json=legacy", "needle"]));
+        let of = |t: &str| records.iter().find(|r| r["type"] == t).unwrap()["data"].clone();
+        assert_eq!(of("summary")["stats"]["bytes_searched"], 3 * far + 3);
+        assert_eq!(of("footer")["binary_tails"], 3);
+        let legacy = [
+            ("bom.txt".to_string(), far + 3),
+            ("far.txt".into(), far),
+            ("same.txt".into(), same),
+        ];
 
         let native = json_lines(&run(&["--json=greeg", "needle"]));
         let begins: Vec<(String, u64)> = native
@@ -1523,9 +1529,30 @@ fn a_text_file_has_no_binary_offset() {
         let out = f.out(&[dialect, "--no-index", "needle"]);
         assert!(out.contains(r#""binary_offset":null"#), "{out}");
     }
+    let out = f.out(&["--json=legacy", "--no-index", "needle"]);
+    assert!(!out.contains("binary_tails"), "{out}");
     let out = f.out(&["--json=greeg", "--no-index", "needle"]);
     assert!(!out.contains("binary_offset"), "{out}");
     assert!(!out.contains("binary_tails"), "{out}");
+}
+
+/// The first 64 KiB start after a UTF-8 BOM, as in ripgrep, which strips the
+/// BOM before its first read.
+#[test]
+fn a_bom_does_not_count_toward_the_first_64_kib() {
+    let f = empty_fixture();
+    for (name, nul) in [("skipped.txt", 65_535), ("tail.txt", 65_536)] {
+        let mut body =
+            format!("needle\n{}", format!("{}\n", "x".repeat(79)).repeat(900)).into_bytes();
+        body[nul] = 0;
+        let mut file = b"\xef\xbb\xbf".to_vec();
+        file.extend(body);
+        fs::write(f.root.join(name), file).unwrap();
+    }
+    f.indexed();
+    for backend in ["--no-index", "--fresh=stat"] {
+        assert_eq!(f.out(&["-l", "needle", backend]), "tail.txt\n");
+    }
 }
 
 /// A context line never carries a UTF-8 BOM, as a matched line never does.

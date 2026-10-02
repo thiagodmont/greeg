@@ -110,7 +110,7 @@ whether matches were left out, and `--budget 0` shows every one.
 | `coordinates` | `bytes`: offsets index the file's bytes, a UTF-8 BOM included. `decoded`: they index the UTF-8 decoded from UTF-16, without its BOM |
 | `file_flags` | `test`, `vendored`, `generated`, … |
 | `matched_lines` | matched lines in the file, shown or not |
-| `binary_offset` | only when a NUL byte past the first 64 KiB ended the search at the start of its line: the NUL's offset ([binary files](ARCHITECTURE.md#binary-files)) |
+| `binary_offset` | only when a NUL byte past the first 64 KiB (counted after a UTF-8 BOM) ended the search at the start of its line: the NUL's offset ([binary files](ARCHITECTURE.md#binary-files)) |
 
 Then the file's lines in line order. They belong to the file of the
 `begin` before them.

@@ -655,7 +655,8 @@ those near-misses become the answer instead.
 
 greeg reads a file as ripgrep reads one it finds by walking:
 - A NUL byte in the first 64 KiB makes the file binary: it is skipped and
-  counted (`skipped N binary`).
+  counted (`skipped N binary`). The 64 KiB start after a UTF-8 BOM, as
+  ripgrep strips the BOM before its first read.
 - A later NUL ends the search at the start of its line. The matches before it
   are kept and none after it is reported. With `--budget 0` the file's lines
   end with ripgrep's `PATH: WARNING: stopped searching binary file after match
@@ -686,7 +687,9 @@ budget, as text is. Serde structs in `json_native.rs` define it.
 schema, adding `kind`, `symbol`, `file_flags` and `score` to match records,
 plus `facets` and `footer` record types. It is budget-shaped like text: `footer.outcome.complete` is false when
 the budget left matches out. Its `absolute_offset` counts a UTF-8 BOM, as it
-always has. Every search and search-verb footer has the `outcome` object
+always has. `end.bytes_searched` is the file's size, or the bytes before the
+line of a NUL that ended its search, a BOM included; the footer adds
+`binary_tails` when there are any. Every search and search-verb footer has the `outcome` object
 described under [When nothing matches](#when-nothing-matches).
 
 `--json=rg` is ripgrep's dialect, and nothing else:
