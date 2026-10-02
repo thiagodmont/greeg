@@ -95,7 +95,13 @@ impl OutcomeRec {
 
     /// For a command that answers a file or a location: it exits 0 whenever it
     /// answers, even with nothing to show.
-    fn answered(total: usize, shown: usize, complete: bool, source: &'static str) -> OutcomeRec {
+    fn answered(
+        total: usize,
+        shown: usize,
+        complete: bool,
+        source: &'static str,
+        fresh: &'static str,
+    ) -> OutcomeRec {
         OutcomeRec {
             exit: 0,
             exact: true,
@@ -104,7 +110,7 @@ impl OutcomeRec {
             shown,
             complete,
             source,
-            fresh: "",
+            fresh,
             deferred: 0,
         }
     }
@@ -630,7 +636,13 @@ pub(crate) fn show(w: &mut dyn Write, r: &verbs::ShowResult) -> Result<()> {
         "footer",
         &PlainFooter {
             elapsed_ms: r3(r.elapsed_ms),
-            outcome: OutcomeRec::answered(r.items.len(), r.items.len(), complete, r.source),
+            outcome: OutcomeRec::answered(
+                r.items.len(),
+                r.items.len(),
+                complete,
+                r.source,
+                r.fresh,
+            ),
         },
     )
 }
@@ -682,7 +694,7 @@ pub(crate) fn outline(w: &mut dyn Write, r: &verbs::OutlineResult) -> Result<()>
             imports: &r.imports,
             parse_errors: r.parse_errors,
             elapsed_ms: r3(r.elapsed_ms),
-            outcome: OutcomeRec::answered(r.defs.len(), r.defs.len(), true, r.source),
+            outcome: OutcomeRec::answered(r.defs.len(), r.defs.len(), true, r.source, r.fresh),
         },
     )
 }
@@ -765,7 +777,7 @@ pub(crate) fn map(
             dirs_total: r.dirs.len(),
             graph_changes: r.graph_changes,
             elapsed_ms: r3(r.elapsed_ms),
-            outcome: OutcomeRec::answered(total, shown, shown >= total, r.source),
+            outcome: OutcomeRec::answered(total, shown, shown >= total, r.source, r.fresh),
         },
     )
 }
@@ -845,6 +857,7 @@ struct Impact<'a> {
 struct ImpactFooter<'a> {
     name: &'a str,
     files: usize,
+    callers_total: usize,
     total_hits: usize,
     elapsed_ms: f64,
     outcome: OutcomeRec,
@@ -854,6 +867,7 @@ pub(crate) fn impact(
     w: &mut dyn Write,
     r: &verbs::ImpactResult,
     callers: usize,
+    files: usize,
     oc: &Outcome,
 ) -> Result<()> {
     header(w, "impact")?;
@@ -874,7 +888,8 @@ pub(crate) fn impact(
         "footer",
         &ImpactFooter {
             name: &r.name,
-            files: oc.total,
+            files,
+            callers_total: r.callers.callers.len(),
             total_hits: r.total_hits,
             elapsed_ms: r3(r.elapsed_ms),
             outcome: OutcomeRec::of(oc),

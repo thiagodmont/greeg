@@ -82,11 +82,11 @@ Every footer has `outcome`:
 | `exit` | the exit status of the run: 0, or 1 when nothing exact was found |
 | `exact` | the query matched as given (`rung` is `exact`) |
 | `rung` | `exact`, or the relaxed rung that answered |
-| `total` | eligible results: matched lines for a search, entries for a verb |
+| `total` | eligible results: matched lines for a search, entries for a verb (for `impact`, referring files plus callers) |
 | `shown` | results the answer shows |
 | `complete` | `shown` is all of `total`; false only when the budget left results out |
 | `source` | `index`, `index (phase 1)`, `scan`, or `text` (`show`) |
-| `fresh` | the freshness check an index answer ran (`ttl`, `stat`, `fsevents`, `none`), empty for a scan |
+| `fresh` | the freshness check an index answer ran (`ttl`, `stat`, `fsevents`, `none`), empty when files were read directly (a scan, or `show` and `outline` without the index) |
 | `deferred` | files changed since the index was published, read from disk |
 
 `show`, `outline` and `map` answer a location, a file or a directory: they
@@ -157,7 +157,8 @@ Footer: `name`, `files_total`, `by_kind`, `resolved`, `classified`,
 **`impact`**, one record: `name`, `definitions` (`def` records' fields),
 `will_break`, `may_break`, `review` (files: `path`, `hits`, `kinds`,
 `file_flags`, `sample` as `[line, Text]`), `callers` (`caller` records'
-fields). Footer: `name`, `files`, `total_hits`, `elapsed_ms`, `outcome`.
+fields; cut to the budget, as `outcome.shown` counts). Footer: `name`, `files`, `callers_total`,
+`total_hits`, `elapsed_ms`, `outcome`.
 
 **`show`** records: `path`, `line` (as asked), `symbol` (the enclosing
 definition or null), `start_line`, `end_line`, `shown_to`, `clipped`, `text`
