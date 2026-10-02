@@ -1961,6 +1961,8 @@ fn impls_agree_between_scan_and_index() {
         &f.root.join("src/m.ts"),
         "export interface Base {}\nexport class K implements Base {}\nexport function g(b: Base) {}\n",
     );
+    // the index extracts no symbols from a minified file
+    w(&f.root.join("src/m.min.js"), "class M extends Base {}\n");
     f.indexed();
     let found = |name: &str, backend: &[&str]| {
         let mut a = vec!["impls", name, "--json=greeg"];
@@ -1994,7 +1996,11 @@ fn impls_agree_between_scan_and_index() {
         ),
         (
             "Base",
-            vec!["src/m.py:5 class Kid high", "src/m.ts:2 class K high"],
+            vec![
+                "src/m.min.js:1 class M low",
+                "src/m.py:5 class Kid high",
+                "src/m.ts:2 class K high",
+            ],
         ),
     ] {
         assert_eq!(found(name, &["--fresh", "stat"]), want, "index {name}");
