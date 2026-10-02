@@ -17,12 +17,14 @@ class HookHarnessTests(unittest.TestCase):
 
     def test_environment_discards_inherited_greeg_settings(self):
         with patch.dict(os.environ, {"GREEG_DEBUG_START": "1", "GREEG_DEBUG_PANIC": "1",
-                                   "GREEG_INDEX_DIR": "/unrelated", "GREEG_FUTURE_SETTING": "1"}):
+                                   "GREEG_INDEX_DIR": "/unrelated", "GREEG_FUTURE_SETTING": "1",
+                                   "GREEG_BUDGET": "none"}):
             env = hooks.benchmark_environment(Path("/fixture"))
         self.assertEqual({k for k in env if k.startswith("GREEG_")},
-                         {"GREEG_STATS", "GREEG_SESSION", "GREEG_INDEX_DIR"})
+                         {"GREEG_STATS", "GREEG_SESSION", "GREEG_INDEX_DIR", "GREEG_BUDGET"})
         self.assertEqual(env["GREEG_INDEX_DIR"], "/fixture/unused-index")
         self.assertEqual(env["GREEG_STATS"], "0")
+        self.assertEqual(env["GREEG_BUDGET"], "2000")
 
 
 if __name__ == "__main__":

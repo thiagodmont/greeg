@@ -277,6 +277,23 @@ failure can skip a record while the search still succeeds. See the
 [session storage contract](references/ARCHITECTURE.md#session-memory) for retention,
 compatibility and concurrency limits.
 
+### Setting the budget
+
+`--budget` sets one run's token budget. Without it, greeg uses `GREEG_BUDGET`,
+then the level saved with `greeg budget`, then 2000:
+
+```bash
+greeg budget          # the budget in use and where it comes from
+greeg budget low      # 1000; also medium (2000), high (5000), a number, or none
+greeg budget none     # no limit: every search prints every match
+```
+
+The level is saved as `budget = N` in `~/.config/greeg/config.toml`. `none`
+suits a human at a terminal more than an agent: a search for a common word
+can print hundreds of thousands of tokens. `--json=rg`, `-l` and `-c` are
+never budgeted. A search for the word `budget` needs `greeg -e budget`, as
+for any command name.
+
 ## Is it actually helping?
 
 Don't take my benchmarks on faith. greeg can measure itself against *your*
@@ -334,7 +351,8 @@ coordinates, and an `outcome` in every footer. Bare `--json` is still
 `footer`; it becomes `--json=greeg` in 0.11 and says so on a terminal. See
 [`references/JSON.md`](references/JSON.md#migrating-from-bare---json).
 
-**greeg flags**: `--budget N` (tokens, default 2000, `0` = unlimited) ·
+**greeg flags**: `--budget LEVEL|N` (tokens: `low` 1000, `medium` 2000, `high`
+5000, `none` or `0` = unlimited; default 2000 or the level `greeg budget` saved) ·
 `--mode files|outline|content|block` · `--kind def,call,…` · `--near PATH` ·
 `--no-tests --no-vendored --no-generated --all` · `--per-file N` · `--chain` ·
 `--matching exact|discover` · `--no-ladder` · `--fresh auto|none|stat|fsevents` · `--no-index` ·

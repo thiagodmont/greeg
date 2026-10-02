@@ -38,7 +38,7 @@ MATRIX_PARAMS = {
 GREEG_RAW = ["--json=greeg", "--budget", "0", "--no-ladder", "--max-columns", "0"]
 
 
-NO_STATS = {**os.environ, "GREEG_STATS": "0"}  # parity runs are not usage: keep them out of `greeg stats`
+NO_STATS = {**os.environ, "GREEG_STATS": "0", "GREEG_BUDGET": "2000"}  # parity runs are not usage: keep them out of `greeg stats`; pin the default budget
 
 
 def sh(cmd, cwd, stdin=None):

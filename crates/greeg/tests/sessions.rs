@@ -28,6 +28,11 @@ impl Fixture {
     }
     fn command(&self) -> Command {
         let mut c = Command::new(env!("CARGO_BIN_EXE_greeg"));
+        c.env(
+            "GREEG_CONFIG_DIR",
+            std::env::temp_dir().join("greeg-tests-no-config"),
+        )
+        .env_remove("GREEG_BUDGET");
         c.current_dir(&self.0)
             .args(["needle", "file.rs", "--no-index", "--budget", "0"])
             .env("HOME", self.0.join("home"))

@@ -106,9 +106,25 @@ fn empty_fixture() -> Fixture {
     Fixture { base, root, index }
 }
 
+/// greeg, isolated from the developer's config file and `GREEG_BUDGET`.
+fn greeg() -> Command {
+    let mut c = Command::new(BIN);
+    c.env(
+        "GREEG_CONFIG_DIR",
+        std::env::temp_dir().join("greeg-tests-no-config"),
+    )
+    .env_remove("GREEG_BUDGET");
+    c
+}
+
 impl Fixture {
     fn run(&self, args: &[&str]) -> Output {
-        Command::new(BIN)
+        self.run_env(args, &[])
+    }
+
+    fn run_env(&self, args: &[&str], env: &[(&str, &std::ffi::OsStr)]) -> Output {
+        greeg()
+            .envs(env.iter().copied())
             .args(args)
             .arg("--no-session")
             .arg("--index-dir")
@@ -139,7 +155,7 @@ impl Fixture {
     /// Build the index and wait for it, so a test that wants the index path
     /// is not racing the background build.
     fn indexed(&self) -> &Self {
-        let o = Command::new(BIN)
+        let o = greeg()
             .args(["index", "--quiet", "--index-dir"])
             .arg(&self.index)
             .current_dir(&self.root)
@@ -787,7 +803,7 @@ fn the_ladder_reports_the_rung_it_used() {
 fn stdin_is_searched_like_ripgrep() {
     use std::io::Write;
     use std::process::Stdio;
-    let mut c = Command::new(BIN)
+    let mut c = greeg()
         .args(["--no-session", "alpha"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -804,7 +820,7 @@ fn stdin_is_searched_like_ripgrep() {
 fn stdin_with_utf8_bom_matches_anchored_first_line() {
     use std::io::Write;
     use std::process::Stdio;
-    let mut c = Command::new(BIN)
+    let mut c = greeg()
         .args(["--no-session", "^foo"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -833,7 +849,7 @@ fn stdin_does_not_silently_accept_discovery() {
         vec!["--matching", "exact"],
         vec!["--matching", "discover"],
     ] {
-        let mut child = Command::new(BIN)
+        let mut child = greeg()
             .args(["--no-session", "ALPHA"])
             .args(&flags)
             .env("GREEG_STATS", "0")
@@ -867,7 +883,7 @@ fn output_failure_overrides_an_exact_match() {
     // Close the reader before launching, so the broken pipe is deterministic.
     let (writer, reader) = UnixStream::pair().unwrap();
     drop(reader);
-    let output = Command::new(BIN)
+    let output = greeg()
         .args(["--no-session", "--no-index", "-l", "load_config", "."])
         .current_dir(&f.root)
         .env("GREEG_STATS", "0")
@@ -958,7 +974,7 @@ fn an_index_built_for_another_root_is_not_used() {
     a.indexed();
     let b = fixture();
     w(&b.root.join("src/only_b.rs"), "fn bravo_only() {}\n");
-    let o = Command::new(BIN)
+    let o = greeg()
         .args([
             "--no-session",
             "--fresh",
@@ -993,7 +1009,7 @@ fn a_check_from_another_root_leaves_the_index_alone() {
     let before = files_under(&layout, &[]);
     let b = fixture();
     w(&b.root.join("src/only_b.rs"), "fn bravo_only() {}\n");
-    let o = Command::new(BIN)
+    let o = greeg()
         .args(["index", "--check", "--index-dir"])
         .arg(&a.index)
         .current_dir(&b.root)
@@ -1226,7 +1242,7 @@ fn a_build_killed_partway_never_changes_an_answer() {
         w(&f.root.join(format!("new/n{round}.rs")), "// needle 3\n");
         // past the 100 ms in which a verified index is trusted unchecked
         std::thread::sleep(std::time::Duration::from_millis(150));
-        let mut build = Command::new(BIN)
+        let mut build = greeg()
             .args(["index", "--quiet", "--no-session", "--index-dir"])
             .arg(&f.index)
             .current_dir(&f.root)
@@ -1506,7 +1522,7 @@ fn a_late_nul_ends_the_search_and_says_where() {
 
     use std::io::Write;
     use std::process::Stdio;
-    let mut c = Command::new(BIN)
+    let mut c = greeg()
         .args(["--no-session", "needle"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -1781,6 +1797,82 @@ fn def_suggestions_fit_the_budget() {
             assert!(est(&out) <= budget, "{}", String::from_utf8_lossy(&out));
         }
     }
+}
+
+/// `--budget` wins, then `GREEG_BUDGET`, then the level `greeg budget` saved,
+/// then 2000. A saved level never makes `--json=rg` refuse to run.
+#[test]
+fn budget_levels_set_the_default() {
+    let f = empty_fixture();
+    for i in 0..200 {
+        w(
+            &f.root.join(format!("src/m{i}.rs")),
+            &format!("pub fn caller_{i}() -> u32 {{\n    target_value({i})\n}}\n"),
+        );
+    }
+    f.indexed();
+    let config = f.base.join("config");
+    let dir = config.as_os_str();
+    let run = |args: &[&str], extra: &[(&str, &std::ffi::OsStr)]| {
+        let mut env = vec![("GREEG_CONFIG_DIR", dir)];
+        env.extend_from_slice(extra);
+        f.run_env(args, &env)
+    };
+    let text = |o: Output| String::from_utf8_lossy(&o.stdout).into_owned();
+    let search = |budget: Option<&str>, extra: &[(&str, &std::ffi::OsStr)]| {
+        let mut a = vec!["refs", "target_value"];
+        if let Some(b) = budget {
+            a.extend(["--budget", b]);
+        }
+        text(run(&a, extra))
+    };
+    let at = |n: &str| search(Some(n), &[]);
+    assert_ne!(at("1000"), at("2000"), "the fixture must be cut at 1000");
+
+    assert!(text(run(&["budget"], &[])).starts_with("budget 2000 (medium) · default"));
+    assert_eq!(search(None, &[]), at("2000"));
+
+    let o = run(&["budget", "low"], &[]);
+    assert_eq!(o.status.code(), Some(0));
+    assert!(
+        fs::read_to_string(config.join("config.toml"))
+            .unwrap()
+            .contains("budget = 1000")
+    );
+    assert!(text(run(&["budget"], &[])).starts_with("budget 1000 (low) · "));
+    assert_eq!(search(None, &[]), at("1000"));
+    assert_eq!(
+        search(Some("medium"), &[]),
+        at("2000"),
+        "--budget overrides it"
+    );
+    let high = std::ffi::OsStr::new("high");
+    assert_eq!(
+        search(None, &[("GREEG_BUDGET", high)]),
+        at("5000"),
+        "GREEG_BUDGET overrides it"
+    );
+    let rg = run(&["target_value", "--json=rg"], &[]);
+    assert_eq!(
+        rg.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&rg.stderr)
+    );
+
+    let none = text(run(&["budget", "none"], &[]));
+    assert!(none.contains("every match"), "{none}");
+    assert_eq!(search(None, &[]), at("0"));
+
+    let bad = run(&["target_value", "--budget", "lots"], &[]);
+    assert_eq!(bad.status.code(), Some(2));
+    let lots = std::ffi::OsStr::new("lots");
+    let o = run(&["budget"], &[("GREEG_BUDGET", lots)]);
+    assert!(String::from_utf8_lossy(&o.stderr).contains("ignoring GREEG_BUDGET"));
+
+    // a pattern spelled like the command is a search
+    let hits = text(run(&["-e", "budget", "--budget", "0"], &[]));
+    assert!(hits.is_empty() || !hits.starts_with("budget "), "{hits}");
 }
 
 /// The last line of a text answer that states its outcome, before `next:`.
@@ -2368,7 +2460,7 @@ fn every_json_greeg_answer_is_typed_and_ends_with_its_outcome() {
 fn json_greeg_covers_stdin_and_refuses_other_commands() {
     use std::io::Write;
     use std::process::Stdio;
-    let mut c = Command::new(BIN)
+    let mut c = greeg()
         .args(["--no-session", "--json=greeg", "alpha"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -2419,7 +2511,7 @@ fn run_on_terminal(
     assert_eq!(r, 0, "openpty");
     let master = unsafe { OwnedFd::from_raw_fd(master) };
     let slave = unsafe { OwnedFd::from_raw_fd(slave) };
-    let mut cmd = Command::new(BIN);
+    let mut cmd = greeg();
     cmd.args(args)
         .args(["--no-session", "--index-dir"])
         .arg(&f.index)
