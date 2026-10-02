@@ -96,8 +96,10 @@ pub(crate) fn unchecked_note(o: &Outcome) -> Option<&'static str> {
 
 const MORE: &str = "raise --budget";
 
-/// A text answer at the largest row allowance in `0..=max` whose estimated
-/// tokens fit `budget` (0: unlimited). Allowance 0 is the answer's floor
+/// A text answer at a row allowance in `0..=max` whose estimated tokens fit
+/// `budget` (0: unlimited); never over it. The search assumes an answer grows
+/// with its allowance, so where a completed group drops its `+N more` line a
+/// slightly larger allowance can be missed. Allowance 0 is the answer's floor
 /// (header, counts, outcome), written even when it does not fit.
 fn fit(
     budget: usize,
@@ -409,14 +411,30 @@ pub fn run_def(
         return finish(w, "def", &oc);
     }
     if r.entries.is_empty() {
-        writeln!(w, "def {}  no definition found ({})", r.name, r.source)?;
-        if !r.suggestions.is_empty() {
-            writeln!(w, "closest names: {}", r.suggestions.join(", "))?;
-        } else {
-            writeln!(w, "next: greeg {name} --kind def | greeg -i {name}")?;
-        }
-        outcome_line(&mut w, &[], &oc, MORE)?;
-        return finish(w, "def", &oc);
+        let names = &r.suggestions;
+        let render = |limit: usize| -> Result<(Vec<u8>, Outcome)> {
+            let mut w = Vec::new();
+            writeln!(w, "def {}  no definition found ({})", r.name, r.source)?;
+            if names.is_empty() {
+                writeln!(w, "next: greeg {name} --kind def | greeg -i {name}")?;
+            } else {
+                let shown = &names[..names.len().min(limit)];
+                let cut = names.len() - shown.len();
+                writeln!(
+                    w,
+                    "closest names: {}{}",
+                    shown.join(", "),
+                    match (shown.is_empty(), cut) {
+                        (_, 0) => String::new(),
+                        (true, n) => format!("{n} (raise --budget)"),
+                        (false, n) => format!(" +{n} (raise --budget)"),
+                    }
+                )?;
+            }
+            outcome_line(&mut w, &[], &oc, MORE)?;
+            Ok((w, oc.clone()))
+        };
+        return finish_fit(w, "def", fit(o.budget, names.len(), render)?);
     }
     let multi_name = r.entries.iter().any(|e| e.name != r.name);
     let entries: Vec<&DefEntry> = r.entries.iter().collect();
