@@ -34,7 +34,8 @@ description: Code search for agents. Use `greeg` instead of rg/grep: ranked, syn
 `greeg PATTERN [PATHS]` accepts ripgrep flags (`-i -w -F -t rs -g '*.py' -A/-B/-C`)
 and returns hits classified as def/import/call/type/member/ident/doc/comment/string with
 the enclosing symbol, tests and vendored code demoted, within a token budget
-(`--budget N`, default 2000). Broad queries return facets first; the footer says what
+(`--budget N`, or `low`/`medium`/`high`/`none`; default 2000 or the user's
+`greeg budget` level). Broad queries return facets first; the footer says what
 was cut and suggests the next query. Exit 1 means no exact hits, even if the
 discovery ladder found word-boundary, case, split-token or fuzzy-name suggestions.
 
@@ -869,9 +870,10 @@ impl Parsed {
     }
 }
 
-const VERBS: &[&str] = &[
+/// Every subcommand name: a pattern spelled like one needs `-e`.
+pub(crate) const VERBS: &[&str] = &[
     "def", "refs", "callers", "impls", "outline", "show", "map", "impact", "index", "doctor",
-    "man", "hook", "lang", "stats",
+    "purge", "man", "hook", "lang", "budget", "stats",
 ];
 
 /// The value word after a flag at `words[i - 1]`.

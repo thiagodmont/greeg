@@ -63,7 +63,7 @@ def host_info():
 
 
 def run(args, cwd=None, timeout=600, env=None):
-    env = {**(os.environ if env is None else env), "GREEG_STATS": "0"}  # bench runs are not usage: keep them out of `greeg stats`
+    env = {**(os.environ if env is None else env), "GREEG_STATS": "0", "GREEG_BUDGET": "2000"}  # bench runs are not usage: keep them out of `greeg stats`; pin the default budget
     return subprocess.run(args, cwd=cwd, stdin=DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout, env=env)
 
 

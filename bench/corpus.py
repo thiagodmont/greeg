@@ -60,7 +60,7 @@ class Corpus:
                         XDG_CONFIG_HOME=str(self.base / "config"),
                         XDG_CACHE_HOME=str(self.base / "cache"),
                         GREEG_INDEX_DIR=str(self.base / "index"),
-                        GREEG_STATS="0", GREEG_SESSION="",
+                        GREEG_STATS="0", GREEG_SESSION="", GREEG_BUDGET="2000",
                         CLAUDE_CODE_SESSION_ID="", RIPGREP_CONFIG_PATH="")
 
     def __enter__(self):

@@ -184,7 +184,7 @@ def main():
             private.mkdir()
             env = os.environ.copy()
             env.update(HOME=str(private), XDG_CONFIG_HOME=str(private / "config"),
-                       XDG_CACHE_HOME=str(private / "cache"), GREEG_STATS="0",
+                       XDG_CACHE_HOME=str(private / "cache"), GREEG_STATS="0", GREEG_BUDGET="2000",
                        GREEG_INDEX_DIR=str(private / "index"))
             env.pop("RIPGREP_CONFIG_PATH", None)
             environments[label] = env

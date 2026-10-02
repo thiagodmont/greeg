@@ -78,6 +78,11 @@ impl Fixture {
 
     fn command(&self) -> Command {
         let mut c = Command::new(BIN);
+        c.env(
+            "GREEG_CONFIG_DIR",
+            std::env::temp_dir().join("greeg-tests-no-config"),
+        )
+        .env_remove("GREEG_BUDGET");
         c.current_dir(&self.root)
             .env("HOME", self.base.join("home"))
             .env("XDG_CACHE_HOME", self.base.join("cache"))

@@ -55,7 +55,7 @@ def compiler_version():
 def benchmark_environment(base):
     env = {k: v for k, v in os.environ.items() if not k.startswith("GREEG_")}
     env.update(HOME=str(base / "home"), XDG_CONFIG_HOME=str(base / "config"),
-               XDG_CACHE_HOME=str(base / "cache"), GREEG_STATS="0", GREEG_SESSION="",
+               XDG_CACHE_HOME=str(base / "cache"), GREEG_STATS="0", GREEG_SESSION="", GREEG_BUDGET="2000",
                GREEG_INDEX_DIR=str(base / "unused-index"), CLAUDE_CODE_SESSION_ID="",
                RIPGREP_CONFIG_PATH="")
     return env

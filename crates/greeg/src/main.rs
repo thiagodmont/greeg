@@ -1,5 +1,6 @@
 //! greeg CLI: ripgrep-compatible surface, symbol verbs, shaped output for agents.
 
+mod budget;
 mod doctor;
 mod hook;
 mod hook_config;
@@ -21,6 +22,7 @@ Examples:
   greeg get_queryset                ranked hits grouped by file, definitions first, ~2k tokens
   greeg -w respond -t kt -l
   greeg \"fn poll_read\" --budget 400   phrase; budget in tokens (0 = unlimited, rg-shaped path:line:text)
+  greeg budget low                  save a default budget: low, medium, high, none or a number
   greeg def JoinHandle              where is it defined (signature, doc, reachability)
   greeg refs Semaphore              references grouped by kind (call, type, import, …)
   greeg callers spawn_blocking --depth 2
@@ -208,8 +210,8 @@ struct Common {
     _no_config: bool,
 
     // ---- greeg ----
-    /// Output token budget, default 2000 (0 = unlimited, rg-shaped `path:line:text` in path order)
-    #[arg(long = "budget", global = true)]
+    /// Output token budget: low (1000), medium (2000), high (5000), none (0 = unlimited, rg-shaped `path:line:text` in path order) or a number. Default: `greeg budget`, else 2000
+    #[arg(long = "budget", global = true, value_name = "LEVEL|N", value_parser = budget::parse)]
     budget_arg: Option<usize>,
     /// Output mode: files | outline | content | block
     #[arg(long = "mode", default_value = "content", global = true)]
@@ -298,7 +300,7 @@ impl Common {
         if self.json_rg() {
             0
         } else {
-            self.budget_arg.unwrap_or(2000)
+            self.budget_arg.unwrap_or_else(budget::configured)
         }
     }
 }
@@ -396,6 +398,11 @@ enum Cmd {
     Lang {
         #[command(subcommand)]
         which: LangCmd,
+    },
+    /// Show the default output budget, or save one: low (1000), medium (2000), high (5000), none (no limit) or a number. `--budget` overrides it for one run; GREEG_BUDGET for one shell
+    Budget {
+        #[arg(value_name = "LEVEL|N")]
+        level: Option<String>,
     },
     /// Opt-in local usage stats: latency and token percentiles, savings vs the rg/grep calls the hook replaced
     Stats {
@@ -1049,6 +1056,7 @@ fn run() -> Result<()> {
                 cap,
                 verbose,
             } => run_stats(c, which, filter, cap, verbose),
+            Cmd::Budget { level } => budget::run(level.as_deref()),
         };
         if !verb.is_empty() && r.is_ok() {
             stats::record_run(stats::RunInfo {
@@ -1258,6 +1266,7 @@ fn writes(cmd: &Cmd) -> Option<&'static str> {
             ..
         } => Some("index"),
         Cmd::Purge { yes: true } => Some("purge --yes"),
+        Cmd::Budget { level: Some(_) } => Some("budget"),
         Cmd::Hook {
             which: HookCmd::Claude { dry_run: false, .. },
         } => Some("hook claude"),
@@ -2410,6 +2419,21 @@ fn render_rg_json(w: &mut impl Write, r: &ScanResult, rep: &Report) -> Result<()
 
 #[cfg(test)]
 mod tests {
+    /// The hook adds `-e` before a pattern spelled like a subcommand; a name
+    /// missing from its list would run the command instead of a search.
+    #[test]
+    fn hook_knows_every_subcommand() {
+        let mut names: Vec<String> = Cli::command()
+            .get_subcommands()
+            .map(|c| c.get_name().to_string())
+            .filter(|n| n != "help")
+            .collect();
+        let mut verbs: Vec<String> = crate::hook::VERBS.iter().map(|v| v.to_string()).collect();
+        names.sort();
+        verbs.sort();
+        assert_eq!(verbs, names);
+    }
+
     use super::*;
 
     #[test]

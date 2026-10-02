@@ -79,6 +79,8 @@ fn version_matches(have: Option<&str>, want: &str) -> bool {
 pub struct Config {
     pub enabled: Option<bool>,
     pub cap: Option<usize>,
+    /// `greeg budget LEVEL`: a level name or a token count, parsed by `budget`.
+    pub budget: Option<String>,
 }
 
 /// `~/.config/greeg/config.toml` (the extra-languages directory lives next to it).
@@ -108,6 +110,7 @@ fn parse_config(s: &str) -> Config {
         match k.trim() {
             "stats" => c.enabled = v.parse().ok(),
             "stats_cap" => c.cap = v.parse().ok(),
+            "budget" => c.budget = Some(v.trim_matches('"').to_string()),
             _ => {}
         }
     }
@@ -155,7 +158,7 @@ fn set_key(old: &str, key: &str, value: &str) -> String {
 }
 
 /// Published atomically, and refused if the file changed since it was read.
-fn write_config_key(key: &str, value: &str) -> Result<PathBuf> {
+pub(crate) fn write_config_key(key: &str, value: &str) -> Result<PathBuf> {
     let path = config_path().context("HOME is not set")?;
     let config = crate::hook_config::Config::read(&path)?;
     config
@@ -2842,13 +2845,15 @@ mod tests {
 
     #[test]
     fn config_subset() {
-        let c =
-            parse_config("# x\nstats = true\nstats_cap = 12000 # bytes\n[other]\nstats = false\n");
+        let c = parse_config(
+            "# x\nstats = true\nstats_cap = 12000 # bytes\nbudget = \"low\"\n[other]\nstats = false\n",
+        );
         assert_eq!(
             c,
             Config {
                 enabled: Some(true),
-                cap: Some(12000)
+                cap: Some(12000),
+                budget: Some("low".to_string()),
             }
         );
         assert_eq!(parse_config("stats = maybe\n"), Config::default());

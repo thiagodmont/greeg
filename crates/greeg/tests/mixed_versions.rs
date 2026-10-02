@@ -72,6 +72,8 @@ impl Fixture {
             .env("GREEG_INDEX_DIR", &self.index)
             .env_remove("GREEG_SESSION")
             .env_remove("RIPGREP_CONFIG_PATH")
+            .env_remove("GREEG_CONFIG_DIR")
+            .env_remove("GREEG_BUDGET")
             .args(args)
             .arg("--no-session")
             .output()
