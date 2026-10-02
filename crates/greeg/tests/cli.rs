@@ -1944,6 +1944,64 @@ fn impact_grades_files_by_evidence() {
     assert!(!scan.contains("LIKELY AFFECTED"), "{scan}");
 }
 
+/// A scan lists the implementations the index lists, with the same
+/// confidence: both read supertypes from the parse, not from the text.
+#[test]
+fn impls_agree_between_scan_and_index() {
+    let f = empty_fixture();
+    w(
+        &f.root.join("src/lib.rs"),
+        "pub trait Shape {\n    fn area(&self) -> u32;\n}\npub struct S0;\nimpl Shape for S0 {\n    fn area(&self) -> u32 {\n        1\n    }\n}\npub struct S1;\nimpl crate::Shape for S1 {\n    fn area(&self) -> u32 {\n        1\n    }\n}\npub trait Round: Shape {}\npub fn take(_x: &dyn Shape) {}\n",
+    );
+    w(
+        &f.root.join("src/m.py"),
+        "class Base:\n    pass\n\n\nclass Kid(Base):\n    pass\n",
+    );
+    w(
+        &f.root.join("src/m.ts"),
+        "export interface Base {}\nexport class K implements Base {}\nexport function g(b: Base) {}\n",
+    );
+    f.indexed();
+    let found = |name: &str, backend: &[&str]| {
+        let mut a = vec!["impls", name, "--json=greeg"];
+        a.extend_from_slice(backend);
+        let mut v: Vec<String> = json_lines(&f.out(&a))
+            .iter()
+            .filter(|r| r["type"] == "impl")
+            .map(|r| {
+                let d = &r["data"];
+                format!(
+                    "{}:{} {} {} {}",
+                    d["path"]["text"].as_str().unwrap(),
+                    d["line"],
+                    d["kind"].as_str().unwrap(),
+                    d["name"].as_str().unwrap(),
+                    d["confidence"].as_str().unwrap()
+                )
+            })
+            .collect();
+        v.sort();
+        v
+    };
+    for (name, want) in [
+        (
+            "Shape",
+            vec![
+                "src/lib.rs:11 impl S1 high",
+                "src/lib.rs:16 trait Round high",
+                "src/lib.rs:5 impl S0 high",
+            ],
+        ),
+        (
+            "Base",
+            vec!["src/m.py:5 class Kid high", "src/m.ts:2 class K high"],
+        ),
+    ] {
+        assert_eq!(found(name, &["--fresh", "stat"]), want, "index {name}");
+        assert_eq!(found(name, &["--no-index"]), want, "scan {name}");
+    }
+}
+
 /// Case folding finds a module that defines the name, so its importers are
 /// linked with `-i` as they are without it.
 #[test]

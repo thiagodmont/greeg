@@ -612,7 +612,8 @@ makes a hub file outrank a leaf in every ranked answer.
 The verbs read this directly. `refs` is a word-bounded search grouped by kind.
 `callers` is `refs` filtered to calls and keyed by the *enclosing function*, so
 you get back a list of functions instead of a list of lines. `impls` reads the
-supertype lists. `impact` grades each file that uses the name by its
+supertype lists: from the index, or on a scan by parsing every file that
+mentions the name, so both list the same implementations. `impact` grades each file that uses the name by its
 evidence:
 - LIKELY AFFECTED: a call, type use or import, in a source file that is a
   definition's file, imports one, or imports a module that does (a

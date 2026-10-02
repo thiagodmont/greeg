@@ -878,6 +878,98 @@ pub struct ImplsResult {
     pub elapsed_ms: f64,
 }
 
+/// Definitions whose parsed supertypes include `name`, read from `files`:
+/// what the index's implementors hold, for a scan.
+fn implementors_of(
+    files: &mut [crate::FileResult],
+    name: &str,
+    all: bool,
+    threads: usize,
+) -> Vec<DefEntry> {
+    use std::sync::Mutex;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    // largest first, so a big file never starts last
+    let mut order: Vec<usize> = (0..files.len())
+        .filter(|&i| files[i].lang.has_grammar())
+        .collect();
+    order.sort_by_key(|&i| std::cmp::Reverse(files[i].searched));
+    let slots: Vec<Mutex<&mut crate::FileResult>> = files.iter_mut().map(Mutex::new).collect();
+    let next = AtomicUsize::new(0);
+    let mut out = Vec::new();
+    std::thread::scope(|sc| {
+        let workers: Vec<_> = (0..threads.clamp(1, order.len().max(1)))
+            .map(|_| {
+                sc.spawn(|| {
+                    let mut found = Vec::new();
+                    while let Some(&i) = order.get(next.fetch_add(1, Ordering::Relaxed)) {
+                        let mut f = slots[i].lock().unwrap_or_else(|e| e.into_inner());
+                        found.extend(implementors_in(&mut f, name, all));
+                    }
+                    found
+                })
+            })
+            .collect();
+        for w in workers {
+            out.extend(w.join().unwrap_or_else(|e| std::panic::resume_unwind(e)));
+        }
+    });
+    out
+}
+
+fn implementors_in(f: &mut crate::FileResult, name: &str, all: bool) -> Vec<DefEntry> {
+    let (rel, lang, file_flags, file_id) = (f.rel.clone(), f.lang, f.flags, f.file_id);
+    let Some(src) = f.source() else {
+        return Vec::new();
+    };
+    let src = &src.bytes;
+    if src.len() as u64 > greeg_index::build::MAX_FILE {
+        return Vec::new();
+    }
+    let display = greeg_index::rel::display(&rel);
+    let ex = greeg_lang::sym::extract(lang, greeg_lang::sym::is_tsx(&display), src);
+    let text = |(a, b): (u32, u32)| &src[a as usize..b as usize];
+    let mut out = Vec::new();
+    for s in &ex.symbols {
+        if !s.supers.iter().any(|&sp| text(sp) == name.as_bytes()) {
+            continue;
+        }
+        let mut chain = Vec::new();
+        let mut cur = s.parent;
+        while let Some(c) = cur {
+            let cs = &ex.symbols[c as usize];
+            chain.push((cs.kind, ex.name(cs, src).to_string()));
+            cur = cs.parent;
+        }
+        chain.reverse();
+        let (signature, doc) = signature_and_doc(None, src, s.start, s.flags, lang);
+        out.push(DefEntry {
+            file_module: false,
+            rel: rel.clone(),
+            line: s.line,
+            kind: s.kind,
+            name: ex.name(s, src).to_string(),
+            chain,
+            signature,
+            doc,
+            flags: s.flags,
+            file_flags,
+            supers: s
+                .supers
+                .iter()
+                .map(|&sp| String::from_utf8_lossy(text(sp)).into_owned())
+                .collect(),
+            score: kind_weight(greeg_index::symtab::kind_code(s.kind))
+                * loc_w(file_flags, &rel, all)
+                * 0.8,
+            reach: 0.6,
+            start: s.start,
+            end: s.end,
+            file_id,
+        });
+    }
+    out
+}
+
 pub fn impls(o: &Options, name: &str) -> Result<ImplsResult> {
     let t0 = Instant::now();
     let threads = if o.threads == 0 {
@@ -889,7 +981,7 @@ pub fn impls(o: &Options, name: &str) -> Result<ImplsResult> {
     let mut direct_total = 0;
     let mut source = "scan";
     let mut fresh = "";
-    let mut have: Vec<(Vec<u8>, u32)> = Vec::new();
+    let mut have: std::collections::HashSet<(Vec<u8>, u32)> = Default::default();
     let sel = Selection::new(o, Vec::new())?;
     if o.use_index
         && let Some(op) = indexed::open_fresh(o, threads)?
@@ -919,6 +1011,11 @@ pub fn impls(o: &Options, name: &str) -> Result<ImplsResult> {
             })
             .collect();
         direct_total = found.len();
+        have.extend(
+            found.iter().filter_map(|&(_, s)| {
+                Some((idx.path(idx.sym_file(s))?.to_vec(), idx.sym(s)?.line))
+            }),
+        );
         found.sort_by(|a, b| {
             b.0.partial_cmp(&a.0)
                 .unwrap_or(std::cmp::Ordering::Equal)
@@ -957,7 +1054,6 @@ pub fn impls(o: &Options, name: &str) -> Result<ImplsResult> {
             };
             let score =
                 kind_weight(r.kind) * loc_w(fflags, &rel, o.all) * (0.6 + 0.4 * idx.rank(fid));
-            have.push((rel.clone(), r.line));
             direct.push(DefEntry {
                 file_module: false,
                 rel,
@@ -984,18 +1080,45 @@ pub fn impls(o: &Options, name: &str) -> Result<ImplsResult> {
                 .then(a.rel.cmp(&b.rel))
         });
     }
-    // extras: type-position hits on definition lines
+    // a scan reads implementations from the files that mention the name;
+    // both backends list type-position hits on definition lines as extras
     let mut so = o.clone();
     so.pattern = name.to_string();
     so.fixed_strings = true;
     so.word = true;
-    so.kinds = vec![HitKind::Type];
+    so.kinds = if source == "index" {
+        vec![HitKind::Type]
+    } else {
+        Vec::new()
+    };
     so.mode = Mode::Content;
     so.budget = 0;
     so.matching = crate::MatchingPolicy::Exact;
+    let scanned = match scan(&so) {
+        Ok(r) => Some(r),
+        Err(_) if source == "index" => None,
+        Err(e) => return Err(e),
+    };
     let mut extras = Vec::new();
-    if let Ok(mut r) = scan(&so) {
-        let idxs: Vec<usize> = (0..r.files.len().min(200)).collect();
+    if let Some(mut r) = scanned {
+        if source == "scan" {
+            direct = implementors_of(&mut r.files, name, o.all, threads);
+            direct_total = direct.len();
+            have.extend(direct.iter().map(|d| (d.rel.clone(), d.line)));
+            direct.sort_by(|a, b| {
+                b.score
+                    .partial_cmp(&a.score)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+                    .then(a.rel.cmp(&b.rel))
+            });
+            if o.budget != 0 {
+                direct.truncate(DESCRIBED_IMPLS);
+            }
+        }
+        let idxs: Vec<usize> = (0..r.files.len())
+            .filter(|&i| r.files[i].hits.iter().any(|h| h.kind == HitKind::Type))
+            .take(200)
+            .collect();
         crate::refine(&mut r, &idxs);
         for f in &r.files {
             for h in &f.hits {
