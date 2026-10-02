@@ -1632,6 +1632,30 @@ fn file_verbs_report_their_freshness_check() {
     assert_eq!(oc["fresh"], "", "{oc}");
 }
 
+/// `show` with several locations reports one source for all of them, in any
+/// order: `index` only when every location came from the index.
+#[test]
+fn show_reports_the_source_of_every_location() {
+    let f = empty_fixture();
+    w(&f.root.join("src/lib.rs"), "pub fn alpha() {\n    1;\n}\n");
+    w(&f.root.join("notes.md"), "one\ntwo\n");
+    f.indexed();
+    let outcome = |locs: &[&str]| {
+        let mut a = vec!["show"];
+        a.extend_from_slice(locs);
+        a.extend(["--json=greeg", "--fresh", "stat"]);
+        let oc = json_lines(&f.out(&a)).last().unwrap()["data"]["outcome"].clone();
+        (oc["source"].clone(), oc["fresh"].clone())
+    };
+    let text = (serde_json::json!("text"), serde_json::json!(""));
+    assert_eq!(outcome(&["src/lib.rs:2", "notes.md:1"]), text);
+    assert_eq!(outcome(&["notes.md:1", "src/lib.rs:2"]), text);
+    assert_eq!(
+        outcome(&["src/lib.rs:2", "src/lib.rs:1"]),
+        (serde_json::json!("index"), serde_json::json!("stat"))
+    );
+}
+
 /// A context line never carries a UTF-8 BOM, as a matched line never does.
 #[test]
 fn a_context_line_after_a_bom_holds_only_its_text() {

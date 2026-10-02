@@ -1248,7 +1248,8 @@ pub struct ShowResult {
 pub fn show(o: &Options, locs: &[(String, u32)]) -> Result<ShowResult> {
     let t0 = Instant::now();
     let mut items = Vec::with_capacity(locs.len());
-    let (mut source, mut fresh) = ("text", "");
+    // (source, fresh) of each location
+    let mut read: Vec<(&'static str, &'static str)> = Vec::with_capacity(locs.len());
     let mut est = 0usize;
     for (file, asked) in locs {
         let rel = file.trim_start_matches("./");
@@ -1256,9 +1257,10 @@ pub fn show(o: &Options, locs: &[(String, u32)]) -> Result<ShowResult> {
         let asked = (*asked).clamp(1, src.line_count().max(1));
         let defs = if Lang::from_path(&o.root.join(rel)).has_grammar() {
             let ol = outline(o, rel)?;
-            (source, fresh) = (ol.source, ol.fresh);
+            read.push((ol.source, ol.fresh));
             ol.defs
         } else {
+            read.push(("text", ""));
             Vec::new()
         };
         // innermost: of the definitions enclosing the line, the one that starts last
@@ -1287,12 +1289,35 @@ pub fn show(o: &Options, locs: &[(String, u32)]) -> Result<ShowResult> {
             body,
         });
     }
+    let (source, fresh) = combined_source(&read);
     Ok(ShowResult {
         items,
         source,
         fresh,
         elapsed_ms: t0.elapsed().as_secs_f64() * 1e3,
     })
+}
+
+/// One source for answers read in several places: theirs when they agree,
+/// otherwise `text`. An index answer reports its weakest freshness check.
+fn combined_source(read: &[(&'static str, &'static str)]) -> (&'static str, &'static str) {
+    let Some(&(source, _)) = read.first() else {
+        return ("text", "");
+    };
+    if read.iter().any(|&(s, _)| s != source) {
+        return ("text", "");
+    }
+    let strength = |m: &str| match m {
+        "none" => 0,
+        "ttl" => 1,
+        _ => 2,
+    };
+    let fresh = read
+        .iter()
+        .map(|&(_, f)| f)
+        .min_by_key(|f| strength(f))
+        .unwrap_or("");
+    (source, fresh)
 }
 
 /// One file in a `map`.
