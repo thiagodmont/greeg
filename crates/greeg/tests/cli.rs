@@ -1668,6 +1668,10 @@ fn outcome_fixture() -> Fixture {
         ));
     }
     w(&f.root.join("src/lib.rs"), &lib);
+    w(
+        &f.root.join("src/user.rs"),
+        "use crate::target;\npub fn user() -> u32 {\n    target()\n}\n",
+    );
     for i in 0..8 {
         w(
             &f.root.join(format!("src/a{i}.rs")),
@@ -1709,6 +1713,7 @@ fn text_states_its_outcome_as_json_does() {
         &["def", "zzz_none"],
         &["refs", "target"],
         &["refs", "target", "--budget", "150"],
+        &["refs", "target", "--budget", "0"],
         &["callers", "target"],
         &["callers", "target", "--budget", "50"],
         &["impls", "Shape"],
@@ -1771,25 +1776,35 @@ fn text_states_its_outcome_as_json_does() {
             }
 
             let (shown, total) = (oc["shown"].as_u64().unwrap(), oc["total"].as_u64().unwrap());
+            // a small budget must cut, or the checks below would pass vacuously
+            if args.windows(2).any(|a| a[0] == "--budget" && a[1] != "0") {
+                assert!(
+                    text.lines()
+                        .any(|l| l.trim_start().starts_with('+') && l.contains(" more"))
+                        || line.is_some_and(|l| l.contains('/')),
+                    "a small budget must cut: {ctx}"
+                );
+            }
             let cut_marker = text
                 .lines()
                 .any(|l| l.trim_start().starts_with('+') && l.contains(" more"));
             match verb {
                 // JSON is shaped by the budget as text is
-                "search" | "def" | "refs" | "callers" if shown < total => {
+                "search" | "def" | "callers" if shown < total => {
                     let l = line.unwrap_or_else(|| panic!("no outcome line: {ctx}"));
                     assert!(l.contains(&format!("{shown}/{total} ")), "{ctx}");
                     if verb != "search" {
                         assert!(l.contains("raise --budget"), "{ctx}");
                     }
                 }
-                // text cuts what JSON lists in full, or lists fewer
-                "outline" | "impls" if cut_marker => {
+                // text cuts what JSON lists in full, or lists other rows
+                // (`refs` text folds imports into one line)
+                "outline" | "impls" | "refs" if cut_marker => {
                     let l = line.unwrap_or_else(|| panic!("no outcome line: {ctx}"));
-                    let unit = if verb == "outline" {
-                        "symbols"
-                    } else {
-                        "implementations"
+                    let unit = match verb {
+                        "outline" => "symbols",
+                        "impls" => "implementations",
+                        _ => "hits",
                     };
                     assert!(l.contains(&format!("/{total} {unit}")), "{ctx}");
                     assert!(l.contains("raise --budget"), "{ctx}");
