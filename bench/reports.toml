@@ -628,3 +628,11 @@ filename = "release-0.10.0-2026-10-01-darwin-arm64.json"
 title = "Release 0.10.0 against 0.9.0: exact-search regression (2026-10-01)"
 pr = 59
 notes = "v0.9.0 against the 0.10.0 release commit (phase 4.1 JSON dialects and the NUL fix). All 34 cases keep their exit status and stdout (JSON compared without elapsed fields), every contract passes; --json=rg equals rg --json (28/28) and --json=greeg --budget 0 holds ripgrep's matches (28/28). Token counts are unchanged except three JSON cases, 4 tokens each from the digits of elapsed fields. Started with the 1- and 5-minute loads at 4.6 and 4.8: medians range from −3.9% to +3.1% and p95 from −5.9% to +5.3%, with no flag. The harness records no execution time; the result file was written at 2026-10-02T01:22:56Z."
+
+[[datasets]]
+id = "outcome_fixes"
+section = "matching_review"
+filename = "outcome-fixes-2026-10-02-darwin-arm64.json"
+title = "Outcome fixes: impact callers and file-verb freshness, exact-search regression (2026-10-02)"
+pr = 60
+notes = "v0.10.0 (built from eec7db8, the tag's code) against the branch where impact counts the callers it leaves out and outline, show and map report their freshness check. All 34 cases keep their exit status and stdout (JSON compared without elapsed fields), every contract passes; --json=rg equals rg --json (28/28) and --json=greeg --budget 0 holds ripgrep's matches (28/28). Token counts are unchanged except hit_json (scan), 4 tokens from the digits of elapsed fields. Started with the 1- and 5-minute loads at 2.4 and 4.9: medians range from −1.8% to +2.3% and p95 from −21.0% to +2.5%, with no flag. The harness records no execution time; the result file was written at 2026-10-02T02:54:34Z."
