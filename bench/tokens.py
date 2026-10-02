@@ -13,7 +13,7 @@ import os
 import subprocess
 import sys
 
-from corpus import Corpus
+from corpus import Corpus, executable
 
 QUERIES = {
     "tokio": (["100", "300", "1000", "2000"], [
@@ -178,13 +178,13 @@ def fit(path):
     for held in sorted(set(corpus)):
         train = corpus != held
         wh, _ = nnls((X * sw[:, None])[train], (y * sw)[train])
-        r = np.ceil(X[~train] @ wh) / y[~train]
+        r = np.ceil(X[~train] @ np.round(wh, 2)) / y[~train]
         print(f"  {held:18} min {r.min():.3f} median {np.median(r):.3f} max {r.max():.3f}")
 
 
 if __name__ == "__main__":
     if len(sys.argv) == 5 and sys.argv[1] == "collect":
-        collect(os.path.abspath(sys.argv[2]), sys.argv[3], sys.argv[4])
+        collect(executable(sys.argv[2]), sys.argv[3], sys.argv[4])
     elif len(sys.argv) == 3 and sys.argv[1] == "fit":
         fit(sys.argv[2])
     else:
