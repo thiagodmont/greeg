@@ -1,0 +1,24 @@
+crates/greeg/tests/cli.rs
+  s_b1057b2933cdb0::t_c0a0232eff19bd 1635-1658
+crates/greeg-query/src/verbs.rs
+  s_b1057b2933cdb0::t_b894740d11657e 1251-1252,1260,1263,1292,1301-1320
+  s_b1057b2933cdb0::t_abbed82ae3728c 1321-1322
+references/JSON.md
+  s_b1057b2933cdb0::t_56a98fafc34ac0 88-89
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "7efa0aee2330c28b7f9eeab9125a066845ff67de",
+  "prompts": {},
+  "sessions": {
+    "s_b1057b2933cdb0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0aa73425-0ec9-4b76-ae94-35b6bdff17bb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
