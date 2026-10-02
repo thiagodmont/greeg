@@ -643,8 +643,20 @@ it:
 * Everything else is accounted for: `shown/total hits · shown/total files`,
   `N files demoted (hits)`, `skipped N binary, N binary tails, N huge` (each
   only when non-zero), `matched <rung>` when the ladder relaxed the query,
-  and `~N tokens`.
+  `index not checked for changes` when the index answered under
+  `--fresh none`, and `~N tokens`.
 * `next:` suggests flags only, never a different pattern.
+
+Symbol verbs and `show`, `outline` and `map` end the same way, with one
+outcome line before `next:`. It names what the budget cut (`3/23
+definitions`, `4/14 directories · 5/378 files`), a relaxed match, an
+unchecked index, and how to see the rest (`raise --budget`). A complete,
+exact, checked answer has no outcome line. Inside the answer, a cut group
+ends with `+N more` where its rows stop. The line's counts are those of the
+text, which can list fewer rows than `--json=greeg` (`outline`, `map`,
+`impls` and `impact` list more in JSON); `cli.rs`
+`text_states_its_outcome_as_json_does` checks that both say the same about
+exit status, cuts, relaxed matches and freshness.
 
 A bare identifier is answered as a whole word. Matches inside *longer*
 identifiers stop competing for answer lines and collapse into one `related`

@@ -1952,6 +1952,9 @@ fn render_footer(
     if ft.rung != greeg_query::Rung::Exact {
         write!(w, " · matched {}", ft.rung.describe())?;
     }
+    if let Some(note) = verbs_out::unchecked_note(&Outcome::of_search(r, ft.hits_shown)) {
+        write!(w, " · {note}")?;
+    }
     if !complete && r.stats.total_hits > 0 {
         write!(w, " · ~{est} tokens")?;
     }

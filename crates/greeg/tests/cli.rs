@@ -312,7 +312,9 @@ fn demoted_files_are_counted_not_hidden() {
     ] {
         assert!(all.contains(p), "{p} must still be searched:\n{all}");
     }
-    let footer = f.err(&["--budget", "0", "handle_request"]);
+    // a scan counts the skipped binary file, so its answer is not complete and
+    // the footer names the demoted files; the index never holds that file
+    let footer = f.err(&["--budget", "0", "--no-index", "handle_request"]);
     assert!(
         footer.contains("demoted"),
         "the footer must account for the demoted files: {footer:?}"
@@ -1595,10 +1597,8 @@ fn impact_counts_the_callers_it_leaves_out() {
         assert_eq!(footer["outcome"]["complete"], false, "{footer}");
 
         let text = run(&[]);
-        assert!(
-            text.contains("\n  +2 more callers (raise --budget)\n"),
-            "{text}"
-        );
+        assert!(text.contains("\n  +2 more\n"), "{text}");
+        assert!(text.ends_with("\n3/5 callers · raise --budget\n"), "{text}");
     }
 }
 
@@ -1654,6 +1654,179 @@ fn show_reports_the_source_of_every_location() {
         outcome(&["src/lib.rs:2", "src/lib.rs:1"]),
         (serde_json::json!("index"), serde_json::json!("stat"))
     );
+}
+
+/// A tree where every command can be cut by a small budget.
+fn outcome_fixture() -> Fixture {
+    let f = empty_fixture();
+    let mut lib = String::from(
+        "pub trait Shape {\n    fn area(&self) -> u32;\n}\npub fn target() -> u32 {\n    1\n}\n",
+    );
+    for i in 0..8 {
+        lib.push_str(&format!(
+            "pub fn caller{i}() -> u32 {{\n    target()\n}}\npub struct S{i};\nimpl Shape for S{i} {{\n    fn area(&self) -> u32 {{\n        target()\n    }}\n}}\n"
+        ));
+    }
+    w(&f.root.join("src/lib.rs"), &lib);
+    for i in 0..8 {
+        w(
+            &f.root.join(format!("src/a{i}.rs")),
+            "pub fn target() -> u32 {\n    2\n}\n",
+        );
+    }
+    f.indexed();
+    f
+}
+
+/// The last line of a text answer that states its outcome, before `next:`.
+fn outcome_line(text: &str) -> Option<&str> {
+    text.lines()
+        .rev()
+        .find(|l| !l.is_empty() && !l.starts_with("next:"))
+        .filter(|l| {
+            l.contains("raise --budget")
+                || l.contains("matched ")
+                || l.contains("index not checked for changes")
+                || l.contains(" hits")
+        })
+}
+
+/// Every text answer states its outcome as `--json=greeg` does: the same
+/// exit status; cut results counted shown/total with how to get the rest;
+/// a relaxed match named; an index answer that skipped the freshness check
+/// said so. A complete, exact, checked verb answer adds no outcome line.
+#[test]
+fn text_states_its_outcome_as_json_does() {
+    let f = outcome_fixture();
+    let cases: &[&[&str]] = &[
+        &["target"],
+        &["target", "--budget", "100"],
+        &["targte"],
+        &["zzz_none"],
+        &["def", "target"],
+        &["def", "target", "--budget", "100"],
+        &["def", "targte"],
+        &["def", "zzz_none"],
+        &["refs", "target"],
+        &["refs", "target", "--budget", "150"],
+        &["callers", "target"],
+        &["callers", "target", "--budget", "50"],
+        &["impls", "Shape"],
+        &["impls", "Shape", "--budget", "50"],
+        &["impact", "target"],
+        &["impact", "target", "--budget", "300"],
+        &["outline", "src/lib.rs"],
+        &["outline", "src/lib.rs", "--budget", "50"],
+        &["show", "src/lib.rs:5"],
+        &["map", "src"],
+        &["map", "src", "--budget", "50"],
+    ];
+    for backend in [
+        &["--no-index"][..],
+        &["--fresh", "stat"][..],
+        &["--fresh", "none"][..],
+    ] {
+        for case in cases {
+            if case[0] == "map" && backend[0] == "--no-index" {
+                continue;
+            }
+            let mut args = case.to_vec();
+            args.extend_from_slice(backend);
+            let t = f.run(&args);
+            let text = String::from_utf8_lossy(&t.stdout).into_owned()
+                + &String::from_utf8_lossy(&t.stderr);
+            args.push("--json=greeg");
+            let j = f.run(&args);
+            let records = json_lines(&String::from_utf8_lossy(&j.stdout));
+            let footer = &records.last().unwrap()["data"];
+            let oc = &footer["outcome"];
+            let ctx = format!("{args:?}\n{text}\n{oc}");
+            assert_eq!(t.status.code(), j.status.code(), "{ctx}");
+            let line = outcome_line(&text);
+            let verb = match case[0] {
+                v @ ("def" | "refs" | "callers" | "impls" | "impact" | "outline" | "show"
+                | "map") => v,
+                _ => "search",
+            };
+
+            let unchecked = backend.contains(&"none") && oc["source"] != "scan";
+            assert_eq!(
+                text.contains("index not checked for changes"),
+                unchecked,
+                "{ctx}"
+            );
+            if unchecked {
+                assert!(
+                    line.is_some_and(|l| l.contains("index not checked")),
+                    "{ctx}"
+                );
+            }
+
+            let found_nothing = text.contains("no definition found")
+                || text.contains("no hits")
+                || text.contains("no references");
+            let relaxed = t.status.code() == Some(1) && !found_nothing;
+            if relaxed {
+                assert!(line.is_some_and(|l| l.contains("matched ")), "{ctx}");
+            }
+
+            let (shown, total) = (oc["shown"].as_u64().unwrap(), oc["total"].as_u64().unwrap());
+            let cut_marker = text
+                .lines()
+                .any(|l| l.trim_start().starts_with('+') && l.contains(" more"));
+            match verb {
+                // JSON is shaped by the budget as text is
+                "search" | "def" | "refs" | "callers" if shown < total => {
+                    let l = line.unwrap_or_else(|| panic!("no outcome line: {ctx}"));
+                    assert!(l.contains(&format!("{shown}/{total} ")), "{ctx}");
+                    if verb != "search" {
+                        assert!(l.contains("raise --budget"), "{ctx}");
+                    }
+                }
+                // text cuts what JSON lists in full, or lists fewer
+                "outline" | "impls" if cut_marker => {
+                    let l = line.unwrap_or_else(|| panic!("no outcome line: {ctx}"));
+                    let unit = if verb == "outline" {
+                        "symbols"
+                    } else {
+                        "implementations"
+                    };
+                    assert!(l.contains(&format!("/{total} {unit}")), "{ctx}");
+                    assert!(l.contains("raise --budget"), "{ctx}");
+                }
+                "map" if cut_marker => {
+                    let l = line.unwrap_or_else(|| panic!("no outcome line: {ctx}"));
+                    assert!(
+                        l.contains(&format!("/{} files", footer["files_total"])),
+                        "{ctx}"
+                    );
+                    assert!(
+                        l.contains("raise --budget or narrow the directory"),
+                        "{ctx}"
+                    );
+                }
+                "impact" if cut_marker => {
+                    let l = line.unwrap_or_else(|| panic!("no outcome line: {ctx}"));
+                    assert!(
+                        l.contains(&format!("/{} callers", footer["callers_total"])),
+                        "{ctx}"
+                    );
+                    assert!(l.contains("raise --budget"), "{ctx}");
+                }
+                _ if verb != "search" && !relaxed && !unchecked => {
+                    assert!(
+                        line.is_none(),
+                        "complete answers add no outcome line: {ctx}"
+                    );
+                    assert!(!cut_marker, "{ctx}");
+                }
+                _ => {}
+            }
+            if cut_marker && verb != "search" {
+                assert!(line.is_some_and(|l| l.contains("raise --budget")), "{ctx}");
+            }
+        }
+    }
 }
 
 /// A context line never carries a UTF-8 BOM, as a matched line never does.
