@@ -1,0 +1,61 @@
+bench/test_hooks.py
+  s_b1057b2933cdb0::t_f998ed784c3bf3 20-21,27
+  s_b1057b2933cdb0::t_accdf8b1b81326 24
+crates/greeg/tests/known_gaps.rs
+  s_b1057b2933cdb0::t_33d519531a2e0d 81-85
+bench/corpus.py
+  s_b1057b2933cdb0::t_18b5597422d5b0 63
+README.md
+  s_b1057b2933cdb0::t_dc07e1dc2e173d 280-296,354-355
+crates/greeg/src/budget.rs
+  s_b1057b2933cdb0::t_d425e46eacbc62 1-10,13-111
+  s_b1057b2933cdb0::t_aea276fe830a07 11-12
+crates/greeg/src/main.rs
+  s_b1057b2933cdb0::t_14c8e4e3743dd2 3,2422-2436
+  s_b1057b2933cdb0::t_2ebad3850f1206 213-214,303,402-406,1059,1269
+  s_b1057b2933cdb0::t_dc07e1dc2e173d 25
+crates/greeg/src/hook.rs
+  s_b1057b2933cdb0::t_dc07e1dc2e173d 37-38
+  s_b1057b2933cdb0::t_2ebad3850f1206 873-874,876
+crates/greeg/tests/sessions.rs
+  s_b1057b2933cdb0::t_33d519531a2e0d 31-35
+crates/greeg/tests/hooks.rs
+  s_b1057b2933cdb0::t_33d519531a2e0d 37-41
+crates/greeg/tests/replay.rs
+  s_b1057b2933cdb0::t_33d519531a2e0d 64-68
+bench/matching.py
+  s_b1057b2933cdb0::t_18b5597422d5b0 187
+bench/bench.py
+  s_b1057b2933cdb0::t_18b5597422d5b0 66
+crates/greeg/tests/mixed_versions.rs
+  s_b1057b2933cdb0::t_33d519531a2e0d 75-76
+bench/hooks.py
+  s_b1057b2933cdb0::t_18b5597422d5b0 58
+bench/parity.py
+  s_b1057b2933cdb0::t_18b5597422d5b0 41
+crates/greeg/src/stats.rs
+  s_b1057b2933cdb0::t_2ebad3850f1206 82-83,113,161
+  s_b1057b2933cdb0::t_aea276fe830a07 2848-2850,2855-2856
+crates/greeg/tests/cli.rs
+  s_b1057b2933cdb0::t_49305cfedeb6a9 1807-1811
+  s_b1057b2933cdb0::t_d7dfb2f99a0a0e 109-119,126,158,806,823,852,886,977,1012,1245,1525,1876,2463,2514
+  s_b1057b2933cdb0::t_85517b253b8972 122-125,127,1802-1806,1812-1822,1824-1875
+  s_b1057b2933cdb0::t_de7f584320f80a 1823
+  s_b1057b2933cdb0::t_f8af4a6b5b188d 1877
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "8d298310a0485551efc030337edfd9eabeca62b6",
+  "prompts": {},
+  "sessions": {
+    "s_b1057b2933cdb0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0aa73425-0ec9-4b76-ae94-35b6bdff17bb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
