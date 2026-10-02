@@ -878,8 +878,8 @@ pub struct ImplsResult {
     pub elapsed_ms: f64,
 }
 
-/// Definitions whose parsed supertypes include `name`, read from `files`:
-/// what the index's implementors hold, for a scan.
+/// Definitions whose parsed supertypes include `name`, read from the files
+/// the index would extract symbols from: its implementors, for a scan.
 fn implementors_of(
     files: &mut [crate::FileResult],
     name: &str,
@@ -890,7 +890,7 @@ fn implementors_of(
     use std::sync::atomic::{AtomicUsize, Ordering};
     // largest first, so a big file never starts last
     let mut order: Vec<usize> = (0..files.len())
-        .filter(|&i| files[i].lang.has_grammar())
+        .filter(|&i| greeg_index::build::wants_symbols(&files[i].rel, files[i].flags.0))
         .collect();
     order.sort_by_key(|&i| std::cmp::Reverse(files[i].searched));
     let slots: Vec<Mutex<&mut crate::FileResult>> = files.iter_mut().map(Mutex::new).collect();
@@ -1086,10 +1086,11 @@ pub fn impls(o: &Options, name: &str) -> Result<ImplsResult> {
     so.pattern = name.to_string();
     so.fixed_strings = true;
     so.word = true;
+    // a kind filter classifies every hit, minified files included
     so.kinds = if source == "index" {
         vec![HitKind::Type]
     } else {
-        Vec::new()
+        HitKind::ALL.to_vec()
     };
     so.mode = Mode::Content;
     so.budget = 0;
