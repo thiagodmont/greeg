@@ -17,7 +17,7 @@ use greeg_index::tree::Tree;
 use greeg_index::{Index, lock, persist, plan, read_manifest};
 use greeg_lang::sym::SYM_OBJ_MEMBER;
 use greeg_lang::{DefKind, FileFlags, Lang};
-use grep_searcher::{BinaryDetection, SearcherBuilder};
+use grep_searcher::SearcherBuilder;
 use std::fs;
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
@@ -713,7 +713,6 @@ pub(crate) fn try_index(cx: &Ctx, threads: usize, t0: Instant) -> Result<Option<
             sc.spawn(|| {
                 let mut sb = SearcherBuilder::new();
                 sb.line_number(true)
-                    .binary_detection(BinaryDetection::quit(0))
                     .multi_line(o.multiline)
                     .bom_sniffing(false);
                 let mut searcher = sb.build();

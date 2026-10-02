@@ -641,14 +641,37 @@ it:
   is whole, and anything more would be 5 tokens that change nothing about what
   you do next.
 * Everything else is accounted for: `shown/total hits · shown/total files`,
-  `N files demoted (hits)`, `skipped N binary` (only when non-zero), `matched
-  <rung>` when the ladder relaxed the query, and `~N tokens`.
+  `N files demoted (hits)`, `skipped N binary, N binary tails, N huge` (each
+  only when non-zero), `matched <rung>` when the ladder relaxed the query,
+  and `~N tokens`.
 * `next:` suggests flags only, never a different pattern.
 
 A bare identifier is answered as a whole word. Matches inside *longer*
 identifiers stop competing for answer lines and collapse into one `related`
 line naming them with their file counts. If nothing matches the whole word,
 those near-misses become the answer instead.
+
+### Binary files
+
+greeg reads a file as ripgrep reads one it finds by walking:
+- A NUL byte in the first 64 KiB makes the file binary: it is skipped and
+  counted (`skipped N binary`).
+- A later NUL ends the search at the start of its line. The matches before it
+  are kept and none after it is reported. With `--budget 0` the file's lines
+  end with ripgrep's `PATH: WARNING: stopped searching binary file after match
+  (found "\0" byte around offset N)`. The JSON dialects give the NUL's offset
+  as `binary_offset`, and the footer counts the file as a `binary tail`.
+
+The rule is the same in both backends, with `-U`, and on stdin. ripgrep stops
+at the start of the read that holds the NUL, not at its line. Its first read
+is 64 KiB, but a thread's buffer grows with the long lines it has seen and
+does not shrink for the next file, so it can report fewer matches before the
+NUL, and which ones depends on the files searched before. Three copies of
+one file can answer differently. Also:
+- `rg -c` prints no count for such a file; greeg counts the lines it searched.
+- ripgrep searches a file named on the command line, and stdin, past a NUL,
+  printing `binary file matches` in place of a match after it; greeg reads
+  them as it reads a walked file.
 
 ### JSON output
 
@@ -682,10 +705,10 @@ described under [When nothing matches](#when-nothing-matches).
   which an index makes less than what ripgrep reads.
 - Paths are relative to the root (`a.txt`), where ripgrep prefixes the path it
   was given (`./a.txt` for `.`), as in every other format.
-- A file with a NUL byte in its first 64 KiB is skipped as binary, as ripgrep
-  skips it. A NUL later on does not stop the search, so matches after it are
-  reported where ripgrep stops at it and sets `binary_offset` (a known gap, in
-  every format).
+- A NUL byte ends a file's search as described under
+  [Binary files](#binary-files); `end.binary_offset` is its offset, in these
+  coordinates. In `--json=legacy` it counts a UTF-8 BOM, as
+  `absolute_offset` does.
 
 `bench/matching.py` checks every search case under `--json=rg` against
 `rg --json` byte for byte, timings aside, in both backends.

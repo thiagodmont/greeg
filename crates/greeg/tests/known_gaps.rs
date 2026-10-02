@@ -1838,9 +1838,8 @@ fn an_index_directory_that_is_the_tree_is_refused() {
 }
 
 /// A NUL byte ends the search of a file found by walking, as in ripgrep, so
-/// no match after it is reported. greeg checks only the first 64 KiB.
+/// no match after it is reported, and the matches before it are kept.
 #[test]
-#[ignore = "known gap: a NUL past 64 KiB does not stop the search"]
 fn a_nul_past_64_kib_ends_the_search() {
     let f = Fixture::new(&[]);
     let mut body = b"needle\n".to_vec();
@@ -1854,5 +1853,6 @@ fn a_nul_past_64_kib_ends_the_search() {
     ] {
         let out = stdout(&o);
         assert!(!out.contains("needle after"), "{out}");
+        assert!(out.starts_with("far.txt:1:needle\n"), "{out}");
     }
 }

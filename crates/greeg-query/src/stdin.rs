@@ -8,7 +8,7 @@ use crate::{
 };
 use anyhow::Result;
 use greeg_lang::{FileFlags, Lang};
-use grep_searcher::{BinaryDetection, SearcherBuilder};
+use grep_searcher::SearcherBuilder;
 use std::time::Instant;
 
 pub const STDIN_NAME: &str = "<stdin>";
@@ -53,13 +53,15 @@ pub fn scan(o: &Options, mut data: Vec<u8>) -> Result<ScanResult> {
     let mut sink = CollectSink::new(&matcher, Lang::None, usize::MAX, false, o.multiline);
     sink.base = bom as u32;
     sink.first_only = o.mode == Mode::Files;
+    let extent = crate::text_extent(&data[bom..]);
+    let (end, nul) = extent.unwrap_or((0, None));
     let mut sb = SearcherBuilder::new();
     sb.line_number(true)
-        .binary_detection(BinaryDetection::quit(0))
         .multi_line(o.multiline)
         .bom_sniffing(false);
-    sb.build().search_slice(&matcher, &data[bom..], &mut sink)?;
-    let searched = (data.len() - bom) as u64;
+    sb.build()
+        .search_slice(&matcher, &data[bom..bom + end], &mut sink)?;
+    let searched = end as u64;
     let src = Source::new(data);
     let bytes: &[u8] = &src.bytes;
     let mut hits = Vec::with_capacity(sink.hits.len());
@@ -122,6 +124,7 @@ pub fn scan(o: &Options, mut data: Vec<u8>) -> Result<ScanResult> {
             src: Some(src),
             bom: bom as u32,
             searched,
+            binary_offset: nul.map(|p| (bom + p) as u64),
             encoding,
             below: None,
         });
@@ -130,6 +133,8 @@ pub fn scan(o: &Options, mut data: Vec<u8>) -> Result<ScanResult> {
         files_walked: 1,
         files_searched: 1,
         bytes_searched: searched,
+        skipped_binary: usize::from(extent.is_none()),
+        binary_tails: usize::from(nul.is_some()),
         files_matched: files.len(),
         total_hits: total,
         total_unfiltered: total,
@@ -139,9 +144,6 @@ pub fn scan(o: &Options, mut data: Vec<u8>) -> Result<ScanResult> {
     };
     stats.by_kind[HitKind::Ident.idx()] = total;
     stats.elapsed_ms = t0.elapsed().as_secs_f64() * 1e3;
-    if sink.binary {
-        stats.skipped_binary = 1;
-    }
     Ok(ScanResult {
         opts: o.clone(),
         files,

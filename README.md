@@ -320,7 +320,9 @@ breakdowns and build-to-build comparisons.
 Cosmetic flags (`-N -H --color --no-heading --column --trim`) are accepted and
 ignored, because the output they ask for is the output greeg already gives.
 `-a`/`--text` and `-uuu` exit `2` rather than quietly answering without the
-binary files ripgrep would have searched.
+binary files ripgrep would have searched. A NUL byte in a file's first 64 KiB
+skips it as binary; a later one ends its search at that line, and the output
+says where ([binary files](references/ARCHITECTURE.md#binary-files)).
 
 `--json=rg` prints ripgrep's JSON Lines records and nothing else, for every
 match: no budget, ripgrep's offsets (after a UTF-8 BOM) and exit status. It

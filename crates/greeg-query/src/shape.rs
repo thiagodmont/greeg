@@ -72,6 +72,8 @@ pub struct Footer {
     pub demoted_hits: usize,
     pub minified_hits: usize,
     pub skipped_binary: usize,
+    /// Files searched only up to a NUL past their first 64 KiB.
+    pub binary_tails: usize,
     pub skipped_huge: usize,
     pub rung: Rung,
     pub ignored_only: Option<(usize, usize)>,
@@ -410,6 +412,7 @@ pub fn shape(r: &mut ScanResult) -> Report {
         demoted_hits: r.stats.demoted_hits,
         minified_hits: r.stats.minified_hits,
         skipped_binary: r.stats.skipped_binary,
+        binary_tails: r.stats.binary_tails,
         skipped_huge: r.stats.skipped_huge,
         rung: r.rung.clone(),
         ignored_only: r.ignored_only,
@@ -973,6 +976,7 @@ mod tests {
             src: None,
             bom: 0,
             searched: 0,
+            binary_offset: None,
             encoding: crate::Encoding::Utf8,
             below: None,
         }
