@@ -668,3 +668,11 @@ filename = "impls-scan-parity-2026-10-02-darwin-arm64.json"
 title = "impls reads supertypes on a scan: exact-search regression (2026-10-02)"
 pr = 66
 notes = "v0.10.0 (built from eec7db8, the tag's code) against the branch where impls on a scan parses the files that mention the name and lists the definitions whose supertypes include it, as the index does. All 34 cases keep their exit status and stdout (JSON compared without elapsed fields), every contract passes; --json=rg equals rg --json (28/28) and --json=greeg --budget 0 holds ripgrep's matches (28/28). Token counts are unchanged except hit_json (scan), 4 tokens from the digits of elapsed fields. Started with the 1- and 5-minute loads at 4.1 and 4.9: medians range from −1.7% to +2.0% and p95 from −14.5% to +5.4%, with no flag. impls scan/index parity and timing on tokio, django, ktor, TypeScript and rust are in the PR. The harness records no execution time; the result file was written at 2026-10-02T13:42:33Z."
+
+[[datasets]]
+id = "verb_budget_fit"
+section = "matching_review"
+filename = "verb-budget-fit-2026-10-02-darwin-arm64.json"
+title = "Verb text fitted to its budget: exact-search regression (2026-10-02)"
+pr = 67
+notes = "v0.10.0 (built from eec7db8, the tag's code) against the branch where every verb's text is rendered at the largest row allowance whose estimated tokens fit --budget. All 34 cases keep their exit status and stdout (JSON compared without elapsed fields), every contract passes; --json=rg equals rg --json (28/28) and --json=greeg --budget 0 holds ripgrep's matches (28/28). Token counts are unchanged except case_miss_json (scan), 4 tokens from the digits of elapsed fields. The load gate stayed shut for 30 minutes, so the run started ungated at 1- and 5-minute loads of 17.7 and 30.4 (13.7 and 28.2 at the end): medians range from −2.4% to +2.5% and p95 from −22.7% to +13.1%, with no flag. Verb output, budget adherence and timing on tokio are in the PR. The harness records no execution time; the result file was written at 2026-10-02T16:20:18Z."
