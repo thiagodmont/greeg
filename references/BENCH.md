@@ -1626,6 +1626,53 @@ v0.9.0 against the branch where a NUL past a file's first 64 KiB ends its search
 
 [Raw samples, environment, and binary/corpus digests](../bench/results/nul-past-64kib-2026-10-01-darwin-arm64.json). Reproduce: `python3 bench/matching.py BASELINE CANDIDATE --cases case_miss_files word_miss_count split_miss_unlimited fuzzy_miss_unlimited absent_files hit_files type_files glob_files hit_count hit_unlimited case_miss_json hit_json def_hit def_case_hit def_case_miss ranked_hit ranked_discovery --runs 51 --tokens --output nul-past-64kib-2026-10-01-darwin-arm64.json`.
 
+## Release 0.10.0 against 0.9.0: exact-search regression (2026-10-01)
+
+Originating PR: [#59](https://github.com/thiagodmont/greeg/pull/59).
+
+v0.9.0 against the 0.10.0 release commit (phase 4.1 JSON dialects and the NUL fix). All 34 cases keep their exit status and stdout (JSON compared without elapsed fields), every contract passes; --json=rg equals rg --json (28/28) and --json=greeg --budget 0 holds ripgrep's matches (28/28). Token counts are unchanged except three JSON cases, 4 tokens each from the digits of elapsed fields. Started with the 1- and 5-minute loads at 4.6 and 4.8: medians range from −3.9% to +3.1% and p95 from −5.9% to +5.3%, with no flag. The harness records no execution time; the result file was written at 2026-10-02T01:22:56Z.
+
+`greeg 0.9.0+ffc5a7151` → `greeg 0.10.0+eec7db869`; 51 randomized pairs per case, 3 warmups on the same 256-file warm synthetic corpus. Contract checks passed: **30/30 → 30/30**. `--json=rg` equal to `rg --json` (timings aside): **28/28** case/backend pairs. `--json=greeg --budget 0` holds ripgrep's matches: **28/28** case/backend pairs. Cases above the 10% median / 20% p95 investigation thresholds: **0**.
+
+| Backend | Case | Median ms, before → after | p95 ms, before → after | Tokens, before → after |
+|---|---|---:|---:|---:|
+| scan | case miss files | 7.578 → 7.558 | 8.194 → 8.100 | 3 → 3 |
+| scan | word miss count | 7.393 → 7.389 | 8.294 → 8.262 | 3 → 3 |
+| scan | split miss unlimited | 7.834 → 7.864 | 8.424 → 8.558 | 3 → 3 |
+| scan | fuzzy miss unlimited | 7.832 → 7.775 | 8.553 → 8.612 | 3 → 3 |
+| scan | absent files | 7.755 → 7.585 | 8.753 → 8.234 | 3 → 3 |
+| scan | hit files | 7.638 → 7.758 | 8.546 → 8.415 | 55 → 55 |
+| scan | type files | 7.877 → 7.921 | 8.656 → 8.554 | 55 → 55 |
+| scan | glob files | 7.527 → 7.487 | 8.204 → 8.391 | 55 → 55 |
+| scan | hit count | 8.208 → 8.240 | 9.212 → 8.689 | 71 → 71 |
+| scan | hit unlimited | 8.362 → 8.257 | 8.914 → 8.959 | 295 → 295 |
+| scan | case miss json | 7.722 → 7.649 | 8.642 → 8.720 | 263 → 263 |
+| scan | hit json | 8.242 → 8.214 | 9.072 → 8.880 | 2734 → 2738 |
+| scan | def hit | 8.946 → 8.783 | 9.849 → 9.656 | 214 → 214 |
+| scan | def case hit | 9.308 → 9.180 | 9.771 → 9.733 | 214 → 214 |
+| scan | def case miss | 8.582 → 8.610 | 9.415 → 9.272 | 35 → 35 |
+| scan | ranked hit | 8.364 → 8.067 | 9.354 → 8.847 | 295 → 295 |
+| scan | ranked discovery | 11.514 → 11.570 | 12.790 → 12.863 | 308 → 308 |
+| index | case miss files | 7.408 → 7.238 | 7.925 → 7.998 | 3 → 3 |
+| index | word miss count | 7.103 → 6.938 | 7.840 → 7.980 | 3 → 3 |
+| index | split miss unlimited | 6.940 → 7.039 | 7.893 → 7.909 | 3 → 3 |
+| index | fuzzy miss unlimited | 6.944 → 7.096 | 7.945 → 7.842 | 3 → 3 |
+| index | absent files | 6.831 → 6.568 | 7.741 → 7.510 | 3 → 3 |
+| index | hit files | 7.466 → 7.431 | 8.065 → 8.020 | 55 → 55 |
+| index | type files | 7.152 → 7.078 | 8.204 → 8.211 | 55 → 55 |
+| index | glob files | 7.347 → 7.346 | 8.097 → 8.098 | 55 → 55 |
+| index | hit count | 7.142 → 7.027 | 8.337 → 8.236 | 71 → 71 |
+| index | hit unlimited | 7.198 → 7.266 | 8.037 → 8.116 | 295 → 295 |
+| index | case miss json | 7.421 → 7.456 | 8.107 → 8.049 | 265 → 269 |
+| index | hit json | 7.087 → 7.307 | 7.979 → 8.403 | 2736 → 2740 |
+| index | def hit | 7.403 → 7.301 | 8.077 → 8.178 | 254 → 254 |
+| index | def case hit | 6.999 → 6.964 | 8.006 → 7.971 | 278 → 278 |
+| index | def case miss | 7.058 → 7.101 | 7.909 → 7.777 | 35 → 35 |
+| index | ranked hit | 7.561 → 7.485 | 7.994 → 8.184 | 295 → 295 |
+| index | ranked discovery | 7.956 → 8.026 | 9.023 → 8.782 | 308 → 308 |
+
+[Raw samples, environment, and binary/corpus digests](../bench/results/release-0.10.0-2026-10-01-darwin-arm64.json). Reproduce: `python3 bench/matching.py BASELINE CANDIDATE --cases case_miss_files word_miss_count split_miss_unlimited fuzzy_miss_unlimited absent_files hit_files type_files glob_files hit_count hit_unlimited case_miss_json hit_json def_hit def_case_hit def_case_miss ranked_hit ranked_discovery --runs 51 --tokens --output release-0.10.0-2026-10-01-darwin-arm64.json`.
+
 JSON contracts compare match paths, lines, offsets, submatches, status, exact rung, and total hit counts with ripgrep. Repeat-output checks remove only elapsed fields; byte/token measurements retain them and use the first raw sample, so small JSON size differences reflect timing values. Definition checks compare paths and status on this controlled fixture, not general symbol-resolution accuracy.
 
 ## Hook contract: initial measurements
