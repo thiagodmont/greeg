@@ -2,6 +2,7 @@ references/BENCH.md
   s_b1057b2933cdb0::t_8f0b34e3ff4fc0 1911-1957
 bench/reports.toml
   s_b1057b2933cdb0::t_8f0b34e3ff4fc0 671-672,680-685
+  s_b1057b2933cdb0::t_638700e6e62d7a 679
 bench/results/budget-levels-2026-10-02-darwin-arm64.json
   s_b1057b2933cdb0::t_8f0b34e3ff4fc0 1-5695
 ---
