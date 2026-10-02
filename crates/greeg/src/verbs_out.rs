@@ -661,7 +661,12 @@ pub fn run_refs(c: &Common, o: &Options, name: &str) -> Result<()> {
             }
         )?;
     }
-    let mut shown = 0usize;
+    // the `imported by` line accounts for every import hit
+    let mut shown = if collapse_imports {
+        by_kind[HitKind::Import.idx()].1.len()
+    } else {
+        0
+    };
     let fmt = crate::Fmt {
         chain: c.chain,
         stats: c.stats,
