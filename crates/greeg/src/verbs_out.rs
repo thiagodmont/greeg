@@ -1325,7 +1325,7 @@ pub fn run_impact(c: &Common, o: &Options, name: &str) -> Result<()> {
         if r.import_graph {
             ""
         } else {
-            " · no import graph (scan): no file is likely affected"
+            " · no import graph: no file is likely affected"
         },
         ms(c, r.elapsed_ms)
     )?;

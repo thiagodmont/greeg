@@ -1146,6 +1146,13 @@ impl Index {
     /// `def` lists them (ARCHITECTURE.md). Generic stems never match. One
     /// `memmem` pass over each segment's path arena, no per-file work.
     pub fn module_files(&self, name: &str, limit: usize) -> Vec<u32> {
+        self.module_files_in(name, limit, false)
+    }
+    /// [`Self::module_files`], ignoring ASCII case.
+    pub fn module_files_folded(&self, name: &str, limit: usize) -> Vec<u32> {
+        self.module_files_in(&name.to_ascii_lowercase(), limit, true)
+    }
+    fn module_files_in(&self, name: &str, limit: usize, fold: bool) -> Vec<u32> {
         let mut out = Vec::new();
         if name.is_empty()
             || matches!(name, "mod" | "index" | "__init__" | "lib" | "main")
@@ -1157,7 +1164,13 @@ impl Index {
         let finder = memchr::memmem::Finder::new(nb);
         for (_, seg) in self.segments() {
             let fv = seg.files();
-            let (arena, recs) = (fv.arena(), fv.recs());
+            let recs = fv.recs();
+            let arena: Cow<[u8]> = if fold {
+                Cow::Owned(fv.arena().to_ascii_lowercase())
+            } else {
+                Cow::Borrowed(fv.arena())
+            };
+            let arena = &arena[..];
             for h in finder.find_iter(arena) {
                 let after = h + nb.len();
                 let Some(&sep) = arena.get(after) else {

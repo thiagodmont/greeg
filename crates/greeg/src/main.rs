@@ -27,7 +27,7 @@ Examples:
   greeg outline src/lib.rs          symbols of one file as a tree
   greeg show src/lib.rs:120         the definition enclosing a line, whole (def NAME --mode block: bodies)
   greeg map src/                    important files by import PageRank
-  greeg impact get_queryset         what breaks if it changes
+  greeg impact get_queryset         files that use it, graded by evidence
   greeg -e def --kind def           a pattern that looks like a verb
 
 Reading the output: one header line per file (`path [test]`), then

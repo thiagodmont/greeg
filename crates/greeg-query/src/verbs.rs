@@ -1647,11 +1647,12 @@ pub fn impact(o: &Options, name: &str) -> Result<ImpactResult> {
     })
 }
 
-/// Every file that defines `name` or is the module named so, with `def`'s
-/// case folding.
+/// Every file that defines `name` or is the module named so, folding case
+/// as the search for uses does.
 fn definition_files(idx: &Index, o: &Options, name: &str) -> std::collections::HashSet<u32> {
+    let fold = o.case_insensitive || (o.smart_case && !name.chars().any(|c| c.is_uppercase()));
     let mut names = vec![name.to_string()];
-    if o.case_insensitive || (o.smart_case && !name.chars().any(|c| c.is_uppercase())) {
+    if fold {
         names.extend(case_variant_names(idx, name));
     }
     let mut files: std::collections::HashSet<u32> = names
@@ -1659,11 +1660,12 @@ fn definition_files(idx: &Index, o: &Options, name: &str) -> std::collections::H
         .flat_map(|n| idx.lookup(n))
         .map(|s| idx.latest(idx.sym_file(s)))
         .collect();
-    files.extend(
+    let modules = if fold {
+        idx.module_files_folded(name, usize::MAX)
+    } else {
         idx.module_files(name, usize::MAX)
-            .into_iter()
-            .map(|f| idx.latest(f)),
-    );
+    };
+    files.extend(modules.into_iter().map(|f| idx.latest(f)));
     files
 }
 
