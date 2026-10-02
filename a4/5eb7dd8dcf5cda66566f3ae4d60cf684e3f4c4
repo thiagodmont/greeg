@@ -1,0 +1,24 @@
+references/ARCHITECTURE.md
+  s_b1057b2933cdb0::t_89af436a0e404a 650-662
+crates/greeg/tests/cli.rs
+  s_b1057b2933cdb0::t_18ea042ba07f90 1793,1800-1802,1804-1807
+  s_b1057b2933cdb0::t_0915141e103029 1671-1674,1716,1779-1787
+crates/greeg/src/verbs_out.rs
+  s_b1057b2933cdb0::t_1325363b492da3 664-669
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "a45eb7dd8dcf5cda66566f3ae4d60cf684e3f4c4",
+  "prompts": {},
+  "sessions": {
+    "s_b1057b2933cdb0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0aa73425-0ec9-4b76-ae94-35b6bdff17bb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
