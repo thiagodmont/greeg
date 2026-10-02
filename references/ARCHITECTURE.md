@@ -674,6 +674,12 @@ largest allowance whose rendering fits is kept. Allowance 0 is the floor:
 header, counts, outcome line and `next:`, written even when the budget is
 smaller. `cli.rs` `verb_text_fits_its_budget` checks it for every verb.
 
+`tokens::estimate` is the one token estimate, for search shaping, verb
+fitting, the footer and statistics. It splits text into o200k_base's
+pre-tokenizer pieces (ASCII rules; other bytes count as punctuation) and
+weights each piece by kind and length. The weights were fitted on 716 search
+and verb outputs, text and JSON, from seven corpora.
+
 The line counts the rows of the text. These can differ from `--json=greeg`:
 each format counts the rows it fits; `outline`, `map`, `impls` and `impact`
 list more rows in JSON, and `refs`
