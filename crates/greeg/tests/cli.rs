@@ -1528,9 +1528,8 @@ fn a_text_file_has_no_binary_offset() {
     for dialect in ["--json=rg", "--json=legacy"] {
         let out = f.out(&[dialect, "--no-index", "needle"]);
         assert!(out.contains(r#""binary_offset":null"#), "{out}");
+        assert!(!out.contains("binary_tails"), "{out}");
     }
-    let out = f.out(&["--json=legacy", "--no-index", "needle"]);
-    assert!(!out.contains("binary_tails"), "{out}");
     let out = f.out(&["--json=greeg", "--no-index", "needle"]);
     assert!(!out.contains("binary_offset"), "{out}");
     assert!(!out.contains("binary_tails"), "{out}");
