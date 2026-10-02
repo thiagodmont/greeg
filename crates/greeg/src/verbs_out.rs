@@ -96,6 +96,39 @@ pub(crate) fn unchecked_note(o: &Outcome) -> Option<&'static str> {
 
 const MORE: &str = "raise --budget";
 
+/// A text answer at the largest row allowance in `0..=max` whose estimated
+/// tokens fit `budget` (0: unlimited). Allowance 0 is the answer's floor
+/// (header, counts, outcome), written even when it does not fit.
+fn fit(
+    budget: usize,
+    max: usize,
+    render: impl Fn(usize) -> Result<(Vec<u8>, Outcome)>,
+) -> Result<(Vec<u8>, Outcome)> {
+    let fits = |b: &[u8]| greeg_query::tokens::estimate(b) <= budget;
+    let full = render(max)?;
+    if budget == 0 || fits(&full.0) {
+        return Ok(full);
+    }
+    let (mut lo, mut hi, mut best) = (0, max, None);
+    while lo < hi {
+        let mid = lo + (hi - lo) / 2;
+        let r = render(mid)?;
+        if fits(&r.0) {
+            lo = mid + 1;
+            best = Some(r);
+        } else {
+            hi = mid;
+        }
+    }
+    best.map_or_else(|| render(0), Ok)
+}
+
+/// Write a fitted answer and end the run.
+fn finish_fit(mut w: impl Write, verb: &'static str, (text, o): (Vec<u8>, Outcome)) -> Result<()> {
+    w.write_all(&text)?;
+    finish(w, verb, &o)
+}
+
 /// The outcome of `show`, `outline` and `map` text: answered, exact.
 fn answered_outcome(
     total: usize,
@@ -385,17 +418,6 @@ pub fn run_def(
         outcome_line(&mut w, &[], &oc, MORE)?;
         return finish(w, "def", &oc);
     }
-    let rung = relaxed_note(&r.rung);
-    writeln!(
-        w,
-        "def {}  {} of {} definitions{} · {}{}",
-        r.name,
-        r.entries.len(),
-        r.total,
-        rung,
-        r.source,
-        ms(c, r.elapsed_ms)
-    )?;
     let multi_name = r.entries.iter().any(|e| e.name != r.name);
     let entries: Vec<&DefEntry> = r.entries.iter().collect();
     // `--mode block`: each definition's body follows its row, the budget
@@ -423,33 +445,47 @@ pub fn run_def(
     } else {
         None
     };
-    write_def_groups(
-        &mut w,
-        &entries,
-        multi_name,
-        explicit_from,
-        c.chain,
-        bodies.as_deref(),
-    )?;
-    if r.total > r.entries.len() {
-        writeln!(w, "  +{} more", r.total - r.entries.len())?;
-    }
-    outcome_line(
-        &mut w,
-        &[(r.entries.len(), r.total, "definitions")],
-        &oc,
-        MORE,
-    )?;
-    if let Some(top) = r.entries.first() {
+    let render = |limit: usize| -> Result<(Vec<u8>, Outcome)> {
+        let mut w = Vec::new();
+        let shown = entries.len().min(limit);
+        let oc = Outcome {
+            shown,
+            ..oc.clone()
+        };
         writeln!(
             w,
-            "next: refs {} | callers {} | outline {}",
+            "def {}  {} of {} definitions{} · {}{}",
             r.name,
-            r.name,
-            path_text(&top.rel)
+            shown,
+            r.total,
+            relaxed_note(&r.rung),
+            r.source,
+            ms(c, r.elapsed_ms)
         )?;
-    }
-    finish(w, "def", &oc)
+        write_def_groups(
+            &mut w,
+            &entries[..shown],
+            multi_name,
+            explicit_from,
+            c.chain,
+            bodies.as_deref().map(|b| &b[..shown]),
+        )?;
+        if r.total > shown {
+            writeln!(w, "  +{} more", r.total - shown)?;
+        }
+        outcome_line(&mut w, &[(shown, r.total, "definitions")], &oc, MORE)?;
+        if let Some(top) = r.entries.first() {
+            writeln!(
+                w,
+                "next: refs {} | callers {} | outline {}",
+                r.name,
+                r.name,
+                path_text(&top.rel)
+            )?;
+        }
+        Ok((w, oc))
+    };
+    finish_fit(w, "def", fit(o.budget, entries.len(), render)?)
 }
 
 pub fn run_show(c: &Common, o: &Options, locs: &[(String, u32)]) -> Result<()> {
@@ -481,36 +517,48 @@ pub fn run_show(c: &Common, o: &Options, locs: &[(String, u32)]) -> Result<()> {
         w.flush()?;
         return Ok(());
     }
-    for (n, it) in r.items.iter().enumerate() {
-        let what = match &it.def {
-            Some(d) => format!("{} {}", d.kind.name(), chain_str(&d.chain)),
-            None => "no enclosing definition".to_string(),
-        };
-        writeln!(
-            w,
-            "show {}:{}  {} · lines {}–{} · {}{}",
-            path_text(&it.rel),
-            it.asked,
-            what,
-            it.body.first,
-            it.body.last,
-            r.source,
-            if n == 0 {
-                ms(c, r.elapsed_ms)
-            } else {
-                String::new()
-            }
-        )?;
-        let lw = digits(it.body.first + it.body.lines.len() as u32);
-        write_body(&mut w, &it.body, lw)?;
-    }
-    let n = r.items.len();
-    outcome_line(
-        &mut w,
-        &[],
-        &answered_outcome(n, n, r.source, r.fresh),
-        MORE,
-    )?;
+    // the allowance is body lines, shared in order
+    let render = |limit: usize| -> Result<(Vec<u8>, Outcome)> {
+        let mut w = Vec::new();
+        let mut left = limit;
+        for (n, it) in r.items.iter().enumerate() {
+            let what = match &it.def {
+                Some(d) => format!("{} {}", d.kind.name(), chain_str(&d.chain)),
+                None => "no enclosing definition".to_string(),
+            };
+            writeln!(
+                w,
+                "show {}:{}  {} · lines {}–{} · {}{}",
+                path_text(&it.rel),
+                it.asked,
+                what,
+                it.body.first,
+                it.body.last,
+                r.source,
+                if n == 0 {
+                    ms(c, r.elapsed_ms)
+                } else {
+                    String::new()
+                }
+            )?;
+            let keep = it.body.lines.len().min(left);
+            left -= keep;
+            let body = verbs::Body {
+                first: it.body.first,
+                lines: it.body.lines[..keep].to_vec(),
+                last: it.body.last,
+                clipped: it.body.clipped || keep < it.body.lines.len(),
+            };
+            let lw = digits(it.body.first + it.body.lines.len() as u32);
+            write_body(&mut w, &body, lw)?;
+        }
+        let n = r.items.len();
+        let oc = answered_outcome(n, n, r.source, r.fresh);
+        outcome_line(&mut w, &[], &oc, MORE)?;
+        Ok((w, oc))
+    };
+    let max = r.items.iter().map(|it| it.body.lines.len()).sum();
+    w.write_all(&fit(o.budget, max, render)?.0)?;
     w.flush()?;
     Ok(())
 }
@@ -554,14 +602,15 @@ pub fn run_refs(c: &Common, o: &Options, name: &str) -> Result<()> {
         .filter(|(k, v)| !(v.is_empty() || collapse_imports && *k == HitKind::Import))
         .collect();
     let weight_sum: f64 = nonempty.iter().map(|(_, v)| (v.len() as f64).sqrt()).sum();
-    let share_of = |n: usize| -> usize {
-        if total_lines == usize::MAX {
+    let share_in = |lines: usize, n: usize| -> usize {
+        if lines == usize::MAX {
             n
         } else {
-            ((total_lines as f64 * (n as f64).sqrt() / weight_sum.max(1.0)).round() as usize)
-                .clamp(n.min(2), n)
+            ((lines as f64 * (n as f64).sqrt() / weight_sum.max(1.0)).round() as usize)
+                .clamp(n.min(2).min(lines), n)
         }
     };
+    let share_of = |n: usize| share_in(total_lines, n);
     let resolved = if let Some(pct) = (r.resolved * 100).checked_div(r.classified) {
         format!(" · {pct}% resolved")
     } else {
@@ -613,96 +662,99 @@ pub fn run_refs(c: &Common, o: &Options, name: &str) -> Result<()> {
         outcome_line(&mut w, &[], &oc, MORE)?;
         return finish(w, "refs", &oc);
     }
-    let rung = relaxed_note(&s.rung);
-    writeln!(
-        w,
-        "refs {}  {} hits · {} files{}{} · {}{}",
-        name,
-        fmt_n(s.stats.total_hits),
-        fmt_n(s.stats.files_matched),
-        resolved,
-        rung,
-        s.stats.source,
-        ms(c, s.stats.elapsed_ms)
-    )?;
-    if !r.defs.is_empty() {
-        let d: Vec<String> = r
-            .defs
-            .iter()
-            .take(3)
-            .map(|e| format!("{}:{} ({})", path_text(&e.rel), e.line, e.kind.name()))
-            .collect();
-        writeln!(w, "defined at  {}", d.join("  "))?;
-    }
-    if collapse_imports && !by_kind[HitKind::Import.idx()].1.is_empty() {
-        let mut files: Vec<usize> = Vec::new();
-        for &(fi, _) in &by_kind[HitKind::Import.idx()].1 {
-            if !files.contains(&fi) {
-                files.push(fi);
-            }
-        }
-        let rels: Vec<_> = files
-            .iter()
-            .take(6)
-            .map(|&fi| s.files[fi].rel_text())
-            .collect();
-        let names = crate::short_names(rels.iter().map(|r| &**r));
-        let more = files.len().saturating_sub(6);
-        writeln!(
-            w,
-            "imported by {} file{}: {}{}",
-            files.len(),
-            if files.len() == 1 { "" } else { "s" },
-            names.join(", "),
-            if more > 0 {
-                format!(" (+{more})")
-            } else {
-                String::new()
-            }
-        )?;
-    }
-    // the `imported by` line accounts for every import hit
-    let mut shown = if collapse_imports {
-        by_kind[HitKind::Import.idx()].1.len()
-    } else {
-        0
-    };
     let fmt = crate::Fmt {
         chain: c.chain,
         stats: c.stats,
         line_numbers: false,
         stdin: false,
     };
-    for (k, v) in &nonempty {
-        let share = share_of(v.len());
-        writeln!(w, "\n{} ({})", k.name(), fmt_n(v.len()))?;
-        let mut seen_lines: Vec<(usize, u32)> = Vec::new();
-        let mut taken: Vec<(usize, usize)> = Vec::new();
-        for &(fi, hi) in v.iter() {
-            if taken.len() >= share {
-                break;
-            }
-            let line = s.files[fi].hits[hi].line;
-            if seen_lines.contains(&(fi, line)) {
-                continue;
-            }
-            seen_lines.push((fi, line));
-            taken.push((fi, hi));
+    let render = |lines: usize| -> Result<(Vec<u8>, Outcome)> {
+        let mut w = Vec::new();
+        writeln!(
+            w,
+            "refs {}  {} hits · {} files{}{} · {}{}",
+            name,
+            fmt_n(s.stats.total_hits),
+            fmt_n(s.stats.files_matched),
+            resolved,
+            relaxed_note(&s.rung),
+            s.stats.source,
+            ms(c, s.stats.elapsed_ms)
+        )?;
+        if !r.defs.is_empty() {
+            let d: Vec<String> = r
+                .defs
+                .iter()
+                .take(3)
+                .map(|e| format!("{}:{} ({})", path_text(&e.rel), e.line, e.kind.name()))
+                .collect();
+            writeln!(w, "defined at  {}", d.join("  "))?;
         }
-        shown += taken.len();
-        crate::write_groups(&mut w, s, &taken, fmt, false)?;
-        if v.len() > taken.len() {
-            writeln!(w, "  +{} more", v.len() - taken.len())?;
+        if collapse_imports && !by_kind[HitKind::Import.idx()].1.is_empty() {
+            let mut files: Vec<usize> = Vec::new();
+            for &(fi, _) in &by_kind[HitKind::Import.idx()].1 {
+                if !files.contains(&fi) {
+                    files.push(fi);
+                }
+            }
+            let rels: Vec<_> = files
+                .iter()
+                .take(6)
+                .map(|&fi| s.files[fi].rel_text())
+                .collect();
+            let names = crate::short_names(rels.iter().map(|r| &**r));
+            let more = files.len().saturating_sub(6);
+            writeln!(
+                w,
+                "imported by {} file{}: {}{}",
+                files.len(),
+                if files.len() == 1 { "" } else { "s" },
+                names.join(", "),
+                if more > 0 {
+                    format!(" (+{more})")
+                } else {
+                    String::new()
+                }
+            )?;
         }
-    }
-    let oc = Outcome::of_search(s, shown);
-    writeln!(w)?;
-    outcome_line(&mut w, &[(shown, s.stats.total_hits, "hits")], &oc, MORE)?;
-    writeln!(
-        w,
-        "next: callers {name} | impact {name} | refs {name} --kind call"
-    )?;
-    finish(w, "refs", &oc)
+        // the `imported by` line accounts for every import hit
+        let mut shown = if collapse_imports {
+            by_kind[HitKind::Import.idx()].1.len()
+        } else {
+            0
+        };
+        for (k, v) in &nonempty {
+            let share = share_in(lines, v.len());
+            writeln!(w, "\n{} ({})", k.name(), fmt_n(v.len()))?;
+            let mut seen_lines: Vec<(usize, u32)> = Vec::new();
+            let mut taken: Vec<(usize, usize)> = Vec::new();
+            for &(fi, hi) in v.iter() {
+                if taken.len() >= share {
+                    break;
+                }
+                let line = s.files[fi].hits[hi].line;
+                if seen_lines.contains(&(fi, line)) {
+                    continue;
+                }
+                seen_lines.push((fi, line));
+                taken.push((fi, hi));
+            }
+            shown += taken.len();
+            crate::write_groups(&mut w, s, &taken, fmt, false)?;
+            if v.len() > taken.len() {
+                writeln!(w, "  +{} more", v.len() - taken.len())?;
+            }
+        }
+        let oc = Outcome::of_search(s, shown);
+        writeln!(w)?;
+        outcome_line(&mut w, &[(shown, s.stats.total_hits, "hits")], &oc, MORE)?;
+        writeln!(
+            w,
+            "next: callers {name} | impact {name} | refs {name} --kind call"
+        )?;
+        Ok((w, oc))
+    };
+    finish_fit(w, "refs", fit(o.budget, total_lines, render)?)
 }
 
 pub fn run_callers(c: &Common, o: &Options, name: &str, depth: usize) -> Result<()> {
@@ -743,76 +795,84 @@ pub fn run_callers(c: &Common, o: &Options, name: &str, depth: usize) -> Result<
         outcome_line(&mut w, &[], &oc, MORE)?;
         return finish(w, "callers", &oc);
     }
-    writeln!(
-        w,
-        "callers {}  {} call sites in {} functions · {} files{} · {}{}",
-        r.name,
-        fmt_n(r.total_hits),
-        fmt_n(r.callers.len()),
-        fmt_n(r.files),
-        relaxed_note(&r.rung),
-        r.source,
-        ms(c, r.elapsed_ms)
-    )?;
-    let callers: Vec<&verbs::Caller> = r.callers.iter().take(limit).collect();
-    let mut order: Vec<&[u8]> = Vec::new();
-    for cl in &callers {
-        if !order.contains(&cl.rel.as_slice()) {
-            order.push(&cl.rel);
-        }
-    }
-    for rel in order {
-        let group: Vec<&verbs::Caller> =
-            callers.iter().filter(|cl| cl.rel == rel).copied().collect();
+    let render = |limit: usize| -> Result<(Vec<u8>, Outcome)> {
+        let mut w = Vec::new();
+        let callers: Vec<&verbs::Caller> = r.callers.iter().take(limit).collect();
+        let oc = Outcome {
+            shown: callers.len(),
+            ..oc.clone()
+        };
         writeln!(
             w,
-            "{}{}",
-            path_text(rel),
-            file_flag_suffix(rel, group[0].file_flags)
+            "callers {}  {} call sites in {} functions · {} files{} · {}{}",
+            r.name,
+            fmt_n(r.total_hits),
+            fmt_n(r.callers.len()),
+            fmt_n(r.files),
+            relaxed_note(&r.rung),
+            r.source,
+            ms(c, r.elapsed_ms)
         )?;
-        let lw = group
-            .iter()
-            .map(|cl| digits(cl.def_line))
-            .max()
-            .unwrap_or(1);
-        let kw = group
-            .iter()
-            .map(|cl| cl.chain.last().map(|(k, _)| k.name().len()).unwrap_or(0))
-            .max()
-            .unwrap_or(0);
-        for cl in group {
-            let sym = if cl.chain.is_empty() {
-                "(top level)".to_string()
-            } else {
-                container_of(&cl.chain, false, c.chain)
-            };
-            let kind = cl.chain.last().map(|(k, _)| k.name()).unwrap_or("");
-            let lines: Vec<String> = cl.lines.iter().map(|l| l.to_string()).collect();
-            writeln!(
-                w,
-                "  {:>lw$} {:<kw$}  {} ×{} (lines {})",
-                cl.def_line,
-                kind,
-                sym,
-                cl.count,
-                lines.join(", ")
-            )?;
-            if !cl.called_by.is_empty() {
-                writeln!(
-                    w,
-                    "  {:lw$} {:kw$}  ← called by {}",
-                    "",
-                    "",
-                    cl.called_by.join(", ")
-                )?;
+        let mut order: Vec<&[u8]> = Vec::new();
+        for cl in &callers {
+            if !order.contains(&cl.rel.as_slice()) {
+                order.push(&cl.rel);
             }
         }
-    }
-    if r.callers.len() > limit {
-        writeln!(w, "  +{} more", r.callers.len() - limit)?;
-    }
-    outcome_line(&mut w, &[(oc.shown, oc.total, "callers")], &oc, MORE)?;
-    finish(w, "callers", &oc)
+        for rel in order {
+            let group: Vec<&verbs::Caller> =
+                callers.iter().filter(|cl| cl.rel == rel).copied().collect();
+            writeln!(
+                w,
+                "{}{}",
+                path_text(rel),
+                file_flag_suffix(rel, group[0].file_flags)
+            )?;
+            let lw = group
+                .iter()
+                .map(|cl| digits(cl.def_line))
+                .max()
+                .unwrap_or(1);
+            let kw = group
+                .iter()
+                .map(|cl| cl.chain.last().map(|(k, _)| k.name().len()).unwrap_or(0))
+                .max()
+                .unwrap_or(0);
+            for cl in group {
+                let sym = if cl.chain.is_empty() {
+                    "(top level)".to_string()
+                } else {
+                    container_of(&cl.chain, false, c.chain)
+                };
+                let kind = cl.chain.last().map(|(k, _)| k.name()).unwrap_or("");
+                let lines: Vec<String> = cl.lines.iter().map(|l| l.to_string()).collect();
+                writeln!(
+                    w,
+                    "  {:>lw$} {:<kw$}  {} ×{} (lines {})",
+                    cl.def_line,
+                    kind,
+                    sym,
+                    cl.count,
+                    lines.join(", ")
+                )?;
+                if !cl.called_by.is_empty() {
+                    writeln!(
+                        w,
+                        "  {:lw$} {:kw$}  ← called by {}",
+                        "",
+                        "",
+                        cl.called_by.join(", ")
+                    )?;
+                }
+            }
+        }
+        if r.callers.len() > callers.len() {
+            writeln!(w, "  +{} more", r.callers.len() - callers.len())?;
+        }
+        outcome_line(&mut w, &[(oc.shown, oc.total, "callers")], &oc, MORE)?;
+        Ok((w, oc))
+    };
+    finish_fit(w, "callers", fit(o.budget, limit, render)?)
 }
 
 pub fn run_impls(c: &Common, o: &Options, name: &str) -> Result<()> {
@@ -865,43 +925,56 @@ pub fn run_impls(c: &Common, o: &Options, name: &str) -> Result<()> {
         outcome_line(&mut w, &[], &oc, MORE)?;
         return finish(w, "impls", &oc);
     }
-    writeln!(
-        w,
-        "impls {}  {} implementations{} · {}{}",
-        r.name,
-        r.direct_total,
-        if r.extras.is_empty() {
-            String::new()
-        } else {
-            format!(" + {} low-confidence", r.extras_total)
-        },
-        r.source,
-        ms(c, r.elapsed_ms)
-    )?;
-    let direct: Vec<&DefEntry> = r.direct.iter().take(limit).collect();
-    write_def_groups(&mut w, &direct, true, false, c.chain, None)?;
-    if r.direct_total > direct.len() {
-        writeln!(w, "  +{} more", r.direct_total - direct.len())?;
-    }
-    if !r.extras.is_empty() {
+    // low-confidence extras get half the allowance
+    let render = |limit: usize| -> Result<(Vec<u8>, Outcome)> {
+        let mut w = Vec::new();
+        let direct: Vec<&DefEntry> = r.direct.iter().take(limit).collect();
+        let extras: Vec<&DefEntry> = r
+            .extras
+            .iter()
+            .take(if limit == 0 { 0 } else { limit / 2 + 1 })
+            .collect();
+        let oc = Outcome {
+            shown: direct.len() + extras.len(),
+            ..oc.clone()
+        };
         writeln!(
             w,
-            "low confidence ({} in type position on definition lines)",
-            r.name
+            "impls {}  {} implementations{} · {}{}",
+            r.name,
+            r.direct_total,
+            if r.extras.is_empty() {
+                String::new()
+            } else {
+                format!(" + {} low-confidence", r.extras_total)
+            },
+            r.source,
+            ms(c, r.elapsed_ms)
         )?;
-        let extras: Vec<&DefEntry> = r.extras.iter().take(limit / 2 + 1).collect();
-        write_def_groups(&mut w, &extras, true, false, c.chain, None)?;
-        if r.extras_total > extras.len() {
-            writeln!(w, "  +{} more", r.extras_total - extras.len())?;
+        write_def_groups(&mut w, &direct, true, false, c.chain, None)?;
+        if r.direct_total > direct.len() {
+            writeln!(w, "  +{} more", r.direct_total - direct.len())?;
         }
-    }
-    outcome_line(
-        &mut w,
-        &[(oc.shown, oc.total, "implementations")],
-        &oc,
-        MORE,
-    )?;
-    finish(w, "impls", &oc)
+        if !r.extras.is_empty() {
+            writeln!(
+                w,
+                "low confidence ({} in type position on definition lines)",
+                r.name
+            )?;
+            write_def_groups(&mut w, &extras, true, false, c.chain, None)?;
+            if r.extras_total > extras.len() {
+                writeln!(w, "  +{} more", r.extras_total - extras.len())?;
+            }
+        }
+        outcome_line(
+            &mut w,
+            &[(oc.shown, oc.total, "implementations")],
+            &oc,
+            MORE,
+        )?;
+        Ok((w, oc))
+    };
+    finish_fit(w, "impls", fit(o.budget, limit, render)?)
 }
 
 pub fn run_outline(c: &Common, o: &Options, file: &str, imports: bool) -> Result<()> {
@@ -928,120 +1001,125 @@ pub fn run_outline(c: &Common, o: &Options, file: &str, imports: bool) -> Result
         w.flush()?;
         return Ok(());
     }
-    writeln!(
-        w,
-        "outline {}  {} symbols · {} imports · {} · {}{}",
-        path_text(&r.rel),
-        r.defs.len(),
-        r.imports.len(),
-        r.lang.name(),
-        r.source,
-        ms(c, r.elapsed_ms)
-    )?;
-    if r.parse_errors {
+    let render = |max_lines: usize| -> Result<(Vec<u8>, Outcome)> {
+        let mut w = Vec::new();
         writeln!(
             w,
-            "  (file has parse errors; some definitions may come from the regex fallback)"
+            "outline {}  {} symbols · {} imports · {} · {}{}",
+            path_text(&r.rel),
+            r.defs.len(),
+            r.imports.len(),
+            r.lang.name(),
+            r.source,
+            ms(c, r.elapsed_ms)
         )?;
-    }
-    // a file of declarations only (a Rust `mod.rs` of `mod x;` lines) has
-    // nothing else to show: its imports are the outline
-    if !r.imports.is_empty() && (imports || r.imports.len() <= 3 || r.defs.is_empty()) {
-        let imps: Vec<&str> = r.imports.iter().map(|s| s.as_str()).take(40).collect();
-        writeln!(
-            w,
-            "  imports  {}{}",
-            imps.join(", "),
-            if r.imports.len() > 40 {
-                format!(" +{}", r.imports.len() - 40)
+        if r.parse_errors {
+            writeln!(
+                w,
+                "  (file has parse errors; some definitions may come from the regex fallback)"
+            )?;
+        }
+        // a file of declarations only (a Rust `mod.rs` of `mod x;` lines) has
+        // nothing else to show: its imports are the outline
+        if !r.imports.is_empty() && (imports || r.imports.len() <= 3 || r.defs.is_empty()) {
+            let imps: Vec<&str> = r.imports.iter().map(|s| s.as_str()).take(40).collect();
+            writeln!(
+                w,
+                "  imports  {}{}",
+                imps.join(", "),
+                if r.imports.len() > 40 {
+                    format!(" +{}", r.imports.len() - 40)
+                } else {
+                    String::new()
+                }
+            )?;
+        }
+        // collapse depth when the tree is large
+        let mut max_depth = 8usize;
+        while max_depth > 0
+            && r.defs
+                .iter()
+                .filter(|d| d.chain.len() <= max_depth + 1)
+                .count()
+                > max_lines
+        {
+            max_depth -= 1;
+        }
+        let mut printed = 0usize;
+        let mut hidden_counts: Vec<usize> = vec![0; r.defs.len()];
+        for (i, d) in r.defs.iter().enumerate() {
+            let depth = d.chain.len().saturating_sub(1);
+            if depth > max_depth {
+                // attribute to the nearest visible ancestor
+                let mut j = i;
+                while j > 0 {
+                    j -= 1;
+                    if r.defs[j].chain.len().saturating_sub(1) <= max_depth
+                        && d.start >= r.defs[j].start
+                        && d.end <= r.defs[j].end
+                    {
+                        hidden_counts[j] += 1;
+                        break;
+                    }
+                }
+                continue;
+            }
+            printed += 1;
+        }
+        let mut n = 0usize;
+        for (i, d) in r.defs.iter().enumerate() {
+            let depth = d.chain.len().saturating_sub(1);
+            if depth > max_depth {
+                continue;
+            }
+            n += 1;
+            if n > max_lines {
+                writeln!(w, "  +{} more", printed - max_lines)?;
+                break;
+            }
+            let mut ann: Vec<&str> = Vec::new();
+            if d.flags & SYM_EXPORTED != 0 && depth == 0 && d.kind != DefKind::Impl {
+                ann.push("pub");
+            }
+            if d.flags & SYM_HAS_DOC != 0 {
+                ann.push("doc");
+            }
+            if d.flags & SYM_TEST != 0 {
+                ann.push("test");
+            }
+            let ann = if ann.is_empty() {
+                String::new()
+            } else {
+                format!("  [{}]", ann.join(","))
+            };
+            let more = if hidden_counts[i] > 0 {
+                format!("  (+{} nested)", hidden_counts[i])
             } else {
                 String::new()
-            }
-        )?;
-    }
-    // budget: collapse depth when the tree is large
+            };
+            writeln!(
+                w,
+                "  {}{} {}  :{}{}{}",
+                "  ".repeat(depth),
+                d.kind.name(),
+                d.name,
+                d.line,
+                ann,
+                more
+            )?;
+        }
+        // nested symbols folded into their parent's line count as cut
+        let listed = printed.min(max_lines);
+        let oc = answered_outcome(r.defs.len(), listed, r.source, r.fresh);
+        outcome_line(&mut w, &[(listed, r.defs.len(), "symbols")], &oc, MORE)?;
+        Ok((w, oc))
+    };
     let max_lines = if o.budget == 0 {
         usize::MAX
     } else {
         (o.budget / 12).max(10)
     };
-    let mut max_depth = 8usize;
-    while max_depth > 0
-        && r.defs
-            .iter()
-            .filter(|d| d.chain.len() <= max_depth + 1)
-            .count()
-            > max_lines
-    {
-        max_depth -= 1;
-    }
-    let mut printed = 0usize;
-    let mut hidden_counts: Vec<usize> = vec![0; r.defs.len()];
-    for (i, d) in r.defs.iter().enumerate() {
-        let depth = d.chain.len().saturating_sub(1);
-        if depth > max_depth {
-            // attribute to the nearest visible ancestor
-            let mut j = i;
-            while j > 0 {
-                j -= 1;
-                if r.defs[j].chain.len().saturating_sub(1) <= max_depth
-                    && d.start >= r.defs[j].start
-                    && d.end <= r.defs[j].end
-                {
-                    hidden_counts[j] += 1;
-                    break;
-                }
-            }
-            continue;
-        }
-        printed += 1;
-    }
-    let mut n = 0usize;
-    for (i, d) in r.defs.iter().enumerate() {
-        let depth = d.chain.len().saturating_sub(1);
-        if depth > max_depth {
-            continue;
-        }
-        n += 1;
-        if n > max_lines {
-            writeln!(w, "  +{} more", printed - max_lines)?;
-            break;
-        }
-        let mut ann: Vec<&str> = Vec::new();
-        if d.flags & SYM_EXPORTED != 0 && depth == 0 && d.kind != DefKind::Impl {
-            ann.push("pub");
-        }
-        if d.flags & SYM_HAS_DOC != 0 {
-            ann.push("doc");
-        }
-        if d.flags & SYM_TEST != 0 {
-            ann.push("test");
-        }
-        let ann = if ann.is_empty() {
-            String::new()
-        } else {
-            format!("  [{}]", ann.join(","))
-        };
-        let more = if hidden_counts[i] > 0 {
-            format!("  (+{} nested)", hidden_counts[i])
-        } else {
-            String::new()
-        };
-        writeln!(
-            w,
-            "  {}{} {}  :{}{}{}",
-            "  ".repeat(depth),
-            d.kind.name(),
-            d.name,
-            d.line,
-            ann,
-            more
-        )?;
-    }
-    // nested symbols folded into their parent's line count as cut
-    let listed = printed.min(max_lines);
-    let oc = answered_outcome(r.defs.len(), listed, r.source, r.fresh);
-    outcome_line(&mut w, &[(listed, r.defs.len(), "symbols")], &oc, MORE)?;
+    w.write_all(&fit(o.budget, max_lines, render)?.0)?;
     w.flush()?;
     Ok(())
 }
@@ -1109,99 +1187,105 @@ pub fn run_map(c: &Common, o: &Options, dir: &str) -> Result<()> {
         w.flush()?;
         return Ok(());
     }
-    writeln!(
-        w,
-        "map {}  {} files · {} symbols · {} subdirectories · {}{}",
-        if r.dir.is_empty() { "." } else { &r.dir },
-        fmt_n(r.files_total),
-        fmt_n(r.symbols_total),
-        r.dirs.len(),
-        r.source,
-        ms(c, r.elapsed_ms)
-    )?;
-    if r.graph_changes > 0 {
+    let render = |limit: usize| -> Result<(Vec<u8>, Outcome)> {
+        let mut w = Vec::new();
+        let (dir_limit, file_limit) = (dir_limit.min(limit), file_limit.min(limit));
         writeln!(
             w,
-            "{} added or removed since the graph was built: imports of unchanged files may miss them (`greeg index` rebuilds it)",
-            if r.graph_changes == 1 {
-                "1 Kotlin file".to_string()
-            } else {
-                format!("{} Kotlin files", fmt_n(r.graph_changes as usize))
-            }
+            "map {}  {} files · {} symbols · {} subdirectories · {}{}",
+            if r.dir.is_empty() { "." } else { &r.dir },
+            fmt_n(r.files_total),
+            fmt_n(r.symbols_total),
+            r.dirs.len(),
+            r.source,
+            ms(c, r.elapsed_ms)
         )?;
-    }
-    if !r.dirs.is_empty() {
-        writeln!(w, "\ndirectories (by best file rank)")?;
-        for d in r.dirs.iter().take(dir_limit) {
+        if r.graph_changes > 0 {
             writeln!(
                 w,
-                "  {:<40} {:>5} files {:>7} symbols  rank {:.2}",
-                format!("{}/", path_text(&d.rel)),
-                d.files,
-                fmt_n(d.symbols),
-                d.rank
+                "{} added or removed since the graph was built: imports of unchanged files may miss them (`greeg index` rebuilds it)",
+                if r.graph_changes == 1 {
+                    "1 Kotlin file".to_string()
+                } else {
+                    format!("{} Kotlin files", fmt_n(r.graph_changes as usize))
+                }
             )?;
         }
-        if r.dirs.len() > dir_limit {
-            writeln!(w, "  +{} more", r.dirs.len() - dir_limit)?;
+        if !r.dirs.is_empty() {
+            writeln!(w, "\ndirectories (by best file rank)")?;
+            for d in r.dirs.iter().take(dir_limit) {
+                writeln!(
+                    w,
+                    "  {:<40} {:>5} files {:>7} symbols  rank {:.2}",
+                    format!("{}/", path_text(&d.rel)),
+                    d.files,
+                    fmt_n(d.symbols),
+                    d.rank
+                )?;
+            }
+            if r.dirs.len() > dir_limit {
+                writeln!(w, "  +{} more", r.dirs.len() - dir_limit)?;
+            }
         }
-    }
-    writeln!(w, "\nfiles (by import PageRank)")?;
-    for f in r.files.iter().take(file_limit) {
-        let kinds: Vec<String> = f
-            .by_kind
-            .iter()
-            .map(|(k, n)| format!("{} {}", n, k.name()))
-            .collect();
-        let top: Vec<String> = f
-            .top
-            .iter()
-            .map(|(k, n)| format!("{} {}", k.name(), n))
-            .collect();
-        writeln!(
-            w,
-            "  {}{}  rank {:.2} · ←{} · {}",
-            path_text(&f.rel),
-            file_flag_suffix(&f.rel, f.flags),
-            f.rank,
-            f.imported_by,
-            kinds.join(", ")
-        )?;
-        if !top.is_empty() {
-            writeln!(w, "      {}", top.join(", "))?;
+        writeln!(w, "\nfiles (by import PageRank)")?;
+        for f in r.files.iter().take(file_limit) {
+            let kinds: Vec<String> = f
+                .by_kind
+                .iter()
+                .map(|(k, n)| format!("{} {}", n, k.name()))
+                .collect();
+            let top: Vec<String> = f
+                .top
+                .iter()
+                .map(|(k, n)| format!("{} {}", k.name(), n))
+                .collect();
+            writeln!(
+                w,
+                "  {}{}  rank {:.2} · ←{} · {}",
+                path_text(&f.rel),
+                file_flag_suffix(&f.rel, f.flags),
+                f.rank,
+                f.imported_by,
+                kinds.join(", ")
+            )?;
+            if !top.is_empty() {
+                writeln!(w, "      {}", top.join(", "))?;
+            }
         }
-    }
-    if r.files.len() > file_limit {
-        writeln!(w, "  +{} more", r.files.len() - file_limit)?;
-    }
-    let dirs_shown = r.dirs.len().min(dir_limit);
-    let files_shown = r.files.len().min(file_limit);
-    let oc = answered_outcome(
-        r.dirs.len() + r.files.len(),
-        dirs_shown + files_shown,
-        r.source,
-        r.fresh,
-    );
-    outcome_line(
-        &mut w,
-        &[
-            (dirs_shown, r.dirs.len(), "directories"),
-            (files_shown, r.files.len(), "files"),
-        ],
-        &oc,
-        "raise --budget or narrow the directory",
-    )?;
-    if let Some(d) = r.dirs.first() {
-        writeln!(
-            w,
-            "next: map {} | outline {}",
-            path_text(&d.rel),
-            r.files
-                .first()
-                .map(|f| path_text(&f.rel))
-                .unwrap_or_default()
+        if r.files.len() > file_limit {
+            writeln!(w, "  +{} more", r.files.len() - file_limit)?;
+        }
+        let dirs_shown = r.dirs.len().min(dir_limit);
+        let files_shown = r.files.len().min(file_limit);
+        let oc = answered_outcome(
+            r.dirs.len() + r.files.len(),
+            dirs_shown + files_shown,
+            r.source,
+            r.fresh,
+        );
+        outcome_line(
+            &mut w,
+            &[
+                (dirs_shown, r.dirs.len(), "directories"),
+                (files_shown, r.files.len(), "files"),
+            ],
+            &oc,
+            "raise --budget or narrow the directory",
         )?;
-    }
+        if let Some(d) = r.dirs.first() {
+            writeln!(
+                w,
+                "next: map {} | outline {}",
+                path_text(&d.rel),
+                r.files
+                    .first()
+                    .map(|f| path_text(&f.rel))
+                    .unwrap_or_default()
+            )?;
+        }
+        Ok((w, oc))
+    };
+    w.write_all(&fit(o.budget, dir_limit.max(file_limit), render)?.0)?;
     w.flush()?;
     Ok(())
 }
@@ -1224,14 +1308,6 @@ pub fn run_impact(c: &Common, o: &Options, name: &str) -> Result<()> {
         shown: files_shown + callers_shown,
         ..r.outcome.clone()
     };
-    // likely and possible share one allowance of rows; possible keeps a few
-    let caps = [
-        per_group,
-        per_group
-            .saturating_sub(r.likely.len().min(per_group))
-            .max(3),
-        per_group,
-    ];
     let write_group = |w: &mut dyn Write,
                        title: &str,
                        why: &str,
@@ -1303,92 +1379,111 @@ pub fn run_impact(c: &Common, o: &Options, name: &str) -> Result<()> {
         writeln!(w)?;
         return finish(w, "impact", &oc);
     }
-    let files_shown = groups
-        .iter()
-        .zip(caps)
-        .map(|(g, cap)| g.len().min(cap))
-        .sum();
-    let oc = outcome(files_shown);
     if r.total_hits == 0 {
+        let oc = outcome(0);
         writeln!(w, "impact {}  no references found", r.name)?;
         outcome_line(&mut w, &[], &oc, MORE)?;
         return finish(w, "impact", &oc);
     }
-    writeln!(
-        w,
-        "impact {}  {} hits · {} files · {} definitions{}{}{}",
-        r.name,
-        fmt_n(r.total_hits),
-        files,
-        r.defs.len(),
-        relaxed_note(&r.outcome.rung),
-        if r.import_graph {
-            ""
-        } else {
-            " · no import graph: no file is likely affected"
-        },
-        ms(c, r.elapsed_ms)
-    )?;
-    let defs: Vec<&DefEntry> = r.defs.iter().take(3).collect();
-    write_def_groups(&mut w, &defs, false, false, c.chain, None)?;
     let likely = format!("uses {} and imports a file that defines it", r.name);
     let possible = format!("uses {} without that import link", r.name);
-    write_group(&mut w, "LIKELY AFFECTED", &likely, &r.likely, caps[0])?;
-    write_group(&mut w, "POSSIBLE", &possible, &r.possible, caps[1])?;
-    write_group(
-        &mut w,
-        "REVIEW",
-        "tests, comments, strings, demoted files",
-        &r.review,
-        caps[2],
-    )?;
-    if !r.callers.callers.is_empty() {
+    let render = |per_group: usize| -> Result<(Vec<u8>, Outcome)> {
+        let mut w = Vec::new();
+        // likely and possible share one allowance of rows; possible keeps a few
+        let caps = [
+            per_group,
+            per_group
+                .saturating_sub(r.likely.len().min(per_group))
+                .max(per_group.min(3)),
+            per_group,
+        ];
+        let callers_shown = callers_total.min(per_group);
+        let files_shown: usize = groups
+            .iter()
+            .zip(caps)
+            .map(|(g, cap)| g.len().min(cap))
+            .sum();
+        let oc = Outcome {
+            total: files + callers_total,
+            shown: files_shown + callers_shown,
+            ..r.outcome.clone()
+        };
         writeln!(
             w,
-            "\ncallers by name ({} functions, depth 2)",
-            r.callers.callers.len()
+            "impact {}  {} hits · {} files · {} definitions{}{}{}",
+            r.name,
+            fmt_n(r.total_hits),
+            files,
+            r.defs.len(),
+            relaxed_note(&r.outcome.rung),
+            if r.import_graph {
+                ""
+            } else {
+                " · no import graph: no file is likely affected"
+            },
+            ms(c, r.elapsed_ms)
         )?;
-        let callers: Vec<&verbs::Caller> = r.callers.callers.iter().take(callers_shown).collect();
-        let mut order: Vec<&[u8]> = Vec::new();
-        for cl in &callers {
-            if !order.contains(&cl.rel.as_slice()) {
-                order.push(&cl.rel);
+        let defs: Vec<&DefEntry> = r.defs.iter().take(per_group.min(3)).collect();
+        write_def_groups(&mut w, &defs, false, false, c.chain, None)?;
+        write_group(&mut w, "LIKELY AFFECTED", &likely, &r.likely, caps[0])?;
+        write_group(&mut w, "POSSIBLE", &possible, &r.possible, caps[1])?;
+        write_group(
+            &mut w,
+            "REVIEW",
+            "tests, comments, strings, demoted files",
+            &r.review,
+            caps[2],
+        )?;
+        if !r.callers.callers.is_empty() {
+            writeln!(
+                w,
+                "\ncallers by name ({} functions, depth 2)",
+                r.callers.callers.len()
+            )?;
+            let callers: Vec<&verbs::Caller> =
+                r.callers.callers.iter().take(callers_shown).collect();
+            let mut order: Vec<&[u8]> = Vec::new();
+            for cl in &callers {
+                if !order.contains(&cl.rel.as_slice()) {
+                    order.push(&cl.rel);
+                }
             }
-        }
-        for rel in order {
-            writeln!(w, "{}", path_text(rel))?;
-            for cl in callers.iter().filter(|cl| cl.rel == rel) {
-                let sym = if cl.chain.is_empty() {
-                    "(top level)".to_string()
-                } else {
-                    container_of(&cl.chain, false, c.chain)
-                };
-                writeln!(
-                    w,
-                    "  {}  {} ×{}{}",
-                    cl.def_line,
-                    sym,
-                    cl.count,
-                    if cl.called_by.is_empty() {
-                        String::new()
+            for rel in order {
+                writeln!(w, "{}", path_text(rel))?;
+                for cl in callers.iter().filter(|cl| cl.rel == rel) {
+                    let sym = if cl.chain.is_empty() {
+                        "(top level)".to_string()
                     } else {
-                        format!("  ← {}", cl.called_by.join(", "))
-                    }
-                )?;
+                        container_of(&cl.chain, false, c.chain)
+                    };
+                    writeln!(
+                        w,
+                        "  {}  {} ×{}{}",
+                        cl.def_line,
+                        sym,
+                        cl.count,
+                        if cl.called_by.is_empty() {
+                            String::new()
+                        } else {
+                            format!("  ← {}", cl.called_by.join(", "))
+                        }
+                    )?;
+                }
+            }
+            if callers_total > callers_shown {
+                writeln!(w, "  +{} more", callers_total - callers_shown)?;
             }
         }
-        if callers_total > callers_shown {
-            writeln!(w, "  +{} more", callers_total - callers_shown)?;
-        }
-    }
-    outcome_line(
-        &mut w,
-        &[
-            (files_shown, files, "files"),
-            (callers_shown, callers_total, "callers"),
-        ],
-        &oc,
-        MORE,
-    )?;
-    finish(w, "impact", &oc)
+        outcome_line(
+            &mut w,
+            &[
+                (files_shown, files, "files"),
+                (callers_shown, callers_total, "callers"),
+            ],
+            &oc,
+            MORE,
+        )?;
+        Ok((w, oc))
+    };
+    finish_fit(w, "impact", fit(o.budget, per_group, render)?)
 }
