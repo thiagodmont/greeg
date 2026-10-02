@@ -1944,6 +1944,39 @@ fn impact_grades_files_by_evidence() {
     assert!(!scan.contains("LIKELY AFFECTED"), "{scan}");
 }
 
+/// Case folding finds a module that defines the name, so its importers are
+/// linked with `-i` as they are without it.
+#[test]
+fn impact_folds_case_for_module_definitions() {
+    let f = empty_fixture();
+    w(
+        &f.root.join("src/lib.rs"),
+        "pub mod target;\npub mod user;\n",
+    );
+    w(
+        &f.root.join("src/target.rs"),
+        "pub fn other() -> u32 {\n    1\n}\n",
+    );
+    w(
+        &f.root.join("src/user.rs"),
+        "use crate::target;\npub fn u() -> u32 {\n    target::other()\n}\n",
+    );
+    f.indexed();
+    for args in [&["target"][..], &["-i", "Target"][..]] {
+        let mut a = vec!["impact"];
+        a.extend_from_slice(args);
+        a.extend(["--json=greeg", "--fresh", "stat"]);
+        let d = json_lines(&f.out(&a))[1]["data"].clone();
+        let likely: Vec<&str> = d["likely"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|r| r["path"]["text"].as_str().unwrap())
+            .collect();
+        assert!(likely.contains(&"src/user.rs"), "{args:?} {d}");
+    }
+}
+
 /// A context line never carries a UTF-8 BOM, as a matched line never does.
 #[test]
 fn a_context_line_after_a_bom_holds_only_its_text() {
@@ -1990,7 +2023,7 @@ fn json_lines(out: &str) -> Vec<serde_json::Value> {
 /// terminators, offsets in those coordinates, content as `{"text"}` or
 /// `{"bytes"}`.
 #[test]
-fn json_greeg_search_records_follow_schema_1() {
+fn json_greeg_search_records_follow_schema_2() {
     let f = empty_fixture();
     fs::write(f.root.join("a.txt"), "a needle\nb\r\nneedle needle\n").unwrap();
     fs::write(f.root.join("bad.txt"), b"inv\xffneedle\n").unwrap();

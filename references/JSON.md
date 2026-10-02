@@ -172,8 +172,8 @@ files that use the name in three groups, `import_graph`, and `callers`
   strings.
 
 Each file has `path`, `hits`, `kinds`, `file_flags` and `sample` (`[line,
-Text]`). `import_graph` is false for a scan, which has no import graph:
-`likely` is then empty. Footer: `name`, `files`, `callers_total`,
+Text]`). `import_graph` is false when the answer had no import graph (a scan, or
+an index without symbols): `likely` is then empty. Footer: `name`, `files`, `callers_total`,
 `total_hits`, `elapsed_ms`, `outcome`.
 
 **`show`** records: `path`, `line` (as asked), `symbol` (the enclosing
