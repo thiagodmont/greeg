@@ -1733,6 +1733,56 @@ fn verb_text_fits_its_budget() {
     }
 }
 
+/// A `def` that finds only near names fits their list to the budget too.
+#[test]
+fn def_suggestions_fit_the_budget() {
+    let f = empty_fixture();
+    let mut src = String::new();
+    for i in 0..30u32 {
+        let name: String = "targetname"
+            .chars()
+            .enumerate()
+            .map(|(k, c)| {
+                if i >> k & 1 == 1 {
+                    c.to_ascii_uppercase()
+                } else {
+                    c
+                }
+            })
+            .collect();
+        src.push_str(&format!("pub fn {name}() -> u32 {{\n    {i}\n}}\n"));
+    }
+    w(&f.root.join("src/lib.rs"), &src);
+    f.indexed();
+    let est = |b: &[u8]| greeg_query::tokens::estimate(b);
+    let run = |budget: &str| {
+        f.run(&[
+            "def",
+            "TARGETNAME",
+            "--def-kind",
+            "class",
+            "--budget",
+            budget,
+        ])
+        .stdout
+    };
+    // `--budget 0` turns the ladder off; a large budget keeps every suggestion
+    let all = run("100000");
+    assert!(
+        String::from_utf8_lossy(&all).contains("closest names: "),
+        "{}",
+        String::from_utf8_lossy(&all)
+    );
+    let floor = run("1");
+    assert!(est(&floor) < est(&all));
+    for budget in [20, 40, 60, 80] {
+        let out = run(&budget.to_string());
+        if budget >= est(&floor) {
+            assert!(est(&out) <= budget, "{}", String::from_utf8_lossy(&out));
+        }
+    }
+}
+
 /// The last line of a text answer that states its outcome, before `next:`.
 fn outcome_line(text: &str) -> Option<&str> {
     text.lines()
