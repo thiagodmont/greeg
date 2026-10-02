@@ -15,6 +15,7 @@ them. External tools: git, hyperfine, rg, grep; for the oracle rust-analyzer
 `npx @sourcegraph/scip-python`, and scip-java for Kotlin when installed.
 """
 import argparse, datetime, json, math, os, platform, random, re, shlex, shutil, statistics, subprocess, sys, tempfile, time, tomllib
+import json_records
 
 from reporting import latency_summary, paired_table, report_heading, result_link
 from report_catalog import ReportDataError, ReportDatasets
@@ -151,27 +152,9 @@ def greeg_text_hits(text):
     return out
 
 
-def json_matches(text):
-    """(path, data) of each match record of rg --json or greeg --json=greeg, whose
-    match records follow their file's `begin` instead of naming the path."""
-    path = None
-    for line in text.splitlines():
-        if not line.startswith("{"):
-            continue
-        try:
-            j = json.loads(line)
-        except ValueError:
-            continue
-        d = j.get("data", {})
-        if j.get("type") == "begin":
-            path = d["path"]["text"].removeprefix("./")
-        elif j.get("type") == "match":
-            yield (d["path"]["text"].removeprefix("./") if "path" in d else path), d
-
-
 def json_hits(text):
     """(path, line) set from rg --json or greeg --json=greeg match records."""
-    return {(p, d.get("line_number", d.get("line"))) for p, d in json_matches(text)}
+    return {(path, line) for path, line, _ in json_records.matches(text)}
 
 
 # ───────────────────────────── fetch ─────────────────────────────
@@ -809,7 +792,7 @@ def oracle(args):
             row = {"name": nm, "bucket": bucket, "kind": e["kind"], "defs": len(truth_def), "refs": len(truth_ref)}
             # definitions: greeg def (JSON); rg -nw and grep -rnw first lines (thread order, what an
             # agent sees); rg with the language's definition regex, --sort path (deterministic)
-            gd = [(j["data"]["path"]["text"], j["data"]["line"]) for j in map(json.loads, (l for l in out_of([greeg, "def", nm, "--json=greeg", "--no-session"], cwd).splitlines() if l.startswith("{"))) if j.get("type") == "def"]
+            gd = [(json_records.path_of(j["data"]["path"]), j["data"]["line"]) for j in map(json.loads, (l for l in out_of([greeg, "def", nm, "--json=greeg", "--no-session"], cwd).splitlines() if l.startswith("{"))) if j.get("type") == "def"]
             rgd = [h for h in text_hits(out_of(["rg", "-n", "-w", "-e", nm, "."], cwd)) if h]
             rgdef = [h for h in text_hits(out_of(rg_def_cmd(lang, nm), cwd)) if h]
             grd = [h for h in text_hits(out_of(["grep", "-rnwI", "--exclude-dir=.git", "--exclude-dir=node_modules", "-e", nm, "."], cwd)) if h]
@@ -825,12 +808,12 @@ def oracle(args):
                     continue
                 j = json.loads(l)
                 if j.get("type") in ("ref", "def"):
-                    found.add((j["data"]["path"]["text"], j["data"]["line"]))
+                    found.add((json_records.path_of(j["data"]["path"]), j["data"]["line"]))
             row["ref_recall"] = (len(truth_ref & found) / len(truth_ref)) if truth_ref else None
             row["def_recall"] = (len(truth_def & found) / len(truth_def)) if truth_def else None
             for precise in (False, True):
                 cmd = [greeg, "--json=greeg", "--no-session", "--budget", "0", "--no-ladder", "--max-columns", "0", "-w", "-e", nm, "."] + (["--precise"] if precise else [])
-                hits = [((p, d["line"]), d["kind"], (d.get("symbol") or {}).get("kind")) for p, d in json_matches(out_of(cmd, cwd))]
+                hits = [((p, line), d["kind"], (d.get("symbol") or {}).get("kind")) for p, line, d in json_records.matches(out_of(cmd, cwd))]
                 tp = fp = fn = fp_impl = 0  # def classification
                 code_hit_on_scip = code_hits = noncode_on_scip = noncode_hits = 0
                 for loc, kind, symkind in hits:
