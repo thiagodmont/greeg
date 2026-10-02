@@ -59,6 +59,60 @@ pub(crate) fn finish_run(mut info: crate::stats::RunInfo, o: &Outcome) -> Result
     Ok(())
 }
 
+/// The outcome line that ends a text answer: what the budget cut
+/// (`shown/total unit`), a relaxed match, an index the freshness check
+/// skipped, and how to see the rest. A complete, exact, checked answer has none.
+pub(crate) fn outcome_line(
+    w: &mut impl Write,
+    counts: &[(usize, usize, &str)],
+    o: &Outcome,
+    more: &str,
+) -> Result<()> {
+    let mut terms: Vec<String> = counts
+        .iter()
+        .filter(|(shown, total, _)| shown < total)
+        .map(|(shown, total, unit)| format!("{}/{} {unit}", fmt_n(*shown), fmt_n(*total)))
+        .collect();
+    let cut = !terms.is_empty();
+    if !o.exact() {
+        terms.push(format!("matched {}", o.rung.describe()));
+    }
+    if let Some(note) = unchecked_note(o) {
+        terms.push(note.to_string());
+    }
+    if cut {
+        terms.push(more.to_string());
+    }
+    if !terms.is_empty() {
+        writeln!(w, "{}", terms.join(" · "))?;
+    }
+    Ok(())
+}
+
+/// An index answer under `--fresh none` was not checked against the tree.
+pub(crate) fn unchecked_note(o: &Outcome) -> Option<&'static str> {
+    (o.source != "scan" && o.fresh == "none").then_some("index not checked for changes")
+}
+
+const MORE: &str = "raise --budget";
+
+/// The outcome of `show`, `outline` and `map` text: answered, exact.
+fn answered_outcome(
+    total: usize,
+    shown: usize,
+    source: &'static str,
+    fresh: &'static str,
+) -> Outcome {
+    Outcome {
+        total,
+        shown,
+        rung: greeg_query::Rung::Exact,
+        source,
+        fresh,
+        deferred: 0,
+    }
+}
+
 fn relaxed_note(rung: &greeg_query::Rung) -> String {
     if *rung != greeg_query::Rung::Exact {
         format!(" · matched {}", rung.describe())
@@ -328,6 +382,7 @@ pub fn run_def(
         } else {
             writeln!(w, "next: greeg {name} --kind def | greeg -i {name}")?;
         }
+        outcome_line(&mut w, &[], &oc, MORE)?;
         return finish(w, "def", &oc);
     }
     let rung = relaxed_note(&r.rung);
@@ -377,8 +432,14 @@ pub fn run_def(
         bodies.as_deref(),
     )?;
     if r.total > r.entries.len() {
-        writeln!(w, "  +{} more (raise --budget)", r.total - r.entries.len())?;
+        writeln!(w, "  +{} more", r.total - r.entries.len())?;
     }
+    outcome_line(
+        &mut w,
+        &[(r.entries.len(), r.total, "definitions")],
+        &oc,
+        MORE,
+    )?;
     if let Some(top) = r.entries.first() {
         writeln!(
             w,
@@ -443,6 +504,13 @@ pub fn run_show(c: &Common, o: &Options, locs: &[(String, u32)]) -> Result<()> {
         let lw = digits(it.body.first + it.body.lines.len() as u32);
         write_body(&mut w, &it.body, lw)?;
     }
+    let n = r.items.len();
+    outcome_line(
+        &mut w,
+        &[],
+        &answered_outcome(n, n, r.source, r.fresh),
+        MORE,
+    )?;
     w.flush()?;
     Ok(())
 }
@@ -541,7 +609,9 @@ pub fn run_refs(c: &Common, o: &Options, name: &str) -> Result<()> {
     }
     if s.stats.total_hits == 0 {
         writeln!(w, "refs {name}  no references ({})", s.stats.source)?;
-        return finish(w, "refs", &Outcome::of_search(s, 0));
+        let oc = Outcome::of_search(s, 0);
+        outcome_line(&mut w, &[], &oc, MORE)?;
+        return finish(w, "refs", &oc);
     }
     let rung = relaxed_note(&s.rung);
     writeln!(
@@ -620,13 +690,14 @@ pub fn run_refs(c: &Common, o: &Options, name: &str) -> Result<()> {
             writeln!(w, "  +{} more", v.len() - taken.len())?;
         }
     }
+    let oc = Outcome::of_search(s, shown);
+    writeln!(w)?;
+    outcome_line(&mut w, &[(shown, s.stats.total_hits, "hits")], &oc, MORE)?;
     writeln!(
         w,
-        "\n{}/{} hits · next: callers {name} | impact {name} | refs {name} --kind call",
-        shown,
-        fmt_n(s.stats.total_hits)
+        "next: callers {name} | impact {name} | refs {name} --kind call"
     )?;
-    finish(w, "refs", &Outcome::of_search(s, shown))
+    finish(w, "refs", &oc)
 }
 
 pub fn run_callers(c: &Common, o: &Options, name: &str, depth: usize) -> Result<()> {
@@ -664,6 +735,7 @@ pub fn run_callers(c: &Common, o: &Options, name: &str, depth: usize) -> Result<
     }
     if r.callers.is_empty() {
         writeln!(w, "callers {}  no call sites ({})", r.name, r.source)?;
+        outcome_line(&mut w, &[], &oc, MORE)?;
         return finish(w, "callers", &oc);
     }
     writeln!(
@@ -732,12 +804,9 @@ pub fn run_callers(c: &Common, o: &Options, name: &str, depth: usize) -> Result<
         }
     }
     if r.callers.len() > limit {
-        writeln!(
-            w,
-            "  +{} more callers (raise --budget)",
-            r.callers.len() - limit
-        )?;
+        writeln!(w, "  +{} more", r.callers.len() - limit)?;
     }
+    outcome_line(&mut w, &[(oc.shown, oc.total, "callers")], &oc, MORE)?;
     finish(w, "callers", &oc)
 }
 
@@ -788,6 +857,7 @@ pub fn run_impls(c: &Common, o: &Options, name: &str) -> Result<()> {
     }
     if r.direct.is_empty() && r.extras.is_empty() {
         writeln!(w, "impls {}  none found ({})", r.name, r.source)?;
+        outcome_line(&mut w, &[], &oc, MORE)?;
         return finish(w, "impls", &oc);
     }
     writeln!(
@@ -816,7 +886,16 @@ pub fn run_impls(c: &Common, o: &Options, name: &str) -> Result<()> {
         )?;
         let extras: Vec<&DefEntry> = r.extras.iter().take(limit / 2 + 1).collect();
         write_def_groups(&mut w, &extras, true, false, c.chain, None)?;
+        if r.extras_total > extras.len() {
+            writeln!(w, "  +{} more", r.extras_total - extras.len())?;
+        }
     }
+    outcome_line(
+        &mut w,
+        &[(oc.shown, oc.total, "implementations")],
+        &oc,
+        MORE,
+    )?;
     finish(w, "impls", &oc)
 }
 
@@ -920,11 +999,7 @@ pub fn run_outline(c: &Common, o: &Options, file: &str, imports: bool) -> Result
         }
         n += 1;
         if n > max_lines {
-            writeln!(
-                w,
-                "  +{} more symbols (raise --budget)",
-                printed - max_lines
-            )?;
+            writeln!(w, "  +{} more", printed - max_lines)?;
             break;
         }
         let mut ann: Vec<&str> = Vec::new();
@@ -958,6 +1033,10 @@ pub fn run_outline(c: &Common, o: &Options, file: &str, imports: bool) -> Result
             more
         )?;
     }
+    // nested symbols folded into their parent's line count as cut
+    let listed = printed.min(max_lines);
+    let oc = answered_outcome(r.defs.len(), listed, r.source, r.fresh);
+    outcome_line(&mut w, &[(listed, r.defs.len(), "symbols")], &oc, MORE)?;
     w.flush()?;
     Ok(())
 }
@@ -1059,7 +1138,7 @@ pub fn run_map(c: &Common, o: &Options, dir: &str) -> Result<()> {
             )?;
         }
         if r.dirs.len() > dir_limit {
-            writeln!(w, "  +{} more directories", r.dirs.len() - dir_limit)?;
+            writeln!(w, "  +{} more", r.dirs.len() - dir_limit)?;
         }
     }
     writeln!(w, "\nfiles (by import PageRank)")?;
@@ -1088,12 +1167,25 @@ pub fn run_map(c: &Common, o: &Options, dir: &str) -> Result<()> {
         }
     }
     if r.files.len() > file_limit {
-        writeln!(
-            w,
-            "  +{} more files (raise --budget or narrow the directory)",
-            r.files.len() - file_limit
-        )?;
+        writeln!(w, "  +{} more", r.files.len() - file_limit)?;
     }
+    let dirs_shown = r.dirs.len().min(dir_limit);
+    let files_shown = r.files.len().min(file_limit);
+    let oc = answered_outcome(
+        r.dirs.len() + r.files.len(),
+        dirs_shown + files_shown,
+        r.source,
+        r.fresh,
+    );
+    outcome_line(
+        &mut w,
+        &[
+            (dirs_shown, r.dirs.len(), "directories"),
+            (files_shown, r.files.len(), "files"),
+        ],
+        &oc,
+        "raise --budget or narrow the directory",
+    )?;
     if let Some(d) = r.dirs.first() {
         writeln!(
             w,
@@ -1166,7 +1258,7 @@ pub fn run_impact(c: &Common, o: &Options, name: &str) -> Result<()> {
                 }
             }
             if files.len() > per_group {
-                writeln!(w, "  +{} more files", files.len() - per_group)?;
+                writeln!(w, "  +{} more", files.len() - per_group)?;
             }
             Ok(())
         };
@@ -1194,9 +1286,11 @@ pub fn run_impact(c: &Common, o: &Options, name: &str) -> Result<()> {
         writeln!(w)?;
         return finish(w, "impact", &oc);
     }
-    let oc = outcome(groups.iter().map(|g| g.len().min(per_group)).sum());
+    let files_shown = groups.iter().map(|g| g.len().min(per_group)).sum();
+    let oc = outcome(files_shown);
     if r.total_hits == 0 {
         writeln!(w, "impact {}  no references found", r.name)?;
+        outcome_line(&mut w, &[], &oc, MORE)?;
         return finish(w, "impact", &oc);
     }
     writeln!(
@@ -1265,12 +1359,17 @@ pub fn run_impact(c: &Common, o: &Options, name: &str) -> Result<()> {
             }
         }
         if callers_total > callers_shown {
-            writeln!(
-                w,
-                "  +{} more callers (raise --budget)",
-                callers_total - callers_shown
-            )?;
+            writeln!(w, "  +{} more", callers_total - callers_shown)?;
         }
     }
+    outcome_line(
+        &mut w,
+        &[
+            (files_shown, files, "files"),
+            (callers_shown, callers_total, "callers"),
+        ],
+        &oc,
+        MORE,
+    )?;
     finish(w, "impact", &oc)
 }
