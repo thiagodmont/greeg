@@ -1056,7 +1056,7 @@ fn run() -> Result<()> {
                 cap,
                 verbose,
             } => run_stats(c, which, filter, cap, verbose),
-            Cmd::Budget { level } => budget::run(level.as_deref()),
+            Cmd::Budget { level } => budget::run(level.as_deref(), c.budget_arg),
         };
         if !verb.is_empty() && r.is_ok() {
             stats::record_run(stats::RunInfo {

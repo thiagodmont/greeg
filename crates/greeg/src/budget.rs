@@ -33,10 +33,13 @@ pub fn describe(n: usize) -> String {
 /// The budget a run uses without `--budget`, and where it came from. An
 /// unreadable value is reported once and ignored.
 fn decide() -> (usize, Source) {
-    if let Ok(v) = std::env::var("GREEG_BUDGET") {
-        match parse(&v) {
-            Ok(n) => return (n, Source::Env),
-            Err(e) => eprintln!("greeg: ignoring GREEG_BUDGET: {e}"),
+    if let Some(v) = std::env::var_os("GREEG_BUDGET") {
+        match v.into_string() {
+            Ok(v) => match parse(&v) {
+                Ok(n) => return (n, Source::Env),
+                Err(e) => eprintln!("greeg: ignoring GREEG_BUDGET: {e}"),
+            },
+            Err(_) => eprintln!("greeg: ignoring GREEG_BUDGET: not valid UTF-8"),
         }
     }
     match read_config().budget.as_deref().map(parse) {
@@ -58,8 +61,13 @@ pub fn configured() -> usize {
 const NONE_WARNING: &str = "every search and verb now prints every match: a common word can put hundreds of thousands of tokens into an agent's context. `--budget N` still limits one run.";
 
 /// `greeg budget [LEVEL]`: show the budget, or save one to the config file.
-pub fn run(level: Option<&str>) -> Result<()> {
+/// `flag` is this run's `--budget`, which the answer shows when given.
+pub fn run(level: Option<&str>, flag: Option<usize>) -> Result<()> {
     let Some(level) = level else {
+        if let Some(n) = flag {
+            println!("budget {} · --budget", describe(n));
+            return Ok(());
+        }
         let (n, source) = decide();
         let from = match source {
             Source::Env => "GREEG_BUDGET".to_string(),
@@ -79,6 +87,9 @@ pub fn run(level: Option<&str>) -> Result<()> {
         );
         return Ok(());
     };
+    if flag.is_some() {
+        anyhow::bail!("`greeg budget LEVEL` saves LEVEL; drop --budget");
+    }
     let n = parse(level).map_err(anyhow::Error::msg)?;
     let path = write_config_key("budget", &n.to_string())?;
     println!("budget {} · saved to {}", describe(n), path.display());

@@ -34,11 +34,8 @@ impl Fixture {
 
     fn command(&self, program: &str) -> Command {
         let mut c = Command::new(program);
-        c.env(
-            "GREEG_CONFIG_DIR",
-            std::env::temp_dir().join("greeg-tests-no-config"),
-        )
-        .env_remove("GREEG_BUDGET");
+        c.env("GREEG_CONFIG_DIR", "/dev/null/greeg-config")
+            .env_remove("GREEG_BUDGET");
         c.current_dir(self.0.join("tree"))
             .env("HOME", self.0.join("home"))
             .env("CODEX_HOME", self.0.join("home/.codex"))
