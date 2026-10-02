@@ -14,7 +14,7 @@ class JsonRecordsTests(unittest.TestCase):
     def test_paths_that_are_not_utf8_survive_and_compare_across_dialects(self):
         rg = lines({"type": "begin", "data": {"path": {"bytes": NOT_UTF8}}},
                    {"type": "match", "data": {"path": {"bytes": NOT_UTF8}, "line_number": 3}})
-        greeg = lines({"type": "greeg", "data": {"schema": 1}},
+        greeg = lines({"type": "greeg", "data": {"schema": 2}},
                       {"type": "begin", "data": {"path": {"bytes": NOT_UTF8}}},
                       {"type": "match", "data": {"line": 3}},
                       {"type": "footer", "data": {}})

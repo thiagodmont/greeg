@@ -1529,7 +1529,7 @@ pub fn map(o: &Options, dir: &str) -> Result<MapResult> {
     })
 }
 
-/// `greeg impact NAME`: what would break if NAME changed.
+/// `greeg impact NAME`: the files that use NAME, graded by evidence.
 pub struct ImpactFile {
     /// Root-relative path bytes (`greeg_index::rel`).
     pub rel: Vec<u8>,
@@ -1545,9 +1545,14 @@ pub struct ImpactResult {
     pub outcome: Outcome,
     pub name: String,
     pub defs: Vec<DefEntry>,
-    pub will_break: Vec<ImpactFile>,
-    pub may_break: Vec<ImpactFile>,
+    /// A call, type use or import in a file that imports a definition's file.
+    pub likely: Vec<ImpactFile>,
+    /// Any other use in source.
+    pub possible: Vec<ImpactFile>,
+    /// Tests, demoted files, files without a grammar, comments and strings.
     pub review: Vec<ImpactFile>,
+    /// The index's import graph linked files to definitions; a scan has none.
+    pub import_graph: bool,
     pub callers: CallersResult,
     pub total_hits: usize,
     pub elapsed_ms: f64,
@@ -1558,7 +1563,28 @@ pub fn impact(o: &Options, name: &str) -> Result<ImpactResult> {
     let mut so = o.clone();
     so.budget = 0;
     let r = refs(&so, name, &[])?;
-    let (mut will, mut may, mut review) = (Vec::new(), Vec::new(), Vec::new());
+    // `refs` ran the freshness check
+    let mut io = o.clone();
+    io.fresh = greeg_index::fresh::Mode::None;
+    let graph = if o.use_index && r.scan.stats.source != "scan" {
+        indexed::open_fresh(&io, 1)
+            .ok()
+            .flatten()
+            .filter(|op| op.idx.has_symbols())
+    } else {
+        None
+    };
+    let defined_in = match &graph {
+        Some(op) => definition_files(&op.idx, o, name),
+        None => Default::default(),
+    };
+    // whether a module imports a definition's file, shared by its importers
+    let mut via = std::collections::HashMap::new();
+    let mut linked = |file: Option<u32>| match (&graph, file) {
+        (Some(op), Some(id)) => imports_definition(&op.idx, &defined_in, &mut via, id),
+        _ => false,
+    };
+    let (mut likely, mut possible, mut review) = (Vec::new(), Vec::new(), Vec::new());
     let mut total = 0usize;
     for f in &r.scan.files {
         let mut kinds: BTreeMap<HitKind, usize> = BTreeMap::new();
@@ -1595,10 +1621,10 @@ pub fn impact(o: &Options, name: &str) -> Result<ImpactResult> {
         };
         if is_test || f.flags.demoted() || !f.lang.has_grammar() {
             review.push(entry);
-        } else if strong {
-            will.push(entry);
-        } else if weak {
-            may.push(entry);
+        } else if strong && linked(f.file_id) {
+            likely.push(entry);
+        } else if strong || weak {
+            possible.push(entry);
         } else {
             review.push(entry);
         }
@@ -1611,13 +1637,54 @@ pub fn impact(o: &Options, name: &str) -> Result<ImpactResult> {
         outcome: Outcome::of_search(&r.scan, 0),
         name: name.to_string(),
         defs: r.defs,
-        will_break: will,
-        may_break: may,
+        likely,
+        possible,
         review,
+        import_graph: graph.is_some(),
         callers,
         total_hits: total,
         elapsed_ms: t0.elapsed().as_secs_f64() * 1e3,
     })
+}
+
+/// Every file that defines `name` or is the module named so, with `def`'s
+/// case folding.
+fn definition_files(idx: &Index, o: &Options, name: &str) -> std::collections::HashSet<u32> {
+    let mut names = vec![name.to_string()];
+    if o.case_insensitive || (o.smart_case && !name.chars().any(|c| c.is_uppercase())) {
+        names.extend(case_variant_names(idx, name));
+    }
+    let mut files: std::collections::HashSet<u32> = names
+        .iter()
+        .flat_map(|n| idx.lookup(n))
+        .map(|s| idx.latest(idx.sym_file(s)))
+        .collect();
+    files.extend(
+        idx.module_files(name, usize::MAX)
+            .into_iter()
+            .map(|f| idx.latest(f)),
+    );
+    files
+}
+
+/// `file` is a definition's file, imports one, or imports a module that does
+/// (a re-export).
+fn imports_definition(
+    idx: &Index,
+    defs: &std::collections::HashSet<u32>,
+    via: &mut std::collections::HashMap<u32, bool>,
+    file: u32,
+) -> bool {
+    let file = idx.latest(file);
+    if defs.contains(&file) {
+        return true;
+    }
+    let out = idx.out_edges(file);
+    out.iter().any(|t| defs.contains(t))
+        || out.iter().any(|&mid| {
+            *via.entry(mid)
+                .or_insert_with(|| idx.out_edges(mid).iter().any(|t| defs.contains(t)))
+        })
 }
 
 #[cfg(test)]

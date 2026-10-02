@@ -205,7 +205,7 @@ greeg def JoinHandle                # where it's defined: ranked, with signature
 greeg refs Semaphore                # references grouped by kind (call, type, import, …)
 greeg callers spawn_blocking        # which functions call it (not which lines)
 greeg impls Future                  # implementations and subclasses
-greeg impact get_queryset           # what breaks if I change this: WILL / MAY BREAK / REVIEW
+greeg impact get_queryset           # files using it, by evidence: LIKELY AFFECTED / POSSIBLE / REVIEW
 greeg outline src/sync/oneshot.rs   # the shape of a file
 greeg show src/sync/oneshot.rs:340  # the whole definition enclosing that line
 greeg map tokio/src/sync            # important files and directories, by PageRank

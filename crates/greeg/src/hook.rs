@@ -59,7 +59,7 @@ Symbol questions are cheaper than searches:
     greeg outline FILE          definitions of a file as a tree
     greeg show FILE:LINE        the definition enclosing a line, whole and dedented
     greeg map DIR               important files by import PageRank
-    greeg impact NAME           WILL / MAY BREAK / REVIEW if NAME changes
+    greeg impact NAME           files using NAME: likely affected / possible / review
 
 To read a definition's body, `greeg show FILE:LINE` prints the whole definition around a
 hit and `greeg def NAME --mode block` prints every definition of NAME with its body, both
