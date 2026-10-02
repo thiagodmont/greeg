@@ -668,8 +668,15 @@ outcome line. Inside the answer, a cut group ends with `+N more` where its
 rows stop. `show` states a clipped body inside it (`… N more lines to L`),
 and its outcome line only reports an unchecked index.
 
+A verb's text fits its budget. Each verb has a row allowance (rows,
+lines or body lines); the answer is rendered, its tokens estimated, and the
+largest allowance whose rendering fits is kept. Allowance 0 is the floor:
+header, counts, outcome line and `next:`, written even when the budget is
+smaller. `cli.rs` `verb_text_fits_its_budget` checks it for every verb.
+
 The line counts the rows of the text. These can differ from `--json=greeg`:
-`outline`, `map`, `impls` and `impact` list more rows in JSON, and `refs`
+each format counts the rows it fits; `outline`, `map`, `impls` and `impact`
+list more rows in JSON, and `refs`
 text folds import hits into its `imported by` line, which accounts for all
 of them. `cli.rs` `text_states_its_outcome_as_json_does` checks that both
 formats say the same about exit status, cuts, relaxed matches and freshness.

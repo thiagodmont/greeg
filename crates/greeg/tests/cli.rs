@@ -1682,6 +1682,57 @@ fn outcome_fixture() -> Fixture {
     f
 }
 
+/// Every verb's text fits its budget: `--budget 1` gives the floor (header,
+/// counts, outcome), and any budget at or above the floor's estimated tokens
+/// bounds the answer; below it, the answer is the floor.
+#[test]
+fn verb_text_fits_its_budget() {
+    let f = outcome_fixture();
+    let est = |b: &[u8]| greeg_query::tokens::estimate(b);
+    let queries: [&[&str]; 8] = [
+        &["def", "target"],
+        &["refs", "target"],
+        &["callers", "target"],
+        &["impls", "Shape"],
+        &["impact", "target"],
+        &["outline", "src/lib.rs"],
+        &["show", "src/lib.rs:12", "src/lib.rs:20"],
+        &["map", "src"],
+    ];
+    for backend in [&["--fresh", "stat"][..], &["--no-index"][..]] {
+        for q in queries {
+            if backend == ["--no-index"] && q[0] == "map" {
+                continue;
+            }
+            let run = |budget: usize| {
+                let mut a: Vec<String> = q.iter().map(|s| s.to_string()).collect();
+                a.extend(backend.iter().map(|s| s.to_string()));
+                a.extend(["--budget".to_string(), budget.to_string()]);
+                let a: Vec<&str> = a.iter().map(|s| s.as_str()).collect();
+                f.run(&a).stdout
+            };
+            let floor = run(1);
+            for budget in [20, 40, 60, 80, 120, 160, 240, 320, 480, 640, 1000] {
+                let out = run(budget);
+                if budget < est(&floor) {
+                    assert_eq!(
+                        String::from_utf8_lossy(&out),
+                        String::from_utf8_lossy(&floor),
+                        "{q:?} {backend:?} budget {budget} below the floor"
+                    );
+                } else {
+                    assert!(
+                        est(&out) <= budget,
+                        "{q:?} {backend:?} budget {budget}: ~{} tokens\n{}",
+                        est(&out),
+                        String::from_utf8_lossy(&out)
+                    );
+                }
+            }
+        }
+    }
+}
+
 /// The last line of a text answer that states its outcome, before `next:`.
 fn outcome_line(text: &str) -> Option<&str> {
     text.lines()
@@ -1789,19 +1840,18 @@ fn text_states_its_outcome_as_json_does() {
                 .lines()
                 .any(|l| l.trim_start().starts_with('+') && l.contains(" more"));
             match verb {
-                // JSON is shaped by the budget as text is
-                "search" | "def" | "callers" if shown < total => {
+                // search JSON is shaped by the budget as text is
+                "search" if shown < total => {
                     let l = line.unwrap_or_else(|| panic!("no outcome line: {ctx}"));
                     assert!(l.contains(&format!("{shown}/{total} ")), "{ctx}");
-                    if verb != "search" {
-                        assert!(l.contains("raise --budget"), "{ctx}");
-                    }
                 }
-                // text cuts what JSON lists in full, or lists other rows
-                // (`refs` text folds imports into one line)
-                "outline" | "impls" | "refs" if cut_marker => {
+                // each format counts the rows it fits; `refs` text folds
+                // imports into one line
+                "def" | "callers" | "outline" | "impls" | "refs" if cut_marker => {
                     let l = line.unwrap_or_else(|| panic!("no outcome line: {ctx}"));
                     let unit = match verb {
+                        "def" => "definitions",
+                        "callers" => "callers",
                         "outline" => "symbols",
                         "impls" => "implementations",
                         _ => "hits",
