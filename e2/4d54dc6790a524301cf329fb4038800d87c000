@@ -1,0 +1,52 @@
+README.md
+  s_b1057b2933cdb0::t_3fe9ea466ff3fe 323-325
+references/BENCH.md
+  s_b1057b2933cdb0::t_54399baa1a2422 1582-1628
+crates/greeg/src/main.rs
+  s_b1057b2933cdb0::t_a0f728b049613e 1127,1136,1873-1883,1907,1938-1939,1943-1946,2303,2366
+crates/greeg-query/src/stdin.rs
+  s_b1057b2933cdb0::t_c3dcbc1e05145a 11,56-57,62-64,127,136-137
+crates/greeg-query/src/lib.rs
+  s_b1057b2933cdb0::t_85b3943c5c0563 2446
+  s_b1057b2933cdb0::t_c3dcbc1e05145a 2172
+  s_b1057b2933cdb0::t_39d07681e5bd46 2449-2461
+  s_b1057b2933cdb0::t_23988008848b58 22
+  s_b1057b2933cdb0::t_0d89f9120febeb 394-396,427,472-473,838-854,1688,1691-1693,1695,1862,2092,2275
+  s_b1057b2933cdb0::t_0f3a0be644e212 2447-2448
+references/JSON.md
+  s_b1057b2933cdb0::t_3fe9ea466ff3fe 113,126-127,130-131
+crates/greeg/tests/known_gaps.rs
+  s_b1057b2933cdb0::t_2623cb72be7cab 1841,1856
+bench/results/nul-past-64kib-2026-10-01-darwin-arm64.json
+  s_b1057b2933cdb0::t_54399baa1a2422 1-5695
+crates/greeg-query/src/shape.rs
+  s_b1057b2933cdb0::t_a0f728b049613e 75-76,415,979
+crates/greeg/src/json_native.rs
+  s_b1057b2933cdb0::t_42da812b9910cc 135-136,170-171,181-182,195-198,226,302,311,331
+references/ARCHITECTURE.md
+  s_b1057b2933cdb0::t_3fe9ea466ff3fe 644-646,654-675,708-711
+bench/reports.toml
+  s_b1057b2933cdb0::t_54399baa1a2422 615-622
+crates/greeg/tests/cli.rs
+  s_b1057b2933cdb0::t_318e37c5b64968 1390-1434,1436-1456,1458-1460,1464-1530
+  s_b1057b2933cdb0::t_51d58073b15e34 1435
+  s_b1057b2933cdb0::t_907b4df824021d 1457,1461-1463
+crates/greeg-query/src/indexed.rs
+  s_b1057b2933cdb0::t_c3dcbc1e05145a 20
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "e24d54dc6790a524301cf329fb4038800d87c000",
+  "prompts": {},
+  "sessions": {
+    "s_b1057b2933cdb0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0aa73425-0ec9-4b76-ae94-35b6bdff17bb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
