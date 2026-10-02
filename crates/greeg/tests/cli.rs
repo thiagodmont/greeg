@@ -1554,6 +1554,84 @@ fn a_bom_does_not_count_toward_the_first_64_kib() {
     }
 }
 
+/// `impact` cuts its callers to the budget: the outcome counts them, says the
+/// answer is incomplete, and text says how many were left out, in every
+/// format and both backends.
+#[test]
+fn impact_counts_the_callers_it_leaves_out() {
+    let f = empty_fixture();
+    let mut src = String::from("pub fn target() {}\n");
+    for i in 0..5 {
+        src.push_str(&format!("pub fn caller{i}() {{\n    target();\n}}\n"));
+    }
+    w(&f.root.join("src/lib.rs"), &src);
+    f.indexed();
+    for backend in [&["--no-index"][..], &["--fresh", "stat"][..]] {
+        let run = |extra: &[&str]| {
+            let mut a = vec!["impact", "target", "--budget", "300"];
+            a.extend_from_slice(extra);
+            a.extend_from_slice(backend);
+            f.out(&a)
+        };
+        let native = json_lines(&run(&["--json=greeg"]));
+        assert_eq!(native[1]["data"]["callers"].as_array().unwrap().len(), 3);
+        let footer = &native.last().unwrap()["data"];
+        assert_eq!(footer["files"], 1, "{footer}");
+        assert_eq!(footer["callers_total"], 5, "{footer}");
+        let oc = &footer["outcome"];
+        assert_eq!(
+            (&oc["total"], &oc["shown"], &oc["complete"]),
+            (
+                &serde_json::json!(6),
+                &serde_json::json!(4),
+                &serde_json::json!(false)
+            ),
+            "{backend:?} {oc}"
+        );
+
+        let legacy = json_lines(&run(&["--json=legacy"]));
+        let footer = &legacy.last().unwrap()["data"];
+        assert_eq!(footer["callers_total"], 5, "{footer}");
+        assert_eq!(footer["outcome"]["complete"], false, "{footer}");
+
+        let text = run(&[]);
+        assert!(
+            text.contains("\n  +2 more callers (raise --budget)\n"),
+            "{text}"
+        );
+    }
+}
+
+/// `outline`, `show` and `map` report the freshness check their index
+/// answer ran, as every other verb does.
+#[test]
+fn file_verbs_report_their_freshness_check() {
+    let f = empty_fixture();
+    w(&f.root.join("src/lib.rs"), "pub fn alpha() {\n    1;\n}\n");
+    f.indexed();
+    for args in [
+        &["outline", "src/lib.rs"][..],
+        &["show", "src/lib.rs:2"][..],
+        &["map", "src"][..],
+    ] {
+        let mut a = args.to_vec();
+        a.extend(["--json=greeg", "--fresh", "stat"]);
+        let oc = &json_lines(&f.out(&a)).last().unwrap()["data"]["outcome"].clone();
+        assert_eq!(
+            (&oc["source"], &oc["fresh"]),
+            (&serde_json::json!("index"), &serde_json::json!("stat")),
+            "{args:?} {oc}"
+        );
+    }
+    let mut a = vec!["outline", "src/lib.rs", "--json=greeg", "--no-index"];
+    let oc = &json_lines(&f.out(&a)).last().unwrap()["data"]["outcome"].clone();
+    assert_eq!(oc["fresh"], "", "{oc}");
+    a[0] = "show";
+    a[1] = "src/lib.rs:2";
+    let oc = &json_lines(&f.out(&a)).last().unwrap()["data"]["outcome"].clone();
+    assert_eq!(oc["fresh"], "", "{oc}");
+}
+
 /// A context line never carries a UTF-8 BOM, as a matched line never does.
 #[test]
 fn a_context_line_after_a_bom_holds_only_its_text() {

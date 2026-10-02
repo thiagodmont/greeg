@@ -1111,18 +1111,21 @@ pub fn run_map(c: &Common, o: &Options, dir: &str) -> Result<()> {
 
 pub fn run_impact(c: &Common, o: &Options, name: &str) -> Result<()> {
     let r = answered(o, |o| verbs::impact(o, name))?;
-    // an answer counts referring files
-    let files = r.will_break.len() + r.may_break.len() + r.review.len();
-    let oc = Outcome {
-        total: files,
-        shown: files,
-        ..r.outcome.clone()
-    };
+    let groups = [&r.will_break, &r.may_break, &r.review];
+    let files = groups.iter().map(|g| g.len()).sum::<usize>();
+    let callers_total = r.callers.callers.len();
     let mut w = out();
     let per_group = if o.budget == 0 {
         usize::MAX
     } else {
         (o.budget / 130).clamp(3, 30)
+    };
+    let callers_shown = callers_total.min(per_group);
+    // an answer counts referring files and callers; JSON lists every file
+    let outcome = |files_shown: usize| Outcome {
+        total: files + callers_total,
+        shown: files_shown + callers_shown,
+        ..r.outcome.clone()
     };
     let write_group =
         |w: &mut dyn Write, title: &str, why: &str, files: &[verbs::ImpactFile]| -> Result<()> {
@@ -1168,10 +1171,12 @@ pub fn run_impact(c: &Common, o: &Options, name: &str) -> Result<()> {
             Ok(())
         };
     if c.json_greeg() {
-        crate::json_native::impact(&mut w, &r, per_group, &oc)?;
+        let oc = outcome(files);
+        crate::json_native::impact(&mut w, &r, per_group, files, &oc)?;
         return finish(w, "impact", &oc);
     }
     if c.json() {
+        let oc = outcome(files);
         let grp = |files: &[verbs::ImpactFile]| -> Vec<serde_json::Value> {
             files.iter().map(|f| json!({"path":crate::json_rel(&f.rel),"hits":f.hits,"kinds":f.kinds.iter().map(|(k,n)| json!([k.name(), n])).collect::<Vec<_>>(),"file_flags":f.flags.names(),"sample":f.sample.iter().map(|(l, t)| json!([l, crate::json_rel(t)])).collect::<Vec<_>>()})).collect()
         };
@@ -1184,11 +1189,12 @@ pub fn run_impact(c: &Common, o: &Options, name: &str) -> Result<()> {
         writeln!(w)?;
         serde_json::to_writer(
             &mut w,
-            &json!({"type":"footer","data":{"verb":"impact","name":r.name,"files":files,"total_hits":r.total_hits,"elapsed_ms":r.elapsed_ms,"outcome":outcome_json(&oc)}}),
+            &json!({"type":"footer","data":{"verb":"impact","name":r.name,"files":files,"callers_total":callers_total,"total_hits":r.total_hits,"elapsed_ms":r.elapsed_ms,"outcome":outcome_json(&oc)}}),
         )?;
         writeln!(w)?;
         return finish(w, "impact", &oc);
     }
+    let oc = outcome(groups.iter().map(|g| g.len().min(per_group)).sum());
     if r.total_hits == 0 {
         writeln!(w, "impact {}  no references found", r.name)?;
         return finish(w, "impact", &oc);
@@ -1229,7 +1235,7 @@ pub fn run_impact(c: &Common, o: &Options, name: &str) -> Result<()> {
             "\ncallers ({} functions, depth 2)",
             r.callers.callers.len()
         )?;
-        let callers: Vec<&verbs::Caller> = r.callers.callers.iter().take(per_group).collect();
+        let callers: Vec<&verbs::Caller> = r.callers.callers.iter().take(callers_shown).collect();
         let mut order: Vec<&[u8]> = Vec::new();
         for cl in &callers {
             if !order.contains(&cl.rel.as_slice()) {
@@ -1257,6 +1263,13 @@ pub fn run_impact(c: &Common, o: &Options, name: &str) -> Result<()> {
                     }
                 )?;
             }
+        }
+        if callers_total > callers_shown {
+            writeln!(
+                w,
+                "  +{} more callers (raise --budget)",
+                callers_total - callers_shown
+            )?;
         }
     }
     finish(w, "impact", &oc)

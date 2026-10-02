@@ -1067,6 +1067,8 @@ pub struct OutlineResult {
     pub defs: Vec<DefSummary>,
     pub imports: Vec<String>,
     pub source: &'static str,
+    /// The freshness check an index answer ran; empty when the file was read.
+    pub fresh: &'static str,
     pub lang: Lang,
     pub elapsed_ms: f64,
     pub parse_errors: bool,
@@ -1100,6 +1102,7 @@ pub fn outline(o: &Options, file: &str) -> Result<OutlineResult> {
                 defs,
                 imports,
                 source: "index",
+                fresh: op.fresh_method,
                 lang,
                 elapsed_ms: t0.elapsed().as_secs_f64() * 1e3,
                 parse_errors: FileFlags(rec.flags).has(FileFlags::PARSE_ERRORS),
@@ -1137,6 +1140,7 @@ pub fn outline(o: &Options, file: &str) -> Result<OutlineResult> {
         defs,
         imports,
         source: if ex.tree_sitter { "parse" } else { "regex" },
+        fresh: "",
         lang,
         elapsed_ms: t0.elapsed().as_secs_f64() * 1e3,
         parse_errors: ex.parse_errors,
@@ -1234,6 +1238,8 @@ pub struct ShowItem {
 pub struct ShowResult {
     pub items: Vec<ShowItem>,
     pub source: &'static str,
+    /// The freshness check an index answer ran; empty when the file was read.
+    pub fresh: &'static str,
     pub elapsed_ms: f64,
 }
 
@@ -1242,7 +1248,7 @@ pub struct ShowResult {
 pub fn show(o: &Options, locs: &[(String, u32)]) -> Result<ShowResult> {
     let t0 = Instant::now();
     let mut items = Vec::with_capacity(locs.len());
-    let mut source = "text";
+    let (mut source, mut fresh) = ("text", "");
     let mut est = 0usize;
     for (file, asked) in locs {
         let rel = file.trim_start_matches("./");
@@ -1250,7 +1256,7 @@ pub fn show(o: &Options, locs: &[(String, u32)]) -> Result<ShowResult> {
         let asked = (*asked).clamp(1, src.line_count().max(1));
         let defs = if Lang::from_path(&o.root.join(rel)).has_grammar() {
             let ol = outline(o, rel)?;
-            source = ol.source;
+            (source, fresh) = (ol.source, ol.fresh);
             ol.defs
         } else {
             Vec::new()
@@ -1284,6 +1290,7 @@ pub fn show(o: &Options, locs: &[(String, u32)]) -> Result<ShowResult> {
     Ok(ShowResult {
         items,
         source,
+        fresh,
         elapsed_ms: t0.elapsed().as_secs_f64() * 1e3,
     })
 }
@@ -1320,6 +1327,8 @@ pub struct MapResult {
     pub files: Vec<MapFile>,
     pub elapsed_ms: f64,
     pub source: &'static str,
+    /// The freshness check the index ran.
+    pub fresh: &'static str,
     /// Kotlin files added or removed since the graph was built, whose
     /// importers were not resolved again (`Manifest::graph_changes`).
     pub graph_changes: u32,
@@ -1490,6 +1499,7 @@ pub fn map(o: &Options, dir: &str) -> Result<MapResult> {
         files,
         elapsed_ms: t0.elapsed().as_secs_f64() * 1e3,
         source: "index",
+        fresh: op.fresh_method,
         graph_changes: idx.manifest.graph_changes,
     })
 }
