@@ -1844,6 +1844,106 @@ fn text_states_its_outcome_as_json_does() {
     }
 }
 
+/// `impact` grades each referring file by its evidence: a call, type use or
+/// import is `likely affected` only when the file imports a file defining
+/// the name, directly or through one module. A use without that link, or a
+/// member or bare-name use, is `possible`. A scan has no import graph, so
+/// nothing is likely there, and the answer says so.
+#[test]
+fn impact_grades_files_by_evidence() {
+    let f = empty_fixture();
+    for (path, body) in [
+        (
+            "src/lib.rs",
+            "pub mod defs;\npub mod reexport;\npub mod direct;\npub mod via;\npub mod unlinked;\npub mod member;\n",
+        ),
+        ("src/defs.rs", "pub fn target() -> u32 {\n    1\n}\n"),
+        ("src/reexport.rs", "pub use crate::defs::target;\n"),
+        (
+            "src/direct.rs",
+            "use crate::defs::target;\npub fn a() -> u32 {\n    target()\n}\n",
+        ),
+        (
+            "src/via.rs",
+            "use crate::reexport::target;\npub fn b() -> u32 {\n    target()\n}\n",
+        ),
+        (
+            "src/unlinked.rs",
+            "pub fn c() -> u32 {\n    other::target()\n}\n",
+        ),
+        (
+            "src/member.rs",
+            "pub fn d(x: &crate::X) -> u32 {\n    x.target\n}\n",
+        ),
+        (
+            "tests/t.rs",
+            "#[test]\nfn t() {\n    fixture::defs::target();\n}\n",
+        ),
+    ] {
+        w(&f.root.join(path), body);
+    }
+    f.indexed();
+    let groups = |backend: &[&str]| {
+        let mut a = vec!["impact", "target", "--json=greeg"];
+        a.extend_from_slice(backend);
+        let records = json_lines(&f.out(&a));
+        assert_eq!(records[0]["data"]["schema"], 2);
+        let d = records[1]["data"].clone();
+        let paths = |k: &str| -> Vec<String> {
+            let mut v: Vec<String> = d[k]
+                .as_array()
+                .unwrap_or_else(|| panic!("{k}: {d}"))
+                .iter()
+                .map(|r| r["path"]["text"].as_str().unwrap().to_string())
+                .collect();
+            v.sort();
+            v
+        };
+        (
+            paths("likely"),
+            paths("possible"),
+            paths("review"),
+            d["import_graph"].clone(),
+        )
+    };
+    let (likely, possible, review, graph) = groups(&["--fresh", "stat"]);
+    assert_eq!(
+        (likely, possible, review, graph),
+        (
+            vec![
+                "src/direct.rs".to_string(),
+                "src/reexport.rs".into(),
+                "src/via.rs".into()
+            ],
+            vec!["src/member.rs".to_string(), "src/unlinked.rs".into()],
+            vec!["src/defs.rs".to_string(), "tests/t.rs".into()],
+            serde_json::json!(true)
+        )
+    );
+    let (likely, possible, _, graph) = groups(&["--no-index"]);
+    assert!(likely.is_empty(), "{likely:?}");
+    assert_eq!(possible.len(), 5, "{possible:?}");
+    assert_eq!(graph, false);
+
+    // legacy keeps its field names, holding the new groups
+    let legacy = json_lines(&f.out(&["impact", "target", "--json=legacy", "--fresh", "stat"]));
+    let d = &legacy[0]["data"];
+    assert_eq!(d["will_break"].as_array().unwrap().len(), 3, "{d}");
+    assert_eq!(d["may_break"].as_array().unwrap().len(), 2, "{d}");
+
+    let text = f.out(&["impact", "target", "--fresh", "stat"]);
+    assert!(text.contains("\nLIKELY AFFECTED (3 files"), "{text}");
+    assert!(text.contains("\nPOSSIBLE (2 files"), "{text}");
+    assert!(text.contains("\ncallers by name ("), "{text}");
+    assert!(!text.contains("BREAK"), "{text}");
+    let scan = f.out(&["impact", "target", "--no-index"]);
+    assert!(
+        scan.lines().next().unwrap().contains("no import graph"),
+        "{scan}"
+    );
+    assert!(!scan.contains("LIKELY AFFECTED"), "{scan}");
+}
+
 /// A context line never carries a UTF-8 BOM, as a matched line never does.
 #[test]
 fn a_context_line_after_a_bom_holds_only_its_text() {
@@ -1885,7 +1985,7 @@ fn json_lines(out: &str) -> Vec<serde_json::Value> {
         .collect()
 }
 
-/// `--json=greeg` search records, schema 1: a header, then per file a
+/// `--json=greeg` search records, schema 2: a header, then per file a
 /// `begin` stating encoding and coordinates and its lines without their
 /// terminators, offsets in those coordinates, content as `{"text"}` or
 /// `{"bytes"}`.
@@ -1916,7 +2016,7 @@ fn json_greeg_search_records_follow_schema_1() {
     }
     let got: Vec<String> = records.iter().map(|r| r.to_string()).collect();
     let header = format!(
-        r#"{{"type":"greeg","data":{{"schema":1,"dialect":"greeg","command":"search","version":"{}"}}}}"#,
+        r#"{{"type":"greeg","data":{{"schema":2,"dialect":"greeg","command":"search","version":"{}"}}}}"#,
         env!("CARGO_PKG_VERSION")
     );
     let want = [
@@ -2039,7 +2139,7 @@ fn every_json_greeg_answer_is_typed_and_ends_with_its_outcome() {
                 String::from_utf8_lossy(&o.stderr)
             );
             assert_eq!(records[0]["type"], "greeg", "{at}");
-            assert_eq!(records[0]["data"]["schema"], 1, "{at}");
+            assert_eq!(records[0]["data"]["schema"], 2, "{at}");
             assert_eq!(records[0]["data"]["command"], command, "{at}");
             for r in &records {
                 let m = r.as_object().unwrap();

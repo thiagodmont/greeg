@@ -68,7 +68,7 @@ enum JsonDialect {
     Legacy,
     /// ripgrep's records and semantics only: every match, no budget
     Rg,
-    /// greeg's own records, schema 1: typed, byte-safe, shaped by the budget
+    /// greeg's own records, schema 2: typed, byte-safe, shaped by the budget
     Greeg,
     /// Bare `--json`: `legacy` until it becomes `greeg` in 0.11
     #[value(hide = true)]
@@ -146,7 +146,7 @@ struct Common {
     /// Skip files larger than this many bytes
     #[arg(long = "max-filesize", default_value_t = 4 << 20, global = true)]
     max_filesize: u64,
-    /// JSON Lines output. `--json=greeg`: greeg's own records, schema 1.
+    /// JSON Lines output. `--json=greeg`: greeg's own records, schema 2.
     /// `--json=rg`: exactly ripgrep's records and semantics. `--json=legacy`:
     /// ripgrep's schema plus kind/symbol/facets/footer, shaped by the budget.
     /// Bare `--json` is `legacy`, and becomes `greeg` in 0.11
@@ -261,7 +261,7 @@ struct Common {
     /// (default: per-repo directory under the user cache dir)
     #[arg(long = "index-dir", global = true)]
     index_dir: Option<PathBuf>,
-    /// Re-parse shown files with tree-sitter for exact hit kinds (call/type/member)
+    /// Re-parse shown files with tree-sitter for syntax-level hit kinds (call/type/member); names are not resolved by a compiler
     #[arg(long = "precise", global = true)]
     precise: bool,
     /// Session id for memory (default: the calling agent process; env GREEG_SESSION)
@@ -374,7 +374,7 @@ enum Cmd {
         #[arg(default_value = "")]
         dir: String,
     },
-    /// What breaks if NAME changes: references split into will/may break/review, plus callers
+    /// Files that use NAME, graded by evidence (likely affected, possible, review), plus callers by name
     Impact { name: String },
     /// Index health, freshness mode, language coverage, disk use
     Doctor,

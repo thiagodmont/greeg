@@ -4,7 +4,7 @@ greeg writes JSON Lines in three dialects:
 
 | Flag | Dialect | For |
 |---|---|---|
-| `--json=greeg` | greeg's own records, schema 1 (this page) | agents and tools that read greeg |
+| `--json=greeg` | greeg's own records, schema 2 (this page) | agents and tools that read greeg |
 | `--json=rg` | ripgrep's records, nothing else | tools written for `rg --json` |
 | `--json=legacy` | ripgrep's records plus greeg's fields | consumers of greeg 0.9 and earlier |
 
@@ -37,14 +37,16 @@ From `legacy` to `greeg`:
   footer's `outcome` (`total`, `shown`, `rung`, `source`).
 - `def` and `impl` records are `{"type", "data"}` like the rest, and every
   path is `{"text"}` or `{"bytes"}`.
+- `impact`'s `will_break` and `may_break` are `likely` and `possible`. Legacy
+  keeps its names but fills them with the same groups.
 
-## Schema 1 (`--json=greeg`)
+## Schema 2 (`--json=greeg`)
 
 Every line is one record, `{"type": …, "data": {…}}`. The first record names
 the schema and the command:
 
 ```json
-{"type":"greeg","data":{"schema":1,"dialect":"greeg","command":"search","version":"0.10.0"}}
+{"type":"greeg","data":{"schema":2,"dialect":"greeg","command":"search","version":"0.11.0"}}
 ```
 
 `command` is `search` (also for stdin) or the verb: `def`, `refs`, `callers`,
@@ -56,9 +58,14 @@ answers writes nothing to stdout and exits 2. The exception is `map` while the
 index it needs is rebuilt: its footer then holds only
 `"outcome":{"exit":2,"rebuilding":{"reason":…,"estimate_ms":…}}`.
 
-**Compatibility.** A new record type or field keeps `schema: 1`; consumers
-should ignore what they do not know. Removing or renaming a field or a record
-type, or changing a field's meaning, bumps the schema.
+**Compatibility.** A new record type or field keeps the schema number;
+consumers should ignore what they do not know. Removing or renaming a field
+or a record type, or changing a field's meaning, bumps it.
+
+**From schema 1** (greeg 0.10): only the `impact` record changed. Its
+`will_break` and `may_break` became `likely` and `possible`, graded by import
+evidence rather than syntax alone, and it gained `import_graph`. Every other
+record is as in schema 1.
 
 ### Text
 
@@ -154,10 +161,19 @@ Footer: `name`, `files_total`, `by_kind`, `resolved`, `classified`,
 `lines`, `file_flags`, `called_by`. Footer: `name`, `call_sites`, `files`,
 `elapsed_ms`, `outcome`.
 
-**`impact`**, one record: `name`, `definitions` (`def` records' fields),
-`will_break`, `may_break`, `review` (files: `path`, `hits`, `kinds`,
-`file_flags`, `sample` as `[line, Text]`), `callers` (`caller` records'
-fields; cut to the budget, as `outcome.shown` counts). Footer: `name`, `files`, `callers_total`,
+**`impact`**, one record: `name`, `definitions` (`def` records' fields), the
+files that use the name in three groups, `import_graph`, and `callers`
+(`caller` records' fields, matched by name; cut to the budget, as
+`outcome.shown` counts).
+- `likely`: a call, type use or import, in a source file that is a
+  definition's file, imports one, or imports a module that does;
+- `possible`: any other use in source;
+- `review`: tests, demoted files, files without a grammar, comments and
+  strings.
+
+Each file has `path`, `hits`, `kinds`, `file_flags` and `sample` (`[line,
+Text]`). `import_graph` is false for a scan, which has no import graph:
+`likely` is then empty. Footer: `name`, `files`, `callers_total`,
 `total_hits`, `elapsed_ms`, `outcome`.
 
 **`show`** records: `path`, `line` (as asked), `symbol` (the enclosing

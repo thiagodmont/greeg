@@ -612,9 +612,21 @@ makes a hub file outrank a leaf in every ranked answer.
 The verbs read this directly. `refs` is a word-bounded search grouped by kind.
 `callers` is `refs` filtered to calls and keyed by the *enclosing function*, so
 you get back a list of functions instead of a list of lines. `impls` reads the
-supertype lists. `impact` splits references into WILL BREAK (a call or type in
-non-test source), MAY BREAK (member or bare identifier) and REVIEW (comment,
-string, test).
+supertype lists. `impact` grades each file that uses the name by its
+evidence:
+- LIKELY AFFECTED: a call, type use or import, in a source file that is a
+  definition's file, imports one, or imports a module that does (a
+  re-export);
+- POSSIBLE: any other use in source: a call without that import link, or a
+  member or bare-name use;
+- REVIEW: tests, demoted files, files without a grammar, comments and
+  strings.
+
+The link comes from the index's import graph. It shows the file depends on
+a file that defines the name, not which definition a call binds to: with
+several definitions, a link to any of them counts. A scan has no import
+graph, so nothing is likely affected there, and the header says so. Its
+`callers by name` section matches calls by name.
 
 Cross-file type resolution here is heuristic. It's a set of import-graph rules,
 not a compiler, so where it matters the output carries a confidence, and
@@ -691,7 +703,7 @@ one file can answer differently. Also:
 
 ### JSON output
 
-`--json=greeg` is greeg's own format, schema 1, for searches and verbs,
+`--json=greeg` is greeg's own format, schema 2, for searches and verbs,
 specified in [JSON.md](JSON.md): typed `{type, data}` records after a header,
 paths and content as `{"text"}` or `{"bytes"}`, each file's encoding and
 offset coordinates, and an `outcome` in every footer. It is shaped by the

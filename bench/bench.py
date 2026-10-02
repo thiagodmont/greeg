@@ -710,7 +710,7 @@ def rg_def_cmd(lang, nm):
 
 
 # greeg text lines that summarise rather than locate: neutral in the context metric
-NEUTRAL_RE = re.compile(r"^(?:by (?:kind|area|lang|flag)\b|areas  |langs  |definitions \(|top hits\b|imported by \d|next:|\s*\+\d[\d,]* (?:more|test|vendored|generated|demoted|mock)\b|[\d,]+ of [\d,]+ hits\b|[\d,]+/[\d,]+ \w+\b|index not checked for changes\b|[\d,]+ hits · [\d,]+ files\b|no hits\b|\S.*  [\d,]+ (?:matches|hits) · |see also\b|hint:|matched \w|defined at\b|related  |\w+ \(\d+\)$|\s*\.\.\.$|\S.*  \d+ of \d+ definitions\b|(?:WILL|MAY) BREAK\b|REVIEW\b|refs \S+  |callers \S+  |impact \S+  |def \S+  )")
+NEUTRAL_RE = re.compile(r"^(?:by (?:kind|area|lang|flag)\b|areas  |langs  |definitions \(|top hits\b|imported by \d|next:|\s*\+\d[\d,]* (?:more|test|vendored|generated|demoted|mock)\b|[\d,]+ of [\d,]+ hits\b|[\d,]+/[\d,]+ \w+\b|index not checked for changes\b|[\d,]+ hits · [\d,]+ files\b|no hits\b|\S.*  [\d,]+ (?:matches|hits) · |see also\b|hint:|matched \w|defined at\b|related  |\w+ \(\d+\)$|\s*\.\.\.$|\S.*  \d+ of \d+ definitions\b|(?:WILL|MAY) BREAK\b|LIKELY AFFECTED\b|POSSIBLE\b|REVIEW\b|refs \S+  |callers \S+  |impact \S+  |def \S+  )")
 
 
 def greeg_line_classes(text):

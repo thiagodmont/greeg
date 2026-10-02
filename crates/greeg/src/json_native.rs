@@ -1,4 +1,4 @@
-//! `--json=greeg`: greeg's own JSON Lines, schema 1 (references/JSON.md).
+//! `--json=greeg`: greeg's own JSON Lines, schema 2 (references/JSON.md).
 //! Every record is `{"type":…,"data":{…}}`; the first one names the schema.
 //! Paths and file content are `{"text"}` or `{"bytes"}`, never replaced.
 
@@ -11,7 +11,7 @@ use greeg_query::{FileResult, HitKind, ScanResult};
 use serde::Serialize;
 use std::io::Write;
 
-pub(crate) const SCHEMA: u32 = 1;
+pub(crate) const SCHEMA: u32 = 2;
 
 /// Bytes from a file or a path: the string when UTF-8, otherwise base64.
 #[derive(Serialize)]
@@ -847,9 +847,10 @@ fn impact_files(files: &[verbs::ImpactFile]) -> Vec<ImpactFileRec<'_>> {
 struct Impact<'a> {
     name: &'a str,
     definitions: Vec<Def<'a>>,
-    will_break: Vec<ImpactFileRec<'a>>,
-    may_break: Vec<ImpactFileRec<'a>>,
+    likely: Vec<ImpactFileRec<'a>>,
+    possible: Vec<ImpactFileRec<'a>>,
     review: Vec<ImpactFileRec<'a>>,
+    import_graph: bool,
     callers: Vec<CallerRec<'a>>,
 }
 
@@ -877,9 +878,10 @@ pub(crate) fn impact(
         &Impact {
             name: &r.name,
             definitions: r.defs.iter().map(def).collect(),
-            will_break: impact_files(&r.will_break),
-            may_break: impact_files(&r.may_break),
+            likely: impact_files(&r.likely),
+            possible: impact_files(&r.possible),
             review: impact_files(&r.review),
+            import_graph: r.import_graph,
             callers: r.callers.callers.iter().take(callers).map(caller).collect(),
         },
     )?;

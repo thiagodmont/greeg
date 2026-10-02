@@ -145,7 +145,7 @@ class NativeDialectTests(unittest.TestCase):
 
     def native(self, text, subs=((0, 6),), line=1, status=0):
         return subprocess.CompletedProcess([], status, self.lines(
-            {"type": "greeg", "data": {"schema": 1}},
+            {"type": "greeg", "data": {"schema": 2}},
             {"type": "begin", "data": {"path": {"text": "src/a.rs"}}},
             {"type": "match", "data": {"line": line, "text": text, "submatches": [list(s) for s in subs]}},
             {"type": "footer", "data": {}}), b"")

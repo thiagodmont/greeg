@@ -1208,7 +1208,7 @@ pub fn run_map(c: &Common, o: &Options, dir: &str) -> Result<()> {
 
 pub fn run_impact(c: &Common, o: &Options, name: &str) -> Result<()> {
     let r = answered(o, |o| verbs::impact(o, name))?;
-    let groups = [&r.will_break, &r.may_break, &r.review];
+    let groups = [&r.likely, &r.possible, &r.review];
     let files = groups.iter().map(|g| g.len()).sum::<usize>();
     let callers_total = r.callers.callers.len();
     let mut w = out();
@@ -1224,49 +1224,61 @@ pub fn run_impact(c: &Common, o: &Options, name: &str) -> Result<()> {
         shown: files_shown + callers_shown,
         ..r.outcome.clone()
     };
-    let write_group =
-        |w: &mut dyn Write, title: &str, why: &str, files: &[verbs::ImpactFile]| -> Result<()> {
-            if files.is_empty() {
-                return Ok(());
-            }
-            let hits: usize = files.iter().map(|f| f.hits).sum();
+    // likely and possible share one allowance of rows; possible keeps a few
+    let caps = [
+        per_group,
+        per_group
+            .saturating_sub(r.likely.len().min(per_group))
+            .max(3),
+        per_group,
+    ];
+    let write_group = |w: &mut dyn Write,
+                       title: &str,
+                       why: &str,
+                       files: &[verbs::ImpactFile],
+                       cap: usize|
+     -> Result<()> {
+        if files.is_empty() {
+            return Ok(());
+        }
+        let hits: usize = files.iter().map(|f| f.hits).sum();
+        writeln!(
+            w,
+            "\n{} ({} files, {} hits) — {}",
+            title,
+            files.len(),
+            fmt_n(hits),
+            why
+        )?;
+        for f in files.iter().take(cap) {
+            let kinds: Vec<String> = f
+                .kinds
+                .iter()
+                .map(|(k, n)| format!("{} {}", k.name(), n))
+                .collect();
             writeln!(
                 w,
-                "\n{} ({} files, {} hits) — {}",
-                title,
-                files.len(),
-                fmt_n(hits),
-                why
+                "{}{}  {}",
+                path_text(&f.rel),
+                file_flag_suffix(&f.rel, f.flags),
+                kinds.join(", ")
             )?;
-            for f in files.iter().take(per_group) {
-                let kinds: Vec<String> = f
-                    .kinds
-                    .iter()
-                    .map(|(k, n)| format!("{} {}", k.name(), n))
-                    .collect();
-                writeln!(
-                    w,
-                    "{}{}  {}",
-                    path_text(&f.rel),
-                    file_flag_suffix(&f.rel, f.flags),
-                    kinds.join(", ")
-                )?;
-                let lw = f
-                    .sample
-                    .iter()
-                    .take(2)
-                    .map(|(l, _)| digits(*l))
-                    .max()
-                    .unwrap_or(1);
-                for (l, t) in f.sample.iter().take(2) {
-                    writeln!(w, "  {:>lw$}  {}", l, String::from_utf8_lossy(t).trim())?;
-                }
+            let lw = f
+                .sample
+                .iter()
+                .take(2)
+                .map(|(l, _)| digits(*l))
+                .max()
+                .unwrap_or(1);
+            for (l, t) in f.sample.iter().take(2) {
+                writeln!(w, "  {:>lw$}  {}", l, String::from_utf8_lossy(t).trim())?;
             }
-            if files.len() > per_group {
-                writeln!(w, "  +{} more", files.len() - per_group)?;
-            }
-            Ok(())
-        };
+        }
+        if files.len() > cap {
+            writeln!(w, "  +{} more", files.len() - cap)?;
+        }
+        Ok(())
+    };
     if c.json_greeg() {
         let oc = outcome(files);
         crate::json_native::impact(&mut w, &r, per_group, files, &oc)?;
@@ -1279,7 +1291,7 @@ pub fn run_impact(c: &Common, o: &Options, name: &str) -> Result<()> {
         };
         serde_json::to_writer(
             &mut w,
-            &json!({"type":"impact","data":{"name":r.name,"definitions":r.defs.iter().map(def_json).collect::<Vec<_>>(),"will_break":grp(&r.will_break),"may_break":grp(&r.may_break),"review":grp(&r.review),
+            &json!({"type":"impact","data":{"name":r.name,"definitions":r.defs.iter().map(def_json).collect::<Vec<_>>(),"will_break":grp(&r.likely),"may_break":grp(&r.possible),"review":grp(&r.review),
             "callers":r.callers.callers.iter().take(per_group).map(|cl| json!({"path":crate::json_rel(&cl.rel),"symbol":chain_str(&cl.chain),"count":cl.count,"called_by":cl.called_by})).collect::<Vec<_>>(),
             "total_hits":r.total_hits,"elapsed_ms":r.elapsed_ms}}),
         )?;
@@ -1291,7 +1303,11 @@ pub fn run_impact(c: &Common, o: &Options, name: &str) -> Result<()> {
         writeln!(w)?;
         return finish(w, "impact", &oc);
     }
-    let files_shown = groups.iter().map(|g| g.len().min(per_group)).sum();
+    let files_shown = groups
+        .iter()
+        .zip(caps)
+        .map(|(g, cap)| g.len().min(cap))
+        .sum();
     let oc = outcome(files_shown);
     if r.total_hits == 0 {
         writeln!(w, "impact {}  no references found", r.name)?;
@@ -1300,38 +1316,36 @@ pub fn run_impact(c: &Common, o: &Options, name: &str) -> Result<()> {
     }
     writeln!(
         w,
-        "impact {}  {} hits · {} files · {} definitions{}{}",
+        "impact {}  {} hits · {} files · {} definitions{}{}{}",
         r.name,
         fmt_n(r.total_hits),
         files,
         r.defs.len(),
         relaxed_note(&r.outcome.rung),
+        if r.import_graph {
+            ""
+        } else {
+            " · no import graph (scan): no file is likely affected"
+        },
         ms(c, r.elapsed_ms)
     )?;
     let defs: Vec<&DefEntry> = r.defs.iter().take(3).collect();
     write_def_groups(&mut w, &defs, false, false, c.chain, None)?;
-    write_group(
-        &mut w,
-        "WILL BREAK",
-        "calls, type uses or imports in source",
-        &r.will_break,
-    )?;
-    write_group(
-        &mut w,
-        "MAY BREAK",
-        "member or bare identifier uses",
-        &r.may_break,
-    )?;
+    let likely = format!("uses {} and imports a file that defines it", r.name);
+    let possible = format!("uses {} without that import link", r.name);
+    write_group(&mut w, "LIKELY AFFECTED", &likely, &r.likely, caps[0])?;
+    write_group(&mut w, "POSSIBLE", &possible, &r.possible, caps[1])?;
     write_group(
         &mut w,
         "REVIEW",
         "tests, comments, strings, demoted files",
         &r.review,
+        caps[2],
     )?;
     if !r.callers.callers.is_empty() {
         writeln!(
             w,
-            "\ncallers ({} functions, depth 2)",
+            "\ncallers by name ({} functions, depth 2)",
             r.callers.callers.len()
         )?;
         let callers: Vec<&verbs::Caller> = r.callers.callers.iter().take(callers_shown).collect();
