@@ -296,9 +296,11 @@ never budgeted. A search for the word `budget` needs `greeg -e budget`, as
 for any command name.
 
 Tokens are estimated, not counted: greeg splits text the way OpenAI's
-o200k_base tokenizer does and weights each piece. On search and verb answers
-the estimate is within 8 % of the real count for 95 % of answers; short
-answers with unusual words can be off by up to 24 %.
+o200k_base tokenizer does for ASCII and weights each piece. Measured on 716
+search and verb answers from seven corpora, the estimate is within 8 % of
+the real count for 95 % of them; short answers with unusual words can be off
+by up to 24 %. Non-ASCII characters count as punctuation, so text in scripts
+such as Chinese or Japanese is undercounted.
 
 ## Is it actually helping?
 
