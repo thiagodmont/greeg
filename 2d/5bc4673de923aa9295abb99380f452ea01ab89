@@ -1,0 +1,37 @@
+crates/greeg/src/main.rs
+  s_b1057b2933cdb0::t_a7a1a8ddb33952 1955-1957
+references/ARCHITECTURE.md
+  s_b1057b2933cdb0::t_b081fcb70855d3 646-647,650-659
+  s_b1057b2933cdb0::t_6180aee075e24b 660
+README.md
+  s_b1057b2933cdb0::t_82e5d83068b080 199
+bench/bench.py
+  s_b1057b2933cdb0::t_2c0ad17f334330 713
+crates/greeg/src/verbs_out.rs
+  s_b1057b2933cdb0::t_8fefe756449767 437-442,508-513,893-898
+  s_b1057b2933cdb0::t_19397d2fdb6712 99-115,507,1002,1036-1039,1141,1170,1172-1188,1261,1289-1290,1293,1362,1365-1373
+  s_b1057b2933cdb0::t_802e424eac1e92 385,435,612-614,693-695,698,700,738,807,809,860,889-891
+  s_b1057b2933cdb0::t_3186bcb41845c6 62-98
+crates/greeg/tests/cli.rs
+  s_b1057b2933cdb0::t_1f561513e95959 1600-1601
+  s_b1057b2933cdb0::t_84cacace54a6b8 1635-1727,1729-1754,1756-1761,1764,1771-1807
+  s_b1057b2933cdb0::t_f16d18a8b9cd7a 1728
+  s_b1057b2933cdb0::t_8fefe756449767 1755,1762-1763,1765-1770
+  s_b1057b2933cdb0::t_61b66b733856b1 315-317
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "2d5bc4673de923aa9295abb99380f452ea01ab89",
+  "prompts": {},
+  "sessions": {
+    "s_b1057b2933cdb0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0aa73425-0ec9-4b76-ae94-35b6bdff17bb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
