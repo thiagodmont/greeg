@@ -1,0 +1,18 @@
+{
+  "session_id": "abc123",
+  "prompt_id": "550e8400-e29b-41d4-a716-446655440000",
+  "transcript_path": "/home/user/.claude/projects/p/transcript.jsonl",
+  "cwd": "@CWD@",
+  "scratchpad_dir": "/tmp/claude-1000/p/abc123/scratchpad",
+  "permission_mode": "default",
+  "effort": {"level": "medium"},
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Bash",
+  "tool_use_id": "toolu_01ABC123",
+  "tool_input": {
+    "command": "@COMMAND@",
+    "description": "Search for the needle",
+    "timeout": 120000,
+    "run_in_background": false
+  }
+}

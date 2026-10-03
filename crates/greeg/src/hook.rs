@@ -1043,13 +1043,21 @@ pub fn rewrite_full(cmd: &str) -> Result<Rewrite, String> {
 /// `permissionDecision: allow` (and rejects a reason without a decision);
 /// Claude Code would take that `allow` as skipping the permission prompt, so
 /// it gets the reason and the input only.
-fn hook_reply(agent: Agent, command: &str) -> Value {
+/// The rewrite reply. `updatedInput` is the call's `tool_input` with only
+/// `command` replaced, so its other fields (timeout, background, description)
+/// survive whether the host merges the update or replaces the input.
+fn hook_reply(agent: Agent, tool_input: &Value, command: &str) -> Value {
     let mut specific = json!({"hookEventName": "PreToolUse"});
     if agent == Agent::Codex {
         specific["permissionDecision"] = json!("allow");
     }
     specific["permissionDecisionReason"] = json!("greeg rewrite");
-    specific["updatedInput"] = json!({"command": command});
+    let mut updated = match tool_input {
+        Value::Object(_) => tool_input.clone(),
+        _ => json!({}),
+    };
+    updated["command"] = json!(command);
+    specific["updatedInput"] = updated;
     json!({"hookSpecificOutput": specific})
 }
 
@@ -1089,15 +1097,14 @@ pub fn run(agent: Agent) -> Result<()> {
     if v.get("tool_name").and_then(|t| t.as_str()) != Some("Bash") {
         return Ok(());
     }
-    let Some(cmd) = v
-        .get("tool_input")
-        .and_then(|t| t.get("command"))
-        .and_then(|c| c.as_str())
-    else {
+    let Some(tool_input) = v.get("tool_input") else {
+        return Ok(());
+    };
+    let Some(cmd) = tool_input.get("command").and_then(|c| c.as_str()) else {
         return Ok(());
     };
     if let Ok(rw) = decide(cmd) {
-        let out = hook_reply(agent, &rw.command);
+        let out = hook_reply(agent, tool_input, &rw.command);
         let mut w = std::io::stdout().lock();
         serde_json::to_writer(&mut w, &out)?;
         writeln!(w)?;
@@ -1388,12 +1395,12 @@ mod tests {
 
     #[test]
     fn hook_reply_shapes() {
-        let claude = hook_reply(Agent::Claude, "greeg foo");
+        let claude = hook_reply(Agent::Claude, &json!({"command": "rg foo"}), "greeg foo");
         assert_eq!(
             claude,
             json!({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecisionReason": "greeg rewrite", "updatedInput": {"command": "greeg foo"}}})
         );
-        let codex = hook_reply(Agent::Codex, "greeg foo");
+        let codex = hook_reply(Agent::Codex, &json!({"command": "rg foo"}), "greeg foo");
         assert_eq!(
             codex["hookSpecificOutput"]["permissionDecision"],
             json!("allow")
