@@ -707,9 +707,13 @@ pub fn refs(o: &Options, name: &str, kinds: &[HitKind]) -> Result<RefsResult> {
     d.matching = crate::MatchingPolicy::Exact;
     d.budget = 400;
     d.fresh = greeg_index::fresh::Mode::None;
-    let (defs, defs_total) = def(&d, name, &[], None)
-        .map(|r| (r.entries, r.total))
-        .unwrap_or_default();
+    // a failed lookup must not read as "no definitions": retry it from a scan
+    let found = def(&d, name, &[], None).or_else(|_| {
+        let mut s = d.clone();
+        s.use_index = false;
+        def(&s, name, &[], None)
+    })?;
+    let (defs, defs_total) = (found.entries, found.total);
     let (mut resolved, mut classified) = (0usize, 0usize);
     if let Some(op) = if o.use_index {
         indexed::open_fresh(&d, 1).ok().flatten()
