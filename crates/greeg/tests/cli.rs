@@ -3189,6 +3189,13 @@ fn explain_says_how_a_verb_answer_was_built() {
             assert_eq!(records[n - 2]["type"], "explain", "{q:?} {dialect}");
             let e = &records[n - 2]["data"];
             assert_eq!(e["verb"], verb, "{q:?} {dialect}");
+            let oc = &records[n - 1]["data"]["outcome"];
+            for k in ["total", "shown", "source"] {
+                assert_eq!(e[k], oc[k], "{q:?} {dialect} {k}");
+            }
+            if verb == "def" {
+                assert_eq!(e["considered"]["definitions"], e["total"], "{e}");
+            }
             let without: Vec<u8> = o
                 .stdout
                 .split_inclusive(|&b| b == b'\n')
@@ -3226,6 +3233,20 @@ fn explain_says_how_a_verb_answer_was_built() {
         let err: serde_json::Value = serde_json::from_slice(&capped.stderr).unwrap();
         assert_eq!(err["type"], "explain", "{q:?}");
     }
+    // a body clipped to the budget is reported, though every location is shown
+    let o = with(
+        &["show", "src/lib.rs:12", "src/lib.rs:20"],
+        &["--json=greeg", "--budget", "60", "--explain"],
+    );
+    let e: serde_json::Value = String::from_utf8(o.stdout)
+        .unwrap()
+        .lines()
+        .map(|l| serde_json::from_str::<serde_json::Value>(l).unwrap())
+        .find(|r| r["type"] == "explain")
+        .unwrap();
+    let fit = &e["data"]["fit"];
+    assert_eq!(fit["cut_by"], serde_json::json!(["budget"]), "{e}");
+    assert!(fit["rows"].as_u64() < fit["of"].as_u64(), "{e}");
 }
 
 /// Of `-i`, `-s` and `-S`, and of `-w` and `-x`, the last flag given wins, as

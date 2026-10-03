@@ -126,6 +126,16 @@ impl Cut {
     }
 }
 
+/// A fitted answer, the row allowance it was rendered at out of `max`, and
+/// the limits that cut it (`budget`, `bytes`).
+struct Fitted {
+    text: Vec<u8>,
+    oc: Outcome,
+    rows: usize,
+    max: usize,
+    cut_by: Vec<&'static str>,
+}
+
 /// An answer at a row allowance in `0..=max` whose estimated tokens fit
 /// `o.budget` (0: unlimited) and, under `--max-bytes`, whose bytes fit too.
 /// The search assumes an answer grows with its allowance, so where a completed
@@ -137,7 +147,7 @@ fn fit(
     o: &Options,
     max: usize,
     render: impl Fn(Cut) -> Result<(Vec<u8>, Outcome)>,
-) -> Result<(Vec<u8>, Outcome)> {
+) -> Result<Fitted> {
     // JSON is measured with timings at a fixed width, so a run's clock cannot move the fit
     fn measured(json: bool, b: &[u8]) -> std::borrow::Cow<'_, [u8]> {
         if json {
@@ -150,11 +160,11 @@ fn fit(
         |b: &[u8]| o.budget == 0 || greeg_query::tokens::estimate(&measured(json, b)) <= o.budget;
     let bytes_fit = |b: &[u8]| o.max_bytes == 0 || measured(json, b).len() <= o.max_bytes;
     // the largest allowance in `0..=hi` whose rendering passes, if any
-    type Fitted = (usize, (Vec<u8>, Outcome));
+    type Rendered = (usize, (Vec<u8>, Outcome));
     let largest = |hi: usize,
                    (bytes, budget): (bool, bool),
                    pass: &dyn Fn(&[u8]) -> bool|
-     -> Result<Option<Fitted>> {
+     -> Result<Option<Rendered>> {
         let top = render(Cut {
             rows: hi,
             bytes,
@@ -192,7 +202,15 @@ fn fit(
         ),
     };
     if bytes_fit(&by_budget.0) {
-        return Ok(by_budget);
+        let cut_by = if rows < max { vec!["budget"] } else { vec![] };
+        let (text, oc) = by_budget;
+        return Ok(Fitted {
+            text,
+            oc,
+            rows,
+            max,
+            cut_by,
+        });
     }
     // the ceiling cuts further; below the budget's floor only bytes count
     let both = |b: &[u8]| tokens_fit(b) && bytes_fit(b);
@@ -202,7 +220,17 @@ fn fit(
         None => largest(rows, cut, &bytes_fit)?,
     };
     match found {
-        Some((_, r)) => Ok(r),
+        Some((kept, (text, oc))) => Ok(Fitted {
+            text,
+            oc,
+            rows: kept,
+            max,
+            cut_by: if cut.1 {
+                vec!["budget", "bytes"]
+            } else {
+                vec!["bytes"]
+            },
+        }),
         None => {
             let floor = render(Cut {
                 rows: 0,
@@ -225,10 +253,10 @@ fn finish_fit(
     mut w: impl Write,
     verb: &'static str,
     ex: Option<&crate::explain::VerbExplain>,
-    fitted: (Vec<u8>, Outcome),
+    fitted: Fitted,
 ) -> Result<()> {
-    write_fitted(c, o, &mut w, verb, ex, (fitted.0, fitted.1.clone()))?;
-    finish(w, verb, &fitted.1)
+    write_fitted(c, o, &mut w, verb, ex, &fitted)?;
+    finish(w, verb, &fitted.oc)
 }
 
 /// Write a fitted answer and, when asked, its `explain` record: in JSON
@@ -240,13 +268,15 @@ fn write_fitted(
     w: &mut impl Write,
     verb: &'static str,
     ex: Option<&crate::explain::VerbExplain>,
-    (text, oc): (Vec<u8>, Outcome),
+    f: &Fitted,
 ) -> Result<()> {
+    let text = &f.text;
     let Some(ex) = ex else {
-        w.write_all(&text)?;
+        w.write_all(text)?;
         return Ok(());
     };
-    let record = crate::explain::verb(verb, &oc, ex);
+    let fit = json!({"rows": f.rows, "of": f.max, "cut_by": f.cut_by});
+    let record = crate::explain::verb(verb, &f.oc, ex, fit);
     if c.json() && o.max_bytes == 0 {
         let at = text[..text.len().saturating_sub(1)]
             .iter()
@@ -262,7 +292,7 @@ fn write_fitted(
         raw.flush()?;
         w.write_all(&text[at..])?;
     } else {
-        w.write_all(&text)?;
+        w.write_all(text)?;
         w.flush()?;
         let mut block = Vec::new();
         if c.json() {
@@ -748,7 +778,7 @@ pub fn run_show(c: &Common, o: &Options, locs: &[(String, u32)]) -> Result<()> {
             Ok((w, oc))
         };
         let fitted = fit(c.json(), o, max, render)?;
-        write_fitted(c, o, &mut w, "show", ex.as_ref(), fitted)?;
+        write_fitted(c, o, &mut w, "show", ex.as_ref(), &fitted)?;
         w.flush()?;
         return Ok(());
     }
@@ -783,7 +813,7 @@ pub fn run_show(c: &Common, o: &Options, locs: &[(String, u32)]) -> Result<()> {
         Ok((w, oc))
     };
     let fitted = fit(c.json(), o, max, render)?;
-    write_fitted(c, o, &mut w, "show", ex.as_ref(), fitted)?;
+    write_fitted(c, o, &mut w, "show", ex.as_ref(), &fitted)?;
     w.flush()?;
     Ok(())
 }
@@ -1296,7 +1326,7 @@ pub fn run_outline(c: &Common, o: &Options, file: &str, imports: bool) -> Result
             Ok((w, oc))
         };
         let fitted = fit(c.json(), o, r.defs.len(), render)?;
-        write_fitted(c, o, &mut w, "outline", ex.as_ref(), fitted)?;
+        write_fitted(c, o, &mut w, "outline", ex.as_ref(), &fitted)?;
         w.flush()?;
         return Ok(());
     }
@@ -1425,7 +1455,7 @@ pub fn run_outline(c: &Common, o: &Options, file: &str, imports: bool) -> Result
         (o.budget / 12).max(10)
     };
     let fitted = fit(c.json(), o, max_lines, render)?;
-    write_fitted(c, o, &mut w, "outline", ex.as_ref(), fitted)?;
+    write_fitted(c, o, &mut w, "outline", ex.as_ref(), &fitted)?;
     w.flush()?;
     Ok(())
 }
@@ -1506,7 +1536,7 @@ pub fn run_map(c: &Common, o: &Options, dir: &str) -> Result<()> {
             Ok((w, oc))
         };
         let fitted = fit(c.json(), o, dir_limit.max(file_limit), render)?;
-        write_fitted(c, o, &mut w, "map", ex.as_ref(), fitted)?;
+        write_fitted(c, o, &mut w, "map", ex.as_ref(), &fitted)?;
         w.flush()?;
         return Ok(());
     }
@@ -1610,7 +1640,7 @@ pub fn run_map(c: &Common, o: &Options, dir: &str) -> Result<()> {
         Ok((w, oc))
     };
     let fitted = fit(c.json(), o, dir_limit.max(file_limit), render)?;
-    write_fitted(c, o, &mut w, "map", ex.as_ref(), fitted)?;
+    write_fitted(c, o, &mut w, "map", ex.as_ref(), &fitted)?;
     w.flush()?;
     Ok(())
 }
