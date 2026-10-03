@@ -1,0 +1,62 @@
+crates/greeg/src/explain.rs
+  s_b1057b2933cdb0::t_42415eaf6ba2a7 1-2,6-7,212-240,244-266,268-292,310-345
+crates/greeg/src/verbs_out.rs
+  s_b1057b2933cdb0::t_868f49e4f5285f 618-619,647-648,718-719,780,815,919-920,930-931,1032-1033,1079-1080,1089-1090,1170-1171,1176-1180,1230-1231,1240-1241,1293-1294,1328,1457,1538,1642,1775-1776,1786-1787,1883-1884
+  s_b1057b2933cdb0::t_986d75ae332629 250-255,257,260-270,272,274,276-277,280-294,296-306,567-570,724-727,824-827,1038-1040,1299-1301,1487-1489,1650-1652
+references/JSON.md
+  s_b1057b2933cdb0::t_b3c04fb8647f70 241-249,264-271
+crates/greeg/src/main.rs
+  s_b1057b2933cdb0::t_322394d746fad2 234,1007,1011
+  s_b1057b2933cdb0::t_868f49e4f5285f 1008-1010
+crates/greeg-query/src/verbs.rs
+  s_b1057b2933cdb0::t_584ef7ba2b5868 532-540,554,718,1021,1128,1217
+  s_b1057b2933cdb0::t_f878e5f62355fe 38-39,289-321,342-349,476,483-484,497,519-520
+crates/greeg/tests/cli.rs
+  s_b1057b2933cdb0::t_868f49e4f5285f 3173-3176
+  s_b1057b2933cdb0::t_7c2887694ba571 3131,3140-3172,3177-3191,3199-3234
+  s_b1057b2933cdb0::t_54b33e1ff40195 3235,3250-3251
+bench/results/verb-explain-2026-10-03-darwin-arm64.json
+  s_b1057b2933cdb0::t_41076edf6b4cef 1-5695
+bench/reports.toml
+  s_b1057b2933cdb0::t_41076edf6b4cef 751-758
+references/BENCH.md
+  s_b1057b2933cdb0::t_41076edf6b4cef 2381-2427
+bench/agent/tasks.toml
+  s_b1057b2933cdb0::t_4d2cb447ccb231 1-7
+  s_b1057b2933cdb0::t_e74e44317fc748 14,21,28,35,42,49,56,63,70,77
+bench/agent/analyze.py
+  s_b1057b2933cdb0::t_30ef8b8e15c946 2,9-10,28-56,60,67
+bench/agent/README.md
+  s_b1057b2933cdb0::t_272557aa209a09 1,13-15,17-18,20,23-25,28-45,50-51
+  s_b1057b2933cdb0::t_8f1ac505bdb1fa 58-64,66
+bench/agent/run.py
+  s_b1057b2933cdb0::t_1f6466db1ae638 68
+  s_b1057b2933cdb0::t_23f56b9dc04ebe 1-2,4-10,13-15,18-55,57-67,69-100,104-109,112-142,144-153,156-183
+  s_b1057b2933cdb0::t_231fc496a7f791 110-111
+  s_b1057b2933cdb0::t_30e834ab49be4b 3,11-12,16-17,56,101-103,143,154-155
+bench/test_agent_tasks.py
+  s_b1057b2933cdb0::t_05b51d78c96377 1-30
+bench/test_agent_extract.py
+  s_b1057b2933cdb0::t_9a71572805117c 1-31,37-84
+  s_b1057b2933cdb0::t_3d12b1b443ec8e 32-36
+bench/agent/extract.py
+  s_b1057b2933cdb0::t_3d12b1b443ec8e 45,122,126,187,198
+  s_b1057b2933cdb0::t_30e834ab49be4b 42,207
+  s_b1057b2933cdb0::t_80730ddb2bee32 33-41,84-109,120,130-131,159-162,164,168-169,171-172,174-175,190,194-197,199-206,208-211,221
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "d765e97988ed19d9cdd45248a7b1fd4e13ef99ca",
+  "prompts": {},
+  "sessions": {
+    "s_b1057b2933cdb0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0aa73425-0ec9-4b76-ae94-35b6bdff17bb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
