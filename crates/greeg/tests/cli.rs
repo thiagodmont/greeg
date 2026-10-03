@@ -2978,16 +2978,33 @@ fn capabilities_list_what_the_parser_accepts() {
     for flag in ["--capabilities", "--version"] {
         assert!(search.contains(&flag.into()), "{flag}");
     }
-    // every listed flag and command is in its command's help, global flags in all
-    fn check(path: &mut Vec<String>, entry: &serde_json::Value, global: &[serde_json::Value]) {
+    // every listed flag and command is in its command's help, global flags in
+    // all; every flag the help shows is listed by the command or one above it
+    fn check(path: &mut Vec<String>, entry: &serde_json::Value, above: &[serde_json::Value]) {
         let mut args = path.clone();
         args.push("--help".into());
         let o = greeg().args(&args).output().unwrap();
         let help = String::from_utf8_lossy(&o.stdout);
         assert!(o.status.success(), "{path:?}");
-        for flag in entry["flags"].as_array().unwrap().iter().chain(global) {
+        let mut listed = above.to_vec();
+        listed.extend(entry["flags"].as_array().unwrap().iter().cloned());
+        for flag in &listed {
             let flag = flag.as_str().unwrap();
             assert!(help.contains(flag), "{path:?} lists {flag}:\n{help}");
+        }
+        for line in help.lines() {
+            let opt = line.trim_start();
+            let opt = opt
+                .strip_prefix('-')
+                .filter(|o| o.len() > 2 && o.as_bytes()[1] == b',')
+                .map_or(opt, |o| o[2..].trim_start());
+            if let Some(name) = opt.strip_prefix("--") {
+                let flag = format!("--{}", name.split([' ', '=', '[', '<']).next().unwrap());
+                assert!(
+                    listed.contains(&flag.as_str().into()),
+                    "{path:?} omits {flag}"
+                );
+            }
         }
         if let Some(commands) = entry["commands"].as_object() {
             for (name, sub) in commands {
@@ -2996,17 +3013,20 @@ fn capabilities_list_what_the_parser_accepts() {
                     "{path:?} lists {name}:\n{help}"
                 );
                 path.push(name.clone());
-                check(path, sub, global);
+                check(path, sub, &listed);
                 path.pop();
             }
         }
     }
     check(&mut Vec::new(), &d["search"], global);
-    check(
-        &mut Vec::new(),
-        &serde_json::json!({"flags": [], "commands": d["commands"]}),
-        global,
-    );
+    let help = String::from_utf8(greeg().arg("--help").output().unwrap().stdout).unwrap();
+    for (name, sub) in d["commands"].as_object().unwrap() {
+        assert!(
+            help.contains(&format!("  {name} ")),
+            "lists {name}:\n{help}"
+        );
+        check(&mut vec![name.clone()], sub, global);
+    }
     for extra in [&["foo"][..], &["--budget", "500"], &["-i"]] {
         let refused = greeg().arg("--capabilities").args(extra).output().unwrap();
         assert_eq!(refused.status.code(), Some(2), "{extra:?}");

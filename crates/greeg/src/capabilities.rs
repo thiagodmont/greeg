@@ -31,6 +31,12 @@ fn record() -> Value {
             })
         })
         .collect();
+    let global: Vec<String> = cli
+        .get_arguments()
+        .filter(|a| a.is_global_set() && !a.is_hide_set())
+        .filter_map(|a| a.get_long())
+        .map(|l| format!("--{l}"))
+        .collect();
     json!({
         "type": "capabilities",
         "data": {
@@ -42,14 +48,9 @@ fn record() -> Value {
                 "greeg_schema": json_native::SCHEMA,
                 "bare": "legacy",
             },
-            "global": cli
-                .get_arguments()
-                .filter(|a| a.is_global_set() && !a.is_hide_set())
-                .filter_map(|a| a.get_long())
-                .map(|l| format!("--{l}"))
-                .collect::<Vec<_>>(),
-            "search": arguments(&cli),
-            "commands": subcommands(&cli),
+            "global": global,
+            "search": arguments(&cli, &global),
+            "commands": subcommands(&cli, &global),
             "budget": {
                 "levels": budget::LEVELS.iter().map(|(n, v)| (n.to_string(), json!(v))).collect::<serde_json::Map<_, _>>(),
                 "default": budget,
@@ -78,9 +79,10 @@ fn record() -> Value {
     })
 }
 
-/// A command's arguments: positional names and its own visible long flags
-/// (global ones are listed once, under `global`).
-fn arguments(c: &clap::Command) -> Value {
+/// A command's arguments: positional names and the visible long flags it
+/// declares, leaving out those listed above it (`above`: global ones and its
+/// parents' flags, which clap propagates).
+fn arguments(c: &clap::Command, above: &[String]) -> Value {
     let args: Vec<String> = c
         .get_positionals()
         .filter(|a| !a.is_hide_set())
@@ -88,21 +90,30 @@ fn arguments(c: &clap::Command) -> Value {
         .collect();
     let flags: Vec<String> = c
         .get_arguments()
-        .filter(|a| !a.is_hide_set() && !a.is_global_set())
+        .filter(|a| !a.is_hide_set())
         .filter_map(|a| a.get_long())
         .map(|l| format!("--{l}"))
+        .filter(|f| !above.contains(f))
         .collect();
     json!({ "args": args, "flags": flags })
 }
 
 /// Each subcommand's arguments, and its own subcommands under `commands`.
-fn subcommands(c: &clap::Command) -> Value {
+fn subcommands(c: &clap::Command, above: &[String]) -> Value {
     c.get_subcommands()
         .filter(|s| s.get_name() != "help" && !s.is_hide_set())
         .map(|s| {
-            let mut v = arguments(s);
+            let mut v = arguments(s, above);
             if s.has_subcommands() {
-                v["commands"] = subcommands(s);
+                let mut listed = above.to_vec();
+                listed.extend(
+                    v["flags"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .filter_map(|f| f.as_str().map(String::from)),
+                );
+                v["commands"] = subcommands(s, &listed);
             }
             (s.get_name().to_string(), v)
         })
