@@ -209,3 +209,28 @@ definition or null), `start_line`, `end_line`, `shown_to`, `clipped`, `text`
 `symbols`, `rank`; `file` has `path`, `rank`, `symbols`, `imported_by`,
 `by_kind`, `top` (`[kind, name]`), `file_flags`. Footer: `dir`, `files_total`,
 `symbols_total`, `dirs_total`, `graph_changes`, `elapsed_ms`, `outcome`.
+
+## Capabilities
+
+`greeg --capabilities` prints one record, `{"type":"capabilities","data":…}`,
+so an adapter can check what the binary on PATH supports before it relies on a
+flag. Its `schema` (1) is versioned apart from the answers'. It takes no
+other argument (exit 2), reads no index and records nothing.
+
+| Field | Meaning |
+|---|---|
+| `version`, `index_format` | the build and the index format it reads and writes |
+| `json` | `dialects`, `greeg_schema`, and what bare `--json` means (`bare`) |
+| `global` | long flags every search and command accepts (`--budget`, `--json`, `--max-bytes`, …) |
+| `search` | `args` (positional names) and `flags` (its own long flags) of a search |
+| `commands` | the same for each command, with nested `commands` (`hook claude`, `stats replay`, …); a flag is listed once, by the command that declares it, and its subcommands accept it too (`stats --since`) |
+| `budget` | `levels`, the `default` in effect and its `source` (`env`, `config`, `default`), `max_bytes` |
+| `matching`, `fresh` | matching policies; freshness modes, and whether `fsevents` is native (macOS) or falls back to `stat` |
+| `languages` | `builtin` languages with full syntax support; `extra` runtime languages with `name`, `extensions` and `ready` (grammar and tags query load) |
+| `agents` | `greeg hook` targets |
+
+Commands and flags come from greeg's argument parser, so every one listed
+parses. A run can still refuse a combination, or a flag a command has no use
+for (`--json=rg` with a command, for one). Hidden compatibility flags are left
+out. New
+fields do not change `schema`.

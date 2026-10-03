@@ -369,6 +369,7 @@ coordinates, and an `outcome` in every footer. Bare `--json` is still
 **greeg flags**: `--budget LEVEL|N` (tokens: `low` 1000, `medium` 2000, `high`
 5000, `none` or `0` = unlimited; default 2000 or the level `greeg budget` saved) ·
 `--max-bytes N` (stdout ceiling) ·
+`--capabilities` (what this build supports, one JSON record; [JSON.md](references/JSON.md#capabilities)) ·
 `--mode files|outline|content|block` · `--kind def,call,…` · `--near PATH` ·
 `--no-tests --no-vendored --no-generated --all` · `--per-file N` · `--chain` ·
 `--matching exact|discover` · `--no-ladder` · `--fresh auto|none|stat|fsevents` · `--no-index` ·

@@ -1,6 +1,7 @@
 //! greeg CLI: ripgrep-compatible surface, symbol verbs, shaped output for agents.
 
 mod budget;
+mod capabilities;
 mod doctor;
 mod hook;
 mod hook_config;
@@ -213,6 +214,9 @@ struct Common {
     /// Output token budget: low (1000), medium (2000), high (5000), none (0 = unlimited, rg-shaped `path:line:text` in path order) or a number. Default: `greeg budget`, else 2000
     #[arg(long = "budget", global = true, value_name = "LEVEL|N", value_parser = budget::parse)]
     budget_arg: Option<usize>,
+    /// Print what this build supports (commands, flags, JSON dialects, budget levels, languages) as one JSON record, and exit
+    #[arg(long = "capabilities")]
+    capabilities: bool,
     /// Hard ceiling on stdout bytes for searches and verbs: whole lines and records only, cut noted in the outcome; exit 2 when the smallest answer does not fit
     #[arg(long = "max-bytes", global = true, value_name = "N")]
     max_bytes: Option<usize>,
@@ -929,6 +933,12 @@ fn run() -> Result<()> {
         eprintln!("greeg: args parsed at {:?} µs", stats::since_start_us());
     }
     let c = &cli.common;
+    if c.capabilities {
+        if std::env::args_os().len() != 2 {
+            anyhow::bail!("--capabilities takes no other arguments");
+        }
+        return capabilities::run();
+    }
     if c.no_persist || std::env::var("GREEG_NO_PERSIST").is_ok_and(|v| stats::env_on(&v)) {
         greeg_index::persist::disable();
     }
