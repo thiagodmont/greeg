@@ -239,7 +239,7 @@ fn terms_json(t: &ScoreTerms) -> Value {
 }
 
 /// The `explain` record of a command's answer; `fit` is the row allowance it
-/// was rendered at and the limits that cut it.
+/// was rendered at and the limits that cut it, or null when nothing was cut.
 pub fn verb(verb: &str, o: &Outcome, ex: &VerbExplain, fit: Value) -> Value {
     let ranking: Vec<Value> = ex
         .ranked
