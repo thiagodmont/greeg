@@ -1,0 +1,32 @@
+bench/agent/results/pilot-2026-10-03.json
+  s_b1057b2933cdb0::t_01a3ab006a8965 27,29,60,62,93,126,160,193,226,228,259,292,325,358,391,425,459,461,493,527,560,593,626,628,659,661,692,726,759,792,825,858,891,924,957,991,1024,1057,1059,1090,1123,1156,1189
+bench/test_agent_tasks.py
+  s_b1057b2933cdb0::t_12d48f957823ef 2,4,9-11,15-19,29-31,33-53
+bench/agent/extract.py
+  s_b1057b2933cdb0::t_7f019b7e59b4bf 38-39,42-46,89-91,94,110-113,115,138-139,186,212,217,219,221-222
+bench/agent/tasks.toml
+  s_b1057b2933cdb0::t_18e3b6274142c5 14,35,42
+  s_b1057b2933cdb0::t_f94e03446286ff 4
+bench/agent/README.md
+  s_b1057b2933cdb0::t_f94e03446286ff 13,25,28,32-33,39-42,53,73-76
+bench/agent/run.py
+  s_b1057b2933cdb0::t_c434f6ab39af1a 33-41,87-88,90,92-93,97,101,115,133-138,151,159-160,173-175,206-208
+bench/test_agent_extract.py
+  s_b1057b2933cdb0::t_8243b060f48dab 72-105,115-116
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "cf772c42e7e7048a74dafb7f9fa130d19756ff03",
+  "prompts": {},
+  "sessions": {
+    "s_b1057b2933cdb0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0aa73425-0ec9-4b76-ae94-35b6bdff17bb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
