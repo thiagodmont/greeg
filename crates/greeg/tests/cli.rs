@@ -2970,39 +2970,46 @@ fn capabilities_list_what_the_parser_accepts() {
     );
     assert_eq!(d["budget"]["default"], 2000);
     assert_eq!(d["budget"]["source"], "default");
-    for flag in ["--budget", "--max-bytes", "--json", "--capabilities"] {
-        assert!(
-            d["search"]["flags"]
-                .as_array()
-                .unwrap()
-                .contains(&flag.into()),
-            "{flag}"
-        );
+    let global = d["global"].as_array().unwrap();
+    for flag in ["--budget", "--max-bytes", "--json", "--help"] {
+        assert!(global.contains(&flag.into()), "{flag}");
     }
-    fn check(path: &mut Vec<String>, entry: &serde_json::Value) {
+    let search = d["search"]["flags"].as_array().unwrap();
+    for flag in ["--capabilities", "--version"] {
+        assert!(search.contains(&flag.into()), "{flag}");
+    }
+    // every listed flag and command is in its command's help, global flags in all
+    fn check(path: &mut Vec<String>, entry: &serde_json::Value, global: &[serde_json::Value]) {
         let mut args = path.clone();
         args.push("--help".into());
         let o = greeg().args(&args).output().unwrap();
         let help = String::from_utf8_lossy(&o.stdout);
         assert!(o.status.success(), "{path:?}");
-        for flag in entry["flags"].as_array().unwrap() {
+        for flag in entry["flags"].as_array().unwrap().iter().chain(global) {
             let flag = flag.as_str().unwrap();
             assert!(help.contains(flag), "{path:?} lists {flag}:\n{help}");
         }
         if let Some(commands) = entry["commands"].as_object() {
             for (name, sub) in commands {
+                assert!(
+                    help.contains(&format!("  {name} ")),
+                    "{path:?} lists {name}:\n{help}"
+                );
                 path.push(name.clone());
-                check(path, sub);
+                check(path, sub, global);
                 path.pop();
             }
         }
     }
-    check(&mut Vec::new(), &d["search"]);
+    check(&mut Vec::new(), &d["search"], global);
     check(
         &mut Vec::new(),
         &serde_json::json!({"flags": [], "commands": d["commands"]}),
+        global,
     );
-    let refused = greeg().args(["--capabilities", "foo"]).output().unwrap();
-    assert_eq!(refused.status.code(), Some(2));
-    assert!(refused.stdout.is_empty());
+    for extra in [&["foo"][..], &["--budget", "500"], &["-i"]] {
+        let refused = greeg().arg("--capabilities").args(extra).output().unwrap();
+        assert_eq!(refused.status.code(), Some(2), "{extra:?}");
+        assert!(refused.stdout.is_empty(), "{extra:?}");
+    }
 }
