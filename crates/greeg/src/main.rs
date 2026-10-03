@@ -934,8 +934,8 @@ fn run() -> Result<()> {
     }
     let c = &cli.common;
     if c.capabilities {
-        if cli.cmd.is_some() || cli.pattern.is_some() || !cli.regexp.is_empty() {
-            anyhow::bail!("--capabilities takes no pattern or command");
+        if std::env::args_os().len() != 2 {
+            anyhow::bail!("--capabilities takes no other arguments");
         }
         return capabilities::run();
     }
