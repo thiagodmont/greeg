@@ -3033,3 +3033,81 @@ fn capabilities_list_what_the_parser_accepts() {
         assert!(refused.stdout.is_empty(), "{extra:?}");
     }
 }
+
+/// `--explain` adds what a search was built from and changes nothing else:
+/// its ranking terms multiply to each hit's score, and its counts are the
+/// footer's.
+#[test]
+fn explain_says_what_a_search_was_built_from() {
+    let f = outcome_fixture();
+    for dialect in ["--json=greeg", "--json=legacy"] {
+        for backend in [&["--fresh", "stat"][..], &["--no-index"][..]] {
+            let mut args = vec!["target", dialect];
+            args.extend_from_slice(backend);
+            let plain = f.run(&args);
+            args.push("--explain");
+            let o = f.run(&args);
+            assert_eq!(o.status.code(), plain.status.code());
+            let records: Vec<serde_json::Value> = String::from_utf8(o.stdout.clone())
+                .unwrap()
+                .lines()
+                .map(|l| serde_json::from_str(l).unwrap())
+                .collect();
+            let n = records.len();
+            assert_eq!(records[n - 2]["type"], "explain", "{args:?}");
+            let without: Vec<u8> = o
+                .stdout
+                .split_inclusive(|&b| b == b'\n')
+                .filter(|l| !l.starts_with(br#"{"type":"explain""#))
+                .flatten()
+                .copied()
+                .collect();
+            assert_eq!(
+                stable_records(&without),
+                stable_records(&plain.stdout),
+                "{args:?}"
+            );
+            let e = &records[n - 2]["data"];
+            let oc = &records[n - 1]["data"]["outcome"];
+            assert_eq!(e["source"], oc["source"], "{args:?}");
+            assert_eq!(e["candidates"]["hits"], oc["total"], "{args:?}");
+            if backend == ["--no-index"] {
+                assert_eq!(e["index_skipped"], "not used");
+                assert!(e["plan"].is_null() && e["fresh"].is_null());
+            } else {
+                assert!(e["index_skipped"].is_null());
+                assert_eq!(e["fresh"]["method"], "stat");
+            }
+            let hits = e["ranking"]["hits"].as_array().unwrap();
+            assert!(!hits.is_empty() && hits.len() <= 10);
+            for h in hits {
+                let product: f64 = ["kind_weight", "exact_boost", "prior"]
+                    .iter()
+                    .map(|k| h[*k].as_f64().unwrap())
+                    .product();
+                let score = h["score"].as_f64().unwrap();
+                assert!((product - score).abs() < 0.01, "{h}");
+            }
+        }
+    }
+    // a byte ceiling holds: the record goes to stderr
+    let capped = f.run(&["target", "--json=greeg", "--max-bytes", "4000", "--explain"]);
+    assert!(capped.stdout.len() <= 4000);
+    assert!(!String::from_utf8_lossy(&capped.stdout).contains(r#""type":"explain""#));
+    let err: serde_json::Value = serde_json::from_slice(&capped.stderr).unwrap();
+    assert_eq!(err["type"], "explain");
+    let text = f.run(&["target", "--fresh", "stat"]);
+    let explained = f.run(&["target", "--fresh", "stat", "--explain"]);
+    assert_eq!(text.stdout, explained.stdout);
+    let err = String::from_utf8_lossy(&explained.stderr);
+    assert!(err.contains("explain: source index"), "{err}");
+    assert!(err.contains("explain: score = kind weight"), "{err}");
+    for refused in [
+        &["def", "target", "--explain"][..],
+        &["target", "--json=rg", "--explain"],
+    ] {
+        let o = f.run(refused);
+        assert_eq!(o.status.code(), Some(2), "{refused:?}");
+        assert!(o.stdout.is_empty());
+    }
+}
