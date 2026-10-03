@@ -16,7 +16,9 @@ pub fn run() -> anyhow::Result<()> {
 }
 
 fn record() -> Value {
-    let cli = Cli::command();
+    let mut cli = Cli::command();
+    // building adds the flags the parser makes itself (`--version`)
+    cli.build();
     let (budget, source) = budget::in_effect();
     let extra: Vec<Value> = greeg_lang::extra::registry()
         .iter()
@@ -40,6 +42,12 @@ fn record() -> Value {
                 "greeg_schema": json_native::SCHEMA,
                 "bare": "legacy",
             },
+            "global": cli
+                .get_arguments()
+                .filter(|a| a.is_global_set() && !a.is_hide_set())
+                .filter_map(|a| a.get_long())
+                .map(|l| format!("--{l}"))
+                .collect::<Vec<_>>(),
             "search": arguments(&cli),
             "commands": subcommands(&cli),
             "budget": {
@@ -70,7 +78,8 @@ fn record() -> Value {
     })
 }
 
-/// A command's arguments: positional names and visible long flags.
+/// A command's arguments: positional names and its own visible long flags
+/// (global ones are listed once, under `global`).
 fn arguments(c: &clap::Command) -> Value {
     let args: Vec<String> = c
         .get_positionals()
@@ -79,7 +88,7 @@ fn arguments(c: &clap::Command) -> Value {
         .collect();
     let flags: Vec<String> = c
         .get_arguments()
-        .filter(|a| !a.is_hide_set())
+        .filter(|a| !a.is_hide_set() && !a.is_global_set())
         .filter_map(|a| a.get_long())
         .map(|l| format!("--{l}"))
         .collect();
