@@ -30,16 +30,24 @@ jobs:
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
       - run: cargo build --release --locked -p greeg
-      - name: ripgrep (the differential test compares against it)
+      - name: ripgrep 15.2.0 (the differential test compares against it)
         shell: bash
         run: |
-          if command -v apt-get >/dev/null; then
-            sudo apt-get update -qq
-            sudo apt-get install -y -qq ripgrep
-          else
-            brew install ripgrep
-          fi
-          rg --version | head -1
+          case "$(uname -s)-$(uname -m)" in
+            Linux-x86_64) t=x86_64-unknown-linux-musl; sum=33e15bcf1624b25cdd2a55813a47a2f95dbe126268203e76aa6a585d1e7b149c ;;
+            Linux-aarch64) t=aarch64-unknown-linux-gnu; sum=a740b91c82eaf9914cfedd353572f2791cbe0162c84101ee0951058f4dcbc90d ;;
+            Darwin-arm64) t=aarch64-apple-darwin; sum=3750b2e93f37e0c692657da574d7019a101c0084da05a790c83fd335bad973e4 ;;
+            Darwin-x86_64) t=x86_64-apple-darwin; sum=af7825fcc69a2afc7a7aea55fc9af90e26421d8f20fe59df32e233c0b8a231c1 ;;
+            *) echo "no pinned ripgrep for $(uname -sm)"; exit 1 ;;
+          esac
+          f=ripgrep-15.2.0-$t.tar.gz
+          curl -fsSLO "https://github.com/BurntSushi/ripgrep/releases/download/15.2.0/$f"
+          echo "$sum  $f" | shasum -a 256 -c -
+          tar xzf "$f"
+          mkdir -p "$HOME/.local/bin"
+          mv "ripgrep-15.2.0-$t/rg" "$HOME/.local/bin/rg"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/rg" --version | head -1 | grep -qx "ripgrep 15.2.0"
       - run: cargo test --workspace --locked
         env:
           GREEG_TEST_RG: "1"
