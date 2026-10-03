@@ -899,6 +899,7 @@ pub(crate) fn classify_from_index(
                         idx: first.idx + d,
                     },
                 )
+                .into_boxed_slice()
             })
             .unwrap_or_default();
         h.score = kind.weight() * f.prior * crate::exact_boost(kind, h.exact);
