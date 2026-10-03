@@ -248,7 +248,7 @@ refuse it (exit 2).
 | Field | Meaning |
 |---|---|
 | `source` | as the outcome's |
-| `index_skipped` | why the index did not answer, or null: `not used` (`--no-index`), `ignored or hidden files asked for`, a rebuild reason (`no-index`, `derivation`, `threshold`, `corrupt`, …), `an unindexed file named`, `files the index skipped`, `error`, … |
+| `index_skipped` | why the index did not answer, or null: `not used` (`--no-index`), `ignored or hidden files asked for`, a rebuild reason (`no-index`, `derivation`, `threshold`, `corrupt`, …), `an unindexed file named src/x.rs` (or directory), `a path outside the index root or not resolvable: PATH`, `files the index skipped`, `error`, … |
 | `fresh` | index answers: `method`, `ms`, `changed`, `deferred` |
 | `plan` | index answers: the candidate plan (words and trigram hashes) |
 | `rung` | the rung that matched |

@@ -493,8 +493,9 @@ pub struct Stats {
     /// Changed files answered from disk this query; the delta follows the answer.
     pub fresh_deferred: usize,
     pub plan: String,
-    /// Why the index did not answer (empty when it did, or was not asked).
-    pub index_skipped: &'static str,
+    /// Why the index did not answer: empty when it did, `not used` under
+    /// `--no-index`.
+    pub index_skipped: String,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -2127,10 +2128,10 @@ fn scan_once(o: &Options, bounds: &ScanBounds) -> Result<ScanResult> {
         classify,
         filter_kinds: true,
     };
-    let index_skipped = if !o.use_index {
-        "not used"
+    let index_skipped: String = if !o.use_index {
+        "not used".into()
     } else if o.no_ignore || o.hidden {
-        "ignored or hidden files asked for"
+        "ignored or hidden files asked for".into()
     } else {
         // A panic anywhere in the index path degrades to scan mode:
         // the answer is still correct, one line goes to stderr, and the index is rebuilt.
@@ -2143,14 +2144,14 @@ fn scan_once(o: &Options, bounds: &ScanBounds) -> Result<ScanResult> {
                 if std::env::var_os("GREEG_DEBUG").is_some() {
                     eprintln!("greeg: index unavailable: {e:#}");
                 }
-                "error"
+                "error".into()
             }
             Err(_) => {
                 eprintln!(
                     "greeg: internal error in the index path; answering from a scan and rebuilding the index"
                 );
                 indexed::mark_corrupt(o);
-                "internal error"
+                "internal error".into()
             }
         }
     };
