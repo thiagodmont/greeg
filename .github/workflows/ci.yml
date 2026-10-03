@@ -39,6 +39,14 @@ jobs:
       - run: cargo test --workspace --locked
         env:
           GREEG_TEST_RG: "1"
+      - name: release qualification on this build
+        shell: bash
+        run: |
+          d=$(mktemp -d)/greeg-ci
+          mkdir -p "$d"
+          cp target/release/greeg README.md LICENSE-MIT "$d"/
+          ./target/release/greeg man > "$d"/greeg.1
+          python3 bench/qualify.py "$d" "$(./target/release/greeg --version | cut -d' ' -f2)"
       - name: known gaps still reproduce
         # Each ignored test in known_gaps.rs asserts a fix; one that passes must lose its #[ignore].
         shell: bash
