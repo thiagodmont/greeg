@@ -796,7 +796,7 @@ pub fn run_refs(c: &Common, o: &Options, name: &str) -> Result<()> {
                 let h = &f.hits[hi];
                 serde_json::to_writer(
                     &mut w,
-                    &json!({"type":"ref","data":{"kind":k.name(),"path":crate::json_rel(&f.rel),"line":h.line,"text":crate::json_rel(&h.text),"symbol":chain_str(&h.chain),"file_flags":f.flags.names(),"score":h.score}}),
+                    &json!({"type":"ref","data":{"kind":k.name(),"path":crate::json_rel(&f.rel),"line":h.line,"text":crate::json_rel(&h.display(s.opts.max_columns).0),"symbol":chain_str(&h.chain),"file_flags":f.flags.names(),"score":h.score}}),
                 )?;
                 writeln!(w)?;
             }
@@ -824,6 +824,7 @@ pub fn run_refs(c: &Common, o: &Options, name: &str) -> Result<()> {
         stats: c.stats,
         line_numbers: false,
         stdin: false,
+        cols: s.opts.max_columns,
     };
     let render = |cut: Cut| -> Result<(Vec<u8>, Outcome)> {
         let lines = cut.rows;

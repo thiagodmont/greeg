@@ -4,7 +4,7 @@
 
 use crate::{
     CollectSink, FileResult, Hit, HitKind, Mode, Options, Rung, ScanResult, Source, Stats,
-    build_matcher, clip_line,
+    build_matcher,
 };
 use anyhow::Result;
 use greeg_lang::{FileFlags, Lang};
@@ -72,13 +72,6 @@ pub fn scan(o: &Options, mut data: Vec<u8>) -> Result<ScanResult> {
             .map(|k| ls as usize + k)
             .unwrap_or(bytes.len());
         let line_bytes = &bytes[ls as usize..le];
-        let me_line = (me as usize).min(le) as u32;
-        let (text, clipped, tm) = clip_line(
-            line_bytes,
-            (ms - ls) as usize,
-            (me_line - ls) as usize,
-            o.max_columns,
-        );
         let raw = line_bytes
             .strip_suffix(b"\r")
             .unwrap_or(line_bytes)
@@ -94,9 +87,6 @@ pub fn scan(o: &Options, mut data: Vec<u8>) -> Result<ScanResult> {
             def_idx: None,
             score: 1.0,
             exact: crate::is_exact(o, bytes, ms, me),
-            text,
-            text_match: (tm.0 as u32, tm.1 as u32),
-            clipped,
             raw,
         });
     }
