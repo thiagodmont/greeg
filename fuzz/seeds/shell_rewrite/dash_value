@@ -1,0 +1,1 @@
+rg --glob=-a.txt -g -b.rs Needle

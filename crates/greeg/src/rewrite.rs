@@ -214,6 +214,7 @@ impl Parsed {
                         self.flags.push("--max-columns".into());
                         self.flags.push(v);
                     }
+                    _ if v.starts_with('-') => self.flags.push(format!("{name}={v}")),
                     _ => {
                         self.flags.push(name.to_string());
                         self.flags.push(v);
