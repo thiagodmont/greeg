@@ -1,8 +1,10 @@
-//! `--explain`: what a search's answer was built from. It is outside the
-//! budget and the byte ceiling, and never recorded.
+//! `--explain`: what a search's or a command's answer was built from. It is
+//! outside the budget and the byte ceiling, and never recorded.
 
 use crate::json_data;
 use greeg_lang::FileFlags;
+use greeg_query::outcome::Outcome;
+use greeg_query::verbs::{DefEntry, ScoreTerms};
 use greeg_query::{ScanResult, shape::Report};
 use serde_json::{Value, json};
 use std::io::Write;
@@ -202,6 +204,140 @@ pub fn write_text(
                 h["kind_weight"],
                 h["exact_boost"],
                 h["prior"]
+            )?;
+        }
+    }
+    Ok(())
+}
+
+/// What a command's `--explain` adds to its outcome.
+pub struct VerbExplain<'a> {
+    /// Counts of what the command considered, in the order shown.
+    pub considered: Value,
+    /// `def`: its definitions, best first.
+    pub ranked: &'a [DefEntry],
+}
+
+impl<'a> VerbExplain<'a> {
+    pub fn new(considered: Value) -> Self {
+        VerbExplain {
+            considered,
+            ranked: &[],
+        }
+    }
+}
+
+fn terms_json(t: &ScoreTerms) -> Value {
+    json!({
+        "kind": r3(t.kind.into()),
+        "exported": r3(t.exported.into()),
+        "nested": r3(t.nested.into()),
+        "location": r3(t.location.into()),
+        "rank": r3(t.rank.into()),
+        "reach": r3(t.reach.into()),
+    })
+}
+
+/// The `explain` record of a command's answer; `fit` is the row allowance it
+/// was rendered at and the limits that cut it, or null when nothing was cut.
+pub fn verb(verb: &str, o: &Outcome, ex: &VerbExplain, fit: Value) -> Value {
+    let ranking: Vec<Value> = ex
+        .ranked
+        .iter()
+        .take(o.shown.min(RANKED))
+        .map(|e| {
+            json!({
+                "path": json_data(&e.rel),
+                "line": e.line,
+                "kind": e.kind.name(),
+                "score": r3(e.score.into()),
+                "terms": e.terms.as_ref().map(terms_json),
+            })
+        })
+        .collect();
+    json!({"type": "explain", "data": {
+        "verb": verb,
+        "source": o.source,
+        "fresh": (!o.fresh.is_empty()).then_some(o.fresh),
+        "deferred": o.deferred,
+        "rung": o.rung.name(),
+        "total": o.total,
+        "shown": o.shown,
+        "truncated_by": o.truncated_by(),
+        "fit": fit,
+        "considered": ex.considered,
+        "ranking": (!ranking.is_empty()).then(|| json!({
+            "terms": ["kind", "exported", "nested", "location", "rank", "reach"],
+            "definitions": ranking,
+        })),
+    }})
+}
+
+/// A command's record as stderr lines; paths are escaped for a terminal.
+pub fn write_verb_text(w: &mut impl Write, e: &Value, ex: &VerbExplain) -> std::io::Result<()> {
+    let d = &e["data"];
+    let s = |v: &Value| v.as_str().unwrap_or("").to_string();
+    let mut line = format!("explain: {} · source {}", s(&d["verb"]), s(&d["source"]));
+    if let Some(f) = d["fresh"].as_str() {
+        line += &format!(" · fresh {f}, {} deferred", d["deferred"]);
+    }
+    line += &format!(
+        " · matched {} · {} of {} shown",
+        s(&d["rung"]),
+        d["shown"],
+        d["total"]
+    );
+    if let Some(t) = d["truncated_by"].as_str() {
+        line += &format!(" (cut by the {t})");
+    }
+    let by: Vec<&str> = d["fit"]["cut_by"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|v| match v.as_str()? {
+            "bytes" => Some("byte ceiling"),
+            other => Some(other),
+        })
+        .collect();
+    if !by.is_empty() {
+        line += &format!(
+            " · fit {} of {} rows to the {}",
+            d["fit"]["rows"],
+            d["fit"]["of"],
+            by.join(" and the ")
+        );
+    }
+    writeln!(w, "{line}")?;
+    if let Some(m) = d["considered"].as_object().filter(|m| !m.is_empty()) {
+        let parts: Vec<String> = m
+            .iter()
+            .map(|(k, v)| format!("{} {v}", k.replace('_', " ")))
+            .collect();
+        writeln!(w, "explain: considered: {}", parts.join(" · "))?;
+    }
+    let ranked = d["ranking"]["definitions"].as_array();
+    if let Some(defs) = ranked.filter(|r| !r.is_empty()) {
+        writeln!(
+            w,
+            "explain: score = kind × exported × nested × location × rank (PageRank) × reach"
+        )?;
+        for (h, e) in defs.iter().zip(ex.ranked) {
+            let t = &h["terms"];
+            let terms = if t.is_object() {
+                format!(
+                    " = {} × {} × {} × {} × {} × {}",
+                    t["kind"], t["exported"], t["nested"], t["location"], t["rank"], t["reach"]
+                )
+            } else {
+                String::new()
+            };
+            writeln!(
+                w,
+                "  {}:{} {} {}{terms}",
+                greeg_index::rel::display(&e.rel),
+                h["line"],
+                h["kind"].as_str().unwrap_or(""),
+                h["score"]
             )?;
         }
     }

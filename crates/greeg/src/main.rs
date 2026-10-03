@@ -231,7 +231,7 @@ struct Common {
     /// Print what this build supports (commands, flags, JSON dialects, budget levels, languages) as one JSON record, and exit
     #[arg(long = "capabilities")]
     capabilities: bool,
-    /// Say what a search's answer was built from: index use, freshness, candidates, filters, ranking terms (a JSON `explain` record, or stderr lines)
+    /// Say what an answer was built from: index use, freshness, candidates, filters, ranking terms (a JSON `explain` record, or stderr lines); searches and the symbol verbs
     #[arg(long = "explain", global = true)]
     explain: bool,
     /// Hard ceiling on stdout bytes for searches and verbs: whole lines and records only, cut noted in the outcome; exit 2 when the smallest answer does not fit
@@ -986,9 +986,6 @@ fn run() -> Result<()> {
         if c.json_rg() {
             anyhow::bail!("--json=rg is ripgrep's search output; commands take --json");
         }
-        if c.explain {
-            anyhow::bail!("--explain explains searches; commands do not take it yet");
-        }
         if let Some(what) = writes(&cmd)
             && !greeg_index::persist::allowed()
         {
@@ -1007,6 +1004,11 @@ fn run() -> Result<()> {
             Cmd::Impact { .. } => "impact",
             _ => "",
         };
+        if c.explain && verb.is_empty() {
+            anyhow::bail!(
+                "--explain explains searches and the symbol verbs; this command does not take it"
+            );
+        }
         if c.json_greeg() && verb.is_empty() {
             anyhow::bail!(
                 "--json=greeg covers searches and the symbol verbs; this command takes --json"

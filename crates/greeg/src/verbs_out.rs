@@ -126,6 +126,16 @@ impl Cut {
     }
 }
 
+/// A fitted answer, the row allowance it was rendered at out of `max`, and
+/// the limits that cut it (`budget`, `bytes`).
+struct Fitted {
+    text: Vec<u8>,
+    oc: Outcome,
+    rows: usize,
+    max: usize,
+    cut_by: Vec<&'static str>,
+}
+
 /// An answer at a row allowance in `0..=max` whose estimated tokens fit
 /// `o.budget` (0: unlimited) and, under `--max-bytes`, whose bytes fit too.
 /// The search assumes an answer grows with its allowance, so where a completed
@@ -137,7 +147,7 @@ fn fit(
     o: &Options,
     max: usize,
     render: impl Fn(Cut) -> Result<(Vec<u8>, Outcome)>,
-) -> Result<(Vec<u8>, Outcome)> {
+) -> Result<Fitted> {
     // JSON is measured with timings at a fixed width, so a run's clock cannot move the fit
     fn measured(json: bool, b: &[u8]) -> std::borrow::Cow<'_, [u8]> {
         if json {
@@ -150,11 +160,11 @@ fn fit(
         |b: &[u8]| o.budget == 0 || greeg_query::tokens::estimate(&measured(json, b)) <= o.budget;
     let bytes_fit = |b: &[u8]| o.max_bytes == 0 || measured(json, b).len() <= o.max_bytes;
     // the largest allowance in `0..=hi` whose rendering passes, if any
-    type Fitted = (usize, (Vec<u8>, Outcome));
+    type Rendered = (usize, (Vec<u8>, Outcome));
     let largest = |hi: usize,
                    (bytes, budget): (bool, bool),
                    pass: &dyn Fn(&[u8]) -> bool|
-     -> Result<Option<Fitted>> {
+     -> Result<Option<Rendered>> {
         let top = render(Cut {
             rows: hi,
             bytes,
@@ -192,7 +202,15 @@ fn fit(
         ),
     };
     if bytes_fit(&by_budget.0) {
-        return Ok(by_budget);
+        let cut_by = if rows < max { vec!["budget"] } else { vec![] };
+        let (text, oc) = by_budget;
+        return Ok(Fitted {
+            text,
+            oc,
+            rows,
+            max,
+            cut_by,
+        });
     }
     // the ceiling cuts further; below the budget's floor only bytes count
     let both = |b: &[u8]| tokens_fit(b) && bytes_fit(b);
@@ -202,7 +220,17 @@ fn fit(
         None => largest(rows, cut, &bytes_fit)?,
     };
     match found {
-        Some((_, r)) => Ok(r),
+        Some((kept, (text, oc))) => Ok(Fitted {
+            text,
+            oc,
+            rows: kept,
+            max,
+            cut_by: if cut.1 {
+                vec!["budget", "bytes"]
+            } else {
+                vec!["bytes"]
+            },
+        }),
         None => {
             let floor = render(Cut {
                 rows: 0,
@@ -219,9 +247,67 @@ fn fit(
 }
 
 /// Write a fitted answer and end the run.
-fn finish_fit(mut w: impl Write, verb: &'static str, (text, o): (Vec<u8>, Outcome)) -> Result<()> {
-    w.write_all(&text)?;
-    finish(w, verb, &o)
+fn finish_fit(
+    c: &Common,
+    o: &Options,
+    mut w: impl Write,
+    verb: &'static str,
+    ex: Option<&crate::explain::VerbExplain>,
+    fitted: Fitted,
+) -> Result<()> {
+    write_fitted(c, o, &mut w, verb, ex, &fitted)?;
+    finish(w, verb, &fitted.oc)
+}
+
+/// Write a fitted answer and, when asked, its `explain` record: in JSON
+/// before the footer, the last record (on stderr under a byte ceiling); in
+/// text on stderr. It is outside the budget, the ceiling and statistics.
+fn write_fitted(
+    c: &Common,
+    o: &Options,
+    w: &mut impl Write,
+    verb: &'static str,
+    ex: Option<&crate::explain::VerbExplain>,
+    f: &Fitted,
+) -> Result<()> {
+    let text = &f.text;
+    let Some(ex) = ex else {
+        w.write_all(text)?;
+        return Ok(());
+    };
+    let fit = if f.cut_by.is_empty() {
+        serde_json::Value::Null
+    } else {
+        json!({"rows": f.rows, "of": f.max, "cut_by": f.cut_by})
+    };
+    let record = crate::explain::verb(verb, &f.oc, ex, fit);
+    if c.json() && o.max_bytes == 0 {
+        let at = text[..text.len().saturating_sub(1)]
+            .iter()
+            .rposition(|&b| b == b'\n')
+            .map_or(0, |i| i + 1);
+        w.write_all(&text[..at])?;
+        w.flush()?;
+        let mut line = serde_json::to_vec(&record)?;
+        line.push(b'\n');
+        greeg_index::commit::commit();
+        let mut raw = std::io::stdout().lock();
+        raw.write_all(&line)?;
+        raw.flush()?;
+        w.write_all(&text[at..])?;
+    } else {
+        w.write_all(text)?;
+        w.flush()?;
+        let mut block = Vec::new();
+        if c.json() {
+            serde_json::to_writer(&mut block, &record)?;
+            block.push(b'\n');
+        } else {
+            crate::explain::write_verb_text(&mut block, &record, ex)?;
+        }
+        std::io::stderr().write_all(&block)?;
+    }
+    Ok(())
 }
 
 /// The outcome of `show`, `outline` and `map` text: answered, exact.
@@ -482,6 +568,10 @@ pub fn run_def(
         from = s.focus();
     }
     let r = answered(o, |o| verbs::def(o, name, &from, want))?;
+    let ex = c.explain.then(|| crate::explain::VerbExplain {
+        ranked: &r.entries,
+        ..crate::explain::VerbExplain::new(json!({"definitions": r.total, "described": r.entries.len(), "near_names": r.suggestions.len()}))
+    });
     let oc = Outcome {
         total: r.total,
         shown: r.entries.len(),
@@ -529,7 +619,8 @@ pub fn run_def(
         } else {
             r.entries.len()
         };
-        return finish_fit(w, "def", fit(c.json(), o, max, render)?);
+        let fitted = fit(c.json(), o, max, render)?;
+        return finish_fit(c, o, w, "def", ex.as_ref(), fitted);
     }
     if r.entries.is_empty() {
         let names = &r.suggestions;
@@ -557,7 +648,8 @@ pub fn run_def(
             outcome_line(&mut w, &[], &oc, cut.more())?;
             Ok((w, oc))
         };
-        return finish_fit(w, "def", fit(c.json(), o, names.len(), render)?);
+        let fitted = fit(c.json(), o, names.len(), render)?;
+        return finish_fit(c, o, w, "def", ex.as_ref(), fitted);
     }
     let multi_name = r.entries.iter().any(|e| e.name != r.name);
     let entries: Vec<&DefEntry> = r.entries.iter().collect();
@@ -627,11 +719,16 @@ pub fn run_def(
         }
         Ok((w, oc))
     };
-    finish_fit(w, "def", fit(c.json(), o, entries.len(), render)?)
+    let fitted = fit(c.json(), o, entries.len(), render)?;
+    finish_fit(c, o, w, "def", ex.as_ref(), fitted)
 }
 
 pub fn run_show(c: &Common, o: &Options, locs: &[(String, u32)]) -> Result<()> {
     let r = answered(o, |o| verbs::show(o, locs))?;
+    let ex = c.explain.then(|| {
+        let found = r.items.iter().filter(|i| i.def.is_some()).count();
+        crate::explain::VerbExplain::new(json!({"locations": locs.len(), "in_a_definition": found}))
+    });
     let mut w = out();
     // the allowance is body lines, shared in order
     let bodies = |limit: usize| -> Vec<verbs::Body> {
@@ -684,7 +781,8 @@ pub fn run_show(c: &Common, o: &Options, locs: &[(String, u32)]) -> Result<()> {
             writeln!(w)?;
             Ok((w, oc))
         };
-        w.write_all(&fit(c.json(), o, max, render)?.0)?;
+        let fitted = fit(c.json(), o, max, render)?;
+        write_fitted(c, o, &mut w, "show", ex.as_ref(), &fitted)?;
         w.flush()?;
         return Ok(());
     }
@@ -718,7 +816,8 @@ pub fn run_show(c: &Common, o: &Options, locs: &[(String, u32)]) -> Result<()> {
         outcome_line(&mut w, &[], &oc, cut.more())?;
         Ok((w, oc))
     };
-    w.write_all(&fit(c.json(), o, max, render)?.0)?;
+    let fitted = fit(c.json(), o, max, render)?;
+    write_fitted(c, o, &mut w, "show", ex.as_ref(), &fitted)?;
     w.flush()?;
     Ok(())
 }
@@ -726,6 +825,10 @@ pub fn run_show(c: &Common, o: &Options, locs: &[(String, u32)]) -> Result<()> {
 pub fn run_refs(c: &Common, o: &Options, name: &str) -> Result<()> {
     let kinds: Vec<HitKind> = o.kinds.clone();
     let r = answered(o, |o| verbs::refs(o, name, &kinds))?;
+    let ex = c.explain.then(|| {
+        let st = &r.scan.stats;
+        crate::explain::VerbExplain::new(json!({"definitions": r.defs_total, "files_searched": st.files_searched, "files_matched": st.files_matched, "hits": st.total_hits, "classified": r.classified, "resolved": r.resolved}))
+    });
     let s = &r.scan;
     let w = out();
     // group hits by kind, best first within each kind
@@ -817,7 +920,8 @@ pub fn run_refs(c: &Common, o: &Options, name: &str) -> Result<()> {
             writeln!(w)?;
             Ok((w, oc))
         };
-        return finish_fit(w, "refs", fit(c.json(), o, total_lines, render)?);
+        let fitted = fit(c.json(), o, total_lines, render)?;
+        return finish_fit(c, o, w, "refs", ex.as_ref(), fitted);
     }
     if s.stats.total_hits == 0 {
         let oc = Outcome::of_search(s, 0);
@@ -827,7 +931,8 @@ pub fn run_refs(c: &Common, o: &Options, name: &str) -> Result<()> {
             outcome_line(&mut w, &[], &oc, MORE)?;
             Ok((w, oc.clone()))
         };
-        return finish_fit(w, "refs", fit(c.json(), o, 0, render)?);
+        let fitted = fit(c.json(), o, 0, render)?;
+        return finish_fit(c, o, w, "refs", ex.as_ref(), fitted);
     }
     let fmt = crate::Fmt {
         chain: c.chain,
@@ -928,11 +1033,15 @@ pub fn run_refs(c: &Common, o: &Options, name: &str) -> Result<()> {
         )?;
         Ok((w, oc))
     };
-    finish_fit(w, "refs", fit(c.json(), o, total_lines, render)?)
+    let fitted = fit(c.json(), o, total_lines, render)?;
+    finish_fit(c, o, w, "refs", ex.as_ref(), fitted)
 }
 
 pub fn run_callers(c: &Common, o: &Options, name: &str, depth: usize) -> Result<()> {
     let r = answered(o, |o| verbs::callers(o, name, depth))?;
+    let ex = c.explain.then(|| {
+        crate::explain::VerbExplain::new(json!({"depth": depth, "files": r.files, "hits": r.total_hits, "callers": r.callers.len()}))
+    });
     let w = out();
     let limit = if o.budget == 0 {
         usize::MAX
@@ -971,7 +1080,8 @@ pub fn run_callers(c: &Common, o: &Options, name: &str, depth: usize) -> Result<
             writeln!(w)?;
             Ok((w, oc))
         };
-        return finish_fit(w, "callers", fit(c.json(), o, limit, render)?);
+        let fitted = fit(c.json(), o, limit, render)?;
+        return finish_fit(c, o, w, "callers", ex.as_ref(), fitted);
     }
     if r.callers.is_empty() {
         let render = |_: Cut| -> Result<(Vec<u8>, Outcome)> {
@@ -980,7 +1090,8 @@ pub fn run_callers(c: &Common, o: &Options, name: &str, depth: usize) -> Result<
             outcome_line(&mut w, &[], &oc, MORE)?;
             Ok((w, oc.clone()))
         };
-        return finish_fit(w, "callers", fit(c.json(), o, 0, render)?);
+        let fitted = fit(c.json(), o, 0, render)?;
+        return finish_fit(c, o, w, "callers", ex.as_ref(), fitted);
     }
     let render = |cut: Cut| -> Result<(Vec<u8>, Outcome)> {
         let limit = cut.rows;
@@ -1060,11 +1171,17 @@ pub fn run_callers(c: &Common, o: &Options, name: &str, depth: usize) -> Result<
         outcome_line(&mut w, &[(oc.shown, oc.total, "callers")], &oc, cut.more())?;
         Ok((w, oc))
     };
-    finish_fit(w, "callers", fit(c.json(), o, limit, render)?)
+    let fitted = fit(c.json(), o, limit, render)?;
+    finish_fit(c, o, w, "callers", ex.as_ref(), fitted)
 }
 
 pub fn run_impls(c: &Common, o: &Options, name: &str) -> Result<()> {
     let r = answered(o, |o| verbs::impls(o, name))?;
+    let ex = c.explain.then(|| {
+        crate::explain::VerbExplain::new(
+            json!({"direct": r.direct_total, "extras": r.extras_total}),
+        )
+    });
     let w = out();
     let limit = if o.budget == 0 {
         usize::MAX
@@ -1114,7 +1231,8 @@ pub fn run_impls(c: &Common, o: &Options, name: &str) -> Result<()> {
             writeln!(w)?;
             Ok((w, oc))
         };
-        return finish_fit(w, "impls", fit(c.json(), o, limit, render)?);
+        let fitted = fit(c.json(), o, limit, render)?;
+        return finish_fit(c, o, w, "impls", ex.as_ref(), fitted);
     }
     if r.direct.is_empty() && r.extras.is_empty() {
         let render = |_: Cut| -> Result<(Vec<u8>, Outcome)> {
@@ -1123,7 +1241,8 @@ pub fn run_impls(c: &Common, o: &Options, name: &str) -> Result<()> {
             outcome_line(&mut w, &[], &oc, MORE)?;
             Ok((w, oc.clone()))
         };
-        return finish_fit(w, "impls", fit(c.json(), o, 0, render)?);
+        let fitted = fit(c.json(), o, 0, render)?;
+        return finish_fit(c, o, w, "impls", ex.as_ref(), fitted);
     }
     // low-confidence extras get half the allowance
     let render = |cut: Cut| -> Result<(Vec<u8>, Outcome)> {
@@ -1175,11 +1294,15 @@ pub fn run_impls(c: &Common, o: &Options, name: &str) -> Result<()> {
         )?;
         Ok((w, oc))
     };
-    finish_fit(w, "impls", fit(c.json(), o, limit, render)?)
+    let fitted = fit(c.json(), o, limit, render)?;
+    finish_fit(c, o, w, "impls", ex.as_ref(), fitted)
 }
 
 pub fn run_outline(c: &Common, o: &Options, file: &str, imports: bool) -> Result<()> {
     let r = answered(o, |o| verbs::outline(o, file))?;
+    let ex = c.explain.then(|| {
+        crate::explain::VerbExplain::new(json!({"symbols": r.defs.len(), "imports": r.imports.len(), "parse_errors": r.parse_errors}))
+    });
     let mut w = out();
     if c.json() {
         // the allowance is symbols, in file order
@@ -1206,7 +1329,8 @@ pub fn run_outline(c: &Common, o: &Options, file: &str, imports: bool) -> Result
             writeln!(w)?;
             Ok((w, oc))
         };
-        w.write_all(&fit(c.json(), o, r.defs.len(), render)?.0)?;
+        let fitted = fit(c.json(), o, r.defs.len(), render)?;
+        write_fitted(c, o, &mut w, "outline", ex.as_ref(), &fitted)?;
         w.flush()?;
         return Ok(());
     }
@@ -1334,7 +1458,8 @@ pub fn run_outline(c: &Common, o: &Options, file: &str, imports: bool) -> Result
     } else {
         (o.budget / 12).max(10)
     };
-    w.write_all(&fit(c.json(), o, max_lines, render)?.0)?;
+    let fitted = fit(c.json(), o, max_lines, render)?;
+    write_fitted(c, o, &mut w, "outline", ex.as_ref(), &fitted)?;
     w.flush()?;
     Ok(())
 }
@@ -1363,6 +1488,9 @@ pub fn run_map(c: &Common, o: &Options, dir: &str) -> Result<()> {
             return Err(e);
         }
     };
+    let ex = c.explain.then(|| {
+        crate::explain::VerbExplain::new(json!({"files": r.files_total, "symbols": r.symbols_total, "graph_changes": r.graph_changes}))
+    });
     let mut w = out();
     let file_limit = if o.budget == 0 {
         usize::MAX
@@ -1411,7 +1539,8 @@ pub fn run_map(c: &Common, o: &Options, dir: &str) -> Result<()> {
             writeln!(w)?;
             Ok((w, oc))
         };
-        w.write_all(&fit(c.json(), o, dir_limit.max(file_limit), render)?.0)?;
+        let fitted = fit(c.json(), o, dir_limit.max(file_limit), render)?;
+        write_fitted(c, o, &mut w, "map", ex.as_ref(), &fitted)?;
         w.flush()?;
         return Ok(());
     }
@@ -1514,13 +1643,17 @@ pub fn run_map(c: &Common, o: &Options, dir: &str) -> Result<()> {
         }
         Ok((w, oc))
     };
-    w.write_all(&fit(c.json(), o, dir_limit.max(file_limit), render)?.0)?;
+    let fitted = fit(c.json(), o, dir_limit.max(file_limit), render)?;
+    write_fitted(c, o, &mut w, "map", ex.as_ref(), &fitted)?;
     w.flush()?;
     Ok(())
 }
 
 pub fn run_impact(c: &Common, o: &Options, name: &str) -> Result<()> {
     let r = answered(o, |o| verbs::impact(o, name))?;
+    let ex = c.explain.then(|| {
+        crate::explain::VerbExplain::new(json!({"definitions": r.defs_total, "likely": r.likely.len(), "possible": r.possible.len(), "review": r.review.len(), "import_graph": r.import_graph, "callers": r.callers.callers.len(), "hits": r.total_hits}))
+    });
     let groups = [&r.likely, &r.possible, &r.review];
     let files = groups.iter().map(|g| g.len()).sum::<usize>();
     let callers_total = r.callers.callers.len();
@@ -1643,7 +1776,8 @@ pub fn run_impact(c: &Common, o: &Options, name: &str) -> Result<()> {
         .into_iter()
         .max()
         .unwrap_or(0);
-        return finish_fit(w, "impact", fit(c.json(), o, max, render)?);
+        let fitted = fit(c.json(), o, max, render)?;
+        return finish_fit(c, o, w, "impact", ex.as_ref(), fitted);
     }
     if r.total_hits == 0 {
         let oc = outcome(0);
@@ -1653,7 +1787,8 @@ pub fn run_impact(c: &Common, o: &Options, name: &str) -> Result<()> {
             outcome_line(&mut w, &[], &oc, MORE)?;
             Ok((w, oc.clone()))
         };
-        return finish_fit(w, "impact", fit(c.json(), o, 0, render)?);
+        let fitted = fit(c.json(), o, 0, render)?;
+        return finish_fit(c, o, w, "impact", ex.as_ref(), fitted);
     }
     let likely = format!("uses {} and imports a file that defines it", r.name);
     let possible = format!("uses {} without that import link", r.name);
@@ -1749,5 +1884,6 @@ pub fn run_impact(c: &Common, o: &Options, name: &str) -> Result<()> {
         )?;
         Ok((w, oc))
     };
-    finish_fit(w, "impact", fit(c.json(), o, per_group, render)?)
+    let fitted = fit(c.json(), o, per_group, render)?;
+    finish_fit(c, o, w, "impact", ex.as_ref(), fitted)
 }
