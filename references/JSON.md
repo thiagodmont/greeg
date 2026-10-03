@@ -155,9 +155,9 @@ when non-zero), `skipped_huge`, `rung_names` (the names a relaxed rung
 used), `ignored_only` (`[files, hits]` found only in ignored or hidden files,
 or null), `ignored_partial` (those counts are a lower bound), `est_tokens`, `elapsed_ms`, `hints`, `related` (`[name, count]` longer
 identifiers), `layout`, `outcome`. In a budgeted answer `est_tokens` is the
-JSON's own estimate, with timings counted at a fixed width so that a query's
-answer and estimate do not change from run to run; unbudgeted answers (`-l`,
-`-c`, `--budget 0`) keep the text's estimate.
+JSON's own estimate, with timings counted at a fixed width: the clock cannot
+change which records fit or the estimate (the timings written still vary);
+unbudgeted answers (`-l`, `-c`, `--budget 0`) keep the text's estimate.
 
 ### Verbs
 

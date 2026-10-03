@@ -1625,7 +1625,12 @@ fn fit_search(
     // the JSON's tokens (its footer's `est_tokens` set to them), and stdout bytes
     let measure = |result: &ScanResult, mut report: Report| -> Result<(Report, usize, usize)> {
         if !json {
-            let n = render_search(c, result, &report, fmt)?.0.len();
+            let out = render_search(c, result, &report, fmt)?.0;
+            let n = if c.json() {
+                greeg_query::tokens::timeless(&out).len()
+            } else {
+                out.len()
+            };
             return Ok((report, 0, n));
         }
         // an estimate as wide as the budget renders the same bytes and tokens,
@@ -1786,8 +1791,10 @@ fn keep_within(
     fmt: Fmt,
     cap: usize,
 ) -> Result<Report> {
-    // stdout and its size, timings at a fixed width, if that fits `limit`;
-    // rendered no further than `limit`, as the fixed width is never narrower
+    // ripgrep prints -l and -c as text even under --json
+    let json = c.json() && !(c.json_rg() && matches!(report.layout, Layout::Files | Layout::Count));
+    // stdout and its size (JSON's timings at a fixed width) if that fits
+    // `limit`; rendered no further than `limit`, as the fixed width is never narrower
     let within = |r: &Report, limit: usize| -> Result<Option<(Vec<u8>, usize)>> {
         let mut w = Capped::new(limit, true);
         match write_search(c, &mut w, result, r, fmt) {
@@ -1795,7 +1802,11 @@ fn keep_within(
             Err(_) if w.over => return Ok(None),
             Err(e) => return Err(e),
         }
-        let n = greeg_query::tokens::timeless(&w.buf).len();
+        let n = if json {
+            greeg_query::tokens::timeless(&w.buf).len()
+        } else {
+            w.len
+        };
         Ok((n <= limit).then_some((w.buf, n)))
     };
     if within(&report, cap)?.is_some() {

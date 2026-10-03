@@ -54,10 +54,11 @@ const TIMINGS: [(&[u8], &[u8]); 4] = [
     (b"\"human\":", b"\"99999.999999999s\""),
 ];
 
-/// `b` with each JSON timing value replaced by a wider stand-in, so a fit
-/// measured on it gives the same answer on every run and never more than
-/// the real output measures. A quote inside a JSON string is escaped, so
-/// no string value can look like a timing key.
+/// `b` with each JSON timing value replaced by a stand-in at least as wide,
+/// so a fit measured on it gives the same answer on every run and never
+/// measures less than the real output. Only a key after `{` or `,` is one: a
+/// quote inside a JSON string is escaped. A value wider than its stand-in is
+/// kept.
 pub fn timeless(b: &[u8]) -> std::borrow::Cow<'_, [u8]> {
     if !TIMINGS
         .iter()
@@ -68,22 +69,28 @@ pub fn timeless(b: &[u8]) -> std::borrow::Cow<'_, [u8]> {
     let mut out = Vec::with_capacity(b.len() + 64);
     let mut i = 0;
     'bytes: while i < b.len() {
-        if b[i] == b'"' {
+        if b[i] == b'"' && i > 0 && matches!(b[i - 1], b'{' | b',') {
             for (key, stand_in) in TIMINGS {
                 if b[i..].starts_with(key) {
                     out.extend_from_slice(key);
-                    i += key.len();
-                    if b.get(i) == Some(&b'"') {
-                        i += 1 + memchr::memchr(b'"', &b[i + 1..])
-                            .map_or(b.len() - i - 1, |k| k + 1);
+                    let start = i + key.len();
+                    let mut end = start;
+                    if b.get(end) == Some(&b'"') {
+                        end += 1 + memchr::memchr(b'"', &b[end + 1..])
+                            .map_or(b.len() - end - 1, |k| k + 1);
                     } else {
-                        while i < b.len()
-                            && matches!(b[i], b'0'..=b'9' | b'.' | b'-' | b'+' | b'e' | b'E')
+                        while end < b.len()
+                            && matches!(b[end], b'0'..=b'9' | b'.' | b'-' | b'+' | b'e' | b'E')
                         {
-                            i += 1;
+                            end += 1;
                         }
                     }
-                    out.extend_from_slice(stand_in);
+                    if end - start > stand_in.len() {
+                        out.extend_from_slice(&b[start..end]);
+                    } else {
+                        out.extend_from_slice(stand_in);
+                    }
+                    i = end;
                     continue 'bytes;
                 }
             }
@@ -216,6 +223,10 @@ mod tests {
         }
         let plain = b"no timings here";
         assert!(matches!(timeless(plain), std::borrow::Cow::Borrowed(_)));
+        // only a key is a timing, and a value wider than its stand-in stays
+        for kept in [&b"let x = \"secs\":1;"[..], br#"{"secs":123456789012345}"#] {
+            assert_eq!(&*timeless(kept), kept);
+        }
     }
 
     /// A JSON fit renders `est_tokens` once with a stand-in of the same width.
