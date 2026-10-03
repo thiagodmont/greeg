@@ -1,14 +1,16 @@
 //! The point after which an answer cannot be taken back (ARCHITECTURE.md):
 //! its first byte written to stdout. Every index snapshot is closed before
-//! then, so a failed check or a fault is recovered from once, by answering
-//! again without the index; after it, a fault ends the run with the output
-//! marked incomplete, never a second answer.
+//! then, except in a streamed answer, so a failed check or a fault is
+//! recovered from once, by answering again without the index; after it, a
+//! fault ends the run with the output marked incomplete, never a second
+//! answer.
 
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 static COMMITTED: AtomicBool = AtomicBool::new(false);
 static STDIN_READ: AtomicBool = AtomicBool::new(false);
+static STREAMING: AtomicBool = AtomicBool::new(false);
 
 /// The answer is about to reach stdout.
 pub fn commit() {
@@ -30,11 +32,21 @@ pub fn stdin_read() -> bool {
     STDIN_READ.load(Ordering::Relaxed)
 }
 
+/// This answer is written as it is found (`--budget 0`): the index stays in
+/// use after the first byte, and a failure after it ends the run with the
+/// output marked incomplete.
+pub fn stream() {
+    STREAMING.store(true, Ordering::Relaxed);
+}
+
 /// The index is being used: in debug builds, a use after the output was
-/// committed panics.
+/// committed panics, unless the answer streams.
 #[inline]
 pub fn assert_open() {
-    debug_assert!(!committed(), "the index was used after output started");
+    debug_assert!(
+        !committed() || STREAMING.load(Ordering::Relaxed),
+        "the index was used after output started"
+    );
 }
 
 /// Fault injection for the recovery tests: `GREEG_DEBUG_SIGBUS` names where

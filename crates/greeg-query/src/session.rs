@@ -246,44 +246,67 @@ impl Session {
 
     /// Loop detection: the same token set ≥ 3 times in the last 5 queries.
     pub fn loop_hint(&self, o: &Options, r: &ScanResult, rep: &mut Report) {
-        let q = normalize(&o.pattern);
-        if q.is_empty() {
+        let same = self.repeats(o);
+        if same < 2 {
             return;
         }
-        let recent = self.records.iter().rev().take(5);
-        let same = recent.filter(|rec| rec.q == q).count();
-        if same >= 2 {
-            let shown: HashSet<&str> = self
-                .records
-                .iter()
-                .flat_map(|r| r.files.iter().map(|s| s.as_str()))
-                .collect();
-            let new_files = r
-                .files
-                .iter()
-                .filter(|f| !shown.contains(&*key(&f.rel)))
-                .count();
-            let ident = o
-                .pattern
-                .split(|c: char| !c.is_alphanumeric() && c != '_')
-                .filter(|s| !s.is_empty())
-                .max_by_key(|s| s.len())
-                .unwrap_or(&o.pattern);
-            let msg = if new_files == 0 {
-                format!(
-                    "this is query #{} for these tokens in this session with nothing new; try `greeg def {}`, `greeg map`, or different tokens",
-                    same + 1,
-                    ident
-                )
-            } else {
-                format!(
-                    "query #{} for these tokens this session ({} new files)",
-                    same + 1,
-                    new_files
-                )
-            };
-            rep.footer.hints.insert(0, msg);
+        let shown = self.seen_files();
+        let new_files = r
+            .files
+            .iter()
+            .filter(|f| !shown.contains(&*key(&f.rel)))
+            .count();
+        self.loop_hint_counted(o, same, new_files, rep);
+    }
+
+    /// Earlier queries of the last 5 with this query's tokens.
+    pub fn repeats(&self, o: &Options) -> usize {
+        let q = normalize(&o.pattern);
+        if q.is_empty() {
+            return 0;
         }
+        self.records
+            .iter()
+            .rev()
+            .take(5)
+            .filter(|rec| rec.q == q)
+            .count()
+    }
+
+    /// Files this session's queries showed, as `greeg_index::rel::key` spells them.
+    pub fn seen_files(&self) -> HashSet<String> {
+        self.records
+            .iter()
+            .flat_map(|r| r.files.iter().cloned())
+            .collect()
+    }
+
+    /// The loop hint for a query repeated `same` times that found `new_files`
+    /// files no earlier one showed.
+    pub fn loop_hint_counted(&self, o: &Options, same: usize, new_files: usize, rep: &mut Report) {
+        if same < 2 {
+            return;
+        }
+        let ident = o
+            .pattern
+            .split(|c: char| !c.is_alphanumeric() && c != '_')
+            .filter(|s| !s.is_empty())
+            .max_by_key(|s| s.len())
+            .unwrap_or(&o.pattern);
+        let msg = if new_files == 0 {
+            format!(
+                "this is query #{} for these tokens in this session with nothing new; try `greeg def {}`, `greeg map`, or different tokens",
+                same + 1,
+                ident
+            )
+        } else {
+            format!(
+                "query #{} for these tokens this session ({} new files)",
+                same + 1,
+                new_files
+            )
+        };
+        rep.footer.hints.insert(0, msg);
     }
 
     /// Append this query's record (best effort; never fails the query).
@@ -304,13 +327,25 @@ impl Session {
                 }
             }
         }
+        self.record_parts(o, r.stats.total_hits, files, shown);
+    }
+
+    /// Append a record from its parts: the files shown, in order, and the
+    /// line ranges of context or blocks shown.
+    pub fn record_parts(
+        &self,
+        o: &Options,
+        hits: usize,
+        mut files: Vec<String>,
+        mut shown: Vec<(String, u32, u32, u64)>,
+    ) {
         files.truncate(64);
         shown.truncate(128);
         let rec = Record {
             t: now_secs(),
             q: normalize(&o.pattern),
             pat: String::new(),
-            hits: r.stats.total_hits,
+            hits,
             files,
             ctx: Vec::new(),
             shown,
