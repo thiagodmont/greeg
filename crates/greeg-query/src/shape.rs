@@ -109,20 +109,33 @@ impl Report {
     /// The first `n` of its [`units`](Self::units), the rest left out by
     /// `--max-bytes`.
     pub fn keep(&self, n: usize) -> Report {
-        let mut r = self.clone();
-        match r.layout {
-            Layout::Files | Layout::Count => r.files.truncate(n),
+        let files = match self.layout {
+            Layout::Files | Layout::Count => self.files[..n.min(self.files.len())].to_vec(),
             _ => {
                 let mut left = n;
-                for f in &mut r.files {
+                let mut files = Vec::new();
+                for f in &self.files {
+                    if left == 0 {
+                        break;
+                    }
                     let keep = f.hits.len().min(left);
-                    f.more += f.hits.len() - keep;
-                    f.hits.truncate(keep);
+                    files.push(ShownFile {
+                        hits: f.hits[..keep].to_vec(),
+                        more: f.more + f.hits.len() - keep,
+                        ..*f
+                    });
                     left -= keep;
                 }
-                r.files.retain(|f| !f.hits.is_empty());
+                files
             }
-        }
+        };
+        let mut r = Report {
+            layout: self.layout,
+            files,
+            facets: self.facets.clone(),
+            related: self.related.clone(),
+            footer: self.footer.clone(),
+        };
         if n < self.units() {
             r.footer.byte_cut = true;
             r.footer.files_shown = r.files.len();
