@@ -1,0 +1,23 @@
+bench/results/stream-unbudgeted-2026-10-03-darwin-arm64.json
+  s_b1057b2933cdb0::t_771f49f556e9b0 1-5695
+bench/reports.toml
+  s_b1057b2933cdb0::t_b5ed2299b63fda 735-742
+references/BENCH.md
+  s_b1057b2933cdb0::t_b5ed2299b63fda 2287-2333
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "f3cff3f2db0ad1b3ffd8b091f59d65ff7f9aa1a1",
+  "prompts": {},
+  "sessions": {
+    "s_b1057b2933cdb0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0aa73425-0ec9-4b76-ae94-35b6bdff17bb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
