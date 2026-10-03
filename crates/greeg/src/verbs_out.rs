@@ -709,7 +709,7 @@ pub fn run_refs(c: &Common, o: &Options, name: &str) -> Result<()> {
             }
             serde_json::to_writer(
                 &mut w,
-                &json!({"type":"footer","data":{"verb":"refs","name":name,"definitions_total":r.defs.len(),"hits_total":s.stats.total_hits,"files_total":s.stats.files_matched,"by_kind":nonempty.iter().map(|(k,v)| json!([k.name(), v.len()])).collect::<Vec<_>>(),"resolved":r.resolved,"classified":r.classified,"rung":s.rung.name(),"source":s.stats.source,"elapsed_ms":s.stats.elapsed_ms,"outcome":outcome_json(&oc)}}),
+                &json!({"type":"footer","data":{"verb":"refs","name":name,"definitions_total":r.defs_total,"hits_total":s.stats.total_hits,"files_total":s.stats.files_matched,"by_kind":nonempty.iter().map(|(k,v)| json!([k.name(), v.len()])).collect::<Vec<_>>(),"resolved":r.resolved,"classified":r.classified,"rung":s.rung.name(),"source":s.stats.source,"elapsed_ms":s.stats.elapsed_ms,"outcome":outcome_json(&oc)}}),
             )?;
             writeln!(w)?;
             Ok((w, oc))
@@ -1491,7 +1491,7 @@ pub fn run_impact(c: &Common, o: &Options, name: &str) -> Result<()> {
             writeln!(w)?;
             serde_json::to_writer(
                 &mut w,
-                &json!({"type":"footer","data":{"verb":"impact","name":r.name,"definitions_total":r.defs.len(),"files":files,"callers_total":callers_total,"total_hits":r.total_hits,"elapsed_ms":r.elapsed_ms,"outcome":outcome_json(&oc)}}),
+                &json!({"type":"footer","data":{"verb":"impact","name":r.name,"definitions_total":r.defs_total,"files":files,"callers_total":callers_total,"total_hits":r.total_hits,"elapsed_ms":r.elapsed_ms,"outcome":outcome_json(&oc)}}),
             )?;
             writeln!(w)?;
             Ok((w, oc))
@@ -1536,7 +1536,7 @@ pub fn run_impact(c: &Common, o: &Options, name: &str) -> Result<()> {
             r.name,
             fmt_n(r.total_hits),
             files,
-            r.defs.len(),
+            r.defs_total,
             relaxed_note(&r.outcome.rung),
             if r.import_graph {
                 ""

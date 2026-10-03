@@ -102,12 +102,16 @@ exit 0 whenever they answer, even with nothing to show.
 
 ### Budget
 
-`--budget` bounds the estimated tokens of the JSON as written, not of the
-text answer: JSON shows fewer results than text at the same budget. A search
-is shaped to the largest budget whose JSON fits; a verb lists the most rows
-that fit. Below the smallest answer (header, counts and footer), that answer
-is written anyway. `outcome.complete` says whether results were left out, and
-`--budget 0` shows every one.
+A non-zero `--budget` bounds the estimated tokens of the JSON as written, not
+of the text answer: JSON shows fewer results than text at the same budget. A
+search is shaped to a budget whose JSON fits; a verb lists the rows that fit.
+Below the smallest answer (header, counts and footer), that answer is written
+anyway. `outcome.complete` says whether results were left out. `--budget 0`,
+`-l`, `-c` and searches of piped input are never budgeted: they write every
+result, as ripgrep does.
+
+`outcome` counts a verb's results. The definitions `refs` and `impact` list
+beside them are context: `definitions_total` says how many there are.
 
 ### Search
 
@@ -145,8 +149,9 @@ definition, or null), `score`, `clipped`.
 when non-zero), `skipped_huge`, `rung_names` (the names a relaxed rung
 used), `ignored_only` (`[files, hits]` found only in ignored or hidden files,
 or null), `ignored_partial` (those counts are a lower bound), `est_tokens`, `elapsed_ms`, `hints`, `related` (`[name, count]` longer
-identifiers), `layout`, `outcome`. `est_tokens` is the JSON's own estimate,
-so it varies with the digits of `elapsed_ms`.
+identifiers), `layout`, `outcome`. In a budgeted answer `est_tokens` is the
+JSON's own estimate, so it varies with the digits of `elapsed_ms`; unbudgeted
+answers (`-l`, `-c`, `--budget 0`) keep the text's estimate.
 
 ### Verbs
 

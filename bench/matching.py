@@ -90,7 +90,7 @@ def json_exact_contract(output, oracle):
     if footers[0].get("outcome", {}).get("complete", True):
         same_matches = shown == oracle_matches
     else:
-        same_matches = set(shown) < set(oracle_matches)
+        same_matches = len(shown) == len(set(shown)) and set(shown) < set(oracle_matches)
     return (output.returncode == oracle.returncode and same_matches
             and footers[0]["rung"] == "exact"
             and footers[0]["hits_total"] == summaries[0]["matched_lines"])

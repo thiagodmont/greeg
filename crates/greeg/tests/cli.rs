@@ -1617,6 +1617,34 @@ fn impact_counts_the_callers_it_leaves_out() {
     }
 }
 
+/// `definitions_total` counts every definition, not the few listed.
+#[test]
+fn refs_and_impact_count_every_definition() {
+    let f = empty_fixture();
+    for i in 0..40 {
+        w(
+            &f.root.join(format!("src/m{i}.rs")),
+            "pub fn target() {}\npub fn user() {\n    target();\n}\n",
+        );
+    }
+    f.indexed();
+    for backend in [&["--no-index"][..], &["--fresh", "stat"][..]] {
+        for verb in ["refs", "impact"] {
+            for dialect in ["--json=greeg", "--json=legacy"] {
+                let mut a = vec![verb, "target", dialect];
+                a.extend_from_slice(backend);
+                let records = json_lines(&f.out(&a));
+                let footer = &records.last().unwrap()["data"];
+                assert_eq!(footer["definitions_total"], 40, "{a:?} {footer}");
+            }
+        }
+        let mut a = vec!["impact", "target"];
+        a.extend_from_slice(backend);
+        let text = f.out(&a);
+        assert!(text.contains(" · 40 definitions"), "{backend:?} {text}");
+    }
+}
+
 /// `outline`, `show` and `map` report the freshness check their index
 /// answer ran, as every other verb does.
 #[test]
@@ -1825,6 +1853,10 @@ fn json_fits_its_budget() {
                     let cut = oc["complete"] == false;
                     if oc["shown"].as_u64() < oc["total"].as_u64() {
                         assert!(cut, "{}", ctx());
+                    }
+                    // every answer grows past its floor when the budget allows
+                    if budget == 4000 {
+                        assert!(!is_floor && est(&out) > floor, "{}", ctx());
                     }
                     assert_eq!(
                         oc["truncated_by"],

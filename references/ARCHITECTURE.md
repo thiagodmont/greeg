@@ -671,10 +671,10 @@ and its outcome line only reports an unchecked index.
 A verb's answer fits its budget in the format it is written: text, or
 JSON by its own size. Each verb has a row allowance (rows, lines or body
 lines); the answer is rendered, its tokens estimated, and the largest
-allowance whose rendering fits is kept. Allowance 0 is the floor: header,
-counts, outcome and `next:`, written even when the budget is smaller. A
-search's JSON is fitted the same way, shaping to the largest budget whose
-JSON fits. `cli.rs` `verb_text_fits_its_budget` and `json_fits_its_budget`
+allowance whose rendering fits is kept. Allowance 0 is the floor, written
+even when the budget is smaller: header, counts, outcome and `next:` in text;
+header, counts and footer in JSON. A search's JSON is fitted by shaping it to
+smaller budgets until it fits. `cli.rs` `verb_text_fits_its_budget` and `json_fits_its_budget`
 check it.
 
 `tokens::estimate` is the one token estimate, for search shaping, verb
@@ -722,9 +722,10 @@ one file can answer differently. Also:
 `--json=greeg` is greeg's own format, schema 2, for searches and verbs,
 specified in [JSON.md](JSON.md): typed `{type, data}` records after a header,
 paths and content as `{"text"}` or `{"bytes"}`, each file's encoding and
-offset coordinates, and an `outcome` in every footer. `--budget` bounds its
-own estimated tokens, and `outcome.truncated_by` says when the budget cut
-it. Serde structs in `json_native.rs` define it.
+offset coordinates, and an `outcome` in every footer. A non-zero `--budget`
+bounds its own estimated tokens once its smallest answer fits (that answer is
+written regardless), `--budget 0` writes everything, and
+`outcome.truncated_by` says when the budget cut it. Serde structs in `json_native.rs` define it.
 
 `--json=legacy`, which bare `--json` means until 0.11
 ([migrating](JSON.md#migrating-from-bare---json)), keeps ripgrep's JSON Lines
