@@ -37,20 +37,22 @@ class AgentTaskTests(unittest.TestCase):
     def test_reference_answers_cite_lines_that_exist(self):
         """Each path:line a reference answer cites is in the pinned corpus,
         when the corpus is fetched; the line holds the name cited before it."""
-        cited = 0
+        cited, fetched = 0, 0
         for t in tasks():
             root = corpus_path(t["corpus"])
             if not root.is_dir():
                 continue
+            fetched += 1
             for name, path, line in re.findall(r"([\w.:]+)\W+(?:at |\()([\w./-]+/[\w.-]+):(\d+)", t["answer"]):
                 with self.subTest(t["id"], path=path):
                     lines = (root / path).read_text(errors="replace").splitlines()
                     self.assertGreaterEqual(len(lines), int(line))
                     last = re.split(r"::|\.", name)[-1]
-                    self.assertIn(last, lines[int(line) - 1], f"{path}:{line}")
+                    self.assertRegex(lines[int(line) - 1], rf"\b{re.escape(last)}\b", f"{path}:{line}")
                     cited += 1
-        if cited == 0:
+        if not fetched:
             self.skipTest("no corpus fetched")
+        self.assertGreater(cited, 0, "corpora fetched, but no citation parsed")
 
 
 if __name__ == "__main__":

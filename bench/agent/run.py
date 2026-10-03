@@ -25,7 +25,7 @@ and `greeg hook run` as their PreToolUse hook. Isolation:
 Each run directory holds `stream.jsonl`, `answer.txt`, `check.txt` and
 `meta.json`. It needs a Claude Code login and spends API credits.
 """
-import argparse, json, os, random, shutil, subprocess, sys, time, tomllib
+import argparse, json, os, random, shutil, signal, subprocess, sys, time, tomllib
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -34,6 +34,12 @@ with open(HERE.parent / "corpora.toml", "rb") as fh:
     CORPORA = tomllib.load(fh)
 # ignored files count too: an agent's write to one would otherwise go unseen
 STATUS = ["git", "status", "--porcelain", "--ignored"]
+
+
+def status(work):
+    """The clone's `git status`, or None when git cannot read it."""
+    p = subprocess.run(STATUS, cwd=work, capture_output=True, text=True)
+    return p.stdout if p.returncode == 0 else None
 
 
 def corpus_path(name):
@@ -89,7 +95,7 @@ def prepare(out, corpus, greeg):
     work = out / "work" / corpus
     baseline = out / "work" / f"{corpus}.status"
     template = out / "index" / corpus
-    if work.exists() and (not baseline.exists() or sh(STATUS, cwd=work) != baseline.read_text()):
+    if work.exists() and (not baseline.exists() or status(work) != baseline.read_text()):
         shutil.rmtree(work)
     if not work.exists():
         work.parent.mkdir(parents=True, exist_ok=True)
@@ -130,12 +136,16 @@ def run_cell(a, out, task, arm, n, order):
            "--disallowedTools", *DENIED]
     started = time.time()
     with open(d / "stream.jsonl", "w") as fh:
+        # its own process group, so a timeout also stops the commands it started
+        p = subprocess.Popen(cmd, cwd=work, env=env, stdin=subprocess.DEVNULL, stdout=fh,
+                             stderr=subprocess.PIPE, text=True, start_new_session=True)
         try:
-            p = subprocess.run(cmd, cwd=work, env=env, stdin=subprocess.DEVNULL, stdout=fh,
-                               stderr=subprocess.PIPE, text=True, timeout=a.timeout)
-            exit_code, stderr = p.returncode, p.stderr
+            _, stderr = p.communicate(timeout=a.timeout)
+            exit_code = p.returncode
         except subprocess.TimeoutExpired:
-            exit_code, stderr = "timeout", ""
+            os.killpg(p.pid, signal.SIGKILL)
+            _, stderr = p.communicate()
+            exit_code = "timeout"
     wall = time.time() - started
     answer = ""
     for line in open(d / "stream.jsonl"):
@@ -148,7 +158,7 @@ def run_cell(a, out, task, arm, n, order):
     (d / "answer.txt").write_text(answer)
     check = subprocess.run(["sh", "-c", task["check"]], cwd=d).returncode
     (d / "check.txt").write_text(f"{check}\n")
-    dirty = sh(STATUS, cwd=work) != before
+    dirty = status(work) != before
     if dirty:
         shutil.rmtree(work)
         clone(corpus_path(task["corpus"]), work)
