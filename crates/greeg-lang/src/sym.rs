@@ -1493,7 +1493,12 @@ fn expand_use_tree(t: &[u8], prefix: &str, out: &mut Vec<String>) {
             .trim_end_matches("::")
             .to_string();
         let prefix = join_path(prefix, &head);
-        let inner = &t[brace + 1..t.iter().rposition(|&b| b == b'}').unwrap_or(t.len())];
+        let close = t
+            .iter()
+            .rposition(|&b| b == b'}')
+            .filter(|&c| c > brace)
+            .unwrap_or(t.len());
+        let inner = &t[brace + 1..close];
         // split at depth-0 commas
         let mut depth = 0;
         let mut s = 0;
@@ -2333,6 +2338,14 @@ mod tests {
         let mut v = Vec::new();
         expand_use_tree(b"crate::x::*", "", &mut v);
         assert_eq!(v, vec!["crate::x::*"]);
+    }
+
+    /// Found by fuzzing: a stray `}` before the group's `{` in broken code.
+    #[test]
+    fn a_use_tree_closed_before_it_opens_is_read_without_a_panic() {
+        let mut v = Vec::new();
+        expand_use_tree(b"a}b::{c", "", &mut v);
+        assert_eq!(v, vec!["a}b::c"]);
     }
 }
 
