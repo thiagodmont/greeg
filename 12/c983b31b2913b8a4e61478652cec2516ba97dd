@@ -1,0 +1,29 @@
+crates/greeg/src/main.rs
+  s_b1057b2933cdb0::t_d0af58b432d893 1450-1462,1467,1469,1471,1473,1477,1490-1491,1495-1497,1499,1682
+crates/greeg/src/verbs_out.rs
+  s_b1057b2933cdb0::t_16d05c66b9461e 144-160,162,164-168,170-173,180,189-190,192,200
+  s_b1057b2933cdb0::t_8e863b48fa91c9 101-102,107,113-116,161,163
+README.md
+  s_b1057b2933cdb0::t_d93fcd0978a7d4 291-293
+references/ARCHITECTURE.md
+  s_b1057b2933cdb0::t_d93fcd0978a7d4 680-683,685-686
+crates/greeg/tests/cli.rs
+  s_b1057b2933cdb0::t_c3dda301f430a7 1905-1930
+  s_b1057b2933cdb0::t_b0294184510255 2017-2020
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "12c983b31b2913b8a4e61478652cec2516ba97dd",
+  "prompts": {},
+  "sessions": {
+    "s_b1057b2933cdb0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0aa73425-0ec9-4b76-ae94-35b6bdff17bb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
