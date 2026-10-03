@@ -381,6 +381,7 @@ pub struct FileResult {
     pub total: usize,
     /// Matched lines before any `--kind` filter.
     pub total_unfiltered: usize,
+    /// Kinds of the kept lines (`hits`).
     pub kinds: [u32; 9],
     /// Definitions referenced by `hits[..].def_idx` (only those; a file can hold thousands).
     pub defs: Vec<DefSummary>,
@@ -470,6 +471,8 @@ pub struct Stats {
     pub total_hits: usize,
     /// Matched lines before `--kind` filtering.
     pub total_unfiltered: usize,
+    /// Kept lines by kind (`FileResult::kinds` summed): every matched line up
+    /// to the per-file cap, one per file under `-c`.
     pub by_kind: [usize; 9],
     pub skipped_binary: usize,
     /// Files searched only up to a NUL past their first 64 KiB.
