@@ -1620,7 +1620,8 @@ fn keep_within(
     cap: usize,
 ) -> Result<Report> {
     let size = |r: &Report| -> Result<usize> { Ok(render_search(c, result, r, fmt)?.0.len()) };
-    if size(&report)? <= cap {
+    let whole = size(&report)?;
+    if whole <= cap {
         return Ok(report);
     }
     // the first `n`, with the hint and the estimate of what it writes
@@ -1633,6 +1634,15 @@ fn keep_within(
         Ok((r, n))
     };
     let (mut lo, mut hi) = (0, report.units().saturating_sub(1));
+    // a guess from the average result's size spares rendering large halves
+    let guess = (report.units() * cap / whole * 2).max(1);
+    if guess < hi {
+        if first(guess)?.1 <= cap {
+            lo = guess;
+        } else {
+            hi = guess - 1;
+        }
+    }
     while lo < hi {
         let mid = lo + (hi - lo).div_ceil(2);
         if first(mid)?.1 <= cap {
