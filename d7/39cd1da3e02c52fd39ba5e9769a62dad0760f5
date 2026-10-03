@@ -1,0 +1,36 @@
+crates/greeg/tests/cli.rs
+  s_b1057b2933cdb0::t_8f7adcd8c765a5 1858,1860
+  s_b1057b2933cdb0::t_a9a17fbb38e4c3 1620-1647
+  s_b1057b2933cdb0::t_5e39f6703e2480 1857,1859
+crates/greeg/src/json_native.rs
+  s_b1057b2933cdb0::t_e290184af82171 540,924
+bench/test_matching.py
+  s_b1057b2933cdb0::t_7594fb5ad12044 65-66
+bench/matching.py
+  s_b1057b2933cdb0::t_a265b2c43eb9de 93
+references/ARCHITECTURE.md
+  s_b1057b2933cdb0::t_50448b05468b25 674-677,725-728
+references/JSON.md
+  s_b1057b2933cdb0::t_2aca1e1abac2a6 105-114,152-154
+crates/greeg/src/verbs_out.rs
+  s_b1057b2933cdb0::t_e290184af82171 712,1494
+  s_b1057b2933cdb0::t_0584c4b4594088 1539
+crates/greeg-query/src/verbs.rs
+  s_b1057b2933cdb0::t_e290184af82171 688,690-691,710-711,732,1676,1769
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "d739cd1da3e02c52fd39ba5e9769a62dad0760f5",
+  "prompts": {},
+  "sessions": {
+    "s_b1057b2933cdb0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0aa73425-0ec9-4b76-ae94-35b6bdff17bb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
