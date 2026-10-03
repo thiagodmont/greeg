@@ -213,6 +213,9 @@ struct Common {
     /// Output token budget: low (1000), medium (2000), high (5000), none (0 = unlimited, rg-shaped `path:line:text` in path order) or a number. Default: `greeg budget`, else 2000
     #[arg(long = "budget", global = true, value_name = "LEVEL|N", value_parser = budget::parse)]
     budget_arg: Option<usize>,
+    /// Hard ceiling on stdout bytes for searches and verbs: whole lines and records only, cut noted in the outcome; exit 2 when the smallest answer does not fit
+    #[arg(long = "max-bytes", global = true, value_name = "N")]
+    max_bytes: Option<usize>,
     /// Output mode: files | outline | content | block
     #[arg(long = "mode", default_value = "content", global = true)]
     mode: String,
@@ -768,6 +771,9 @@ fn build_options(c: &Common, pattern: String, paths: Vec<PathBuf>) -> Result<Opt
     if c.json_rg() && c.budget_arg.is_some() {
         anyhow::bail!("--json=rg returns every match, as ripgrep does; it takes no --budget");
     }
+    if c.json_rg() && c.max_bytes.is_some() {
+        anyhow::bail!("--json=rg returns every match, as ripgrep does; it takes no --max-bytes");
+    }
     // greeg's hits are single lines; ripgrep prints a multiline match as one record
     if c.json_rg() && c.multiline {
         anyhow::bail!("--json=rg does not print multiline matches as ripgrep does; use --json");
@@ -842,6 +848,7 @@ fn build_options(c: &Common, pattern: String, paths: Vec<PathBuf>) -> Result<Opt
         max_filesize: c.max_filesize,
         mode,
         budget: c.budget(),
+        max_bytes: c.max_bytes.unwrap_or(0),
         near: c.near.clone(),
         no_tests: c.no_tests,
         no_vendored: c.no_vendored,
@@ -1127,8 +1134,8 @@ fn run() -> Result<()> {
         report
     };
     let mut report = build(&mut result, opts.budget);
-    if c.json() && !c.json_rg() && opts.budget > 0 {
-        report = fit_search_json(c, &mut result, report, build)?;
+    if !c.json_rg() {
+        report = fit_search(c, &mut result, report, build, fmt)?;
     }
     let t_shape = t0.elapsed() - t_scan;
     emit(c, &result, &report, fmt)?;
@@ -1191,7 +1198,7 @@ fn run() -> Result<()> {
             files: Some(result.stats.files_matched),
             exit: 0,
         },
-        &Outcome::of_search(&result, report.footer.hits_shown),
+        &Outcome::of_answer(&result, &report.footer),
     )
 }
 
@@ -1415,132 +1422,243 @@ fn run_stdin(c: &Common, mut opts: Options, fmt: Fmt) -> Result<()> {
     greeg_index::commit::note_stdin_read();
     greeg_index::commit::inject("after-stdin");
     let mut result = greeg_query::stdin::scan(&opts, data)?;
-    let report = greeg_query::shape::shape(&mut result);
-    emit(c, &result, &report, Fmt { stdin: true, ..fmt })?;
+    let fmt = Fmt { stdin: true, ..fmt };
+    let mut report = greeg_query::shape::shape(&mut result);
+    if opts.max_bytes > 0 {
+        report = keep_within(c, &result, report, fmt, opts.max_bytes)?;
+    }
+    emit(c, &result, &report, fmt)?;
     verbs_out::finish_run(
         stats::RunInfo {
             verb: "search",
             hits: Some(result.stats.total_hits),
             ..Default::default()
         },
-        &Outcome::of_search(&result, report.footer.hits_shown),
+        &Outcome::of_answer(&result, &report.footer),
     )
 }
 
-/// A search's JSON records.
-fn search_json(c: &Common, w: &mut Vec<u8>, result: &ScanResult, report: &Report) -> Result<()> {
-    if c.json_greeg() {
-        json_native::search(w, result, report)
-    } else {
-        render_json(w, result, report)
-    }
-}
-
-/// Fit a search's JSON to the budget by its own size. Shaping budgets scaled
-/// by how far the JSON is over find one that fits (or, after six, the floor:
-/// a budget of 1); up to four bisections toward the last one over then fill
-/// what is left, until less than a tenth is unused. The footer's `est_tokens`
-/// is the JSON's.
-fn fit_search_json(
+/// What a search writes: stdout, and the footer that goes to stderr when
+/// stdout must stay pipe-safe (`-l`, `-c`, `--budget 0`).
+fn render_search(
     c: &Common,
-    result: &mut ScanResult,
-    report: Report,
-    build: impl Fn(&mut ScanResult, usize) -> Report,
-) -> Result<Report> {
-    let budget = result.opts.budget;
-    let measure = |result: &ScanResult, mut report: Report| -> Result<(Report, usize)> {
-        let mut w = Vec::new();
-        search_json(c, &mut w, result, &report)?;
-        report.footer.est_tokens = greeg_query::tokens::estimate(&w);
-        w.clear();
-        search_json(c, &mut w, result, &report)?;
-        Ok((report, greeg_query::tokens::estimate(&w)))
-    };
-    let at = |result: &mut ScanResult, b: usize| {
-        let report = build(result, b);
-        measure(result, report)
-    };
-    if matches!(report.layout, Layout::Files | Layout::Count) {
-        return Ok(report);
-    }
-    let (report, est) = measure(result, report)?;
-    // a budget of 1 shapes the floor already
-    if est <= budget || budget == 1 {
-        return Ok(report);
-    }
-    // JSON grows roughly with the shaping budget
-    let (mut over, mut over_est) = (budget, est);
-    let mut fit = None;
-    for _ in 0..6 {
-        let b =
-            ((over as f64 * budget as f64 / over_est as f64 * 0.97) as usize).clamp(1, over - 1);
-        let (r, e) = at(result, b)?;
-        if e <= budget || b == 1 {
-            fit = Some((b, r, e));
-            break;
-        }
-        (over, over_est) = (b, e);
-    }
-    let (mut lo, mut best, mut best_est) = match fit {
-        Some(f) => f,
-        None => {
-            let (r, e) = at(result, 1)?;
-            (1, r, e)
-        }
-    };
-    for _ in 0..4 {
-        if best_est > budget || best_est >= budget - budget / 10 || over - lo <= 1 {
-            break;
-        }
-        let mid = lo + (over - lo) / 2;
-        let (r, e) = at(result, mid)?;
-        if e <= budget {
-            (lo, best, best_est) = (mid, r, e);
-        } else {
-            over = mid;
-        }
-    }
-    Ok(best)
-}
-
-/// Write the answer: JSON records, or the text body plus the footer (stdout;
-/// stderr for `-l`/`-c` and `--budget 0`, whose stdout stays pipe-safe).
-fn emit(c: &Common, result: &ScanResult, report: &Report, fmt: Fmt) -> Result<()> {
-    let stdout = std::io::stdout();
-    let mut w = BufWriter::with_capacity(64 * 1024, stats::Tee(stdout.lock()));
+    result: &ScanResult,
+    report: &Report,
+    fmt: Fmt,
+) -> Result<(Vec<u8>, Vec<u8>)> {
+    let mut out: Vec<u8> = Vec::with_capacity(16 * 1024);
     // ripgrep prints -l and -c as text even under --json
     let plain = c.json_rg() && matches!(report.layout, Layout::Files | Layout::Count);
     if c.json() && !plain {
         if c.json_rg() {
-            render_rg_json(&mut w, result, report)?;
+            render_rg_json(&mut out, result, report)?;
         } else if c.json_greeg() {
-            json_native::search(&mut w, result, report)?;
+            json_native::search(&mut out, result, report)?;
         } else {
-            render_json(&mut w, result, report)?;
+            render_json(&mut out, result, report)?;
         }
-        w.flush()?;
-        return Ok(());
+        return Ok((out, Vec::new()));
     }
-    let mut body: Vec<u8> = Vec::with_capacity(16 * 1024);
-    render_body(&mut body, result, report, fmt)?;
-    w.write_all(&body)?;
-    let pipe_safe =
-        matches!(report.layout, Layout::Files | Layout::Count) || result.opts.budget == 0;
-    if pipe_safe {
-        w.flush()?;
-        if !fmt.stdin {
-            let mut f = Vec::new();
-            render_footer(&mut f, result, report, report.footer.est_tokens, fmt, false)?;
-            std::io::stderr().write_all(&f)?;
-            stats::observe(&f);
+    render_body(&mut out, result, report, fmt)?;
+    let mut err = Vec::new();
+    if pipe_safe(result, report) {
+        // stdin answers as ripgrep does, without a footer, unless cut
+        if !fmt.stdin || report.footer.byte_cut {
+            render_footer(
+                &mut err,
+                result,
+                report,
+                report.footer.est_tokens,
+                fmt,
+                false,
+            )?;
         }
     } else {
         // measured estimate for the whole output: body plus the footer itself
         let mut probe = Vec::new();
         render_footer(&mut probe, result, report, 8888, fmt, true)?;
-        let est = greeg_query::tokens::rendered(&body) + greeg_query::tokens::rendered(&probe);
-        render_footer(&mut w, result, report, est, fmt, true)?;
-        w.flush()?;
+        let est = greeg_query::tokens::rendered(&out) + greeg_query::tokens::rendered(&probe);
+        render_footer(&mut out, result, report, est, fmt, true)?;
+    }
+    Ok((out, err))
+}
+
+/// Text whose stdout is lines only, its footer on stderr.
+fn pipe_safe(result: &ScanResult, report: &Report) -> bool {
+    matches!(report.layout, Layout::Files | Layout::Count) || result.opts.budget == 0
+}
+
+/// Fit a search to `--budget` in the format written (JSON by its own size;
+/// text is shaped to it already) and to `--max-bytes`. Shaped answers are
+/// shaped again to a smaller budget; `-l`, `-c` and `--budget 0` keep the
+/// first results that fit.
+fn fit_search(
+    c: &Common,
+    result: &mut ScanResult,
+    report: Report,
+    build: impl Fn(&mut ScanResult, usize) -> Report,
+    fmt: Fmt,
+) -> Result<Report> {
+    let (budget, cap) = (result.opts.budget, result.opts.max_bytes);
+    let json = c.json() && !c.json_rg();
+    // stdout bytes, and the JSON's tokens (its footer's `est_tokens` set to them)
+    let measure = |result: &ScanResult, mut report: Report| -> Result<(Report, usize, usize)> {
+        if !json {
+            let n = render_search(c, result, &report, fmt)?.0.len();
+            return Ok((report, 0, n));
+        }
+        let (out, _) = render_search(c, result, &report, fmt)?;
+        report.footer.est_tokens = greeg_query::tokens::estimate(&out);
+        let (out, _) = render_search(c, result, &report, fmt)?;
+        let tokens = greeg_query::tokens::estimate(&out);
+        Ok((report, tokens, out.len()))
+    };
+    if budget == 0 || matches!(report.layout, Layout::Files | Layout::Count) {
+        if cap == 0 {
+            return Ok(report);
+        }
+        return keep_within(c, result, report, fmt, cap);
+    }
+    if !json && cap == 0 {
+        return Ok(report);
+    }
+    let (mut report, tokens, bytes) = measure(result, report)?;
+    let mut shaped = budget;
+    // a budget of 1 shapes the floor already
+    if tokens > budget && budget > 1 {
+        let size = |result: &mut ScanResult, b: usize| {
+            let r = build(result, b);
+            let (r, t, _) = measure(result, r)?;
+            Ok((r, t))
+        };
+        (shaped, report) = shrink(result, budget, tokens, budget, size)?;
+    }
+    if cap == 0 {
+        return Ok(report);
+    }
+    let bytes = if shaped == budget {
+        bytes
+    } else {
+        measure(result, report.clone())?.2
+    };
+    if bytes <= cap {
+        return Ok(report);
+    }
+    let hint = format!("--max-bytes {}", cap * 2);
+    let size = |result: &mut ScanResult, b: usize| {
+        let mut r = build(result, b);
+        r.footer.byte_cut = true;
+        r.footer.hints.insert(0, hint.clone());
+        let (r, _, n) = measure(result, r)?;
+        Ok((r, n))
+    };
+    let (_, report) = shrink(result, shaped, bytes, cap, size)?;
+    let n = measure(result, report.clone())?.2;
+    if n > cap {
+        anyhow::bail!("--max-bytes {cap} is below the {n} bytes this answer needs");
+    }
+    Ok(report)
+}
+
+/// Shape to the largest budget below `over` whose answer's size is within
+/// `limit`, `size` measuring one: budgets scaled by how far the size is over
+/// find one that fits (or, after six, the floor: a budget of 1); up to four
+/// bisections toward the last one over then fill what is left, until less than
+/// a tenth is unused. The answer at budget 1 may still be over.
+fn shrink(
+    result: &mut ScanResult,
+    over: usize,
+    over_size: usize,
+    limit: usize,
+    size: impl Fn(&mut ScanResult, usize) -> Result<(Report, usize)>,
+) -> Result<(usize, Report)> {
+    let (mut over, mut over_size) = (over, over_size);
+    let mut fit = None;
+    for _ in 0..6 {
+        if over <= 1 {
+            break;
+        }
+        // size grows roughly with the shaping budget
+        let b =
+            ((over as f64 * limit as f64 / over_size as f64 * 0.97) as usize).clamp(1, over - 1);
+        let (r, n) = size(result, b)?;
+        if n <= limit || b == 1 {
+            fit = Some((b, r, n));
+            break;
+        }
+        (over, over_size) = (b, n);
+    }
+    let (mut lo, mut best, mut best_size) = match fit {
+        Some(f) => f,
+        None => {
+            let (r, n) = size(result, 1)?;
+            (1, r, n)
+        }
+    };
+    for _ in 0..4 {
+        if best_size > limit || best_size >= limit - limit / 10 || over - lo <= 1 {
+            break;
+        }
+        let mid = lo + (over - lo) / 2;
+        let (r, n) = size(result, mid)?;
+        if n <= limit {
+            (lo, best, best_size) = (mid, r, n);
+        } else {
+            over = mid;
+        }
+    }
+    Ok((lo, best))
+}
+
+/// The first results of an unshaped answer (`-l`, `-c`, `--budget 0`) whose
+/// stdout fits `cap` bytes; an error when not even the first fits.
+fn keep_within(
+    c: &Common,
+    result: &ScanResult,
+    report: Report,
+    fmt: Fmt,
+    cap: usize,
+) -> Result<Report> {
+    let size = |r: &Report| -> Result<usize> { Ok(render_search(c, result, r, fmt)?.0.len()) };
+    if size(&report)? <= cap {
+        return Ok(report);
+    }
+    // the first `n`, with the hint and the estimate of what it writes
+    let first = |n: usize| -> Result<(Report, usize)> {
+        let mut r = report.keep(n);
+        r.footer.hints.insert(0, format!("--max-bytes {}", cap * 2));
+        let out = render_search(c, result, &r, fmt)?.0;
+        r.footer.est_tokens = greeg_query::tokens::rendered(&out);
+        let n = size(&r)?;
+        Ok((r, n))
+    };
+    let (mut lo, mut hi) = (0, report.units().saturating_sub(1));
+    while lo < hi {
+        let mid = lo + (hi - lo).div_ceil(2);
+        if first(mid)?.1 <= cap {
+            lo = mid;
+        } else {
+            hi = mid - 1;
+        }
+    }
+    let (kept, n) = first(lo)?;
+    if n > cap {
+        anyhow::bail!("--max-bytes {cap} is below the {n} bytes this answer needs");
+    }
+    Ok(kept)
+}
+
+/// Write the answer: JSON records, or the text body plus the footer (stdout;
+/// stderr for `-l`/`-c` and `--budget 0`, whose stdout stays pipe-safe).
+fn emit(c: &Common, result: &ScanResult, report: &Report, fmt: Fmt) -> Result<()> {
+    let (out, err) = render_search(c, result, report, fmt)?;
+    let stdout = std::io::stdout();
+    let mut w = BufWriter::with_capacity(64 * 1024, stats::Tee(stdout.lock()));
+    w.write_all(&out)?;
+    w.flush()?;
+    if !err.is_empty() {
+        std::io::stderr().write_all(&err)?;
+        stats::observe(&err);
     }
     Ok(())
 }
@@ -2041,10 +2159,13 @@ fn render_footer(
         }
         write!(w, " · skipped {}", parts.join(", "))?;
     }
+    if ft.byte_cut {
+        write!(w, " · cut by --max-bytes")?;
+    }
     if ft.rung != greeg_query::Rung::Exact {
         write!(w, " · matched {}", ft.rung.describe())?;
     }
-    if let Some(note) = verbs_out::unchecked_note(&Outcome::of_search(r, ft.hits_shown)) {
+    if let Some(note) = verbs_out::unchecked_note(&Outcome::of_answer(r, ft)) {
         write!(w, " · {note}")?;
     }
     if !complete && r.stats.total_hits > 0 {
@@ -2430,7 +2551,7 @@ fn render_json(w: &mut impl Write, r: &ScanResult, rep: &Report) -> Result<()> {
         "rung":ft.rung.name(),"rung_names":match &ft.rung { greeg_query::Rung::SplitTokens(v) | greeg_query::Rung::Fuzzy(v) => v.clone(), _ => vec![] },"ignored_only":ft.ignored_only,"est_tokens":ft.est_tokens,"elapsed_ms":ft.elapsed_ms,"hints":ft.hints,
         "related":rep.related.iter().map(|(n,c)| json!([n, c])).collect::<Vec<_>>(),
         "layout":format!("{:?}", rep.layout).to_lowercase(),
-        "outcome":verbs_out::outcome_json(&Outcome::of_search(r, ft.hits_shown))
+        "outcome":verbs_out::outcome_json(&Outcome::of_answer(r, ft))
     }});
     if ft.binary_tails > 0 {
         let data = footer["data"].as_object_mut().expect("footer data");
