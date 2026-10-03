@@ -223,7 +223,7 @@ other argument (exit 2), reads no index and records nothing.
 | `json` | `dialects`, `greeg_schema`, and what bare `--json` means (`bare`) |
 | `global` | long flags every search and command accepts (`--budget`, `--json`, `--max-bytes`, …) |
 | `search` | `args` (positional names) and `flags` (its own long flags) of a search |
-| `commands` | the same for each command, with nested `commands` (`hook claude`, `stats replay`, …) |
+| `commands` | the same for each command, with nested `commands` (`hook claude`, `stats replay`, …); a flag is listed once, by the command that declares it, and its subcommands accept it too (`stats --since`) |
 | `budget` | `levels`, the `default` in effect and its `source` (`env`, `config`, `default`), `max_bytes` |
 | `matching`, `fresh` | matching policies; freshness modes, and whether `fsevents` is native (macOS) or falls back to `stat` |
 | `languages` | `builtin` languages with full syntax support; `extra` runtime languages with `name`, `extensions` and `ready` (grammar and tags query load) |
