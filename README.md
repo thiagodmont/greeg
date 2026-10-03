@@ -142,6 +142,12 @@ greeg hook claude       # Claude Code   (--dry-run to preview, --uninstall to re
 greeg hook codex        # Codex         (then run /hooks in Codex to trust it)
 ```
 
+A rewrite changes only the command: the call's timeout, background flag and
+description are passed back unchanged. Codex applies hook rewrites from 0.131
+on. `crates/greeg/tests/fixtures/hooks` holds each host's documented hook
+payload; the hook tests check that each reply has the shape that host's
+documentation accepts.
+
 Install/uninstall recognizes exact command handlers: `greeg hook run` (also
 `--agent claude`) for Claude, and `greeg hook run --agent codex` for Codex.
 Uninstall removes those handlers while preserving other handlers and entry
