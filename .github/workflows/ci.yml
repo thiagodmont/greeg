@@ -26,7 +26,19 @@ jobs:
           components: clippy, rustfmt
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
       - run: cargo build --release --workspace --locked
+      - name: ripgrep (the differential test compares against it)
+        shell: bash
+        run: |
+          if command -v apt-get >/dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq ripgrep
+          else
+            brew install ripgrep
+          fi
+          rg --version | head -1
       - run: cargo test --workspace --locked
+        env:
+          GREEG_TEST_RG: "1"
       - name: known gaps still reproduce
         # Each ignored test in known_gaps.rs asserts a fix; one that passes must lose its #[ignore].
         shell: bash

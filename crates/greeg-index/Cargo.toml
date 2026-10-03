@@ -25,6 +25,7 @@ xxhash-rust.workspace = true
 
 [dev-dependencies]
 criterion = { version = "0.5", default-features = false }
+regex.workspace = true
 
 [[bench]]
 name = "kernels"
