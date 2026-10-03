@@ -160,6 +160,14 @@ mod tests {
                 estimate(footer(b).as_bytes())
             );
         }
+        // another width is rendered again
+        for (a, b) in [(99, 100), (999, 1000), (9999, 10000)] {
+            assert_ne!(footer(a).len(), footer(b).len());
+        }
+        assert_ne!(
+            estimate(footer(999).as_bytes()),
+            estimate(footer(1000).as_bytes())
+        );
     }
 
     /// Verb layouts and JSON lines, with their o200k_base counts.
