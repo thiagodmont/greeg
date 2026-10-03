@@ -814,6 +814,34 @@ fn stdin_is_searched_like_ripgrep() {
     assert_eq!(String::from_utf8_lossy(&o.stdout).trim(), "alpha");
 }
 
+/// `--max-bytes` keeps stdin's first lines and says so on stderr.
+#[test]
+fn stdin_keeps_the_lines_max_bytes_allows() {
+    use std::io::Write;
+    use std::process::Stdio;
+    let mut c = greeg()
+        .args(["--no-session", "--max-bytes", "20", "alpha"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .env("GREEG_STATS", "0")
+        .spawn()
+        .unwrap();
+    c.stdin
+        .take()
+        .unwrap()
+        .write_all("alpha 1\nalpha 2\nalpha 3\nalpha 4\n".as_bytes())
+        .unwrap();
+    let o = c.wait_with_output().unwrap();
+    assert_eq!(String::from_utf8_lossy(&o.stdout), "alpha 1\nalpha 2\n");
+    let err = String::from_utf8_lossy(&o.stderr);
+    assert!(
+        err.contains("2/4 hits") && err.contains("cut by --max-bytes"),
+        "{err}"
+    );
+    assert_eq!(o.status.code(), Some(0));
+}
+
 #[test]
 fn stdin_with_utf8_bom_matches_anchored_first_line() {
     use std::io::Write;
@@ -1872,6 +1900,91 @@ fn json_fits_its_budget() {
             }
         }
     }
+}
+
+/// `--max-bytes` bounds stdout in every format: the answer fits, stays whole
+/// records, and says the ceiling cut it; a ceiling below its floor is an error.
+#[test]
+fn max_bytes_bounds_stdout() {
+    let f = outcome_fixture();
+    let queries: [&[&str]; 13] = [
+        &["target"],
+        &["target", "--budget", "0"],
+        &["target", "-l"],
+        &["target", "-c"],
+        &["-w", "target", "-C", "2"],
+        &["def", "target"],
+        &["refs", "target"],
+        &["callers", "target"],
+        &["impls", "Shape"],
+        &["impact", "target"],
+        &["outline", "src/lib.rs"],
+        &["show", "src/lib.rs:12", "src/lib.rs:20"],
+        &["map", "src"],
+    ];
+    let mut byte_cuts = 0;
+    for format in ["--json=greeg", "--json=legacy", "--color=never"] {
+        let json = format.starts_with("--json");
+        for q in queries {
+            let run = |cap: Option<usize>| {
+                let mut a: Vec<String> = q.iter().map(|s| s.to_string()).collect();
+                a.extend(["--fresh".into(), "stat".into(), format.into()]);
+                if let Some(cap) = cap {
+                    a.extend(["--max-bytes".into(), cap.to_string()]);
+                }
+                let a: Vec<&str> = a.iter().map(|s| s.as_str()).collect();
+                f.run(&a)
+            };
+            let whole = run(None);
+            assert!(whole.status.success(), "{q:?} {format}");
+            let same = |a: &[u8], b: &[u8]| {
+                if json {
+                    stable_records(a) == stable_records(b)
+                } else {
+                    a == b
+                }
+            };
+            let mut fitted = false;
+            for cap in [40, 120, 250, 500, 1000, 2000, 4000, 8000, 1 << 20] {
+                let out = run(Some(cap));
+                let ctx = format!("{q:?} {format} --max-bytes {cap}");
+                if !out.status.success() {
+                    assert!(!fitted, "{ctx}: a smaller ceiling fitted");
+                    assert_eq!(out.status.code(), Some(2), "{ctx}");
+                    assert!(out.stdout.is_empty(), "{ctx}");
+                    let err = String::from_utf8_lossy(&out.stderr);
+                    assert!(err.contains("is below the"), "{ctx}: {err}");
+                    continue;
+                }
+                fitted = true;
+                assert!(out.stdout.len() <= cap, "{ctx}: {} bytes", out.stdout.len());
+                let text = std::str::from_utf8(&out.stdout).expect("whole characters");
+                let cut = !same(&out.stdout, &whole.stdout);
+                if json {
+                    for line in text.lines() {
+                        serde_json::from_str::<serde_json::Value>(line)
+                            .unwrap_or_else(|e| panic!("{ctx}: {e}: {line}"));
+                    }
+                    let last = text.lines().last().unwrap();
+                    let footer: serde_json::Value = serde_json::from_str(last).unwrap();
+                    let oc = &footer["data"]["outcome"];
+                    if oc.is_object() {
+                        let by_bytes = oc["truncated_by"] == "bytes";
+                        assert_eq!(by_bytes, cut, "{ctx}: {last}");
+                        if by_bytes {
+                            assert_eq!(oc["complete"], false, "{ctx}");
+                        }
+                    }
+                } else if cut {
+                    let all = format!("{text}{}", String::from_utf8_lossy(&out.stderr));
+                    assert!(all.contains("--max-bytes"), "{ctx}: {all}");
+                }
+                byte_cuts += usize::from(cut);
+            }
+            assert!(fitted, "{q:?} {format}: no ceiling fitted");
+        }
+    }
+    assert!(byte_cuts > 30, "{byte_cuts} byte cuts");
 }
 
 /// A `def` that finds only near names fits their list to the budget too.

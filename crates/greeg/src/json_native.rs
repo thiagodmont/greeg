@@ -79,11 +79,6 @@ pub(crate) struct OutcomeRec {
     truncated_by: Option<&'static str>,
 }
 
-/// What cut an incomplete answer: only the budget, for now.
-pub(crate) fn truncated_by(complete: bool) -> Option<&'static str> {
-    (!complete).then_some("budget")
-}
-
 impl OutcomeRec {
     pub(crate) fn of(o: &Outcome) -> OutcomeRec {
         OutcomeRec {
@@ -96,30 +91,26 @@ impl OutcomeRec {
             source: o.source,
             fresh: o.fresh,
             deferred: o.deferred,
-            truncated_by: truncated_by(o.complete()),
+            truncated_by: o.truncated_by(),
         }
     }
 
     /// For a command that answers a file or a location: it exits 0 whenever it
     /// answers, even with nothing to show.
-    pub(crate) fn answered(
-        total: usize,
-        shown: usize,
-        complete: bool,
-        source: &'static str,
-        fresh: &'static str,
-    ) -> OutcomeRec {
+    /// `complete` overrides the counts' verdict: `show` is incomplete when
+    /// it clips a body.
+    pub(crate) fn answered(o: &Outcome, complete: bool) -> OutcomeRec {
         OutcomeRec {
             exit: 0,
             exact: true,
             rung: "exact",
-            total,
-            shown,
             complete,
-            source,
-            fresh,
-            deferred: 0,
-            truncated_by: truncated_by(complete),
+            truncated_by: Outcome {
+                shown: if complete { o.total } else { 0 },
+                ..o.clone()
+            }
+            .truncated_by(),
+            ..OutcomeRec::of(o)
         }
     }
 }
@@ -352,7 +343,7 @@ pub(crate) fn search(w: &mut dyn Write, r: &ScanResult, rep: &Report) -> Result<
             hints: &ft.hints,
             related: &rep.related,
             layout: format!("{:?}", rep.layout).to_lowercase(),
-            outcome: OutcomeRec::of(&Outcome::of_search(r, ft.hits_shown)),
+            outcome: OutcomeRec::of(&Outcome::of_answer(r, ft)),
         },
     )
 }
@@ -509,6 +500,7 @@ pub(crate) fn refs(
     defs: usize,
     shown: &[(HitKind, usize, usize)],
     by_kind: Vec<(&'static str, usize)>,
+    oc: &Outcome,
 ) -> Result<()> {
     let s = &r.scan;
     header(w, "refs")?;
@@ -543,7 +535,7 @@ pub(crate) fn refs(
             resolved: r.resolved,
             classified: r.classified,
             elapsed_ms: r3(s.stats.elapsed_ms),
-            outcome: OutcomeRec::of(&Outcome::of_search(s, shown.len())),
+            outcome: OutcomeRec::of(oc),
         },
     )
 }
@@ -624,7 +616,12 @@ struct PlainFooter {
 }
 
 /// `bodies` holds each item's body as shown.
-pub(crate) fn show(w: &mut dyn Write, r: &verbs::ShowResult, bodies: &[verbs::Body]) -> Result<()> {
+pub(crate) fn show(
+    w: &mut dyn Write,
+    r: &verbs::ShowResult,
+    bodies: &[verbs::Body],
+    oc: &Outcome,
+) -> Result<()> {
     header(w, "show")?;
     let texts: Vec<Vec<u8>> = bodies.iter().map(|b| b.lines.join(&b'\n')).collect();
     for ((it, body), text) in r.items.iter().zip(bodies).zip(&texts) {
@@ -654,13 +651,7 @@ pub(crate) fn show(w: &mut dyn Write, r: &verbs::ShowResult, bodies: &[verbs::Bo
         "footer",
         &PlainFooter {
             elapsed_ms: r3(r.elapsed_ms),
-            outcome: OutcomeRec::answered(
-                r.items.len(),
-                r.items.len(),
-                complete,
-                r.source,
-                r.fresh,
-            ),
+            outcome: OutcomeRec::answered(oc, complete),
         },
     )
 }
@@ -687,7 +678,12 @@ struct OutlineFooter<'a> {
 }
 
 /// The first `shown` symbols.
-pub(crate) fn outline(w: &mut dyn Write, r: &verbs::OutlineResult, shown: usize) -> Result<()> {
+pub(crate) fn outline(
+    w: &mut dyn Write,
+    r: &verbs::OutlineResult,
+    shown: usize,
+    oc: &Outcome,
+) -> Result<()> {
     header(w, "outline")?;
     for d in &r.defs[..shown] {
         put(
@@ -713,13 +709,7 @@ pub(crate) fn outline(w: &mut dyn Write, r: &verbs::OutlineResult, shown: usize)
             imports: &r.imports,
             parse_errors: r.parse_errors,
             elapsed_ms: r3(r.elapsed_ms),
-            outcome: OutcomeRec::answered(
-                r.defs.len(),
-                shown,
-                shown == r.defs.len(),
-                r.source,
-                r.fresh,
-            ),
+            outcome: OutcomeRec::answered(oc, shown == r.defs.len()),
         },
     )
 }
@@ -759,6 +749,7 @@ pub(crate) fn map(
     r: &verbs::MapResult,
     dir_limit: usize,
     file_limit: usize,
+    oc: &Outcome,
 ) -> Result<()> {
     header(w, "map")?;
     let dirs = &r.dirs[..r.dirs.len().min(dir_limit)];
@@ -802,7 +793,7 @@ pub(crate) fn map(
             dirs_total: r.dirs.len(),
             graph_changes: r.graph_changes,
             elapsed_ms: r3(r.elapsed_ms),
-            outcome: OutcomeRec::answered(total, shown, shown >= total, r.source, r.fresh),
+            outcome: OutcomeRec::answered(oc, shown >= total),
         },
     )
 }
