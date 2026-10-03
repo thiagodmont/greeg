@@ -665,7 +665,7 @@ fn scan_defs(
                 kind,
                 name: name.to_string(),
                 chain,
-                signature: String::from_utf8_lossy(&h.text).to_string(),
+                signature: String::from_utf8_lossy(&h.display(r.opts.max_columns).0).to_string(),
                 doc: None,
                 flags: 0,
                 file_flags: f.flags,
@@ -1139,8 +1139,8 @@ pub fn impls(o: &Options, name: &str) -> Result<ImplsResult> {
                     continue;
                 }
                 let lang = f.lang;
-                let line = &h.text;
-                let Some((ns, ne)) = greeg_lang::defs::def_name_on_line(lang, line) else {
+                let (line, _) = h.display(r.opts.max_columns);
+                let Some((ns, ne)) = greeg_lang::defs::def_name_on_line(lang, &line) else {
                     continue;
                 };
                 let dname = String::from_utf8_lossy(&line[ns..ne]).to_string();
@@ -1161,7 +1161,7 @@ pub fn impls(o: &Options, name: &str) -> Result<ImplsResult> {
                     kind,
                     name: dname,
                     chain: h.chain[..h.chain.len().saturating_sub(1)].to_vec(),
-                    signature: String::from_utf8_lossy(line).to_string(),
+                    signature: String::from_utf8_lossy(&line).to_string(),
                     doc: None,
                     flags: 0,
                     file_flags: f.flags,
@@ -1723,6 +1723,7 @@ pub fn impact(o: &Options, name: &str) -> Result<ImpactResult> {
     };
     let (mut likely, mut possible, mut review) = (Vec::new(), Vec::new(), Vec::new());
     let mut total = 0usize;
+    let cols = r.scan.opts.max_columns;
     for f in &r.scan.files {
         let mut kinds: BTreeMap<HitKind, usize> = BTreeMap::new();
         for h in &f.hits {
@@ -1739,14 +1740,14 @@ pub fn impact(o: &Options, name: &str) -> Result<ImpactResult> {
             .iter()
             .filter(|h| !matches!(h.kind, HitKind::Comment | HitKind::Str | HitKind::Docstring))
             .take(3)
-            .map(|h| (h.line, h.text.clone()))
+            .map(|h| (h.line, h.display(cols).0.into_owned()))
             .collect();
         if sample.is_empty() {
             sample = f
                 .hits
                 .iter()
                 .take(2)
-                .map(|h| (h.line, h.text.clone()))
+                .map(|h| (h.line, h.display(cols).0.into_owned()))
                 .collect();
         }
         let entry = ImpactFile {

@@ -1000,6 +1000,8 @@ pub(crate) struct Fmt {
     /// `-n` was given (line numbers for stdin, as ripgrep).
     pub(crate) line_numbers: bool,
     pub(crate) stdin: bool,
+    /// `--max-columns`: hit lines are clipped to it when shown (0: never).
+    pub(crate) cols: usize,
 }
 
 fn run() -> Result<()> {
@@ -1191,6 +1193,7 @@ fn run() -> Result<()> {
         stats: c.stats,
         line_numbers: c.line_number,
         stdin: false,
+        cols: opts.max_columns,
     };
     if opts.paths.is_empty() && greeg_query::stdin::is_readable_stdin() && !stdin_is_socket() {
         return run_stdin(c, opts, fmt);
@@ -1517,7 +1520,11 @@ fn run_stdin(c: &Common, mut opts: Options, fmt: Fmt) -> Result<()> {
     greeg_index::commit::note_stdin_read();
     greeg_index::commit::inject("after-stdin");
     let mut result = greeg_query::stdin::scan(&opts, data)?;
-    let fmt = Fmt { stdin: true, ..fmt };
+    let fmt = Fmt {
+        stdin: true,
+        cols: 0,
+        ..fmt
+    };
     let mut report = greeg_query::shape::shape(&mut result);
     if opts.max_bytes > 0 {
         report = keep_within(c, &result, report, fmt, opts.max_bytes)?;
@@ -2006,8 +2013,8 @@ fn digits(n: u32) -> usize {
     n.max(1).ilog10() as usize + 1
 }
 
-fn text_of(h: &greeg_query::Hit) -> std::borrow::Cow<'_, str> {
-    String::from_utf8_lossy(&h.text)
+fn text_of(h: &greeg_query::Hit, cols: usize) -> String {
+    String::from_utf8_lossy(&h.display(cols).0).into_owned()
 }
 
 /// The hit sits on the definition line of its enclosing symbol: the text
@@ -2047,7 +2054,7 @@ fn hit_row(
     format!(
         "  {:>lw$}{kind}  {}{tag}{extra}",
         h.line,
-        text_of(h).trim_end()
+        text_of(h, fmt.cols).trim_end()
     )
 }
 
@@ -2191,7 +2198,7 @@ fn render_body(w: &mut impl Write, r: &ScanResult, rep: &Report, fmt: Fmt) -> Re
                         h.line,
                         ch,
                         if ch.is_empty() { "" } else { " › " },
-                        text_of(h).trim_end()
+                        text_of(h, fmt.cols).trim_end()
                     )?;
                 }
                 if sf.more > 0 {
@@ -2752,7 +2759,7 @@ fn json_hit_records(
                         "symbol":sym,
                         "file_flags":f.flags.names(),
                         "score":h.score,
-                        "clipped":h.clipped
+                        "clipped":h.display(r.opts.max_columns).1
                     }})
                 }
             }
@@ -3040,6 +3047,7 @@ mod tests {
             stats: false,
             line_numbers: false,
             stdin: true,
+            cols: 0,
         };
         let mut kept = 0;
         for cap in 1..2_000 {
