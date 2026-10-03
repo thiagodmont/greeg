@@ -869,6 +869,16 @@ yet. Each test asserts the intended behavior and is ignored; CI runs them with
 `--ignored` and fails if one passes, so the fix that closes a gap also removes
 its `#[ignore]`. List them with `cargo test --test known_gaps -- --ignored`.
 
+`fuzz/` holds four fuzz targets, built on nightly with `cargo fuzz`: the query
+planner never loses a match (`regex_plan`), index components read from any
+bytes fail or read without a panic (`index_decode`), a rewritten `rg` command
+splits back into its own words (`shell_rewrite`), and lexing and symbol
+extraction keep their spans inside the source (`lang_extract`). Each starts
+from the seeds in `fuzz/seeds/` (`python3 fuzz/seeds.py` writes them again).
+Run one with `cargo +nightly fuzz run regex_plan fuzz/corpus/regex_plan
+fuzz/seeds/regex_plan`: new inputs go to the first directory, which git
+ignores. The `fuzz` workflow runs them all on demand.
+
 `bench/bench.py` drives the benchmark protocol: pinned corpora, hyperfine runs
 against `grep`, `rg` and `rg -j4`, an accuracy oracle scored against SCIP
 indexes (`rust-analyzer`, `scip-python`, `scip-typescript`), and regression

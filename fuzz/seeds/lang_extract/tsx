@@ -1,0 +1,2 @@
+ƒconst A = () => <div className="a">{x}</div>;
+export default A;
