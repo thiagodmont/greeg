@@ -1922,6 +1922,18 @@ fn max_bytes_bounds_stdout() {
         &["show", "src/lib.rs:12", "src/lib.rs:20"],
         &["map", "src"],
     ];
+    // random ceilings, seeded so a failure reproduces, plus both ends
+    let mut seed = 0x9e37_79b9_7f4a_7c15u64;
+    let mut ceilings: Vec<usize> = (0..8)
+        .map(|_| {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            40 + (seed % 8000) as usize
+        })
+        .chain([1, 1 << 20])
+        .collect();
+    ceilings.sort_unstable();
     let mut byte_cuts = 0;
     for format in ["--json=greeg", "--json=legacy", "--color=never"] {
         let json = format.starts_with("--json");
@@ -1945,7 +1957,7 @@ fn max_bytes_bounds_stdout() {
                 }
             };
             let mut fitted = false;
-            for cap in [40, 120, 250, 500, 1000, 2000, 4000, 8000, 1 << 20] {
+            for cap in ceilings.iter().copied() {
                 let out = run(Some(cap));
                 let ctx = format!("{q:?} {format} --max-bytes {cap}");
                 if !out.status.success() {
