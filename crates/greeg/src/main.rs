@@ -1447,21 +1447,34 @@ fn render_search(
     fmt: Fmt,
 ) -> Result<(Vec<u8>, Vec<u8>)> {
     let mut out: Vec<u8> = Vec::with_capacity(16 * 1024);
+    let err = write_search(c, &mut out, result, report, fmt)?;
+    Ok((out, err))
+}
+
+/// Write a search's stdout to `out`, returning what goes to stderr. JSON and
+/// pipe-safe text stream; shaped text is small and measured before its footer.
+fn write_search(
+    c: &Common,
+    out: &mut impl Write,
+    result: &ScanResult,
+    report: &Report,
+    fmt: Fmt,
+) -> Result<Vec<u8>> {
     // ripgrep prints -l and -c as text even under --json
     let plain = c.json_rg() && matches!(report.layout, Layout::Files | Layout::Count);
     if c.json() && !plain {
         if c.json_rg() {
-            render_rg_json(&mut out, result, report)?;
+            render_rg_json(out, result, report)?;
         } else if c.json_greeg() {
-            json_native::search(&mut out, result, report)?;
+            json_native::search(out, result, report)?;
         } else {
-            render_json(&mut out, result, report)?;
+            render_json(out, result, report)?;
         }
-        return Ok((out, Vec::new()));
+        return Ok(Vec::new());
     }
-    render_body(&mut out, result, report, fmt)?;
     let mut err = Vec::new();
     if pipe_safe(result, report) {
+        render_body(out, result, report, fmt)?;
         // stdin answers as ripgrep does, without a footer, unless cut
         if !fmt.stdin || report.footer.byte_cut {
             render_footer(
@@ -1474,13 +1487,16 @@ fn render_search(
             )?;
         }
     } else {
+        let mut body: Vec<u8> = Vec::with_capacity(16 * 1024);
+        render_body(&mut body, result, report, fmt)?;
         // measured estimate for the whole output: body plus the footer itself
         let mut probe = Vec::new();
         render_footer(&mut probe, result, report, 8888, fmt, true)?;
-        let est = greeg_query::tokens::rendered(&out) + greeg_query::tokens::rendered(&probe);
-        render_footer(&mut out, result, report, est, fmt, true)?;
+        let est = greeg_query::tokens::rendered(&body) + greeg_query::tokens::rendered(&probe);
+        render_footer(&mut body, result, report, est, fmt, true)?;
+        out.write_all(&body)?;
     }
-    Ok((out, err))
+    Ok(err)
 }
 
 /// Text whose stdout is lines only, its footer on stderr.
@@ -1661,10 +1677,9 @@ fn keep_within(
 /// Write the answer: JSON records, or the text body plus the footer (stdout;
 /// stderr for `-l`/`-c` and `--budget 0`, whose stdout stays pipe-safe).
 fn emit(c: &Common, result: &ScanResult, report: &Report, fmt: Fmt) -> Result<()> {
-    let (out, err) = render_search(c, result, report, fmt)?;
     let stdout = std::io::stdout();
     let mut w = BufWriter::with_capacity(64 * 1024, stats::Tee(stdout.lock()));
-    w.write_all(&out)?;
+    let err = write_search(c, &mut w, result, report, fmt)?;
     w.flush()?;
     if !err.is_empty() {
         std::io::stderr().write_all(&err)?;

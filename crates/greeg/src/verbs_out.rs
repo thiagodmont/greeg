@@ -98,21 +98,22 @@ pub(crate) fn unchecked_note(o: &Outcome) -> Option<&'static str> {
 /// How an answer with nothing cut would say how to see more.
 const MORE: &str = "raise --budget";
 
-/// A rendering's row allowance, and whether `--max-bytes` rather than the
-/// budget set it.
+/// A rendering's row allowance, whether `--max-bytes` set it, and whether
+/// the budget had cut rows before that.
 #[derive(Clone, Copy)]
 struct Cut {
     rows: usize,
     bytes: bool,
+    budget: bool,
 }
 
 impl Cut {
     /// How to see what was left out.
     fn more(self) -> &'static str {
-        if self.bytes {
-            "raise --max-bytes"
-        } else {
-            "raise --budget"
+        match (self.bytes, self.budget) {
+            (true, true) => "raise --budget and --max-bytes",
+            (true, false) => "raise --max-bytes",
+            _ => "raise --budget",
         }
     }
 
@@ -140,32 +141,43 @@ fn fit(
     let bytes_fit = |b: &[u8]| o.max_bytes == 0 || b.len() <= o.max_bytes;
     // the largest allowance in `0..=hi` whose rendering passes, if any
     type Fitted = (usize, (Vec<u8>, Outcome));
-    let largest =
-        |hi: usize, bytes: bool, pass: &dyn Fn(&[u8]) -> bool| -> Result<Option<Fitted>> {
-            let top = render(Cut { rows: hi, bytes })?;
-            if pass(&top.0) {
-                return Ok(Some((hi, top)));
+    let largest = |hi: usize,
+                   (bytes, budget): (bool, bool),
+                   pass: &dyn Fn(&[u8]) -> bool|
+     -> Result<Option<Fitted>> {
+        let top = render(Cut {
+            rows: hi,
+            bytes,
+            budget,
+        })?;
+        if pass(&top.0) {
+            return Ok(Some((hi, top)));
+        }
+        let (mut lo, mut hi, mut best) = (0, hi, None);
+        while lo < hi {
+            let mid = lo + (hi - lo) / 2;
+            let r = render(Cut {
+                rows: mid,
+                bytes,
+                budget,
+            })?;
+            if pass(&r.0) {
+                lo = mid + 1;
+                best = Some((mid, r));
+            } else {
+                hi = mid;
             }
-            let (mut lo, mut hi, mut best) = (0, hi, None);
-            while lo < hi {
-                let mid = lo + (hi - lo) / 2;
-                let r = render(Cut { rows: mid, bytes })?;
-                if pass(&r.0) {
-                    lo = mid + 1;
-                    best = Some((mid, r));
-                } else {
-                    hi = mid;
-                }
-            }
-            Ok(best)
-        };
-    let (rows, by_budget) = match largest(max, false, &tokens_fit)? {
+        }
+        Ok(best)
+    };
+    let (rows, by_budget) = match largest(max, (false, false), &tokens_fit)? {
         Some(f) => f,
         None => (
             0,
             render(Cut {
                 rows: 0,
                 bytes: false,
+                budget: false,
             })?,
         ),
     };
@@ -174,9 +186,10 @@ fn fit(
     }
     // the ceiling cuts further; below the budget's floor only bytes count
     let both = |b: &[u8]| tokens_fit(b) && bytes_fit(b);
-    let found = match largest(rows, true, &both)? {
+    let cut = (true, rows < max);
+    let found = match largest(rows, cut, &both)? {
         Some(f) => Some(f),
-        None => largest(rows, true, &bytes_fit)?,
+        None => largest(rows, cut, &bytes_fit)?,
     };
     match found {
         Some((_, r)) => Ok(r),
@@ -184,6 +197,7 @@ fn fit(
             let floor = render(Cut {
                 rows: 0,
                 bytes: true,
+                budget: rows < max,
             })?;
             anyhow::bail!(
                 "--max-bytes {} is below the {} bytes this answer needs",
