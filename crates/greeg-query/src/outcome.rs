@@ -20,9 +20,19 @@ pub struct Outcome {
     pub fresh: &'static str,
     /// Files changed since the index was published, read from disk instead.
     pub deferred: usize,
+    /// `--max-bytes`, not the budget, left results out.
+    pub byte_cut: bool,
 }
 
 impl Outcome {
+    /// The outcome of a shaped search answer.
+    pub fn of_answer(r: &ScanResult, ft: &crate::shape::Footer) -> Outcome {
+        Outcome {
+            byte_cut: ft.byte_cut,
+            ..Self::of_search(r, ft.hits_shown)
+        }
+    }
+
     /// The outcome of a search answer that shows `shown` of its lines.
     pub fn of_search(r: &ScanResult, shown: usize) -> Outcome {
         let index = r.stats.source != "scan";
@@ -33,6 +43,7 @@ impl Outcome {
             source: r.stats.source,
             fresh: if index { r.stats.fresh_method } else { "" },
             deferred: r.stats.fresh_deferred,
+            byte_cut: false,
         }
     }
 
@@ -42,6 +53,11 @@ impl Outcome {
 
     pub fn complete(&self) -> bool {
         self.shown >= self.total
+    }
+
+    /// What left results out of an incomplete answer: `budget` or `bytes`.
+    pub fn truncated_by(&self) -> Option<&'static str> {
+        (!self.complete()).then_some(if self.byte_cut { "bytes" } else { "budget" })
     }
 
     pub fn exit_code(&self) -> i32 {
@@ -61,6 +77,7 @@ mod tests {
             source: "index",
             fresh: "stat",
             deferred: 0,
+            byte_cut: false,
         }
     }
 

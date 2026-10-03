@@ -677,6 +677,15 @@ header, counts and footer in JSON. A search's JSON is fitted by shaping it to
 smaller budgets until it fits. `cli.rs` `verb_text_fits_its_budget` and `json_fits_its_budget`
 check it.
 
+`--max-bytes` is a second ceiling, on stdout's bytes. A verb is fitted again
+within both, by the same search as for the budget alone (so it can miss an
+allowance where a completed group drops its `+N more` line); a shaped search is
+shaped again to smaller budgets until its output fits. `-l`, `-c`, `--budget 0` and stdin keep their first results
+(`Report::keep`). The cut is the outcome's (`byte_cut`, `truncated_by: bytes`)
+and its hint names `--max-bytes`; a verb's names `--budget` too when the budget
+had cut rows first, and a search keeps the hints of its shape; a floor larger than the ceiling is exit 2
+with nothing written. `cli.rs` `max_bytes_bounds_stdout` checks every format.
+
 `tokens::estimate` is the one token estimate, for search shaping, verb
 fitting, the footer and statistics. It splits text into o200k_base's
 pre-tokenizer pieces (ASCII rules; other bytes count as punctuation) and

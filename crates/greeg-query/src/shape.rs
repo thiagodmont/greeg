@@ -82,9 +82,11 @@ pub struct Footer {
     pub est_tokens: usize,
     pub elapsed_ms: f64,
     pub hints: Vec<String>,
+    /// `--max-bytes`, not the budget, left hits out.
+    pub byte_cut: bool,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Report {
     pub layout: Layout,
     pub files: Vec<ShownFile>,
@@ -93,6 +95,57 @@ pub struct Report {
     /// counts, best first: the near-misses left out of the answer.
     pub related: Vec<(String, usize)>,
     pub footer: Footer,
+}
+
+impl Report {
+    /// Results the answer shows: files for `-l` and `-c`, hits otherwise.
+    pub fn units(&self) -> usize {
+        match self.layout {
+            Layout::Files | Layout::Count => self.files.len(),
+            _ => self.files.iter().map(|f| f.hits.len()).sum(),
+        }
+    }
+
+    /// The first `n` of its [`units`](Self::units), the rest left out by
+    /// `--max-bytes`.
+    pub fn keep(&self, n: usize) -> Report {
+        let files = match self.layout {
+            Layout::Files | Layout::Count => self.files[..n.min(self.files.len())].to_vec(),
+            _ => {
+                let mut left = n;
+                let mut files = Vec::new();
+                for f in &self.files {
+                    if left == 0 {
+                        break;
+                    }
+                    let keep = f.hits.len().min(left);
+                    files.push(ShownFile {
+                        hits: f.hits[..keep].to_vec(),
+                        more: f.more + f.hits.len() - keep,
+                        ..*f
+                    });
+                    left -= keep;
+                }
+                files
+            }
+        };
+        let mut r = Report {
+            layout: self.layout,
+            files,
+            facets: self.facets.clone(),
+            related: self.related.clone(),
+            footer: self.footer.clone(),
+        };
+        if n < self.units() {
+            r.footer.byte_cut = true;
+            r.footer.files_shown = r.files.len();
+            r.footer.hits_shown = match r.layout {
+                Layout::Files | Layout::Count => r.files.iter().map(|f| f.more).sum(),
+                _ => n,
+            };
+        }
+        r
+    }
 }
 
 /// Token reserve for the footer line and its hints.

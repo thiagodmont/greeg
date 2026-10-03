@@ -288,6 +288,13 @@ greeg budget low      # 1000; also medium (2000), high (5000), a number, or none
 greeg budget none     # no limit: every search prints every match
 ```
 
+`--max-bytes N` caps stdout at N bytes, on top of the budget (`0`, the default,
+sets no cap): the answer is fitted to both limits, in whole lines and records,
+and its footer says `cut by --max-bytes` (`truncated_by: "bytes"` in JSON). It applies to `-l`,
+`-c`, `--budget 0` and stdin too, which keep their first results. When not even
+the smallest answer fits, greeg writes nothing and exits `2`. `--json=rg` takes
+no `--max-bytes`.
+
 The level is saved as `budget = N` in `~/.config/greeg/config.toml`
 (`GREEG_CONFIG_DIR` names another directory). `none`
 suits a human at a terminal more than an agent: a search for a common word
@@ -351,7 +358,7 @@ says where ([binary files](references/ARCHITECTURE.md#binary-files)).
 
 `--json=rg` prints ripgrep's JSON Lines records and nothing else, for every
 match: no budget, ripgrep's offsets (after a UTF-8 BOM) and exit status. It
-takes no `--budget`, no command and no `-U` (exit `2`). `--json=greeg` is greeg's
+takes no `--budget`, no `--max-bytes`, no command and no `-U` (exit `2`). `--json=greeg` is greeg's
 own format for searches and verbs: a header naming the schema, typed records,
 paths and content that never lose a byte, each file's encoding and offset
 coordinates, and an `outcome` in every footer. Bare `--json` is still
@@ -361,6 +368,7 @@ coordinates, and an `outcome` in every footer. Bare `--json` is still
 
 **greeg flags**: `--budget LEVEL|N` (tokens: `low` 1000, `medium` 2000, `high`
 5000, `none` or `0` = unlimited; default 2000 or the level `greeg budget` saved) ·
+`--max-bytes N` (stdout ceiling) ·
 `--mode files|outline|content|block` · `--kind def,call,…` · `--near PATH` ·
 `--no-tests --no-vendored --no-generated --all` · `--per-file N` · `--chain` ·
 `--matching exact|discover` · `--no-ladder` · `--fresh auto|none|stat|fsevents` · `--no-index` ·

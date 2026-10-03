@@ -30,7 +30,7 @@ fn ms(c: &Common, elapsed: f64) -> String {
 pub(crate) fn outcome_json(o: &Outcome) -> serde_json::Value {
     json!({"exit":o.exit_code(),"exact":o.exact(),"rung":o.rung.name(),"total":o.total,"shown":o.shown,
         "complete":o.complete(),"source":o.source,"fresh":o.fresh,"deferred":o.deferred,
-        "truncated_by":crate::json_native::truncated_by(o.complete())})
+        "truncated_by":o.truncated_by()})
 }
 
 /// End an answer in any format: flush it, record the run, and exit with the
@@ -95,35 +95,117 @@ pub(crate) fn unchecked_note(o: &Outcome) -> Option<&'static str> {
     (o.source != "scan" && o.fresh == "none").then_some("index not checked for changes")
 }
 
+/// How an answer with nothing cut would say how to see more.
 const MORE: &str = "raise --budget";
 
-/// A text answer at a row allowance in `0..=max` whose estimated tokens fit
-/// `budget` (0: unlimited); never over it. The search assumes an answer grows
-/// with its allowance, so where a completed group drops its `+N more` line a
-/// slightly larger allowance can be missed. Allowance 0 is the answer's floor
-/// (header, counts, outcome), written even when it does not fit.
-fn fit(
-    budget: usize,
-    max: usize,
-    render: impl Fn(usize) -> Result<(Vec<u8>, Outcome)>,
-) -> Result<(Vec<u8>, Outcome)> {
-    let fits = |b: &[u8]| greeg_query::tokens::estimate(b) <= budget;
-    let full = render(max)?;
-    if budget == 0 || fits(&full.0) {
-        return Ok(full);
-    }
-    let (mut lo, mut hi, mut best) = (0, max, None);
-    while lo < hi {
-        let mid = lo + (hi - lo) / 2;
-        let r = render(mid)?;
-        if fits(&r.0) {
-            lo = mid + 1;
-            best = Some(r);
-        } else {
-            hi = mid;
+/// A rendering's row allowance, whether `--max-bytes` set it, and whether
+/// the budget had cut rows before that.
+#[derive(Clone, Copy)]
+struct Cut {
+    rows: usize,
+    bytes: bool,
+    budget: bool,
+}
+
+impl Cut {
+    /// How to see what was left out.
+    fn more(self) -> &'static str {
+        match (self.bytes, self.budget) {
+            (true, true) => "raise --budget and --max-bytes",
+            (true, false) => "raise --max-bytes",
+            _ => "raise --budget",
         }
     }
-    best.map_or_else(|| render(0), Ok)
+
+    /// `o`, naming the limit that cut it.
+    fn mark(self, o: Outcome) -> Outcome {
+        Outcome {
+            byte_cut: self.bytes,
+            ..o
+        }
+    }
+}
+
+/// An answer at a row allowance in `0..=max` whose estimated tokens fit
+/// `o.budget` (0: unlimited) and, under `--max-bytes`, whose bytes fit too.
+/// The search assumes an answer grows with its allowance, so where a completed
+/// group drops its `+N more` line a slightly larger allowance can be missed.
+/// Allowance 0 is the answer's floor (header, counts, outcome): written even
+/// over the budget, but an error over `--max-bytes`.
+fn fit(
+    o: &Options,
+    max: usize,
+    render: impl Fn(Cut) -> Result<(Vec<u8>, Outcome)>,
+) -> Result<(Vec<u8>, Outcome)> {
+    let tokens_fit = |b: &[u8]| o.budget == 0 || greeg_query::tokens::estimate(b) <= o.budget;
+    let bytes_fit = |b: &[u8]| o.max_bytes == 0 || b.len() <= o.max_bytes;
+    // the largest allowance in `0..=hi` whose rendering passes, if any
+    type Fitted = (usize, (Vec<u8>, Outcome));
+    let largest = |hi: usize,
+                   (bytes, budget): (bool, bool),
+                   pass: &dyn Fn(&[u8]) -> bool|
+     -> Result<Option<Fitted>> {
+        let top = render(Cut {
+            rows: hi,
+            bytes,
+            budget,
+        })?;
+        if pass(&top.0) {
+            return Ok(Some((hi, top)));
+        }
+        let (mut lo, mut hi, mut best) = (0, hi, None);
+        while lo < hi {
+            let mid = lo + (hi - lo) / 2;
+            let r = render(Cut {
+                rows: mid,
+                bytes,
+                budget,
+            })?;
+            if pass(&r.0) {
+                lo = mid + 1;
+                best = Some((mid, r));
+            } else {
+                hi = mid;
+            }
+        }
+        Ok(best)
+    };
+    let (rows, by_budget) = match largest(max, (false, false), &tokens_fit)? {
+        Some(f) => f,
+        None => (
+            0,
+            render(Cut {
+                rows: 0,
+                bytes: false,
+                budget: false,
+            })?,
+        ),
+    };
+    if bytes_fit(&by_budget.0) {
+        return Ok(by_budget);
+    }
+    // the ceiling cuts further; below the budget's floor only bytes count
+    let both = |b: &[u8]| tokens_fit(b) && bytes_fit(b);
+    let cut = (true, rows < max);
+    let found = match largest(rows, cut, &both)? {
+        Some(f) => Some(f),
+        None => largest(rows, cut, &bytes_fit)?,
+    };
+    match found {
+        Some((_, r)) => Ok(r),
+        None => {
+            let floor = render(Cut {
+                rows: 0,
+                bytes: true,
+                budget: rows < max,
+            })?;
+            anyhow::bail!(
+                "--max-bytes {} is below the {} bytes this answer needs",
+                o.max_bytes,
+                floor.0.len()
+            )
+        }
+    }
 }
 
 /// Write a fitted answer and end the run.
@@ -146,6 +228,7 @@ fn answered_outcome(
         source,
         fresh,
         deferred: 0,
+        byte_cut: false,
     }
 }
 
@@ -235,7 +318,7 @@ fn digits(n: u32) -> usize {
 /// `  <line> <kind>  [name  ]container › signature   [flags] : supers [reach]`.
 /// A body beneath its row, dedented by its first line's indentation as the
 /// block layout prints it (`  NNN  text`), then what was cut.
-fn write_body(w: &mut impl Write, b: &verbs::Body, lw: usize) -> Result<()> {
+fn write_body(w: &mut impl Write, b: &verbs::Body, lw: usize, more: &str) -> Result<()> {
     let lead = |l: &[u8]| {
         l.iter()
             .position(|c| !matches!(c, b' ' | b'\t'))
@@ -255,7 +338,7 @@ fn write_body(w: &mut impl Write, b: &verbs::Body, lw: usize) -> Result<()> {
     if b.clipped {
         writeln!(
             w,
-            "  … {} more lines to {} (raise --budget)",
+            "  … {} more lines to {} ({more})",
             b.last - shown_to,
             b.last
         )?;
@@ -278,7 +361,7 @@ fn write_def_groups(
     show_name: bool,
     show_reach: bool,
     full_chain: bool,
-    bodies: Option<&[Option<verbs::Body>]>,
+    bodies: Option<(&[Option<verbs::Body>], &str)>,
 ) -> Result<()> {
     let mut order: Vec<&[u8]> = Vec::new();
     for e in entries {
@@ -303,7 +386,7 @@ fn write_def_groups(
             .iter()
             .map(|(i, e)| {
                 let body_last = bodies
-                    .and_then(|bs| bs[*i].as_ref())
+                    .and_then(|(bs, _)| bs[*i].as_ref())
                     .map(|b| b.first + b.lines.len() as u32)
                     .unwrap_or(0);
                 digits(e.line.max(body_last))
@@ -364,8 +447,8 @@ fn write_def_groups(
             if let Some(d) = &e.doc {
                 writeln!(w, "  {:lw$} {:kw$}  \"{d}\"", "", "")?;
             }
-            if let Some(b) = bodies.and_then(|bs| bs[i].as_ref()) {
-                write_body(w, b, lw)?;
+            if let Some((b, more)) = bodies.and_then(|(bs, more)| Some((bs[i].as_ref()?, more))) {
+                write_body(w, b, lw, more)?;
             }
         }
     }
@@ -396,22 +479,24 @@ pub fn run_def(
         source: r.source,
         fresh: r.fresh,
         deferred: 0,
+        byte_cut: false,
     };
     let w = out();
     if c.json() {
         // the allowance is entries, or near names when there is no entry
         let near = r.entries.is_empty();
-        let render = |limit: usize| -> Result<(Vec<u8>, Outcome)> {
+        let render = |cut: Cut| -> Result<(Vec<u8>, Outcome)> {
+            let limit = cut.rows;
             let mut w = Vec::new();
             let (shown, suggestions) = if near {
                 (0, r.suggestions.len().min(limit))
             } else {
                 (r.entries.len().min(limit), r.suggestions.len())
             };
-            let oc = Outcome {
+            let oc = cut.mark(Outcome {
                 shown,
                 ..oc.clone()
-            };
+            });
             if c.json_greeg() {
                 crate::json_native::defs(&mut w, &r, shown, suggestions, &oc)?;
                 return Ok((w, oc));
@@ -434,33 +519,35 @@ pub fn run_def(
         } else {
             r.entries.len()
         };
-        return finish_fit(w, "def", fit(o.budget, max, render)?);
+        return finish_fit(w, "def", fit(o, max, render)?);
     }
     if r.entries.is_empty() {
         let names = &r.suggestions;
-        let render = |limit: usize| -> Result<(Vec<u8>, Outcome)> {
+        let render = |cut: Cut| -> Result<(Vec<u8>, Outcome)> {
+            let limit = cut.rows;
             let mut w = Vec::new();
             writeln!(w, "def {}  no definition found ({})", r.name, r.source)?;
             if names.is_empty() {
                 writeln!(w, "next: greeg {name} --kind def | greeg -i {name}")?;
             } else {
                 let shown = &names[..names.len().min(limit)];
-                let cut = names.len() - shown.len();
+                let left = names.len() - shown.len();
                 writeln!(
                     w,
                     "closest names: {}{}",
                     shown.join(", "),
-                    match (shown.is_empty(), cut) {
+                    match (shown.is_empty(), left) {
                         (_, 0) => String::new(),
-                        (true, n) => format!("{n} (raise --budget)"),
-                        (false, n) => format!(" +{n} (raise --budget)"),
+                        (true, n) => format!("{n} ({})", cut.more()),
+                        (false, n) => format!(" +{n} ({})", cut.more()),
                     }
                 )?;
             }
-            outcome_line(&mut w, &[], &oc, MORE)?;
-            Ok((w, oc.clone()))
+            let oc = cut.mark(oc.clone());
+            outcome_line(&mut w, &[], &oc, cut.more())?;
+            Ok((w, oc))
         };
-        return finish_fit(w, "def", fit(o.budget, names.len(), render)?);
+        return finish_fit(w, "def", fit(o, names.len(), render)?);
     }
     let multi_name = r.entries.iter().any(|e| e.name != r.name);
     let entries: Vec<&DefEntry> = r.entries.iter().collect();
@@ -489,13 +576,14 @@ pub fn run_def(
     } else {
         None
     };
-    let render = |limit: usize| -> Result<(Vec<u8>, Outcome)> {
+    let render = |cut: Cut| -> Result<(Vec<u8>, Outcome)> {
+        let limit = cut.rows;
         let mut w = Vec::new();
         let shown = entries.len().min(limit);
-        let oc = Outcome {
+        let oc = cut.mark(Outcome {
             shown,
             ..oc.clone()
-        };
+        });
         writeln!(
             w,
             "def {}  {} of {} definitions{} · {}{}",
@@ -512,12 +600,12 @@ pub fn run_def(
             multi_name,
             explicit_from,
             c.chain,
-            bodies.as_deref().map(|b| &b[..shown]),
+            bodies.as_deref().map(|b| (&b[..shown], cut.more())),
         )?;
         if r.total > shown {
             writeln!(w, "  +{} more", r.total - shown)?;
         }
-        outcome_line(&mut w, &[(shown, r.total, "definitions")], &oc, MORE)?;
+        outcome_line(&mut w, &[(shown, r.total, "definitions")], &oc, cut.more())?;
         if let Some(top) = r.entries.first() {
             writeln!(
                 w,
@@ -529,7 +617,7 @@ pub fn run_def(
         }
         Ok((w, oc))
     };
-    finish_fit(w, "def", fit(o.budget, entries.len(), render)?)
+    finish_fit(w, "def", fit(o, entries.len(), render)?)
 }
 
 pub fn run_show(c: &Common, o: &Options, locs: &[(String, u32)]) -> Result<()> {
@@ -556,12 +644,14 @@ pub fn run_show(c: &Common, o: &Options, locs: &[(String, u32)]) -> Result<()> {
     let n = r.items.len();
     let oc = answered_outcome(n, n, r.source, r.fresh);
     if c.json() {
-        let render = |limit: usize| -> Result<(Vec<u8>, Outcome)> {
+        let render = |cut: Cut| -> Result<(Vec<u8>, Outcome)> {
+            let limit = cut.rows;
             let mut w = Vec::new();
             let bodies = bodies(limit);
+            let oc = cut.mark(oc.clone());
             if c.json_greeg() {
-                crate::json_native::show(&mut w, &r, &bodies)?;
-                return Ok((w, oc.clone()));
+                crate::json_native::show(&mut w, &r, &bodies, &oc)?;
+                return Ok((w, oc));
             }
             for (it, body) in r.items.iter().zip(&bodies) {
                 let shown_to = body.first + body.lines.len().saturating_sub(1) as u32;
@@ -579,16 +669,17 @@ pub fn run_show(c: &Common, o: &Options, locs: &[(String, u32)]) -> Result<()> {
             serde_json::to_writer(
                 &mut w,
                 &json!({"type":"footer","data":{"verb":"show","items":n,"source":r.source,"elapsed_ms":r.elapsed_ms,
-                    "outcome":crate::json_native::OutcomeRec::answered(n, n, complete, r.source, r.fresh)}}),
+                    "outcome":crate::json_native::OutcomeRec::answered(&oc, complete)}}),
             )?;
             writeln!(w)?;
-            Ok((w, oc.clone()))
+            Ok((w, oc))
         };
-        w.write_all(&fit(o.budget, max, render)?.0)?;
+        w.write_all(&fit(o, max, render)?.0)?;
         w.flush()?;
         return Ok(());
     }
-    let render = |limit: usize| -> Result<(Vec<u8>, Outcome)> {
+    let render = |cut: Cut| -> Result<(Vec<u8>, Outcome)> {
+        let limit = cut.rows;
         let mut w = Vec::new();
         for ((n, it), body) in r.items.iter().enumerate().zip(bodies(limit)) {
             let what = match &it.def {
@@ -611,12 +702,13 @@ pub fn run_show(c: &Common, o: &Options, locs: &[(String, u32)]) -> Result<()> {
                 }
             )?;
             let lw = digits(it.body.first + it.body.lines.len() as u32);
-            write_body(&mut w, &body, lw)?;
+            write_body(&mut w, &body, lw, cut.more())?;
         }
-        outcome_line(&mut w, &[], &oc, MORE)?;
-        Ok((w, oc.clone()))
+        let oc = cut.mark(oc.clone());
+        outcome_line(&mut w, &[], &oc, cut.more())?;
+        Ok((w, oc))
     };
-    w.write_all(&fit(o.budget, max, render)?.0)?;
+    w.write_all(&fit(o, max, render)?.0)?;
     w.flush()?;
     Ok(())
 }
@@ -625,7 +717,7 @@ pub fn run_refs(c: &Common, o: &Options, name: &str) -> Result<()> {
     let kinds: Vec<HitKind> = o.kinds.clone();
     let r = answered(o, |o| verbs::refs(o, name, &kinds))?;
     let s = &r.scan;
-    let mut w = out();
+    let w = out();
     // group hits by kind, best first within each kind
     let mut by_kind: Vec<(HitKind, Vec<(usize, usize)>)> =
         HitKind::ALL.iter().map(|k| (*k, Vec::new())).collect();
@@ -675,7 +767,8 @@ pub fn run_refs(c: &Common, o: &Options, name: &str) -> Result<()> {
     };
     if c.json() {
         // up to three definitions in the floor, more with the allowance
-        let render = |lines: usize| -> Result<(Vec<u8>, Outcome)> {
+        let render = |cut: Cut| -> Result<(Vec<u8>, Outcome)> {
+            let lines = cut.rows;
             let mut w = Vec::new();
             let defs = r.defs.len().min(lines.max(3));
             let shown: Vec<(HitKind, usize, usize)> = nonempty
@@ -686,10 +779,10 @@ pub fn run_refs(c: &Common, o: &Options, name: &str) -> Result<()> {
                         .map(|&(fi, hi)| (*k, fi, hi))
                 })
                 .collect();
-            let oc = Outcome::of_search(s, shown.len());
+            let oc = cut.mark(Outcome::of_search(s, shown.len()));
             if c.json_greeg() {
                 let counts = nonempty.iter().map(|(k, v)| (k.name(), v.len())).collect();
-                crate::json_native::refs(&mut w, name, &r, defs, &shown, counts)?;
+                crate::json_native::refs(&mut w, name, &r, defs, &shown, counts, &oc)?;
                 return Ok((w, oc));
             }
             for e in &r.defs[..defs] {
@@ -714,13 +807,17 @@ pub fn run_refs(c: &Common, o: &Options, name: &str) -> Result<()> {
             writeln!(w)?;
             Ok((w, oc))
         };
-        return finish_fit(w, "refs", fit(o.budget, total_lines, render)?);
+        return finish_fit(w, "refs", fit(o, total_lines, render)?);
     }
     if s.stats.total_hits == 0 {
-        writeln!(w, "refs {name}  no references ({})", s.stats.source)?;
         let oc = Outcome::of_search(s, 0);
-        outcome_line(&mut w, &[], &oc, MORE)?;
-        return finish(w, "refs", &oc);
+        let render = |_: Cut| -> Result<(Vec<u8>, Outcome)> {
+            let mut w = Vec::new();
+            writeln!(w, "refs {name}  no references ({})", s.stats.source)?;
+            outcome_line(&mut w, &[], &oc, MORE)?;
+            Ok((w, oc.clone()))
+        };
+        return finish_fit(w, "refs", fit(o, 0, render)?);
     }
     let fmt = crate::Fmt {
         chain: c.chain,
@@ -728,7 +825,8 @@ pub fn run_refs(c: &Common, o: &Options, name: &str) -> Result<()> {
         line_numbers: false,
         stdin: false,
     };
-    let render = |lines: usize| -> Result<(Vec<u8>, Outcome)> {
+    let render = |cut: Cut| -> Result<(Vec<u8>, Outcome)> {
+        let lines = cut.rows;
         let mut w = Vec::new();
         writeln!(
             w,
@@ -805,21 +903,26 @@ pub fn run_refs(c: &Common, o: &Options, name: &str) -> Result<()> {
                 writeln!(w, "  +{} more", v.len() - taken.len())?;
             }
         }
-        let oc = Outcome::of_search(s, shown);
+        let oc = cut.mark(Outcome::of_search(s, shown));
         writeln!(w)?;
-        outcome_line(&mut w, &[(shown, s.stats.total_hits, "hits")], &oc, MORE)?;
+        outcome_line(
+            &mut w,
+            &[(shown, s.stats.total_hits, "hits")],
+            &oc,
+            cut.more(),
+        )?;
         writeln!(
             w,
             "next: callers {name} | impact {name} | refs {name} --kind call"
         )?;
         Ok((w, oc))
     };
-    finish_fit(w, "refs", fit(o.budget, total_lines, render)?)
+    finish_fit(w, "refs", fit(o, total_lines, render)?)
 }
 
 pub fn run_callers(c: &Common, o: &Options, name: &str, depth: usize) -> Result<()> {
     let r = answered(o, |o| verbs::callers(o, name, depth))?;
-    let mut w = out();
+    let w = out();
     let limit = if o.budget == 0 {
         usize::MAX
     } else {
@@ -832,12 +935,13 @@ pub fn run_callers(c: &Common, o: &Options, name: &str, depth: usize) -> Result<
         ..r.outcome.clone()
     };
     if c.json() {
-        let render = |limit: usize| -> Result<(Vec<u8>, Outcome)> {
+        let render = |cut: Cut| -> Result<(Vec<u8>, Outcome)> {
+            let limit = cut.rows;
             let mut w = Vec::new();
-            let oc = Outcome {
+            let oc = cut.mark(Outcome {
                 shown: r.callers.len().min(limit),
                 ..oc.clone()
-            };
+            });
             if c.json_greeg() {
                 crate::json_native::callers(&mut w, &r, limit, &oc)?;
                 return Ok((w, oc));
@@ -856,20 +960,25 @@ pub fn run_callers(c: &Common, o: &Options, name: &str, depth: usize) -> Result<
             writeln!(w)?;
             Ok((w, oc))
         };
-        return finish_fit(w, "callers", fit(o.budget, limit, render)?);
+        return finish_fit(w, "callers", fit(o, limit, render)?);
     }
     if r.callers.is_empty() {
-        writeln!(w, "callers {}  no call sites ({})", r.name, r.source)?;
-        outcome_line(&mut w, &[], &oc, MORE)?;
-        return finish(w, "callers", &oc);
+        let render = |_: Cut| -> Result<(Vec<u8>, Outcome)> {
+            let mut w = Vec::new();
+            writeln!(w, "callers {}  no call sites ({})", r.name, r.source)?;
+            outcome_line(&mut w, &[], &oc, MORE)?;
+            Ok((w, oc.clone()))
+        };
+        return finish_fit(w, "callers", fit(o, 0, render)?);
     }
-    let render = |limit: usize| -> Result<(Vec<u8>, Outcome)> {
+    let render = |cut: Cut| -> Result<(Vec<u8>, Outcome)> {
+        let limit = cut.rows;
         let mut w = Vec::new();
         let callers: Vec<&verbs::Caller> = r.callers.iter().take(limit).collect();
-        let oc = Outcome {
+        let oc = cut.mark(Outcome {
             shown: callers.len(),
             ..oc.clone()
-        };
+        });
         writeln!(
             w,
             "callers {}  {} call sites in {} functions · {} files{} · {}{}",
@@ -937,15 +1046,15 @@ pub fn run_callers(c: &Common, o: &Options, name: &str, depth: usize) -> Result<
         if r.callers.len() > callers.len() {
             writeln!(w, "  +{} more", r.callers.len() - callers.len())?;
         }
-        outcome_line(&mut w, &[(oc.shown, oc.total, "callers")], &oc, MORE)?;
+        outcome_line(&mut w, &[(oc.shown, oc.total, "callers")], &oc, cut.more())?;
         Ok((w, oc))
     };
-    finish_fit(w, "callers", fit(o.budget, limit, render)?)
+    finish_fit(w, "callers", fit(o, limit, render)?)
 }
 
 pub fn run_impls(c: &Common, o: &Options, name: &str) -> Result<()> {
     let r = answered(o, |o| verbs::impls(o, name))?;
-    let mut w = out();
+    let w = out();
     let limit = if o.budget == 0 {
         usize::MAX
     } else {
@@ -961,15 +1070,17 @@ pub fn run_impls(c: &Common, o: &Options, name: &str) -> Result<()> {
         source: r.source,
         fresh: r.fresh,
         deferred: 0,
+        byte_cut: false,
     };
     if c.json() {
-        let render = |limit: usize| -> Result<(Vec<u8>, Outcome)> {
+        let render = |cut: Cut| -> Result<(Vec<u8>, Outcome)> {
+            let limit = cut.rows;
             let mut w = Vec::new();
             let (direct, extras) = (r.direct.len().min(limit), r.extras.len().min(limit));
-            let oc = Outcome {
+            let oc = cut.mark(Outcome {
                 shown: direct + extras,
                 ..oc.clone()
-            };
+            });
             if c.json_greeg() {
                 crate::json_native::impls(&mut w, &r, direct, extras, &oc)?;
                 return Ok((w, oc));
@@ -992,15 +1103,20 @@ pub fn run_impls(c: &Common, o: &Options, name: &str) -> Result<()> {
             writeln!(w)?;
             Ok((w, oc))
         };
-        return finish_fit(w, "impls", fit(o.budget, limit, render)?);
+        return finish_fit(w, "impls", fit(o, limit, render)?);
     }
     if r.direct.is_empty() && r.extras.is_empty() {
-        writeln!(w, "impls {}  none found ({})", r.name, r.source)?;
-        outcome_line(&mut w, &[], &oc, MORE)?;
-        return finish(w, "impls", &oc);
+        let render = |_: Cut| -> Result<(Vec<u8>, Outcome)> {
+            let mut w = Vec::new();
+            writeln!(w, "impls {}  none found ({})", r.name, r.source)?;
+            outcome_line(&mut w, &[], &oc, MORE)?;
+            Ok((w, oc.clone()))
+        };
+        return finish_fit(w, "impls", fit(o, 0, render)?);
     }
     // low-confidence extras get half the allowance
-    let render = |limit: usize| -> Result<(Vec<u8>, Outcome)> {
+    let render = |cut: Cut| -> Result<(Vec<u8>, Outcome)> {
+        let limit = cut.rows;
         let mut w = Vec::new();
         let direct: Vec<&DefEntry> = r.direct.iter().take(limit).collect();
         let extras: Vec<&DefEntry> = r
@@ -1008,10 +1124,10 @@ pub fn run_impls(c: &Common, o: &Options, name: &str) -> Result<()> {
             .iter()
             .take(if limit == 0 { 0 } else { limit / 2 + 1 })
             .collect();
-        let oc = Outcome {
+        let oc = cut.mark(Outcome {
             shown: direct.len() + extras.len(),
             ..oc.clone()
-        };
+        });
         writeln!(
             w,
             "impls {}  {} implementations{} · {}{}",
@@ -1044,11 +1160,11 @@ pub fn run_impls(c: &Common, o: &Options, name: &str) -> Result<()> {
             &mut w,
             &[(oc.shown, oc.total, "implementations")],
             &oc,
-            MORE,
+            cut.more(),
         )?;
         Ok((w, oc))
     };
-    finish_fit(w, "impls", fit(o.budget, limit, render)?)
+    finish_fit(w, "impls", fit(o, limit, render)?)
 }
 
 pub fn run_outline(c: &Common, o: &Options, file: &str, imports: bool) -> Result<()> {
@@ -1056,12 +1172,13 @@ pub fn run_outline(c: &Common, o: &Options, file: &str, imports: bool) -> Result
     let mut w = out();
     if c.json() {
         // the allowance is symbols, in file order
-        let render = |limit: usize| -> Result<(Vec<u8>, Outcome)> {
+        let render = |cut: Cut| -> Result<(Vec<u8>, Outcome)> {
+            let limit = cut.rows;
             let mut w = Vec::new();
             let shown = r.defs.len().min(limit);
-            let oc = answered_outcome(r.defs.len(), shown, r.source, r.fresh);
+            let oc = cut.mark(answered_outcome(r.defs.len(), shown, r.source, r.fresh));
             if c.json_greeg() {
-                crate::json_native::outline(&mut w, &r, shown)?;
+                crate::json_native::outline(&mut w, &r, shown, &oc)?;
                 return Ok((w, oc));
             }
             for d in &r.defs[..shown] {
@@ -1078,11 +1195,12 @@ pub fn run_outline(c: &Common, o: &Options, file: &str, imports: bool) -> Result
             writeln!(w)?;
             Ok((w, oc))
         };
-        w.write_all(&fit(o.budget, r.defs.len(), render)?.0)?;
+        w.write_all(&fit(o, r.defs.len(), render)?.0)?;
         w.flush()?;
         return Ok(());
     }
-    let render = |max_lines: usize| -> Result<(Vec<u8>, Outcome)> {
+    let render = |cut: Cut| -> Result<(Vec<u8>, Outcome)> {
+        let max_lines = cut.rows;
         let mut w = Vec::new();
         writeln!(
             w,
@@ -1191,8 +1309,13 @@ pub fn run_outline(c: &Common, o: &Options, file: &str, imports: bool) -> Result
         }
         // nested symbols folded into their parent's line count as cut
         let listed = printed.min(max_lines);
-        let oc = answered_outcome(r.defs.len(), listed, r.source, r.fresh);
-        outcome_line(&mut w, &[(listed, r.defs.len(), "symbols")], &oc, MORE)?;
+        let oc = cut.mark(answered_outcome(r.defs.len(), listed, r.source, r.fresh));
+        outcome_line(
+            &mut w,
+            &[(listed, r.defs.len(), "symbols")],
+            &oc,
+            cut.more(),
+        )?;
         Ok((w, oc))
     };
     let max_lines = if o.budget == 0 {
@@ -1200,7 +1323,7 @@ pub fn run_outline(c: &Common, o: &Options, file: &str, imports: bool) -> Result
     } else {
         (o.budget / 12).max(10)
     };
-    w.write_all(&fit(o.budget, max_lines, render)?.0)?;
+    w.write_all(&fit(o, max_lines, render)?.0)?;
     w.flush()?;
     Ok(())
 }
@@ -1241,18 +1364,19 @@ pub fn run_map(c: &Common, o: &Options, dir: &str) -> Result<()> {
         (o.budget / 60).clamp(4, 24)
     };
     if c.json() {
-        let render = |limit: usize| -> Result<(Vec<u8>, Outcome)> {
+        let render = |cut: Cut| -> Result<(Vec<u8>, Outcome)> {
+            let limit = cut.rows;
             let mut w = Vec::new();
             let (dir_limit, file_limit) = (dir_limit.min(limit), file_limit.min(limit));
             let (dirs, files) = (r.dirs.len().min(dir_limit), r.files.len().min(file_limit));
-            let oc = answered_outcome(
+            let oc = cut.mark(answered_outcome(
                 r.dirs.len() + r.files.len(),
                 dirs + files,
                 r.source,
                 r.fresh,
-            );
+            ));
             if c.json_greeg() {
-                crate::json_native::map(&mut w, &r, dir_limit, file_limit)?;
+                crate::json_native::map(&mut w, &r, dir_limit, file_limit, &oc)?;
                 return Ok((w, oc));
             }
             for d in &r.dirs[..dirs] {
@@ -1276,11 +1400,12 @@ pub fn run_map(c: &Common, o: &Options, dir: &str) -> Result<()> {
             writeln!(w)?;
             Ok((w, oc))
         };
-        w.write_all(&fit(o.budget, dir_limit.max(file_limit), render)?.0)?;
+        w.write_all(&fit(o, dir_limit.max(file_limit), render)?.0)?;
         w.flush()?;
         return Ok(());
     }
-    let render = |limit: usize| -> Result<(Vec<u8>, Outcome)> {
+    let render = |cut: Cut| -> Result<(Vec<u8>, Outcome)> {
+        let limit = cut.rows;
         let mut w = Vec::new();
         let (dir_limit, file_limit) = (dir_limit.min(limit), file_limit.min(limit));
         writeln!(
@@ -1350,12 +1475,12 @@ pub fn run_map(c: &Common, o: &Options, dir: &str) -> Result<()> {
         }
         let dirs_shown = r.dirs.len().min(dir_limit);
         let files_shown = r.files.len().min(file_limit);
-        let oc = answered_outcome(
+        let oc = cut.mark(answered_outcome(
             r.dirs.len() + r.files.len(),
             dirs_shown + files_shown,
             r.source,
             r.fresh,
-        );
+        ));
         outcome_line(
             &mut w,
             &[
@@ -1363,7 +1488,7 @@ pub fn run_map(c: &Common, o: &Options, dir: &str) -> Result<()> {
                 (files_shown, r.files.len(), "files"),
             ],
             &oc,
-            "raise --budget or narrow the directory",
+            &format!("{} or narrow the directory", cut.more()),
         )?;
         if let Some(d) = r.dirs.first() {
             writeln!(
@@ -1378,7 +1503,7 @@ pub fn run_map(c: &Common, o: &Options, dir: &str) -> Result<()> {
         }
         Ok((w, oc))
     };
-    w.write_all(&fit(o.budget, dir_limit.max(file_limit), render)?.0)?;
+    w.write_all(&fit(o, dir_limit.max(file_limit), render)?.0)?;
     w.flush()?;
     Ok(())
 }
@@ -1388,7 +1513,7 @@ pub fn run_impact(c: &Common, o: &Options, name: &str) -> Result<()> {
     let groups = [&r.likely, &r.possible, &r.review];
     let files = groups.iter().map(|g| g.len()).sum::<usize>();
     let callers_total = r.callers.callers.len();
-    let mut w = out();
+    let w = out();
     let per_group = if o.budget == 0 {
         usize::MAX
     } else {
@@ -1460,7 +1585,8 @@ pub fn run_impact(c: &Common, o: &Options, name: &str) -> Result<()> {
     };
     if c.json() {
         // files and definitions take the allowance; callers keep their old cap
-        let render = |allowance: usize| -> Result<(Vec<u8>, Outcome)> {
+        let render = |cut: Cut| -> Result<(Vec<u8>, Outcome)> {
+            let allowance = cut.rows;
             let mut w = Vec::new();
             let caps = caps(allowance);
             let groups = [
@@ -1470,11 +1596,11 @@ pub fn run_impact(c: &Common, o: &Options, name: &str) -> Result<()> {
             ];
             let defs = r.defs.len().min(allowance);
             let callers = callers_shown.min(allowance);
-            let oc = Outcome {
+            let oc = cut.mark(Outcome {
                 total: files + callers_total,
                 shown: groups.iter().map(|g| g.len()).sum::<usize>() + callers,
                 ..r.outcome.clone()
-            };
+            });
             if c.json_greeg() {
                 crate::json_native::impact(&mut w, &r, defs, caps, callers, files, &oc)?;
                 return Ok((w, oc));
@@ -1506,17 +1632,22 @@ pub fn run_impact(c: &Common, o: &Options, name: &str) -> Result<()> {
         .into_iter()
         .max()
         .unwrap_or(0);
-        return finish_fit(w, "impact", fit(o.budget, max, render)?);
+        return finish_fit(w, "impact", fit(o, max, render)?);
     }
     if r.total_hits == 0 {
         let oc = outcome(0);
-        writeln!(w, "impact {}  no references found", r.name)?;
-        outcome_line(&mut w, &[], &oc, MORE)?;
-        return finish(w, "impact", &oc);
+        let render = |_: Cut| -> Result<(Vec<u8>, Outcome)> {
+            let mut w = Vec::new();
+            writeln!(w, "impact {}  no references found", r.name)?;
+            outcome_line(&mut w, &[], &oc, MORE)?;
+            Ok((w, oc.clone()))
+        };
+        return finish_fit(w, "impact", fit(o, 0, render)?);
     }
     let likely = format!("uses {} and imports a file that defines it", r.name);
     let possible = format!("uses {} without that import link", r.name);
-    let render = |per_group: usize| -> Result<(Vec<u8>, Outcome)> {
+    let render = |cut: Cut| -> Result<(Vec<u8>, Outcome)> {
+        let per_group = cut.rows;
         let mut w = Vec::new();
         let caps = caps(per_group);
         let callers_shown = callers_total.min(per_group);
@@ -1525,11 +1656,11 @@ pub fn run_impact(c: &Common, o: &Options, name: &str) -> Result<()> {
             .zip(caps)
             .map(|(g, cap)| g.len().min(cap))
             .sum();
-        let oc = Outcome {
+        let oc = cut.mark(Outcome {
             total: files + callers_total,
             shown: files_shown + callers_shown,
             ..r.outcome.clone()
-        };
+        });
         writeln!(
             w,
             "impact {}  {} hits · {} files · {} definitions{}{}{}",
@@ -1603,9 +1734,9 @@ pub fn run_impact(c: &Common, o: &Options, name: &str) -> Result<()> {
                 (callers_shown, callers_total, "callers"),
             ],
             &oc,
-            MORE,
+            cut.more(),
         )?;
         Ok((w, oc))
     };
-    finish_fit(w, "impact", fit(o.budget, per_group, render)?)
+    finish_fit(w, "impact", fit(o, per_group, render)?)
 }

@@ -814,6 +814,34 @@ fn stdin_is_searched_like_ripgrep() {
     assert_eq!(String::from_utf8_lossy(&o.stdout).trim(), "alpha");
 }
 
+/// `--max-bytes` keeps stdin's first lines and says so on stderr.
+#[test]
+fn stdin_keeps_the_lines_max_bytes_allows() {
+    use std::io::Write;
+    use std::process::Stdio;
+    let mut c = greeg()
+        .args(["--no-session", "--max-bytes", "20", "alpha"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .env("GREEG_STATS", "0")
+        .spawn()
+        .unwrap();
+    c.stdin
+        .take()
+        .unwrap()
+        .write_all("alpha 1\nalpha 2\nalpha 3\nalpha 4\n".as_bytes())
+        .unwrap();
+    let o = c.wait_with_output().unwrap();
+    assert_eq!(String::from_utf8_lossy(&o.stdout), "alpha 1\nalpha 2\n");
+    let err = String::from_utf8_lossy(&o.stderr);
+    assert!(
+        err.contains("2/4 hits") && err.contains("cut by --max-bytes"),
+        "{err}"
+    );
+    assert_eq!(o.status.code(), Some(0));
+}
+
 #[test]
 fn stdin_with_utf8_bom_matches_anchored_first_line() {
     use std::io::Write;
@@ -1871,6 +1899,161 @@ fn json_fits_its_budget() {
                 }
             }
         }
+    }
+}
+
+/// A verb cut by both limits names both: raising `--max-bytes` alone
+/// would still leave out what the budget cut.
+#[test]
+fn a_cut_names_every_limit_that_cut_it() {
+    let f = empty_fixture();
+    let mut src = String::from("pub fn long() {\n");
+    for i in 0..80 {
+        src.push_str(&format!("    let value_{i} = {i};\n"));
+    }
+    src.push_str("}\n");
+    w(&f.root.join("src/lib.rs"), &src);
+    f.indexed();
+    let show = |extra: &[&str]| {
+        let mut a = vec!["show", "src/lib.rs:1"];
+        a.extend_from_slice(extra);
+        f.out(&a)
+    };
+    let budgeted = show(&["--budget", "300"]);
+    assert!(budgeted.contains("(raise --budget)"), "{budgeted}");
+    let cap = (budgeted.len() * 2 / 3).to_string();
+    let both = show(&["--budget", "300", "--max-bytes", &cap]);
+    assert!(both.contains("(raise --budget and --max-bytes)"), "{both}");
+    let bytes = show(&["--budget", "0", "--max-bytes", &cap]);
+    assert!(bytes.contains("(raise --max-bytes)"), "{bytes}");
+}
+
+/// `--max-bytes` bounds stdout in every format: the answer fits, stays whole
+/// records, and says the ceiling cut it; a ceiling below its floor is an error.
+#[test]
+fn max_bytes_bounds_stdout() {
+    let f = outcome_fixture();
+    let queries: [&[&str]; 13] = [
+        &["target"],
+        &["target", "--budget", "0"],
+        &["target", "-l"],
+        &["target", "-c"],
+        &["-w", "target", "-C", "2"],
+        &["def", "target"],
+        &["refs", "target"],
+        &["callers", "target"],
+        &["impls", "Shape"],
+        &["impact", "target"],
+        &["outline", "src/lib.rs"],
+        &["show", "src/lib.rs:12", "src/lib.rs:20"],
+        &["map", "src"],
+    ];
+    // random ceilings, seeded so a failure reproduces, plus both ends
+    let mut seed = 0x9e37_79b9_7f4a_7c15u64;
+    let mut ceilings: Vec<usize> = (0..8)
+        .map(|_| {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            40 + (seed % 8000) as usize
+        })
+        .chain([1, 1 << 20])
+        .collect();
+    ceilings.sort_unstable();
+    let mut byte_cuts = 0;
+    for format in ["--json=greeg", "--json=legacy", "--color=never"] {
+        let json = format.starts_with("--json");
+        for q in queries {
+            let run = |cap: Option<usize>| {
+                let mut a: Vec<String> = q.iter().map(|s| s.to_string()).collect();
+                a.extend(["--fresh".into(), "stat".into(), format.into()]);
+                if let Some(cap) = cap {
+                    a.extend(["--max-bytes".into(), cap.to_string()]);
+                }
+                let a: Vec<&str> = a.iter().map(|s| s.as_str()).collect();
+                f.run(&a)
+            };
+            let whole = run(None);
+            assert!(whole.status.success(), "{q:?} {format}");
+            let same = |a: &[u8], b: &[u8]| {
+                if json {
+                    stable_records(a) == stable_records(b)
+                } else {
+                    a == b
+                }
+            };
+            let mut fitted = false;
+            for cap in ceilings.iter().copied() {
+                let out = run(Some(cap));
+                let ctx = format!("{q:?} {format} --max-bytes {cap}");
+                if !out.status.success() {
+                    assert!(!fitted, "{ctx}: a smaller ceiling fitted");
+                    assert_eq!(out.status.code(), Some(2), "{ctx}");
+                    assert!(out.stdout.is_empty(), "{ctx}");
+                    let err = String::from_utf8_lossy(&out.stderr);
+                    assert!(err.contains("is below the"), "{ctx}: {err}");
+                    continue;
+                }
+                fitted = true;
+                assert!(out.stdout.len() <= cap, "{ctx}: {} bytes", out.stdout.len());
+                let text = std::str::from_utf8(&out.stdout).expect("whole characters");
+                let cut = !same(&out.stdout, &whole.stdout);
+                if json {
+                    for line in text.lines() {
+                        serde_json::from_str::<serde_json::Value>(line)
+                            .unwrap_or_else(|e| panic!("{ctx}: {e}: {line}"));
+                    }
+                    let last = text.lines().last().unwrap();
+                    let footer: serde_json::Value = serde_json::from_str(last).unwrap();
+                    let oc = &footer["data"]["outcome"];
+                    if oc.is_object() {
+                        let by_bytes = oc["truncated_by"] == "bytes";
+                        assert_eq!(by_bytes, cut, "{ctx}: {last}");
+                        if by_bytes {
+                            assert_eq!(oc["complete"], false, "{ctx}");
+                        }
+                    }
+                } else if cut {
+                    assert!(
+                        text.is_empty() || text.ends_with('\n'),
+                        "{ctx}: text cut inside a line: {text:?}"
+                    );
+                    let all = format!("{text}{}", String::from_utf8_lossy(&out.stderr));
+                    assert!(all.contains("--max-bytes"), "{ctx}: {all}");
+                }
+                byte_cuts += usize::from(cut);
+            }
+            assert!(fitted, "{q:?} {format}: no ceiling fitted");
+        }
+    }
+    assert!(byte_cuts > 30, "{byte_cuts} byte cuts");
+}
+
+/// An empty verb answer is bounded by `--max-bytes` like any other.
+#[test]
+fn max_bytes_bounds_empty_verb_answers() {
+    let f = outcome_fixture();
+    for q in [
+        ["def", "absent_name"],
+        ["refs", "absent_name"],
+        ["callers", "absent_name"],
+        ["impls", "AbsentShape"],
+        ["impact", "absent_name"],
+    ] {
+        let run = |cap: &str| f.run(&[q[0], q[1], "--fresh", "stat", "--max-bytes", cap]);
+        let (whole, tiny) = (run("1048576"), run("1"));
+        let ctx = format!("{q:?}");
+        assert!(!whole.stdout.is_empty(), "{ctx}");
+        assert_eq!(tiny.status.code(), Some(2), "{ctx}");
+        assert!(
+            tiny.stdout.is_empty(),
+            "{ctx}: {:?}",
+            String::from_utf8_lossy(&tiny.stdout)
+        );
+        assert!(
+            String::from_utf8_lossy(&tiny.stderr).contains("is below the"),
+            "{ctx}"
+        );
     }
 }
 
