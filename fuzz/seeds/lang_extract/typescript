@@ -1,0 +1,5 @@
+import { x } from './dep';
+export interface Shape { area(): number }
+export class Square implements Shape {
+  area() { return x * x; }
+}
