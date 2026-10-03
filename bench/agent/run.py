@@ -4,6 +4,7 @@ its hook (arm B) and, if asked, the hook plus a prompt that names greeg (arm C).
 
     bench/agent/run.py --greeg BIN --out DIR [--tasks ID,…] [--repeats 2]
         [--model sonnet] [--max-turns 25] [--max-budget-usd 2] [--seed 7]
+    bench/agent/run.py --out DIR --recheck    # score saved answers with the current checks
     bench/agent/extract.py DIR/runs > runs.json
     bench/agent/analyze.py runs.json
 
@@ -15,8 +16,8 @@ and `greeg hook run` as their PreToolUse hook. Isolation:
   (`--setting-sources ""`, `--strict-mcp-config`); the arm's own settings file;
 - PATH holds a directory with `rg` (and `greeg` in arms B and C), then /usr/bin
   and /bin;
-- each corpus is cloned once into DIR/work, and `git status` must stay empty
-  after every run (a dirty tree is restored and the run is marked);
+- each corpus is cloned once into DIR/work, and its `git status` must not change
+  during a run (a changed clone is made again and the run is marked);
 - each run copies the corpus's index into its own GREEG_INDEX_DIR, so no session
   memory carries over; statistics are off and the budget is pinned;
 - cells run in a shuffled order, seeded, so drift over time hits both arms.
@@ -78,8 +79,6 @@ def prepare(out, corpus, greeg):
     if not work.exists():
         work.parent.mkdir(parents=True, exist_ok=True)
         clone(corpus_path(corpus), work)
-    if sh(["git", "status", "--porcelain"], cwd=work):
-        sys.exit(f"{work} is not clean")
     if not template.exists():
         env = greeg_env(template, out / "stats")
         subprocess.run([greeg, "index"], cwd=work, env=env, check=True, capture_output=True)
@@ -92,6 +91,7 @@ def run_cell(a, out, task, arm, n, order):
         return json.loads((d / "meta.json").read_text())
     d.mkdir(parents=True, exist_ok=True)
     work, template = prepare(out, task["corpus"], a.greeg)
+    before = sh(["git", "status", "--porcelain"], cwd=work)
     index = d / "index"
     shutil.rmtree(index, ignore_errors=True)
     clone(template, index)
@@ -122,10 +122,10 @@ def run_cell(a, out, task, arm, n, order):
     (d / "answer.txt").write_text(answer)
     check = subprocess.run(["sh", "-c", task["check"]], cwd=d).returncode
     (d / "check.txt").write_text(f"{check}\n")
-    dirty = sh(["git", "status", "--porcelain"], cwd=work)
+    dirty = sh(["git", "status", "--porcelain"], cwd=work) != before
     if dirty:
-        sh(["git", "checkout", "-q", "--", "."], cwd=work)
-        sh(["git", "clean", "-qfdx"], cwd=work)
+        shutil.rmtree(work)
+        clone(corpus_path(task["corpus"]), work)
     shutil.rmtree(index, ignore_errors=True)
     meta = {"task": task["id"], "arm": arm, "run": n, "order": order, "exit": p.returncode,
             "stderr": p.stderr[-2000:], "wall_s": round(wall, 1), "check": check,
@@ -135,9 +135,24 @@ def run_cell(a, out, task, arm, n, order):
     return meta
 
 
+def recheck(out, tasks):
+    """Score every saved answer again with the task's current check."""
+    by_id = {t["id"]: t for t in tasks}
+    for meta_path in sorted((out / "runs").glob("*/*/*/meta.json")):
+        d = meta_path.parent
+        meta = json.loads(meta_path.read_text())
+        check = subprocess.run(["sh", "-c", by_id[meta["task"]]["check"]], cwd=d).returncode
+        if check != meta["check"]:
+            print(f"{meta['task']} {meta['arm']} #{meta['run']}: check {meta['check']} -> {check}")
+            meta.setdefault("first_check", meta["check"])
+        meta["check"] = check
+        (d / "check.txt").write_text(f"{check}\n")
+        meta_path.write_text(json.dumps(meta, indent=1))
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("--greeg", required=True, help="greeg binary for arm B")
+    ap.add_argument("--greeg", help="greeg binary for arms B and C")
     ap.add_argument("--out", required=True, type=Path)
     ap.add_argument("--tasks", help="comma-separated task ids (default: all)")
     ap.add_argument("--arms", default="A,B", help="A, B and C; A is the baseline")
@@ -148,9 +163,14 @@ def main():
     ap.add_argument("--timeout", type=int, default=900, help="seconds per run")
     ap.add_argument("--seed", type=int, default=7)
     ap.add_argument("--claude", default=shutil.which("claude"))
+    ap.add_argument("--recheck", action="store_true", help="only score saved answers again")
     a = ap.parse_args()
-    a.greeg = str(Path(a.greeg).resolve())
     a.out = a.out.resolve()
+    if a.recheck:
+        return recheck(a.out, tomllib.load(open(HERE / "tasks.toml", "rb"))["task"])
+    if not a.greeg:
+        ap.error("--greeg is required")
+    a.greeg = str(Path(a.greeg).resolve())
     if not set(a.arms.split(",")) <= {"A", "B", "C"} or not a.arms.startswith("A"):
         sys.exit("--arms: A first, then B and/or C")
     tasks = tomllib.load(open(HERE / "tasks.toml", "rb"))["task"]
