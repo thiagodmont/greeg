@@ -3136,3 +3136,48 @@ fn explain_says_what_a_search_was_built_from() {
         assert!(o.stdout.is_empty());
     }
 }
+
+/// Of `-i`, `-s` and `-S`, and of `-w` and `-x`, the last flag given wins, as
+/// in ripgrep.
+#[test]
+fn the_last_case_or_boundary_flag_wins() {
+    let f = empty_fixture();
+    w(&f.root.join("a.txt"), "foo bar\nfoo\nFOO\nxfoo\n");
+    let lines = |args: &[&str]| -> Vec<String> {
+        let mut a = args.to_vec();
+        a.extend(["--no-index", "--budget", "0"]);
+        let mut v: Vec<String> = String::from_utf8(f.run(&a).stdout)
+            .unwrap()
+            .lines()
+            .map(|l| l.rsplit(':').next().unwrap().to_string())
+            .collect();
+        v.sort();
+        v
+    };
+    let all = ["FOO", "foo", "foo bar", "xfoo"];
+    let lower = ["foo", "foo bar", "xfoo"];
+    for (args, want) in [
+        (&["-i", "-S", "FOO"][..], &["FOO"][..]),
+        (&["-S", "-i", "FOO"], &all),
+        (&["-i", "-s", "FOO"], &["FOO"]),
+        (&["-s", "-i", "FOO"], &all),
+        (&["-S", "-s", "foo"], &lower),
+        (&["-s", "-S", "foo"], &all),
+        (&["-w", "-x", "foo"], &["foo"]),
+        (&["-x", "-w", "foo"], &["foo", "foo bar"]),
+        // a repeated flag is accepted, as ripgrep accepts it
+        (&["-i", "-i", "FOO"], &all),
+        (&["-w", "-w", "foo"], &["foo", "foo bar"]),
+    ] {
+        assert_eq!(lines(args), want, "{args:?}");
+    }
+    // repeatable options still collect every value
+    w(&f.root.join("b.rs"), "foo\n");
+    let globs = f.run(&["foo", "-g", "*.txt", "-g", "*.rs", "--no-index", "-l"]);
+    let mut files: Vec<&str> = std::str::from_utf8(&globs.stdout)
+        .unwrap()
+        .lines()
+        .collect();
+    files.sort();
+    assert_eq!(files, ["a.txt", "b.rs"]);
+}
