@@ -234,3 +234,27 @@ parses. A run can still refuse a combination, or a flag a command has no use
 for (`--json=rg` with a command, for one). Hidden compatibility flags are left
 out. New
 fields do not change `schema`.
+
+## Explain
+
+`--explain` on a search adds one `explain` record before the footer, in
+`--json=greeg` and `--json=legacy` (text writes the same as `explain:` lines on
+stderr). It says what the answer was built from and changes nothing else: the
+other records, the budget fit and the byte ceiling are as without it, and it is
+not counted in either. Under `--max-bytes` the record goes to stderr, so
+stdout keeps its ceiling. Statistics do not record it. `--json=rg` and commands
+refuse it (exit 2).
+
+| Field | Meaning |
+|---|---|
+| `source` | as the outcome's |
+| `index_skipped` | why the index did not answer, or null: `not used` (`--no-index`), `ignored or hidden files asked for`, a rebuild reason (`no-index`, `derivation`, `threshold`, `corrupt`, …), `an unindexed file named src/x.rs` (or directory), `a path outside the index root or not resolvable: PATH`, `files the index skipped`, `error`, … |
+| `fresh` | index answers: `method`, `ms`, `changed`, `deferred` |
+| `plan` | index answers: the candidate plan (words and trigram hashes) |
+| `rung` | the rung that matched |
+| `candidates` | `walked`, `candidates` (index), `searched`, `matched_files`, `hits_before_kind`, `hits` |
+| `filters` | `kinds`, `excluded` (`--no-tests` …), `globs`, `types`, `types_not`, `demoted` with `demoted_files`/`demoted_hits`, `skipped_binary`, `binary_tails`, `skipped_huge`, `ignored_only` |
+| `ranking` | `terms` and, for the first ten shown hits, `path`, `line`, `kind`, `score`, `kind_weight`, `exact_boost`, `prior` (location, `--near` and PageRank); `score` is the product of the terms |
+| `parse_errors` | index answers: matched files parsed with errors or by the regex fallback |
+
+The plan holds the query's words; the record goes only to the caller.

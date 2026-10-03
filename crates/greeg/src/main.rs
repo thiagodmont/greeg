@@ -3,6 +3,7 @@
 mod budget;
 mod capabilities;
 mod doctor;
+mod explain;
 mod hook;
 mod hook_config;
 mod hook_skill;
@@ -217,6 +218,9 @@ struct Common {
     /// Print what this build supports (commands, flags, JSON dialects, budget levels, languages) as one JSON record, and exit
     #[arg(long = "capabilities")]
     capabilities: bool,
+    /// Say what a search's answer was built from: index use, freshness, candidates, filters, ranking terms (a JSON `explain` record, or stderr lines)
+    #[arg(long = "explain", global = true)]
+    explain: bool,
     /// Hard ceiling on stdout bytes for searches and verbs: whole lines and records only, cut noted in the outcome; exit 2 when the smallest answer does not fit
     #[arg(long = "max-bytes", global = true, value_name = "N")]
     max_bytes: Option<usize>,
@@ -778,6 +782,9 @@ fn build_options(c: &Common, pattern: String, paths: Vec<PathBuf>) -> Result<Opt
     if c.json_rg() && c.max_bytes.is_some() {
         anyhow::bail!("--json=rg returns every match, as ripgrep does; it takes no --max-bytes");
     }
+    if c.json_rg() && c.explain {
+        anyhow::bail!("--json=rg writes ripgrep's records only; it takes no --explain");
+    }
     // greeg's hits are single lines; ripgrep prints a multiline match as one record
     if c.json_rg() && c.multiline {
         anyhow::bail!("--json=rg does not print multiline matches as ripgrep does; use --json");
@@ -962,6 +969,9 @@ fn run() -> Result<()> {
     if let Some(cmd) = cli.cmd {
         if c.json_rg() {
             anyhow::bail!("--json=rg is ripgrep's search output; commands take --json");
+        }
+        if c.explain {
+            anyhow::bail!("--explain explains searches; commands do not take it yet");
         }
         if let Some(what) = writes(&cmd)
             && !greeg_index::persist::allowed()
@@ -1687,13 +1697,57 @@ fn keep_within(
 /// Write the answer: JSON records, or the text body plus the footer (stdout;
 /// stderr for `-l`/`-c` and `--budget 0`, whose stdout stays pipe-safe).
 fn emit(c: &Common, result: &ScanResult, report: &Report, fmt: Fmt) -> Result<()> {
-    let stdout = std::io::stdout();
-    let mut w = BufWriter::with_capacity(64 * 1024, stats::Tee(stdout.lock()));
-    let err = write_search(c, &mut w, result, report, fmt)?;
-    w.flush()?;
+    let explained = c.explain.then(|| explain::search(result, report));
+    // a JSON explain record goes before the footer, the last record, unless
+    // stdout has a byte ceiling: then to stderr, as text's does
+    let in_stdout = c.json() && result.opts.max_bytes == 0;
+    let err = match explained.as_ref().filter(|_| in_stdout) {
+        Some(e) => {
+            let (out, err) = render_search(c, result, report, fmt)?;
+            let at = out[..out.len().saturating_sub(1)]
+                .iter()
+                .rposition(|&b| b == b'\n')
+                .map_or(0, |i| i + 1);
+            let stdout = std::io::stdout();
+            let mut lock = stdout.lock();
+            let mut tee = |b: &[u8]| -> Result<()> {
+                let mut w = BufWriter::with_capacity(64 * 1024, stats::Tee(&mut lock));
+                w.write_all(b)?;
+                w.flush()?;
+                Ok(())
+            };
+            tee(&out[..at])?;
+            // explain is outside what statistics count
+            let mut line = serde_json::to_vec(e)?;
+            line.push(b'\n');
+            greeg_index::commit::commit();
+            let mut raw = std::io::stdout().lock();
+            raw.write_all(&line)?;
+            raw.flush()?;
+            tee(&out[at..])?;
+            err
+        }
+        None => {
+            let stdout = std::io::stdout();
+            let mut w = BufWriter::with_capacity(64 * 1024, stats::Tee(stdout.lock()));
+            let err = write_search(c, &mut w, result, report, fmt)?;
+            w.flush()?;
+            err
+        }
+    };
     if !err.is_empty() {
         std::io::stderr().write_all(&err)?;
         stats::observe(&err);
+    }
+    if let Some(e) = explained.as_ref().filter(|_| !in_stdout) {
+        let mut block = Vec::new();
+        if c.json() {
+            serde_json::to_writer(&mut block, e)?;
+            block.push(b'\n');
+        } else {
+            explain::write_text(&mut block, e, result, report)?;
+        }
+        std::io::stderr().write_all(&block)?;
     }
     Ok(())
 }

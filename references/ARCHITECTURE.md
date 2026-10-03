@@ -243,6 +243,11 @@ Cleanup touches only those names, at most 64 per publication.
    the top hits. What an agent needs first from a 357-hit query is the shape of
    the answer, and 50 lines of it won't tell you that.
 
+`--explain` reports what the answer was built from (index use or why not,
+freshness, candidate counts, filters, the score terms of the first ten shown
+hits) in its
+own record or on stderr, outside the budget, the byte ceiling and statistics.
+
 `--budget 0`, `-l` and `-c` bypass token shaping and default to exact matching.
 Their stdout contains only result rows; diagnostics and the footer go to
 stderr. They never relax a failed query unless `--matching discover` is explicit.
