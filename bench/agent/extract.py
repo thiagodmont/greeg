@@ -35,12 +35,15 @@ from the model's intent alone is visible in the table.
 `run.py` passes `--include-hook-events`, so the stream itself carries each
 PreToolUse response (`{"type": "system", "subtype": "hook_response", …}`). A
 response names no tool_use id: it goes to the earliest Bash call still waiting
-whose description matches, else the earliest. Calls the permission rules
+whose description matches, else the earliest; a response that could belong to
+more than one is counted as ambiguous. Calls the permission rules
 denied (`permission_denied`) ran nothing and are counted apart.
 
-A run is marked `invalid`, with reasons, when its `meta.json` says the
-workspace changed, when the stream has no result, when arm A ran greeg, or
-when a search in arm B or C ran without a hook response.
+A run is marked `invalid`, with reasons, when it has no `meta.json` (only
+`run.py` runs are compared), when its `meta.json` says the workspace changed,
+when the stream has no result, when arm A ran greeg, when a search in arm B or
+C ran without a hook response, or when a hook response could belong to more
+than one waiting call.
 """
 import json, os, re, sys
 from pathlib import Path
@@ -83,10 +86,12 @@ def hook_updates(lines):
 
 
 def stream_hook_updates(lines):
-    """{tool_use_id: executed command} from hook responses in the stream; a
-    declined call maps to its own command."""
+    """{tool_use_id: executed command} from hook responses in the stream (a
+    declined call maps to its own command), and how many responses could
+    belong to more than one waiting call."""
     waiting = []  # (tool_use id, input) of Bash calls not yet answered by the hook
     upd = {}
+    ambiguous = 0
     for l in lines:
         try:
             j = json.loads(l)
@@ -102,10 +107,12 @@ def stream_hook_updates(lines):
                 new = (json.loads(raw).get("hookSpecificOutput") or {}).get("updatedInput") or {} if raw.strip() else {}
             except ValueError:
                 new = {}
-            at = next((i for i, (_, inp) in enumerate(waiting) if "description" in new and inp.get("description") == new["description"]), 0)
-            tid, inp = waiting.pop(at)
+            same = [i for i, (_, inp) in enumerate(waiting) if "description" in new and inp.get("description") == new["description"]]
+            if len(same) > 1 or (not same and len(waiting) > 1):
+                ambiguous += 1
+            tid, inp = waiting.pop(same[0] if same else 0)
             upd[tid] = new.get("command") or inp.get("command", "")
-    return upd
+    return upd, ambiguous
 
 
 def result_text(block):
@@ -128,7 +135,8 @@ def read_run(d):
     except OSError:
         transcript = []
     updates = hook_updates(lines + transcript)
-    updates.update(stream_hook_updates(lines))
+    from_stream, rec["ambiguous_hooks"] = stream_hook_updates(lines)
+    updates.update(from_stream)
     denied = set()
     pending = {}  # tool_use id -> command as the model wrote it (Bash only)
     results = {}  # tool_use id -> result text
@@ -175,7 +183,7 @@ def read_run(d):
             continue
         intended = search_tools_in(intent_cmd)
         if intended and tid not in updates:
-            unhooked += 1
+            unhooked += len(intended)
         if tid in updates:
             found, how = search_tools_in(updates[tid]), "hook"
         elif intended and tid in results and GREEG_FINGERPRINT.search(results[tid]):
@@ -201,14 +209,17 @@ def invalid(rec, d, arm):
         meta = json.loads(Path(d, "meta.json").read_text())
     except (OSError, ValueError):
         meta = None
+        why.append("no readable meta.json (not a run.py run)")
     if meta and meta.get("workspace_dirty"):
         why.append("the agent changed the workspace")
     if rec["result"] is None:
         why.append("no result record")
-    if meta is not None and arm == "A" and rec["search"]["greeg"]:
+    if arm == "A" and rec["search"]["greeg"]:
         why.append("arm A ran greeg")
-    if meta is not None and arm != "A" and rec["unhooked"]:
+    if arm != "A" and rec["unhooked"]:
         why.append(f"{rec['unhooked']} searches ran without a hook response")
+    if rec["ambiguous_hooks"]:
+        why.append(f"{rec['ambiguous_hooks']} hook responses could belong to more than one call")
     return why
 
 

@@ -1,10 +1,20 @@
 import os
+import re
 import subprocess
+import sys
 import tempfile
 import tomllib
 import unittest
 
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "agent"))
+from run import corpus_path  # noqa: E402
+
 TASKS = os.path.join(os.path.dirname(__file__), "agent", "tasks.toml")
+
+
+def tasks():
+    with open(TASKS, "rb") as fh:
+        return tomllib.load(fh)["task"]
 
 
 def passes(check, answer):
@@ -16,14 +26,31 @@ def passes(check, answer):
 
 class AgentTaskTests(unittest.TestCase):
     def test_each_check_takes_its_reference_answer_and_nothing_less(self):
-        with open(TASKS, "rb") as fh:
-            tasks = tomllib.load(fh)["task"]
-        self.assertEqual(len({t["id"] for t in tasks}), len(tasks))
-        for t in tasks:
+        ts = tasks()
+        self.assertEqual(len({t["id"] for t in ts}), len(ts))
+        for t in ts:
             with self.subTest(t["id"]):
-                self.assertTrue(passes(t["check"], t["answer"]))
-                self.assertFalse(passes(t["check"], ""))
-                self.assertFalse(passes(t["check"], t["prompt"]))
+                for answer, want in ((t["answer"], True), ("", False), (t["prompt"], False)):
+                    self.assertEqual(passes(t["check"], answer), want,
+                                     f"check {t['check']!r} on answer {answer!r}")
+
+    def test_reference_answers_cite_lines_that_exist(self):
+        """Each path:line a reference answer cites is in the pinned corpus,
+        when the corpus is fetched; the line holds the name cited before it."""
+        cited = 0
+        for t in tasks():
+            root = corpus_path(t["corpus"])
+            if not root.is_dir():
+                continue
+            for name, path, line in re.findall(r"([\w.:]+)\W+(?:at |\()([\w./-]+/[\w.-]+):(\d+)", t["answer"]):
+                with self.subTest(t["id"], path=path):
+                    lines = (root / path).read_text(errors="replace").splitlines()
+                    self.assertGreaterEqual(len(lines), int(line))
+                    last = re.split(r"::|\.", name)[-1]
+                    self.assertIn(last, lines[int(line) - 1], f"{path}:{line}")
+                    cited += 1
+        if cited == 0:
+            self.skipTest("no corpus fetched")
 
 
 if __name__ == "__main__":
