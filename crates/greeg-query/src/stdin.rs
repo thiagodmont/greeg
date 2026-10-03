@@ -72,18 +72,15 @@ pub fn scan(o: &Options, mut data: Vec<u8>) -> Result<ScanResult> {
             .map(|k| ls as usize + k)
             .unwrap_or(bytes.len());
         let line_bytes = &bytes[ls as usize..le];
-        let raw = line_bytes
-            .strip_suffix(b"\r")
-            .unwrap_or(line_bytes)
-            .to_vec();
+        let raw = line_bytes.strip_suffix(b"\r").unwrap_or(line_bytes).into();
         hits.push(Hit {
             line: lh.line,
             line_start: ls,
             match_start: ms,
             match_end: me,
-            submatches: lh.subs,
+            submatches: crate::several(lh.subs),
             kind: HitKind::Ident,
-            chain: Vec::new(),
+            chain: Box::default(),
             def_idx: None,
             score: 1.0,
             exact: crate::is_exact(o, bytes, ms, me),
@@ -163,7 +160,7 @@ mod tests {
             r.files[0].hits.iter().map(|h| h.line).collect::<Vec<_>>(),
             vec![1, 3]
         );
-        assert_eq!(r.files[0].hits[1].raw, b"xa");
+        assert_eq!(&*r.files[0].hits[1].raw, b"xa");
         let r = scan(&o, b"b\n".to_vec()).unwrap();
         assert!(r.files.is_empty());
     }
@@ -181,7 +178,7 @@ mod tests {
         assert_eq!(r.stats.total_hits, 2);
         let hits = &r.files[0].hits;
         assert_eq!(hits.iter().map(|h| h.line).collect::<Vec<_>>(), vec![1, 2]);
-        assert_eq!(hits[0].raw, b"foo bar");
+        assert_eq!(&*hits[0].raw, b"foo bar");
     }
 
     #[test]

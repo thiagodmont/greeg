@@ -2574,7 +2574,7 @@ pub(crate) fn file_lines(r: &ScanResult, sf: &ShownFile) -> Vec<FileLine> {
         {
             Some(t) => t,
             None => {
-                let mut t = h.raw.clone();
+                let mut t = h.raw.to_vec();
                 t.push(b'\n');
                 t
             }

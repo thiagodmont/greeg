@@ -224,17 +224,28 @@ pub struct Hit {
     pub match_start: u32,
     /// End of the first submatch; may pass the line end under `-U`.
     pub match_end: u32,
-    /// Every submatch on this line as absolute byte ranges (first == match_start..match_end).
-    pub submatches: Vec<(u32, u32)>,
+    /// Every submatch on this line as absolute byte ranges (first ==
+    /// match_start..match_end) when there are several; empty for one. Read
+    /// them through [`raw_submatches`](Self::raw_submatches).
+    pub submatches: Box<[(u32, u32)]>,
     pub kind: HitKind,
     /// Enclosing definition chain, outermost first.
-    pub chain: Vec<(DefKind, String)>,
+    pub chain: Box<[(DefKind, String)]>,
     pub def_idx: Option<u32>,
     pub score: f32,
     /// The match is the whole pattern as a word, exact case (`is_exact`).
     pub exact: bool,
     /// The untrimmed line without its terminator (ripgrep's `lines.text` minus `\n`).
-    pub raw: Vec<u8>,
+    pub raw: Box<[u8]>,
+}
+
+/// A line's submatches as a hit keeps them: none stored for one.
+pub(crate) fn several(subs: Vec<(u32, u32)>) -> Box<[(u32, u32)]> {
+    if subs.len() > 1 {
+        subs.into_boxed_slice()
+    } else {
+        Box::default()
+    }
 }
 
 impl Hit {
@@ -270,8 +281,13 @@ impl Hit {
     /// Submatch ranges relative to `raw`, clamped to the line.
     pub fn raw_submatches(&self) -> Vec<(u32, u32)> {
         let len = self.raw.len() as u32;
-        self.submatches
-            .iter()
+        let one = [(self.match_start, self.match_end)];
+        let subs: &[(u32, u32)] = if self.submatches.is_empty() {
+            &one
+        } else {
+            &self.submatches
+        };
+        subs.iter()
             .map(|&(s, e)| {
                 (
                     (s - self.line_start).min(len),
@@ -1834,18 +1850,15 @@ pub(crate) fn process_file(
         kinds[kind.idx()] += 1;
         let exact = is_exact(o, src, ms, me);
         let score = kind.weight() * prior * exact_boost(kind, exact);
-        let raw = line_bytes
-            .strip_suffix(b"\r")
-            .unwrap_or(line_bytes)
-            .to_vec();
+        let raw = line_bytes.strip_suffix(b"\r").unwrap_or(line_bytes).into();
         hits.push(Hit {
             line: lh.line,
             line_start: ls,
             match_start: ms,
             match_end: me,
-            submatches: lh.subs,
+            submatches: several(lh.subs),
             kind,
-            chain: Vec::new(),
+            chain: Box::default(),
             def_idx: None,
             score,
             exact,
@@ -2060,7 +2073,7 @@ pub fn refine_file(f: &mut FileResult) {
             let i = used.binary_search(&d).ok().map(|i| i as u32);
             h.def_idx = i;
             h.chain = i
-                .map(|i| defs[i as usize].chain.clone())
+                .map(|i| defs[i as usize].chain.clone().into_boxed_slice())
                 .unwrap_or_default();
         }
     }
@@ -2531,6 +2544,22 @@ mod tests {
         sink
     }
 
+    /// A kept hit stays small: one match range is stored inline, and the
+    /// enclosing chain, the extra ranges and the line are exact-size boxes.
+    #[test]
+    fn hits_are_compact() {
+        assert!(
+            std::mem::size_of::<Hit>() <= 80,
+            "{}",
+            std::mem::size_of::<Hit>()
+        );
+        let p = tmp_file("compact.rs", b"x foo foo\nfoo\n");
+        let hits = run_process(&opts("foo"), &p).unwrap().hits;
+        let subs: Vec<Vec<(u32, u32)>> = hits.iter().map(|h| h.raw_submatches()).collect();
+        assert_eq!(subs, [vec![(2, 5), (6, 9)], vec![(0, 3)]]);
+        assert!(hits[1].submatches.is_empty());
+    }
+
     /// A hit's display line is what collection used to store: the line
     /// trimmed at the start, without `\r`, clipped around the match.
     #[test]
@@ -2554,13 +2583,13 @@ mod tests {
                 line_start: 100,
                 match_start: 100 + ms as u32,
                 match_end: 100 + me as u32,
-                submatches: vec![],
+                submatches: Box::default(),
                 kind: HitKind::Ident,
-                chain: vec![],
+                chain: Box::default(),
                 def_idx: None,
                 score: 1.0,
                 exact: true,
-                raw,
+                raw: raw.into(),
             };
             for cols in [0, 10, 20, 24, 30, 60] {
                 let lead = line.len() - greeg_lang::trim_start(line).len().min(line.len());
@@ -2828,7 +2857,7 @@ mod tests {
         let f = run_process(&o, &p).unwrap();
         assert_eq!(f.total, 2);
         assert_eq!(f.hits[0].line, 1);
-        assert_eq!(f.hits[0].raw, b"foo bar");
+        assert_eq!(&*f.hits[0].raw, b"foo bar");
         assert_eq!(f.hits[0].column(), 0);
         assert_eq!(f.hits[0].line_start, 3);
     }
@@ -2877,7 +2906,7 @@ mod tests {
         let f = run_process(&o, &p).unwrap();
         assert_eq!(f.total, 1);
         assert_eq!(f.hits[0].line, 1);
-        assert_eq!(f.hits[0].raw, b"call.respond(");
+        assert_eq!(&*f.hits[0].raw, b"call.respond(");
         assert_eq!(f.hits[0].kind, HitKind::Call);
     }
 
