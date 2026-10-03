@@ -253,6 +253,8 @@ Cleanup touches only those names, at most 64 per publication.
 freshness, candidate counts, filters, the score terms of the first ten shown
 hits) in its
 own record or on stderr, outside the budget, the byte ceiling and statistics.
+On a symbol verb it reports the counts the answer was chosen from and, for
+`def`, each shown definition's score terms.
 
 `--budget 0`, `-l` and `-c` bypass token shaping and default to exact matching.
 Their stdout contains only result rows; diagnostics and the footer go to

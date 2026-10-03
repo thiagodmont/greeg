@@ -238,13 +238,15 @@ fields do not change `schema`.
 
 ## Explain
 
-`--explain` on a search adds one `explain` record before the footer, in
-`--json=greeg` and `--json=legacy` (text writes the same as `explain:` lines on
-stderr). It says what the answer was built from and changes nothing else: the
-other records, the budget fit and the byte ceiling are as without it, and it is
-not counted in either. Under `--max-bytes` the record goes to stderr, so
-stdout keeps its ceiling. Statistics do not record it. `--json=rg` and commands
-refuse it (exit 2).
+`--explain` on a search or a symbol verb adds one `explain` record before the
+footer, in `--json=greeg` and `--json=legacy` (text writes the same as
+`explain:` lines on stderr). It says what the answer was built from and changes
+nothing else: the other records, the budget fit and the byte ceiling are as
+without it, and it is not counted in either. Under `--max-bytes` the record
+goes to stderr, so stdout keeps its ceiling. Statistics do not record it.
+`--json=rg` and the other commands (`index`, `stats`, …) refuse it (exit 2).
+
+A search's record:
 
 | Field | Meaning |
 |---|---|
@@ -259,3 +261,14 @@ refuse it (exit 2).
 | `parse_errors` | index answers: matched files parsed with errors or by the regex fallback |
 
 The plan holds the query's words; the record goes only to the caller.
+
+A symbol verb's record (`def`, `refs`, `callers`, `impls`, `impact`,
+`outline`, `show`, `map`):
+
+| Field | Meaning |
+|---|---|
+| `verb` | the command |
+| `source`, `rung`, `total`, `shown`, `truncated_by` | as the outcome's |
+| `fresh`, `deferred` | index answers: the freshness method and the files it left for later |
+| `considered` | the counts the answer was chosen from, per verb: `def` `definitions`, `described`, `near_names`; `refs` `definitions`, `files_searched`, `files_matched`, `hits`, `classified`, `resolved`; `callers` `depth`, `files`, `hits`, `callers`; `impls` `direct`, `extras`; `impact` `definitions`, `likely`, `possible`, `review`, `import_graph`, `callers`, `hits`; `outline` `symbols`, `imports`, `parse_errors`; `show` `locations`, `in_a_definition`; `map` `files`, `symbols`, `graph_changes` |
+| `ranking` | `def` only: `terms` and, for the first ten shown definitions, `path`, `line`, `kind`, `score` and `terms` (`kind`, `exported`, `nested`, `location`, `rank`, `reach`; null when the definition was not ranked from the index); `score` is the product of the terms |

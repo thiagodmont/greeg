@@ -3128,12 +3128,103 @@ fn explain_says_what_a_search_was_built_from() {
     assert!(err.contains("explain: source index"), "{err}");
     assert!(err.contains("explain: score = kind weight"), "{err}");
     for refused in [
-        &["def", "target", "--explain"][..],
+        &["index", "--explain"][..],
         &["target", "--json=rg", "--explain"],
     ] {
         let o = f.run(refused);
         assert_eq!(o.status.code(), Some(2), "{refused:?}");
         assert!(o.stdout.is_empty());
+    }
+}
+
+/// A symbol verb's `--explain` adds one record and changes nothing else: in
+/// text it goes to stderr, in JSON before the footer, and to stderr under a
+/// byte ceiling. A definition's score terms multiply to its score.
+#[test]
+fn explain_says_how_a_verb_answer_was_built() {
+    let f = outcome_fixture();
+    let queries: [&[&str]; 8] = [
+        &["def", "target"],
+        &["refs", "target"],
+        &["callers", "target"],
+        &["impls", "Shape"],
+        &["impact", "target"],
+        &["outline", "src/lib.rs"],
+        &["show", "src/lib.rs:12", "src/lib.rs:20"],
+        &["map", "src"],
+    ];
+    let with = |q: &[&str], extra: &[&str]| {
+        let mut a = q.to_vec();
+        a.extend_from_slice(&["--fresh", "stat"]);
+        a.extend_from_slice(extra);
+        f.run(&a)
+    };
+    for q in queries {
+        let verb = q[0];
+        let plain = with(q, &[]);
+        let explained = with(q, &["--explain"]);
+        assert_eq!(explained.status.code(), plain.status.code(), "{q:?}");
+        assert_eq!(
+            String::from_utf8_lossy(&explained.stdout),
+            String::from_utf8_lossy(&plain.stdout),
+            "{q:?}"
+        );
+        let err = String::from_utf8_lossy(&explained.stderr);
+        assert!(
+            err.contains(&format!("explain: {verb} · source")),
+            "{q:?}\n{err}"
+        );
+        assert!(err.contains("explain: considered: "), "{q:?}\n{err}");
+
+        for dialect in ["--json=greeg", "--json=legacy"] {
+            let plain = with(q, &[dialect]);
+            let o = with(q, &[dialect, "--explain"]);
+            assert_eq!(o.status.code(), plain.status.code(), "{q:?} {dialect}");
+            let records: Vec<serde_json::Value> = String::from_utf8(o.stdout.clone())
+                .unwrap()
+                .lines()
+                .map(|l| serde_json::from_str(l).unwrap())
+                .collect();
+            let n = records.len();
+            assert_eq!(records[n - 2]["type"], "explain", "{q:?} {dialect}");
+            let e = &records[n - 2]["data"];
+            assert_eq!(e["verb"], verb, "{q:?} {dialect}");
+            let without: Vec<u8> = o
+                .stdout
+                .split_inclusive(|&b| b == b'\n')
+                .filter(|l| !l.starts_with(br#"{"type":"explain""#))
+                .flatten()
+                .copied()
+                .collect();
+            assert_eq!(
+                stable_records(&without),
+                stable_records(&plain.stdout),
+                "{q:?} {dialect}"
+            );
+            if verb == "def" {
+                let defs = e["ranking"]["definitions"].as_array().unwrap();
+                assert!(!defs.is_empty() && defs.len() <= 10, "{e}");
+                for d in defs {
+                    let product: f64 = d["terms"]
+                        .as_object()
+                        .unwrap()
+                        .values()
+                        .map(|v| v.as_f64().unwrap())
+                        .product();
+                    let score = d["score"].as_f64().unwrap();
+                    assert!((product - score).abs() < 0.01, "{d}");
+                }
+            }
+        }
+
+        let capped = with(q, &["--json=greeg", "--max-bytes", "4000", "--explain"]);
+        assert!(capped.stdout.len() <= 4000, "{q:?}");
+        assert!(
+            !String::from_utf8_lossy(&capped.stdout).contains(r#""type":"explain""#),
+            "{q:?}"
+        );
+        let err: serde_json::Value = serde_json::from_slice(&capped.stderr).unwrap();
+        assert_eq!(err["type"], "explain", "{q:?}");
     }
 }
 
