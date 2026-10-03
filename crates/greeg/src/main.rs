@@ -1535,6 +1535,9 @@ fn pipe_safe(result: &ScanResult, report: &Report) -> bool {
     matches!(report.layout, Layout::Files | Layout::Count) || result.opts.budget == 0
 }
 
+/// A shaping budget's answer and its size.
+type Sizer<'a> = dyn Fn(&mut ScanResult, usize) -> Result<(Report, usize)> + 'a;
+
 /// Fit a search to `--budget` in the format written (JSON by its own size;
 /// text is shaped to it already) and to `--max-bytes`. Shaped answers are
 /// shaped again to a smaller budget; `-l`, `-c` and `--budget 0` keep the
@@ -1548,17 +1551,29 @@ fn fit_search(
 ) -> Result<Report> {
     let (budget, cap) = (result.opts.budget, result.opts.max_bytes);
     let json = c.json() && !c.json_rg();
-    // stdout bytes, and the JSON's tokens (its footer's `est_tokens` set to them)
+    // the JSON's tokens (its footer's `est_tokens` set to them), and stdout bytes
     let measure = |result: &ScanResult, mut report: Report| -> Result<(Report, usize, usize)> {
         if !json {
             let n = render_search(c, result, &report, fmt)?.0.len();
             return Ok((report, 0, n));
         }
+        // an estimate as wide as the budget renders the same bytes and tokens,
+        // so render again only when the answer's estimate is another width
+        report.footer.est_tokens = budget;
         let (out, _) = render_search(c, result, &report, fmt)?;
-        report.footer.est_tokens = greeg_query::tokens::estimate(&out);
-        let (out, _) = render_search(c, result, &report, fmt)?;
-        let tokens = greeg_query::tokens::estimate(&out);
-        Ok((report, tokens, out.len()))
+        let (mut tokens, mut bytes) = (greeg_query::tokens::estimate(&out), out.len());
+        report.footer.est_tokens = tokens;
+        let width = |n: usize| n.max(1).ilog10();
+        if width(tokens) != width(budget) {
+            let (out, _) = render_search(c, result, &report, fmt)?;
+            let shown = tokens;
+            (tokens, bytes) = (greeg_query::tokens::estimate(&out), out.len());
+            // a number as wide leaves the measured bytes and tokens as they are
+            if width(tokens) == width(shown) {
+                report.footer.est_tokens = tokens;
+            }
+        }
+        Ok((report, tokens, bytes))
     };
     if budget == 0 || matches!(report.layout, Layout::Files | Layout::Count) {
         if cap == 0 {
@@ -1569,6 +1584,30 @@ fn fit_search(
     if !json && cap == 0 {
         return Ok(report);
     }
+    // budgets above the shaped answer's own text estimate shape the same
+    // answer; where the shaper picks another there, its size is measured
+    let (layout, units, est) = (report.layout, report.units(), report.footer.est_tokens);
+    let plateau = budget.min(est * 5 / 4 + 16);
+    // where `shrink` starts, from the answer at `budget` and its size
+    let start = |result: &mut ScanResult,
+                 at_budget: usize,
+                 limit: usize,
+                 size: &Sizer|
+     -> Result<(usize, usize)> {
+        if plateau >= budget {
+            return Ok((budget, at_budget));
+        }
+        let r = build(result, plateau);
+        if r.layout == layout && r.units() == units && r.footer.est_tokens == est {
+            return Ok((plateau, at_budget));
+        }
+        let n = size(result, plateau)?.1;
+        Ok(if n > limit {
+            (plateau, n)
+        } else {
+            (budget, at_budget)
+        })
+    };
     let (mut report, tokens, bytes) = measure(result, report)?;
     let mut shaped = budget;
     // a budget of 1 shapes the floor already
@@ -1578,7 +1617,8 @@ fn fit_search(
             let (r, t, _) = measure(result, r)?;
             Ok((r, t))
         };
-        (shaped, report) = shrink(result, budget, tokens, budget, size)?;
+        let (over, over_size) = start(result, tokens, budget, &size)?;
+        (shaped, report) = shrink(result, over, over_size, budget, size)?;
     }
     if cap == 0 {
         return Ok(report);
@@ -1599,7 +1639,12 @@ fn fit_search(
         let (r, _, n) = measure(result, r)?;
         Ok((r, n))
     };
-    let (_, report) = shrink(result, shaped, bytes, cap, size)?;
+    let (over, over_size) = if shaped < budget {
+        (shaped, bytes)
+    } else {
+        start(result, bytes, cap, &size)?
+    };
+    let (_, report) = shrink(result, over, over_size, cap, size)?;
     let n = measure(result, report.clone())?.2;
     if n > cap {
         anyhow::bail!("--max-bytes {cap} is below the {n} bytes this answer needs");
