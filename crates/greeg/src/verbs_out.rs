@@ -133,12 +133,22 @@ impl Cut {
 /// Allowance 0 is the answer's floor (header, counts, outcome): written even
 /// over the budget, but an error over `--max-bytes`.
 fn fit(
+    json: bool,
     o: &Options,
     max: usize,
     render: impl Fn(Cut) -> Result<(Vec<u8>, Outcome)>,
 ) -> Result<(Vec<u8>, Outcome)> {
-    let tokens_fit = |b: &[u8]| o.budget == 0 || greeg_query::tokens::estimate(b) <= o.budget;
-    let bytes_fit = |b: &[u8]| o.max_bytes == 0 || b.len() <= o.max_bytes;
+    // JSON is measured with timings at a fixed width, so a run's clock cannot move the fit
+    fn measured(json: bool, b: &[u8]) -> std::borrow::Cow<'_, [u8]> {
+        if json {
+            greeg_query::tokens::timeless(b)
+        } else {
+            b.into()
+        }
+    }
+    let tokens_fit =
+        |b: &[u8]| o.budget == 0 || greeg_query::tokens::estimate(&measured(json, b)) <= o.budget;
+    let bytes_fit = |b: &[u8]| o.max_bytes == 0 || measured(json, b).len() <= o.max_bytes;
     // the largest allowance in `0..=hi` whose rendering passes, if any
     type Fitted = (usize, (Vec<u8>, Outcome));
     let largest = |hi: usize,
@@ -202,7 +212,7 @@ fn fit(
             anyhow::bail!(
                 "--max-bytes {} is below the {} bytes this answer needs",
                 o.max_bytes,
-                floor.0.len()
+                measured(json, &floor.0).len()
             )
         }
     }
@@ -519,7 +529,7 @@ pub fn run_def(
         } else {
             r.entries.len()
         };
-        return finish_fit(w, "def", fit(o, max, render)?);
+        return finish_fit(w, "def", fit(c.json(), o, max, render)?);
     }
     if r.entries.is_empty() {
         let names = &r.suggestions;
@@ -547,7 +557,7 @@ pub fn run_def(
             outcome_line(&mut w, &[], &oc, cut.more())?;
             Ok((w, oc))
         };
-        return finish_fit(w, "def", fit(o, names.len(), render)?);
+        return finish_fit(w, "def", fit(c.json(), o, names.len(), render)?);
     }
     let multi_name = r.entries.iter().any(|e| e.name != r.name);
     let entries: Vec<&DefEntry> = r.entries.iter().collect();
@@ -617,7 +627,7 @@ pub fn run_def(
         }
         Ok((w, oc))
     };
-    finish_fit(w, "def", fit(o, entries.len(), render)?)
+    finish_fit(w, "def", fit(c.json(), o, entries.len(), render)?)
 }
 
 pub fn run_show(c: &Common, o: &Options, locs: &[(String, u32)]) -> Result<()> {
@@ -674,7 +684,7 @@ pub fn run_show(c: &Common, o: &Options, locs: &[(String, u32)]) -> Result<()> {
             writeln!(w)?;
             Ok((w, oc))
         };
-        w.write_all(&fit(o, max, render)?.0)?;
+        w.write_all(&fit(c.json(), o, max, render)?.0)?;
         w.flush()?;
         return Ok(());
     }
@@ -708,7 +718,7 @@ pub fn run_show(c: &Common, o: &Options, locs: &[(String, u32)]) -> Result<()> {
         outcome_line(&mut w, &[], &oc, cut.more())?;
         Ok((w, oc))
     };
-    w.write_all(&fit(o, max, render)?.0)?;
+    w.write_all(&fit(c.json(), o, max, render)?.0)?;
     w.flush()?;
     Ok(())
 }
@@ -807,7 +817,7 @@ pub fn run_refs(c: &Common, o: &Options, name: &str) -> Result<()> {
             writeln!(w)?;
             Ok((w, oc))
         };
-        return finish_fit(w, "refs", fit(o, total_lines, render)?);
+        return finish_fit(w, "refs", fit(c.json(), o, total_lines, render)?);
     }
     if s.stats.total_hits == 0 {
         let oc = Outcome::of_search(s, 0);
@@ -817,7 +827,7 @@ pub fn run_refs(c: &Common, o: &Options, name: &str) -> Result<()> {
             outcome_line(&mut w, &[], &oc, MORE)?;
             Ok((w, oc.clone()))
         };
-        return finish_fit(w, "refs", fit(o, 0, render)?);
+        return finish_fit(w, "refs", fit(c.json(), o, 0, render)?);
     }
     let fmt = crate::Fmt {
         chain: c.chain,
@@ -918,7 +928,7 @@ pub fn run_refs(c: &Common, o: &Options, name: &str) -> Result<()> {
         )?;
         Ok((w, oc))
     };
-    finish_fit(w, "refs", fit(o, total_lines, render)?)
+    finish_fit(w, "refs", fit(c.json(), o, total_lines, render)?)
 }
 
 pub fn run_callers(c: &Common, o: &Options, name: &str, depth: usize) -> Result<()> {
@@ -961,7 +971,7 @@ pub fn run_callers(c: &Common, o: &Options, name: &str, depth: usize) -> Result<
             writeln!(w)?;
             Ok((w, oc))
         };
-        return finish_fit(w, "callers", fit(o, limit, render)?);
+        return finish_fit(w, "callers", fit(c.json(), o, limit, render)?);
     }
     if r.callers.is_empty() {
         let render = |_: Cut| -> Result<(Vec<u8>, Outcome)> {
@@ -970,7 +980,7 @@ pub fn run_callers(c: &Common, o: &Options, name: &str, depth: usize) -> Result<
             outcome_line(&mut w, &[], &oc, MORE)?;
             Ok((w, oc.clone()))
         };
-        return finish_fit(w, "callers", fit(o, 0, render)?);
+        return finish_fit(w, "callers", fit(c.json(), o, 0, render)?);
     }
     let render = |cut: Cut| -> Result<(Vec<u8>, Outcome)> {
         let limit = cut.rows;
@@ -1050,7 +1060,7 @@ pub fn run_callers(c: &Common, o: &Options, name: &str, depth: usize) -> Result<
         outcome_line(&mut w, &[(oc.shown, oc.total, "callers")], &oc, cut.more())?;
         Ok((w, oc))
     };
-    finish_fit(w, "callers", fit(o, limit, render)?)
+    finish_fit(w, "callers", fit(c.json(), o, limit, render)?)
 }
 
 pub fn run_impls(c: &Common, o: &Options, name: &str) -> Result<()> {
@@ -1104,7 +1114,7 @@ pub fn run_impls(c: &Common, o: &Options, name: &str) -> Result<()> {
             writeln!(w)?;
             Ok((w, oc))
         };
-        return finish_fit(w, "impls", fit(o, limit, render)?);
+        return finish_fit(w, "impls", fit(c.json(), o, limit, render)?);
     }
     if r.direct.is_empty() && r.extras.is_empty() {
         let render = |_: Cut| -> Result<(Vec<u8>, Outcome)> {
@@ -1113,7 +1123,7 @@ pub fn run_impls(c: &Common, o: &Options, name: &str) -> Result<()> {
             outcome_line(&mut w, &[], &oc, MORE)?;
             Ok((w, oc.clone()))
         };
-        return finish_fit(w, "impls", fit(o, 0, render)?);
+        return finish_fit(w, "impls", fit(c.json(), o, 0, render)?);
     }
     // low-confidence extras get half the allowance
     let render = |cut: Cut| -> Result<(Vec<u8>, Outcome)> {
@@ -1165,7 +1175,7 @@ pub fn run_impls(c: &Common, o: &Options, name: &str) -> Result<()> {
         )?;
         Ok((w, oc))
     };
-    finish_fit(w, "impls", fit(o, limit, render)?)
+    finish_fit(w, "impls", fit(c.json(), o, limit, render)?)
 }
 
 pub fn run_outline(c: &Common, o: &Options, file: &str, imports: bool) -> Result<()> {
@@ -1196,7 +1206,7 @@ pub fn run_outline(c: &Common, o: &Options, file: &str, imports: bool) -> Result
             writeln!(w)?;
             Ok((w, oc))
         };
-        w.write_all(&fit(o, r.defs.len(), render)?.0)?;
+        w.write_all(&fit(c.json(), o, r.defs.len(), render)?.0)?;
         w.flush()?;
         return Ok(());
     }
@@ -1324,7 +1334,7 @@ pub fn run_outline(c: &Common, o: &Options, file: &str, imports: bool) -> Result
     } else {
         (o.budget / 12).max(10)
     };
-    w.write_all(&fit(o, max_lines, render)?.0)?;
+    w.write_all(&fit(c.json(), o, max_lines, render)?.0)?;
     w.flush()?;
     Ok(())
 }
@@ -1401,7 +1411,7 @@ pub fn run_map(c: &Common, o: &Options, dir: &str) -> Result<()> {
             writeln!(w)?;
             Ok((w, oc))
         };
-        w.write_all(&fit(o, dir_limit.max(file_limit), render)?.0)?;
+        w.write_all(&fit(c.json(), o, dir_limit.max(file_limit), render)?.0)?;
         w.flush()?;
         return Ok(());
     }
@@ -1504,7 +1514,7 @@ pub fn run_map(c: &Common, o: &Options, dir: &str) -> Result<()> {
         }
         Ok((w, oc))
     };
-    w.write_all(&fit(o, dir_limit.max(file_limit), render)?.0)?;
+    w.write_all(&fit(c.json(), o, dir_limit.max(file_limit), render)?.0)?;
     w.flush()?;
     Ok(())
 }
@@ -1633,7 +1643,7 @@ pub fn run_impact(c: &Common, o: &Options, name: &str) -> Result<()> {
         .into_iter()
         .max()
         .unwrap_or(0);
-        return finish_fit(w, "impact", fit(o, max, render)?);
+        return finish_fit(w, "impact", fit(c.json(), o, max, render)?);
     }
     if r.total_hits == 0 {
         let oc = outcome(0);
@@ -1643,7 +1653,7 @@ pub fn run_impact(c: &Common, o: &Options, name: &str) -> Result<()> {
             outcome_line(&mut w, &[], &oc, MORE)?;
             Ok((w, oc.clone()))
         };
-        return finish_fit(w, "impact", fit(o, 0, render)?);
+        return finish_fit(w, "impact", fit(c.json(), o, 0, render)?);
     }
     let likely = format!("uses {} and imports a file that defines it", r.name);
     let possible = format!("uses {} without that import link", r.name);
@@ -1739,5 +1749,5 @@ pub fn run_impact(c: &Common, o: &Options, name: &str) -> Result<()> {
         )?;
         Ok((w, oc))
     };
-    finish_fit(w, "impact", fit(o, per_group, render)?)
+    finish_fit(w, "impact", fit(c.json(), o, per_group, render)?)
 }

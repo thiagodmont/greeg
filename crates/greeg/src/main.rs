@@ -1561,20 +1561,29 @@ fn fit_search(
     // the JSON's tokens (its footer's `est_tokens` set to them), and stdout bytes
     let measure = |result: &ScanResult, mut report: Report| -> Result<(Report, usize, usize)> {
         if !json {
-            let n = render_search(c, result, &report, fmt)?.0.len();
+            let out = render_search(c, result, &report, fmt)?.0;
+            let n = if c.json() {
+                greeg_query::tokens::timeless(&out).len()
+            } else {
+                out.len()
+            };
             return Ok((report, 0, n));
         }
         // an estimate as wide as the budget renders the same bytes and tokens,
         // so render again only when the answer's estimate is another width
         report.footer.est_tokens = budget;
         let (out, _) = render_search(c, result, &report, fmt)?;
-        let (mut tokens, mut bytes) = (greeg_query::tokens::estimate(&out), out.len());
+        // timings at a fixed width: the clock cannot move the fit
+        let size = |out: &[u8]| {
+            let out = greeg_query::tokens::timeless(out);
+            (greeg_query::tokens::estimate(&out), out.len())
+        };
+        let (mut tokens, mut bytes) = size(&out);
         report.footer.est_tokens = tokens;
         let width = |n: usize| n.max(1).ilog10();
         if width(tokens) != width(budget) {
-            let (out, _) = render_search(c, result, &report, fmt)?;
             let shown = tokens;
-            (tokens, bytes) = (greeg_query::tokens::estimate(&out), out.len());
+            (tokens, bytes) = size(&render_search(c, result, &report, fmt)?.0);
             // a number as wide leaves the measured bytes and tokens as they are
             if width(tokens) == width(shown) {
                 report.footer.est_tokens = tokens;
@@ -1718,7 +1727,16 @@ fn keep_within(
     fmt: Fmt,
     cap: usize,
 ) -> Result<Report> {
-    let size = |r: &Report| -> Result<usize> { Ok(render_search(c, result, r, fmt)?.0.len()) };
+    // ripgrep prints -l and -c as text even under --json
+    let json = c.json() && !(c.json_rg() && matches!(report.layout, Layout::Files | Layout::Count));
+    let size = |r: &Report| -> Result<usize> {
+        let out = render_search(c, result, r, fmt)?.0;
+        Ok(if json {
+            greeg_query::tokens::timeless(&out).len()
+        } else {
+            out.len()
+        })
+    };
     let whole = size(&report)?;
     if whole <= cap {
         return Ok(report);
