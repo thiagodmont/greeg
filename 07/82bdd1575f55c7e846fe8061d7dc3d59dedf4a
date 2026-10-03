@@ -1,0 +1,32 @@
+crates/greeg/tests/fixtures/hooks/codex-0.160-bash.json
+  s_b1057b2933cdb0::t_ee52db50a70eda 1-14
+crates/greeg/tests/hooks.rs
+  s_b1057b2933cdb0::t_1e4ad9d7e875bb 844-857,863-892,897-904,909-911,913-914,919-921,926,931,936-938
+  s_b1057b2933cdb0::t_734abace3aae21 858-862,893-896,905-908,912,915-918,922-925,927-930,932-935
+crates/greeg/src/hook.rs
+  s_b1057b2933cdb0::t_734abace3aae21 1046-1049,1055-1060,1100-1103,1107,1398,1403
+crates/greeg/tests/fixtures/hooks/claude-code-bash-subagent.json
+  s_b1057b2933cdb0::t_ee52db50a70eda 1-15
+crates/greeg/tests/fixtures/hooks/codex-0.160-bash-subagent.json
+  s_b1057b2933cdb0::t_ee52db50a70eda 1-16
+crates/greeg/tests/fixtures/hooks/claude-code-bash.json
+  s_b1057b2933cdb0::t_ee52db50a70eda 1-18
+README.md
+  s_b1057b2933cdb0::t_9025a6a49dcd02 142-146
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "0782bdd1575f55c7e846fe8061d7dc3d59dedf4a",
+  "prompts": {},
+  "sessions": {
+    "s_b1057b2933cdb0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0aa73425-0ec9-4b76-ae94-35b6bdff17bb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
