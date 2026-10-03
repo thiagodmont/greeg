@@ -1,0 +1,38 @@
+crates/greeg/src/explain.rs
+  s_b1057b2933cdb0::t_42415eaf6ba2a7 1-2,6-7,212-326
+README.md
+  s_b1057b2933cdb0::t_b3c04fb8647f70 393
+references/ARCHITECTURE.md
+  s_b1057b2933cdb0::t_b3c04fb8647f70 256-257
+crates/greeg/src/verbs_out.rs
+  s_b1057b2933cdb0::t_868f49e4f5285f 588-589,617-618,688-689,750-751,785-786,889-890,900-901,1002-1003,1049-1050,1059-1060,1140-1141,1146-1150,1200-1201,1210-1211,1263-1264,1298-1299,1427-1428,1508-1509,1612-1613,1745-1746,1756-1757,1853-1854
+  s_b1057b2933cdb0::t_986d75ae332629 222-276,537-540,694-697,794-797,1008-1010,1269-1271,1457-1459,1620-1622
+references/JSON.md
+  s_b1057b2933cdb0::t_b3c04fb8647f70 241-249,264-274
+crates/greeg/src/main.rs
+  s_b1057b2933cdb0::t_322394d746fad2 234,1007,1011
+  s_b1057b2933cdb0::t_868f49e4f5285f 1008-1010
+crates/greeg-query/src/verbs.rs
+  s_b1057b2933cdb0::t_584ef7ba2b5868 532-540,554,718,1021,1128,1217
+  s_b1057b2933cdb0::t_f878e5f62355fe 38-39,289-321,342-349,476,483-484,497,519-520
+crates/greeg/tests/cli.rs
+  s_b1057b2933cdb0::t_868f49e4f5285f 3173-3176
+  s_b1057b2933cdb0::t_7c2887694ba571 3131,3140-3172,3177-3227
+  s_b1057b2933cdb0::t_54b33e1ff40195 3228-3230
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "49403d5847f789d0fe6b9ba0a60bc4c09e3ae080",
+  "prompts": {},
+  "sessions": {
+    "s_b1057b2933cdb0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0aa73425-0ec9-4b76-ae94-35b6bdff17bb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
