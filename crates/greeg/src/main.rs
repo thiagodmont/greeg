@@ -2545,6 +2545,24 @@ mod tests {
         );
     }
 
+    /// A flag value that starts with `-` stays a value after the hook's rewrite.
+    #[test]
+    fn a_rewritten_flag_value_starting_with_a_dash_still_parses() {
+        for (cmd, globs, types_not) in [
+            ("rg --glob=-a.txt bar", &["-a.txt"][..], &[][..]),
+            ("rg -g -a.txt bar", &["-a.txt"], &[]),
+            ("rg --glob -a.txt bar", &["-a.txt"], &[]),
+            ("rg --type-not=-x bar", &[], &["-x"]),
+        ] {
+            let r = hook::rewrite_full(cmd).unwrap();
+            let cli = Cli::try_parse_from(&r.rewritten)
+                .unwrap_or_else(|e| panic!("{cmd}: {:?}: {e}", r.rewritten));
+            assert_eq!(cli.common.globs, globs, "{cmd}");
+            assert_eq!(cli.common.types_not, types_not, "{cmd}");
+            assert_eq!(cli.pattern.as_deref(), Some("bar"), "{cmd}");
+        }
+    }
+
     /// A flag greeg cannot honour must fail loudly. `-a` and `-uuu` ask for
     /// binary files, which the index never holds and scan mode stops at; an
     /// answer under them would be missing matches ripgrep reports.
