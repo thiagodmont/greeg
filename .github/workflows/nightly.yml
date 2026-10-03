@@ -30,7 +30,39 @@ jobs:
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
       - run: cargo build --release --locked -p greeg
+      - name: ripgrep 15.2.0 (the differential test compares against it)
+        shell: bash
+        run: |
+          case "$(uname -s)-$(uname -m)" in
+            Linux-x86_64) t=x86_64-unknown-linux-musl; sum=33e15bcf1624b25cdd2a55813a47a2f95dbe126268203e76aa6a585d1e7b149c ;;
+            Linux-aarch64) t=aarch64-unknown-linux-gnu; sum=a740b91c82eaf9914cfedd353572f2791cbe0162c84101ee0951058f4dcbc90d ;;
+            Darwin-arm64) t=aarch64-apple-darwin; sum=3750b2e93f37e0c692657da574d7019a101c0084da05a790c83fd335bad973e4 ;;
+            Darwin-x86_64) t=x86_64-apple-darwin; sum=af7825fcc69a2afc7a7aea55fc9af90e26421d8f20fe59df32e233c0b8a231c1 ;;
+            *) echo "no pinned ripgrep for $(uname -sm)"; exit 1 ;;
+          esac
+          f=ripgrep-15.2.0-$t.tar.gz
+          curl -fsSLO "https://github.com/BurntSushi/ripgrep/releases/download/15.2.0/$f"
+          if command -v sha256sum >/dev/null; then check="sha256sum -c -"; else check="shasum -a 256 -c -"; fi
+          echo "$sum  $f" | $check
+          tar xzf "$f"
+          mkdir -p "$HOME/.local/bin"
+          mv "ripgrep-15.2.0-$t/rg" "$HOME/.local/bin/rg"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/rg" --version | head -1 | grep -qx "ripgrep 15.2.0"
       - run: cargo test --workspace --locked
+        env:
+          GREEG_TEST_RG: "1"
+      - name: property tests, more seeds
+        shell: bash
+        env:
+          GREEG_TEST_RG: "1"
+        run: |
+          for i in 1 2 3 4 5; do
+            seed=$(( (RANDOM << 30) ^ (RANDOM << 15) ^ RANDOM ))
+            echo "seed $seed"
+            GREEG_TEST_SEED=$seed cargo test --locked -p greeg-index --test plan_props
+            GREEG_TEST_SEED=$seed cargo test --locked -p greeg --test differential
+          done
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: greeg-bin-${{ github.run_id }}
