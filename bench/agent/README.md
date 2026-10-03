@@ -10,7 +10,7 @@ check on the agent's final answer.
 
 | arm | search available to the agent | how |
 |---|---|---|
-| A | ripgrep via Bash only | greeg not on `PATH`, no hook |
+| A | ripgrep and grep via Bash, no greeg | greeg not on `PATH`, no hook |
 | B | greeg through the hook | `greeg hook run` as the run's PreToolUse hook; plain `rg`/`grep` calls are rewritten |
 | C | greeg through the hook, named in the prompt | as B, and the prompt starts with "Use greeg for code search." |
 
@@ -22,23 +22,24 @@ for every arm.
 ```sh
 python3 bench/bench.py fetch tokio django      # the tasks' corpora, pinned
 python3 bench/agent/run.py --greeg target/release/greeg --out RUN_DIR \
-    --tasks tokio-joinhandle-abort,django-csrf-token --repeats 2
+    --tasks tokio-joinhandle-abort,django-csrf-token --arms A,B,C --repeats 2
 ```
 
-`run.py` runs each (task, arm, repeat) cell headless (`claude -p`) in a
+`--arms` defaults to `A,B`. `run.py` runs each (task, arm, repeat) cell headless (`claude -p`) in a
 shuffled, seeded order, and writes `RUN_DIR/runs/<task>/<arm>/<n>/` with the
 stream, the answer, the check result and `meta.json`. A cell already written
 is skipped, so an interrupted run resumes, or grows by tasks and arms. A
-resume with another model, limit, tool version, allowed command or corpus
-revision is refused. Each run is isolated:
+resume with another model, limit, tool version, allowed or denied command, or
+corpus revision is refused. Each run is isolated:
 
 - **settings:** none of the user's, the project's or local ones (no hooks,
   CLAUDE.md, skills or MCP servers); only the arm's own settings file;
 - **PATH:** a directory with `rg` (and `greeg` in B and C), then the system
   directories; nothing else the user installed;
-- **workspace:** a copy-on-write clone of the corpus, whose `git status` must
-  not change during a run; a run that changed it is left out, and the clone is
-  made again;
+- **workspace:** a copy-on-write clone of the corpus, whose
+  `git status --ignored` must not change during a run; a run that changed it is
+  left out, and the clone is made again (so is a clone an interrupted run left
+  changed);
 - **greeg:** a fresh copy of the corpus's prebuilt index per run (no session
   memory carries over), statistics off, budget pinned to 2000, and no
   `RIPGREP_*` variables (a ripgrep config file makes the hook decline);
@@ -49,7 +50,7 @@ revision is refused. Each run is isolated:
   run too, and a change stops the run.
 
 `RUN_DIR/setup.json` records the Claude Code and greeg versions, the model,
-the corpora's commits and the allowed commands.
+the corpora's commits and the allowed and denied commands.
 
 A check that turns out to reject a right answer can be fixed in `tasks.toml`.
 `run.py --out RUN_DIR --recheck` then scores every saved answer again with the
@@ -69,8 +70,10 @@ Grep tool counts as `rg`), input and output tokens from the assistant usage
 records, turns, wall time and cost from the final `result` record, and the
 check outcome. The executed command comes from the hook responses in the
 stream. Calls the permission rules denied are counted apart. A run is marked
-invalid, with its reasons, when the workspace changed, the stream has no
-result, arm A ran greeg, or a search in B or C ran without a hook response.
+invalid, with its reasons, when it has no `meta.json` (only `run.py` runs are
+compared), the workspace changed, the stream has no result, arm A ran greeg, a
+search in B or C ran without a hook response, or a hook response could belong
+to more than one call.
 
 `analyze.py` lists the invalid runs and leaves them out, along with their
 pairs. It then prints each task's successes, cost and turns per arm, and the

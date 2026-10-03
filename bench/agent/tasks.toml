@@ -1,7 +1,7 @@
 # Agent-protocol tasks. Each task is a realistic coding-agent request on a
 # pinned corpus, with a mechanical check on the agent's final answer
 # (`answer.txt`, run in the run's directory). Arms:
-#   A  rg only:          no greeg on PATH, no hook
+#   A  no greeg:         rg and grep only, no greeg on PATH, no hook
 #   B  greeg hook:       `greeg hook run` as the PreToolUse hook (rg/grep rewritten)
 #   C  hook and prompt:  as B, and the prompt starts with "Use greeg for code search."
 # `run.py` runs them; see README.md.
@@ -11,7 +11,7 @@ id = "tokio-joinhandle-abort"
 corpus = "tokio"
 prompt = "Find where JoinHandle::abort is implemented and list every public API that can cancel a spawned task. Answer with file:line for each."
 check = "grep -q 'tokio/src/runtime/task/join.rs' answer.txt && grep -qi 'abort_handle\\|AbortHandle' answer.txt"
-answer = "JoinHandle::abort at tokio/src/runtime/task/join.rs:227 cancels the task. Other public APIs: JoinHandle::abort_handle (tokio/src/runtime/task/join.rs:307) gives an AbortHandle whose abort is at tokio/src/runtime/task/abort.rs:53, and JoinSet::abort_all at tokio/src/task/join_set.rs:463."
+answer = "JoinHandle::abort at tokio/src/runtime/task/join.rs:227 cancels the task. Other public APIs: JoinHandle::abort_handle (tokio/src/runtime/task/join.rs:307) gives an AbortHandle, and AbortHandle::abort at tokio/src/runtime/task/abort.rs:53 cancels through it, JoinSet::abort_all at tokio/src/task/join_set.rs:463, and JoinSet::shutdown at tokio/src/task/join_set.rs:381, which aborts every task before waiting for them."
 
 [[task]]
 id = "tokio-semaphore-permits"
@@ -32,14 +32,14 @@ id = "django-csrf-token"
 corpus = "django"
 prompt = "Trace how the csrf_token template tag obtains its value: list the functions involved from the template tag down to the function that reads the cookie, with file:line each."
 check = "grep -q 'get_token' answer.txt && grep -q 'django/middleware/csrf.py' answer.txt"
-answer = "csrf_token at django/template/defaulttags.py:705 builds CsrfTokenNode; the token comes from the csrf context processor (django/template/context_processors.py:19), which calls get_token at django/middleware/csrf.py:96; the cookie is read by CsrfViewMiddleware._get_secret at django/middleware/csrf.py:221."
+answer = "csrf_token at django/template/defaulttags.py:705 builds CsrfTokenNode; the token comes from the context processor csrf at django/template/context_processors.py:19, which calls get_token at django/middleware/csrf.py:96; the cookie is read by CsrfViewMiddleware._get_secret at django/middleware/csrf.py:221."
 
 [[task]]
 id = "ktor-content-negotiation"
 corpus = "ktor"
 prompt = "Find the plugin that installs ContentNegotiation on the server side and list the converters it registers by default. Give file:line."
 check = "grep -qi 'ContentNegotiation' answer.txt && grep -q 'ktor-server' answer.txt"
-answer = "ContentNegotiation is created at ktor-server/ktor-server-plugins/ktor-server-content-negotiation/common/src/io/ktor/server/plugins/contentnegotiation/ContentNegotiation.kt:60; it registers no converters by default."
+answer = "ContentNegotiation at ktor-server/ktor-server-plugins/ktor-server-content-negotiation/common/src/io/ktor/server/plugins/contentnegotiation/ContentNegotiation.kt:60; it registers no converters by default."
 
 [[task]]
 id = "ktor-respond-text"

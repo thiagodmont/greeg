@@ -30,8 +30,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-sys.path.insert(0, str(HERE.parent))
-from bench import CORPORA, corpus_path  # noqa: E402
+with open(HERE.parent / "corpora.toml", "rb") as fh:
+    CORPORA = tomllib.load(fh)
+# ignored files count too: an agent's write to one would otherwise go unseen
+STATUS = ["git", "status", "--porcelain", "--ignored"]
+
+
+def corpus_path(name):
+    cache = os.environ.get("GREEG_BENCH_CACHE") or os.path.expanduser("~/.cache/greeg-bench/corpora")
+    return Path(cache) / CORPORA[name].get("dir", name)
 
 ALLOWED = ["Read"] + [f"Bash({c}:*)" for c in (
     "rg", "greeg", "grep", "find", "ls", "cat", "head", "tail", "sed", "wc",
@@ -77,16 +84,21 @@ def greeg_env(index_dir, stats_dir):
 
 
 def prepare(out, corpus, greeg):
-    """The corpus clone and its prebuilt index, made once."""
+    """The corpus clone, its `git status` when cloned, and its prebuilt
+    index. A clone an interrupted run left changed is made again."""
     work = out / "work" / corpus
+    baseline = out / "work" / f"{corpus}.status"
     template = out / "index" / corpus
+    if work.exists() and (not baseline.exists() or sh(STATUS, cwd=work) != baseline.read_text()):
+        shutil.rmtree(work)
     if not work.exists():
         work.parent.mkdir(parents=True, exist_ok=True)
         clone(corpus_path(corpus), work)
+        baseline.write_text(sh(STATUS, cwd=work))
     if not template.exists():
         env = greeg_env(template, out / "stats")
         subprocess.run([greeg, "index"], cwd=work, env=env, check=True, capture_output=True)
-    return work, template
+    return work, baseline.read_text(), template
 
 
 def tree_state(root):
@@ -100,8 +112,7 @@ def run_cell(a, out, task, arm, n, order):
     if (d / "meta.json").exists():
         return json.loads((d / "meta.json").read_text())
     d.mkdir(parents=True, exist_ok=True)
-    work, template = prepare(out, task["corpus"], a.greeg)
-    before = sh(["git", "status", "--porcelain"], cwd=work)
+    work, before, template = prepare(out, task["corpus"], a.greeg)
     template_before = tree_state(template)
     index = d / "index"
     shutil.rmtree(index, ignore_errors=True)
@@ -119,9 +130,12 @@ def run_cell(a, out, task, arm, n, order):
            "--disallowedTools", *DENIED]
     started = time.time()
     with open(d / "stream.jsonl", "w") as fh:
-        p = subprocess.run(cmd, cwd=work, env=env, stdin=subprocess.DEVNULL, stdout=fh,
-                           stderr=subprocess.PIPE, text=True,
-                           timeout=a.timeout)
+        try:
+            p = subprocess.run(cmd, cwd=work, env=env, stdin=subprocess.DEVNULL, stdout=fh,
+                               stderr=subprocess.PIPE, text=True, timeout=a.timeout)
+            exit_code, stderr = p.returncode, p.stderr
+        except subprocess.TimeoutExpired:
+            exit_code, stderr = "timeout", ""
     wall = time.time() - started
     answer = ""
     for line in open(d / "stream.jsonl"):
@@ -134,7 +148,7 @@ def run_cell(a, out, task, arm, n, order):
     (d / "answer.txt").write_text(answer)
     check = subprocess.run(["sh", "-c", task["check"]], cwd=d).returncode
     (d / "check.txt").write_text(f"{check}\n")
-    dirty = sh(["git", "status", "--porcelain"], cwd=work) != before
+    dirty = sh(STATUS, cwd=work) != before
     if dirty:
         shutil.rmtree(work)
         clone(corpus_path(task["corpus"]), work)
@@ -142,8 +156,8 @@ def run_cell(a, out, task, arm, n, order):
         sys.exit(f"{task['id']} {arm} #{n} changed the index template {template}; "
                  "delete it and the run, then resume")
     shutil.rmtree(index, ignore_errors=True)
-    meta = {"task": task["id"], "arm": arm, "run": n, "order": order, "exit": p.returncode,
-            "stderr": p.stderr[-2000:], "wall_s": round(wall, 1), "check": check,
+    meta = {"task": task["id"], "arm": arm, "run": n, "order": order, "exit": exit_code,
+            "stderr": stderr[-2000:], "wall_s": round(wall, 1), "check": check,
             "workspace_dirty": bool(dirty), "model_flag": a.model,
             "started": datetime.fromtimestamp(started, timezone.utc).isoformat(timespec="seconds")}
     (d / "meta.json").write_text(json.dumps(meta, indent=1))
@@ -156,6 +170,9 @@ def recheck(out, tasks):
     for meta_path in sorted((out / "runs").glob("*/*/*/meta.json")):
         d = meta_path.parent
         meta = json.loads(meta_path.read_text())
+        if meta["task"] not in by_id:
+            print(f"{meta['task']} {meta['arm']} #{meta['run']}: no such task now, left as it was")
+            continue
         check = subprocess.run(["sh", "-c", by_id[meta["task"]]["check"]], cwd=d).returncode
         if check != meta["check"]:
             print(f"{meta['task']} {meta['arm']} #{meta['run']}: check {meta['check']} -> {check}")
@@ -186,6 +203,9 @@ def main():
     if not a.greeg:
         ap.error("--greeg is required")
     a.greeg = str(Path(a.greeg).resolve())
+    for name, path in (("--greeg", a.greeg), ("--claude", a.claude)):
+        if not path or not os.access(path, os.X_OK):
+            ap.error(f"{name}: not an executable: {path}")
     if not set(a.arms.split(",")) <= {"A", "B", "C"} or not a.arms.startswith("A"):
         sys.exit("--arms: A first, then B and/or C")
     tasks = tomllib.load(open(HERE / "tasks.toml", "rb"))["task"]
