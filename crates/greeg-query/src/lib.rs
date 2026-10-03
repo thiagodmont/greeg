@@ -1700,7 +1700,11 @@ pub(crate) fn process_file(
     }
     let body = &src[bom..bom + end];
     let lang = Lang::from_path(path);
-    let cap = if o.budget == 0 {
+    // `-c` shows each file's count: one kept line marks the file as matched
+    let count_only = o.mode == Mode::Count;
+    let cap = if count_only {
+        1
+    } else if o.budget == 0 {
         usize::MAX
     } else {
         MAX_HITS_PER_FILE
@@ -1710,7 +1714,7 @@ pub(crate) fn process_file(
         cx.matcher,
         lang,
         cap,
-        (cx.classify || kind_of.is_some()) && lang.has_grammar(),
+        !count_only && (cx.classify || kind_of.is_some()) && lang.has_grammar(),
         o.multiline,
     );
     sink.base = bom as u32;
@@ -2708,6 +2712,28 @@ mod tests {
             &mut buf,
             None,
         )
+    }
+
+    /// `-c` counts every matched line but keeps one, not each line's text:
+    /// a million-hit count no longer holds a million hits.
+    #[test]
+    fn count_mode_counts_without_keeping_lines() {
+        let mut src = Vec::new();
+        for _ in 0..5000 {
+            src.extend_from_slice(b"    spawn(); spawn();\n");
+        }
+        src.extend_from_slice(b"pub fn spawn() {}\n");
+        let p = tmp_file("count.rs", &src);
+        let mut o = opts("spawn");
+        o.mode = Mode::Count;
+        o.budget = 0;
+        let f = run_process(&o, &p).unwrap();
+        assert_eq!(f.total, 5001);
+        assert_eq!(f.hits.len(), 1);
+        // with --kind, the count is still of the kind's lines
+        o.kinds = vec![HitKind::Def];
+        let f = run_process(&o, &p).unwrap();
+        assert_eq!((f.total, f.total_unfiltered, f.hits.len()), (1, 5001, 1));
     }
 
     #[test]
