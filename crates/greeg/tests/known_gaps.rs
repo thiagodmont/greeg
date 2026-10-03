@@ -271,6 +271,24 @@ fn kind_counts_and_multiline_noncode_agree_across_backends() {
     }
 }
 
+/// Found by fuzzing: a stray `}` before a `use` group's `{` in broken Rust
+/// stopped the index build and `outline` with an internal error.
+#[test]
+fn a_broken_use_group_does_not_stop_the_index_build() {
+    let f = Fixture::new(&[
+        (
+            "bad.rs",
+            "use std '{4 }se std '{ size: u32 new() -> S { }\n}\n",
+        ),
+        ("ok.rs", "pub fn fine() {}\n"),
+    ]);
+    f.indexed();
+    let o = f.run(&["outline", "bad.rs"]);
+    assert_eq!(o.status.code(), Some(0), "{o:?}");
+    let o = f.run(&["def", "fine"]);
+    assert!(stdout(&o).contains("ok.rs"), "{o:?}");
+}
+
 #[test]
 fn a_definition_after_many_uses_is_shown_by_both_backends() {
     let body = format!("{}fn marker() {{}}\n", "// marker\n".repeat(70));
