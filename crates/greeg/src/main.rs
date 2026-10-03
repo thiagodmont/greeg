@@ -43,7 +43,7 @@ Exit 1 = no hits for the pattern as given (a relaxed match is reported, exit 1).
 The index builds itself in the background on first use; `greeg doctor` shows it.";
 
 #[derive(Parser, Debug)]
-#[command(name = "greeg", version = stats::VERSION, about = "A grep for coding agents: syntax-aware, ranked, budgeted. Accepts ripgrep flags.", after_help = EXAMPLES, disable_help_subcommand = true, disable_help_flag = true)]
+#[command(name = "greeg", version = stats::VERSION, about = "A grep for coding agents: syntax-aware, ranked, budgeted. Accepts ripgrep flags.", after_help = EXAMPLES, disable_help_subcommand = true, disable_help_flag = true, args_override_self = true)]
 struct Cli {
     #[command(subcommand)]
     cmd: Option<Cmd>,
@@ -87,20 +87,31 @@ struct Common {
     _help: Option<bool>,
 
     // ---- ripgrep-compatible ----
+    // as in ripgrep, the last of -i/-S/-s and of -w/-x wins
     /// Case-insensitive search
-    #[arg(short = 'i', long = "ignore-case", global = true)]
+    #[arg(short = 'i', long = "ignore-case", global = true, overrides_with_all = ["smart_case", "case_sensitive"])]
     ignore_case: bool,
     /// Smart case: insensitive unless the pattern has uppercase
-    #[arg(short = 'S', long = "smart-case", global = true)]
+    #[arg(short = 'S', long = "smart-case", global = true, overrides_with_all = ["ignore_case", "case_sensitive"])]
     smart_case: bool,
     /// Case-sensitive search (default)
-    #[arg(short = 's', long = "case-sensitive", global = true)]
+    #[arg(short = 's', long = "case-sensitive", global = true, overrides_with_all = ["ignore_case", "smart_case"])]
     case_sensitive: bool,
     /// Only match whole words
-    #[arg(short = 'w', long = "word-regexp", global = true)]
+    #[arg(
+        short = 'w',
+        long = "word-regexp",
+        global = true,
+        overrides_with = "line_regexp"
+    )]
     word: bool,
     /// Only match whole lines
-    #[arg(short = 'x', long = "line-regexp", global = true)]
+    #[arg(
+        short = 'x',
+        long = "line-regexp",
+        global = true,
+        overrides_with = "word"
+    )]
     line_regexp: bool,
     /// Treat the pattern as a literal string
     #[arg(short = 'F', long = "fixed-strings", global = true)]
