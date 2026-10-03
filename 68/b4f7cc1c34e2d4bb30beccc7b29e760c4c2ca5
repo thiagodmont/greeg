@@ -1,0 +1,14 @@
+crates/greeg/src/main.rs
+  h_5539fd3470b479 2554
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "68b4f7cc1c34e2d4bb30beccc7b29e760c4c2ca5",
+  "prompts": {},
+  "humans": {
+    "h_5539fd3470b479": {
+      "author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
