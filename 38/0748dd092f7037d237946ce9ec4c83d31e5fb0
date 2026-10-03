@@ -1,0 +1,23 @@
+bench/results/verb-explain-2026-10-03-darwin-arm64.json
+  s_b1057b2933cdb0::t_41076edf6b4cef 1-5695
+bench/reports.toml
+  s_b1057b2933cdb0::t_41076edf6b4cef 751-758
+references/BENCH.md
+  s_b1057b2933cdb0::t_41076edf6b4cef 2381-2427
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "380748dd092f7037d237946ce9ec4c83d31e5fb0",
+  "prompts": {},
+  "sessions": {
+    "s_b1057b2933cdb0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0aa73425-0ec9-4b76-ae94-35b6bdff17bb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
