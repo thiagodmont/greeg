@@ -251,7 +251,7 @@ fn file_records(w: &mut dyn Write, r: &ScanResult, sf: &ShownFile) -> Result<()>
                         kind: h.kind.name(),
                         symbol,
                         score: r3(h.score as f64),
-                        clipped: h.display(r.opts.max_columns).1,
+                        clipped: h.clipped(r.opts.max_columns),
                     },
                 )?;
             }

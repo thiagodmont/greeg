@@ -238,6 +238,12 @@ pub struct Hit {
 }
 
 impl Hit {
+    /// Whether [`display`](Self::display) clips the line, without clipping it.
+    pub fn clipped(&self, max_cols: usize) -> bool {
+        let line = greeg_lang::trim_start(&self.raw);
+        max_cols != 0 && line.strip_suffix(b"\r").unwrap_or(line).len() > max_cols
+    }
+
     /// The line as shown: trimmed at the start and clipped to `max_cols`
     /// around the match (0: never), and whether it was clipped. Only a
     /// clipped line is copied.
@@ -2570,6 +2576,7 @@ mod tests {
                     (&want[..], clipped),
                     "{line:?} {cols}"
                 );
+                assert_eq!(h.clipped(cols), clipped, "{line:?} {cols}");
             }
         }
     }
