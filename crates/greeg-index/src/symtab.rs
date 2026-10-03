@@ -929,14 +929,14 @@ impl<'a> GraphView<'a> {
         if i + 1 >= self.out_off.len() {
             return &[];
         }
-        &self.out_to[self.out_off[i] as usize..self.out_off[i + 1] as usize]
+        range(self.out_to, self.out_off[i], self.out_off[i + 1])
     }
     pub fn incoming(&self, f: u32) -> &'a [u32] {
         let i = f as usize;
         if i + 1 >= self.in_off.len() {
             return &[];
         }
-        &self.in_from[self.in_off[i] as usize..self.in_off[i + 1] as usize]
+        range(self.in_from, self.in_off[i], self.in_off[i + 1])
     }
 }
 
@@ -1066,8 +1066,25 @@ impl<'a> DeltaGraphView<'a> {
     }
 }
 
+/// `v[a..b]`, or nothing when stored offsets do not fit it: a read never
+/// panics on bytes the build did not write.
+fn range<T>(v: &[T], a: u32, b: u32) -> &[T] {
+    v.get(a as usize..b as usize).unwrap_or(&[])
+}
+
 #[cfg(test)]
 mod tests {
+    /// Found by fuzzing: stored offsets past the edge list read as no edges.
+    #[test]
+    fn a_graph_offset_past_its_edges_reads_as_none() {
+        // n = 1, m = 1; out_off = [0, 9] points past the one edge
+        let words: [u32; 16] = [1, 1, 0, 0, 0, 9, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0];
+        let body: &[u8] = bytemuck::cast_slice(&words);
+        let g = GraphView::parse(body).unwrap();
+        assert!(g.out(0).is_empty());
+        assert_eq!(g.incoming(0), &[0]);
+    }
+
     use super::*;
 
     #[test]

@@ -1,0 +1,48 @@
+[package]
+name = "greeg-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+bytemuck = "1"
+greeg-index = { path = "../crates/greeg-index" }
+greeg-lang = { path = "../crates/greeg-lang" }
+regex = "1"
+regex-syntax = "0.8"
+roaring = "0.11"
+
+# its own workspace: it builds on nightly only
+[workspace]
+
+[[bin]]
+name = "regex_plan"
+path = "fuzz_targets/regex_plan.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "index_decode"
+path = "fuzz_targets/index_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "shell_rewrite"
+path = "fuzz_targets/shell_rewrite.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "lang_extract"
+path = "fuzz_targets/lang_extract.rs"
+test = false
+doc = false
+bench = false

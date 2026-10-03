@@ -1,0 +1,2 @@
+import { x } from './dep';
+export function render(n) { return `${n}:${x}`; }

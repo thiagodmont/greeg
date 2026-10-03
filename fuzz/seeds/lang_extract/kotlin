@@ -1,0 +1,7 @@
+package app
+
+import kotlin.math.max
+
+class Main {
+    fun run(a: Int): Int = max(a, 1)
+}
