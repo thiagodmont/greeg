@@ -1,0 +1,27 @@
+references/BENCH.md
+  s_b1057b2933cdb0::t_f04d4dbcd352ec 2150
+bench/reports.toml
+  s_b1057b2933cdb0::t_c2c285ac86f945 718
+crates/greeg/src/main.rs
+  s_b1057b2933cdb0::t_d959e378064fed 1584,1586,1596,1607
+  s_b1057b2933cdb0::t_a70ebb3b9c32ba 1563-1564,1566,1568-1571
+  s_b1057b2933cdb0::t_4c32ba34a89d11 1585,1587-1595,1597-1606,1617-1618,1639-1644
+crates/greeg-query/src/tokens.rs
+  s_b1057b2933cdb0::t_a70ebb3b9c32ba 163-170
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "f5dbca8d3f5e100a46b5bbeda5ec09b2b23b3fab",
+  "prompts": {},
+  "sessions": {
+    "s_b1057b2933cdb0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0aa73425-0ec9-4b76-ae94-35b6bdff17bb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
