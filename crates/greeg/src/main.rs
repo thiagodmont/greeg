@@ -1548,17 +1548,23 @@ fn fit_search(
 ) -> Result<Report> {
     let (budget, cap) = (result.opts.budget, result.opts.max_bytes);
     let json = c.json() && !c.json_rg();
-    // stdout bytes, and the JSON's tokens (its footer's `est_tokens` set to them)
+    // the JSON's tokens (its footer's `est_tokens` set to them), and stdout bytes
     let measure = |result: &ScanResult, mut report: Report| -> Result<(Report, usize, usize)> {
         if !json {
             let n = render_search(c, result, &report, fmt)?.0.len();
             return Ok((report, 0, n));
         }
+        // an estimate as wide as the budget renders the same bytes and tokens,
+        // so render again only when the answer's estimate is another width
+        report.footer.est_tokens = budget;
         let (out, _) = render_search(c, result, &report, fmt)?;
-        report.footer.est_tokens = greeg_query::tokens::estimate(&out);
-        let (out, _) = render_search(c, result, &report, fmt)?;
-        let tokens = greeg_query::tokens::estimate(&out);
-        Ok((report, tokens, out.len()))
+        let (mut tokens, mut bytes) = (greeg_query::tokens::estimate(&out), out.len());
+        report.footer.est_tokens = tokens;
+        if tokens.max(1).ilog10() != budget.max(1).ilog10() {
+            let (out, _) = render_search(c, result, &report, fmt)?;
+            (tokens, bytes) = (greeg_query::tokens::estimate(&out), out.len());
+        }
+        Ok((report, tokens, bytes))
     };
     if budget == 0 || matches!(report.layout, Layout::Files | Layout::Count) {
         if cap == 0 {
@@ -1569,6 +1575,8 @@ fn fit_search(
     if !json && cap == 0 {
         return Ok(report);
     }
+    // budgets above the shaped answer's own text estimate shape the same answer
+    let plateau = budget.min(report.footer.est_tokens * 5 / 4 + 16);
     let (mut report, tokens, bytes) = measure(result, report)?;
     let mut shaped = budget;
     // a budget of 1 shapes the floor already
@@ -1578,7 +1586,7 @@ fn fit_search(
             let (r, t, _) = measure(result, r)?;
             Ok((r, t))
         };
-        (shaped, report) = shrink(result, budget, tokens, budget, size)?;
+        (shaped, report) = shrink(result, plateau, tokens, budget, size)?;
     }
     if cap == 0 {
         return Ok(report);
@@ -1599,7 +1607,7 @@ fn fit_search(
         let (r, _, n) = measure(result, r)?;
         Ok((r, n))
     };
-    let (_, report) = shrink(result, shaped, bytes, cap, size)?;
+    let (_, report) = shrink(result, shaped.min(plateau), bytes, cap, size)?;
     let n = measure(result, report.clone())?.2;
     if n > cap {
         anyhow::bail!("--max-bytes {cap} is below the {n} bytes this answer needs");
