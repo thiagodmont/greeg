@@ -91,7 +91,8 @@ Every footer has `outcome`:
 | `rung` | `exact`, or the relaxed rung that answered |
 | `total` | eligible results: matched lines for a search, entries for a verb (for `impact`, referring files plus callers) |
 | `shown` | results the answer shows |
-| `complete` | `shown` is all of `total`; false only when the budget left results out |
+| `complete` | `shown` is all of `total`; false only when the budget left results out (or, for `show`, clipped a body) |
+| `truncated_by` | `"budget"` when the answer is not complete, otherwise null |
 | `source` | `index`, `index (phase 1)` or `scan`; `parse` or `regex` for a file `outline` read itself; `text` for `show` read from the file, or whose locations were not all read one way |
 | `fresh` | the freshness check an index answer ran (`ttl`, `stat`, `fsevents`, `none`; for `show`, the weakest of its locations), empty when files were read directly (a scan, or `show` and `outline` without the index) |
 | `deferred` | files changed since the index was published, read from disk |
@@ -99,10 +100,20 @@ Every footer has `outcome`:
 `show`, `outline` and `map` answer a location, a file or a directory: they
 exit 0 whenever they answer, even with nothing to show.
 
-### Search
+### Budget
 
-Searches are shaped by the budget, as text is: `outcome.complete` says
-whether matches were left out, and `--budget 0` shows every one.
+A non-zero `--budget` bounds the estimated tokens of the JSON as written, not
+of the text answer: JSON shows fewer results than text at the same budget. A
+search is shaped to a budget whose JSON fits; a verb lists the rows that fit.
+Below the smallest answer (header, counts and footer), that answer is written
+anyway. `outcome.complete` says whether results were left out. `--budget 0`,
+`-l`, `-c` and searches of piped input are never budgeted: they write every
+result, as ripgrep does.
+
+`outcome` counts a verb's results. The definitions `refs` and `impact` list
+beside them are context: `definitions_total` says how many there are.
+
+### Search
 
 **`facets`** (ranked layouts only, before the files): `total`, `files`,
 `by_kind`, `by_dir`, `by_lang`, `by_flag` (`[name, count]` pairs),
@@ -138,14 +149,17 @@ definition, or null), `score`, `clipped`.
 when non-zero), `skipped_huge`, `rung_names` (the names a relaxed rung
 used), `ignored_only` (`[files, hits]` found only in ignored or hidden files,
 or null), `ignored_partial` (those counts are a lower bound), `est_tokens`, `elapsed_ms`, `hints`, `related` (`[name, count]` longer
-identifiers), `layout`, `outcome`.
+identifiers), `layout`, `outcome`. In a budgeted answer `est_tokens` is the
+JSON's own estimate, so it varies with the digits of `elapsed_ms`; unbudgeted
+answers (`-l`, `-c`, `--budget 0`) keep the text's estimate.
 
 ### Verbs
 
 **`def`** records (`def`, and the definitions `refs` found): `path`, `line`,
 `kind`, `name`, `container`, `signature`, `doc`, `flags` (`exported`, `test`,
 `generated`, `vendored`), `supertypes`, `score`, `reach`, `start` and `end`
-(byte offsets of the definition). Footer: `name`, `suggestions`, `elapsed_ms`,
+(byte offsets of the definition). Footer: `name`, `suggestions` (near names
+when nothing matched, cut to the budget), `suggestions_total`, `elapsed_ms`,
 `outcome`.
 
 **`impl`** records (`impls`): a `def` record's fields plus `confidence`
@@ -154,8 +168,9 @@ identifiers), `layout`, `outcome`.
 
 **`ref`** records (`refs`, after its `def` records): `kind`, `path`, `line`,
 `text` (`Text`), `symbol` (enclosing definition), `file_flags`, `score`.
-Footer: `name`, `files_total`, `by_kind`, `resolved`, `classified`,
-`elapsed_ms`, `outcome`.
+Footer: `name`, `definitions_total` (at least three of them are listed when
+there are; more as the budget allows), `files_total`, `by_kind`, `resolved`,
+`classified`, `elapsed_ms`, `outcome`.
 
 **`caller`** records (`callers`): `path`, `symbol`, `kind`, `def_line`, `count`,
 `lines`, `file_flags`, `called_by`. Footer: `name`, `call_sites`, `files`,
@@ -173,8 +188,9 @@ files that use the name in three groups, `import_graph`, and `callers`
 
 Each file has `path`, `hits`, `kinds`, `file_flags` and `sample` (`[line,
 Text]`). `import_graph` is false when the answer had no import graph (a scan, or
-an index without symbols): `likely` is then empty. Footer: `name`, `files`, `callers_total`,
-`total_hits`, `elapsed_ms`, `outcome`.
+an index without symbols): `likely` is then empty. The budget cuts the groups
+and `definitions` as text cuts them. Footer: `name`, `definitions_total`,
+`files`, `callers_total`, `total_hits`, `elapsed_ms`, `outcome`.
 
 **`show`** records: `path`, `line` (as asked), `symbol` (the enclosing
 definition or null), `start_line`, `end_line`, `shown_to`, `clipped`, `text`

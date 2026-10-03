@@ -43,7 +43,8 @@ discovery ladder found word-boundary, case, split-token or fuzzy-name suggestion
 use the machine output modes. Filenames are newline-delimited, not NUL-delimited.
 For machine-readable output use `--json=greeg`: typed JSON Lines records (searches and
 the symbol verbs below) whose last record, the footer, holds the `outcome` (exit, total,
-shown, complete). `--json=rg` prints exactly ripgrep's records.
+shown, complete). `--budget` counts the JSON's own tokens, so it holds fewer rows than
+text. `--json=rg` prints exactly ripgrep's records.
 
 File searches with `-l`, `-c`, `--mode files|count`, `--budget 0` or JSON
 use exact matching by default. Ranked text uses discovery. `--matching exact`

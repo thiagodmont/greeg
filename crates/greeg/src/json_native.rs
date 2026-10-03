@@ -76,6 +76,12 @@ pub(crate) struct OutcomeRec {
     source: &'static str,
     fresh: &'static str,
     deferred: usize,
+    truncated_by: Option<&'static str>,
+}
+
+/// What cut an incomplete answer: only the budget, for now.
+pub(crate) fn truncated_by(complete: bool) -> Option<&'static str> {
+    (!complete).then_some("budget")
 }
 
 impl OutcomeRec {
@@ -90,12 +96,13 @@ impl OutcomeRec {
             source: o.source,
             fresh: o.fresh,
             deferred: o.deferred,
+            truncated_by: truncated_by(o.complete()),
         }
     }
 
     /// For a command that answers a file or a location: it exits 0 whenever it
     /// answers, even with nothing to show.
-    fn answered(
+    pub(crate) fn answered(
         total: usize,
         shown: usize,
         complete: bool,
@@ -112,6 +119,7 @@ impl OutcomeRec {
             source,
             fresh,
             deferred: 0,
+            truncated_by: truncated_by(complete),
         }
     }
 }
@@ -390,13 +398,21 @@ fn def(e: &DefEntry) -> Def<'_> {
 struct DefFooter<'a> {
     name: &'a str,
     suggestions: &'a [String],
+    suggestions_total: usize,
     elapsed_ms: f64,
     outcome: OutcomeRec,
 }
 
-pub(crate) fn defs(w: &mut dyn Write, r: &verbs::DefResult, oc: &Outcome) -> Result<()> {
+/// The first `shown` entries and `suggestions` near names.
+pub(crate) fn defs(
+    w: &mut dyn Write,
+    r: &verbs::DefResult,
+    shown: usize,
+    suggestions: usize,
+    oc: &Outcome,
+) -> Result<()> {
     header(w, "def")?;
-    for e in &r.entries {
+    for e in &r.entries[..shown] {
         put(w, "def", &def(e))?;
     }
     put(
@@ -404,7 +420,8 @@ pub(crate) fn defs(w: &mut dyn Write, r: &verbs::DefResult, oc: &Outcome) -> Res
         "footer",
         &DefFooter {
             name: &r.name,
-            suggestions: &r.suggestions,
+            suggestions: &r.suggestions[..suggestions],
+            suggestions_total: r.suggestions.len(),
             elapsed_ms: r3(r.elapsed_ms),
             outcome: OutcomeRec::of(oc),
         },
@@ -430,12 +447,13 @@ struct ImplsFooter<'a> {
 pub(crate) fn impls(
     w: &mut dyn Write,
     r: &verbs::ImplsResult,
-    limit: usize,
+    direct: usize,
+    extras: usize,
     oc: &Outcome,
 ) -> Result<()> {
     header(w, "impls")?;
-    let direct = r.direct.iter().take(limit).map(|e| (e, "high"));
-    let extras = r.extras.iter().take(limit).map(|e| (e, "low"));
+    let direct = r.direct.iter().take(direct).map(|e| (e, "high"));
+    let extras = r.extras.iter().take(extras).map(|e| (e, "low"));
     for (e, confidence) in direct.chain(extras) {
         put(
             w,
@@ -473,6 +491,7 @@ struct Ref<'a> {
 #[derive(Serialize)]
 struct RefsFooter<'a> {
     name: &'a str,
+    definitions_total: usize,
     files_total: usize,
     by_kind: Vec<(&'static str, usize)>,
     resolved: usize,
@@ -481,18 +500,19 @@ struct RefsFooter<'a> {
     outcome: OutcomeRec,
 }
 
-/// `shown` holds the hits shown, by file and hit index, in order;
-/// `by_kind` the count of every kind with hits.
+/// The first `defs` definitions; `shown` holds the hits shown, by file and
+/// hit index, in order; `by_kind` the count of every kind with hits.
 pub(crate) fn refs(
     w: &mut dyn Write,
     name: &str,
     r: &verbs::RefsResult,
+    defs: usize,
     shown: &[(HitKind, usize, usize)],
     by_kind: Vec<(&'static str, usize)>,
 ) -> Result<()> {
     let s = &r.scan;
     header(w, "refs")?;
-    for e in &r.defs {
+    for e in &r.defs[..defs] {
         put(w, "def", &def(e))?;
     }
     for &(k, fi, hi) in shown {
@@ -517,6 +537,7 @@ pub(crate) fn refs(
         "footer",
         &RefsFooter {
             name,
+            definitions_total: r.defs_total,
             files_total: s.stats.files_matched,
             by_kind,
             resolved: r.resolved,
@@ -602,14 +623,11 @@ struct PlainFooter {
     outcome: OutcomeRec,
 }
 
-pub(crate) fn show(w: &mut dyn Write, r: &verbs::ShowResult) -> Result<()> {
+/// `bodies` holds each item's body as shown.
+pub(crate) fn show(w: &mut dyn Write, r: &verbs::ShowResult, bodies: &[verbs::Body]) -> Result<()> {
     header(w, "show")?;
-    let texts: Vec<Vec<u8>> = r
-        .items
-        .iter()
-        .map(|it| it.body.lines.join(&b'\n'))
-        .collect();
-    for (it, text) in r.items.iter().zip(&texts) {
+    let texts: Vec<Vec<u8>> = bodies.iter().map(|b| b.lines.join(&b'\n')).collect();
+    for ((it, body), text) in r.items.iter().zip(bodies).zip(&texts) {
         let symbol = it.def.as_ref().map(|d| SymbolRec {
             name: &d.name,
             kind: d.kind.name(),
@@ -622,15 +640,15 @@ pub(crate) fn show(w: &mut dyn Write, r: &verbs::ShowResult) -> Result<()> {
                 path: Text::of(&it.rel),
                 line: it.asked,
                 symbol,
-                start_line: it.body.first,
-                end_line: it.body.last,
-                shown_to: it.body.first + it.body.lines.len().saturating_sub(1) as u32,
-                clipped: it.body.clipped,
+                start_line: body.first,
+                end_line: body.last,
+                shown_to: body.first + body.lines.len().saturating_sub(1) as u32,
+                clipped: body.clipped,
                 text: Text::of(text),
             },
         )?;
     }
-    let complete = !r.items.iter().any(|it| it.body.clipped);
+    let complete = !bodies.iter().any(|b| b.clipped);
     put(
         w,
         "footer",
@@ -668,9 +686,10 @@ struct OutlineFooter<'a> {
     outcome: OutcomeRec,
 }
 
-pub(crate) fn outline(w: &mut dyn Write, r: &verbs::OutlineResult) -> Result<()> {
+/// The first `shown` symbols.
+pub(crate) fn outline(w: &mut dyn Write, r: &verbs::OutlineResult, shown: usize) -> Result<()> {
     header(w, "outline")?;
-    for d in &r.defs {
+    for d in &r.defs[..shown] {
         put(
             w,
             "symbol",
@@ -694,7 +713,13 @@ pub(crate) fn outline(w: &mut dyn Write, r: &verbs::OutlineResult) -> Result<()>
             imports: &r.imports,
             parse_errors: r.parse_errors,
             elapsed_ms: r3(r.elapsed_ms),
-            outcome: OutcomeRec::answered(r.defs.len(), r.defs.len(), true, r.source, r.fresh),
+            outcome: OutcomeRec::answered(
+                r.defs.len(),
+                shown,
+                shown == r.defs.len(),
+                r.source,
+                r.fresh,
+            ),
         },
     )
 }
@@ -857,6 +882,7 @@ struct Impact<'a> {
 #[derive(Serialize)]
 struct ImpactFooter<'a> {
     name: &'a str,
+    definitions_total: usize,
     files: usize,
     callers_total: usize,
     total_hits: usize,
@@ -864,23 +890,28 @@ struct ImpactFooter<'a> {
     outcome: OutcomeRec,
 }
 
+/// The first `defs` definitions, `caps` files of each group (likely,
+/// possible, review) and `callers` callers.
 pub(crate) fn impact(
     w: &mut dyn Write,
     r: &verbs::ImpactResult,
+    defs: usize,
+    caps: [usize; 3],
     callers: usize,
     files: usize,
     oc: &Outcome,
 ) -> Result<()> {
     header(w, "impact")?;
+    let cut = |g: &[verbs::ImpactFile], cap: usize| g.len().min(cap);
     put(
         w,
         "impact",
         &Impact {
             name: &r.name,
-            definitions: r.defs.iter().map(def).collect(),
-            likely: impact_files(&r.likely),
-            possible: impact_files(&r.possible),
-            review: impact_files(&r.review),
+            definitions: r.defs[..defs].iter().map(def).collect(),
+            likely: impact_files(&r.likely[..cut(&r.likely, caps[0])]),
+            possible: impact_files(&r.possible[..cut(&r.possible, caps[1])]),
+            review: impact_files(&r.review[..cut(&r.review, caps[2])]),
             import_graph: r.import_graph,
             callers: r.callers.callers.iter().take(callers).map(caller).collect(),
         },
@@ -890,6 +921,7 @@ pub(crate) fn impact(
         "footer",
         &ImpactFooter {
             name: &r.name,
+            definitions_total: r.defs_total,
             files,
             callers_total: r.callers.callers.len(),
             total_hits: r.total_hits,
