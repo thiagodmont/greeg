@@ -1887,8 +1887,11 @@ fn digits(n: u32) -> usize {
     n.max(1).ilog10() as usize + 1
 }
 
-fn text_of(h: &greeg_query::Hit, cols: usize) -> String {
-    String::from_utf8_lossy(&h.display(cols).0).into_owned()
+fn text_of(h: &greeg_query::Hit, cols: usize) -> std::borrow::Cow<'_, str> {
+    match h.display(cols).0 {
+        std::borrow::Cow::Borrowed(b) => String::from_utf8_lossy(b),
+        std::borrow::Cow::Owned(v) => String::from_utf8_lossy(&v).into_owned().into(),
+    }
 }
 
 /// The hit sits on the definition line of its enclosing symbol: the text
@@ -2633,7 +2636,7 @@ fn json_hit_records(
                         "symbol":sym,
                         "file_flags":f.flags.names(),
                         "score":h.score,
-                        "clipped":h.display(r.opts.max_columns).1
+                        "clipped":h.clipped(r.opts.max_columns)
                     }})
                 }
             }
