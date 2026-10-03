@@ -472,7 +472,7 @@ pub struct Stats {
     /// Matched lines before `--kind` filtering.
     pub total_unfiltered: usize,
     /// Kept lines by kind (`FileResult::kinds` summed): every matched line up
-    /// to the per-file cap, one per file under `-c`.
+    /// to the per-file cap, plus definitions kept past it, one per file under `-c`.
     pub by_kind: [usize; 9],
     pub skipped_binary: usize,
     /// Files searched only up to a NUL past their first 64 KiB.
