@@ -2639,3 +2639,73 @@ fn bare_json_is_legacy_and_names_its_change_only_to_a_person() {
     assert!(!json_lines(&out).is_empty(), "{out}");
     assert_eq!(err.matches(notice).count(), 1, "{err}");
 }
+
+/// The FSEvents check answers edits made just before it from the event log,
+/// and its statistics say so; when the log is unreliable (dropped events), the
+/// stat pass answers. Every answer equals a scan's.
+#[cfg(target_os = "macos")]
+#[test]
+fn fsevents_answers_edits_and_falls_back_to_stat_when_events_are_lost() {
+    let f = empty_fixture();
+    // edits stay under the delta threshold (5 % of files)
+    for d in 0..40 {
+        for i in 0..25 {
+            let body = if (d + i) % 7 == 0 {
+                "fn needle() {}\n"
+            } else {
+                "fn hay() {}\n"
+            };
+            w(&f.root.join(format!("d{d}/f{i}.rs")), body);
+        }
+    }
+    for i in 0..3 {
+        w(&f.root.join(format!("small/f{i}.rs")), "fn needle() {}\n");
+    }
+    f.indexed();
+    let lines = |o: &Output| -> Vec<String> {
+        let mut v: Vec<String> = String::from_utf8_lossy(&o.stdout)
+            .lines()
+            .map(str::to_string)
+            .collect();
+        v.sort();
+        v
+    };
+    let check = |round: usize, lost: bool| {
+        let mut env: Vec<(&str, &std::ffi::OsStr)> = vec![(
+            "GREEG_DEBUG_FSEVENTS_CUTOFF_MS",
+            std::ffi::OsStr::new("5000"),
+        )];
+        if lost {
+            env.push(("GREEG_DEBUG_FSEVENTS_LOST", std::ffi::OsStr::new("1")));
+        }
+        let o = f.run_env(
+            &["needle", "--fresh", "fsevents", "--budget", "0", "--stats"],
+            &env,
+        );
+        let scan = f.run(&["needle", "--no-index", "--budget", "0"]);
+        assert_eq!(lines(&o), lines(&scan), "round {round}, lost {lost}");
+        let err = String::from_utf8_lossy(&o.stderr).into_owned();
+        let method = if lost { "stat" } else { "fsevents" };
+        assert!(
+            err.contains(&format!("fresh {method} ")),
+            "round {round}, lost {lost}: {err}"
+        );
+    };
+    // modify, add a directory, delete, rename a directory; each query runs
+    // right after its edits
+    w(&f.root.join("d1/f1.rs"), "fn needle() {}\n");
+    w(&f.root.join("new/f.rs"), "fn needle() {}\n");
+    fs::remove_file(f.root.join("d0/f0.rs")).unwrap();
+    fs::rename(f.root.join("small"), f.root.join("small2")).unwrap();
+    check(0, false);
+    for round in 1..6 {
+        w(&f.root.join(format!("d{round}/n.rs")), "fn needle() {}\n");
+        let p = f.root.join(format!("d{}/f{round}.rs", round + 10));
+        let body = fs::read_to_string(&p).unwrap();
+        w(&p, &format!("{body}fn needle() {{}}\n"));
+        check(round, false);
+    }
+    w(&f.root.join("d2/f2.rs"), "fn needle() {}\n");
+    fs::remove_file(f.root.join("d3/f4.rs")).unwrap();
+    check(6, true);
+}

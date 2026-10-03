@@ -472,7 +472,16 @@ to keep it there.
 
 * **macOS, large trees**: the manifest stores an FSEvents stream id. The query
   asks the kernel's persistent log which directories changed since then, and
-  rescans only those. About 12 ms for a 200-file change set.
+  rescans only those. About 12 ms for a 200-file change set. The log's
+  history ends at what the event service has processed, which can trail a
+  write by milliseconds, so the read also watches an empty directory beside
+  the index (never in the tree), writes a file there, and waits for that
+  event: events arrive in order, so every earlier change has arrived too.
+  Without it, an edit made just before a query was missed (3 of 10 queries a
+  second after an edit on a 9,000-file tree). When the cookie cannot be
+  written (`--no-persist`, a read-only index directory), the log reports
+  dropped events, or the read passes its 40 ms cutoff, the stat pass below
+  answers.
 * **Everywhere else**: a parallel `lstat` of every known file, comparing its
   whole stamp (size, mtime, ctime, inode and device), plus directory mtimes,
   inodes and devices to catch additions and deletions.
