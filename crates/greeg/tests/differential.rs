@@ -158,13 +158,20 @@ struct Tree {
 }
 
 impl Tree {
+    /// A new directory of its own: one left by another run is never reused.
     fn new() -> Tree {
-        let base = std::env::temp_dir().join(format!(
-            "greeg-diff-{}-{}",
-            std::process::id(),
-            N.fetch_add(1, Ordering::Relaxed)
-        ));
-        let _ = fs::remove_dir_all(&base);
+        let base = loop {
+            let base = std::env::temp_dir().join(format!(
+                "greeg-diff-{}-{}",
+                std::process::id(),
+                N.fetch_add(1, Ordering::Relaxed)
+            ));
+            match fs::create_dir(&base) {
+                Ok(()) => break base,
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(e) => panic!("{}: {e}", base.display()),
+            }
+        };
         let t = Tree {
             root: base.join("tree"),
             index: base.join("index"),
@@ -208,12 +215,13 @@ fn rg_available() -> bool {
     found
 }
 
-/// The seed: `GREEG_TEST_SEED`, else a fixed one.
+/// The seed: `GREEG_TEST_SEED` (0, which xorshift cannot use, runs as 1),
+/// else a fixed one.
 fn seed(fixed: u64) -> u64 {
     std::env::var("GREEG_TEST_SEED")
         .ok()
         .and_then(|s| s.parse::<u64>().ok())
-        .map_or(fixed, |s| s | 1)
+        .map_or(fixed, |s| s.max(1))
 }
 
 #[test]

@@ -1,7 +1,7 @@
 //! The planner never loses a match: for seeded random patterns and lines, a
 //! line the pattern matches holds the grams its plan asks for (no false
 //! negatives), case-insensitive and literal patterns included.
-//! `GREEG_TEST_SEED` runs another seed.
+//! `GREEG_TEST_SEED` runs another seed (0, which xorshift cannot use, runs as 1).
 
 use greeg_index::gram::{Dedup, fold_buf};
 use greeg_index::plan::{Q, plan};
@@ -136,7 +136,7 @@ fn a_matching_line_holds_the_grams_its_plan_asks_for() {
     let seed = std::env::var("GREEG_TEST_SEED")
         .ok()
         .and_then(|s| s.parse::<u64>().ok())
-        .map_or(0x9e37_79b9_7f4a_7c15, |s| s | 1);
+        .map_or(0x9e37_79b9_7f4a_7c15, |s| s.max(1));
     let mut rng = Rng(seed);
     let mut dedup = Dedup::new();
     let (mut matched, mut narrowed) = (0, 0);
