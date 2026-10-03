@@ -1632,13 +1632,17 @@ fn fit_search(
         // so render again only when the answer's estimate is another width
         report.footer.est_tokens = budget;
         let (out, _) = render_search(c, result, &report, fmt)?;
-        let (mut tokens, mut bytes) = (greeg_query::tokens::estimate(&out), out.len());
+        // timings at a fixed width: the clock cannot move the fit
+        let size = |out: &[u8]| {
+            let out = greeg_query::tokens::timeless(out);
+            (greeg_query::tokens::estimate(&out), out.len())
+        };
+        let (mut tokens, mut bytes) = size(&out);
         report.footer.est_tokens = tokens;
         let width = |n: usize| n.max(1).ilog10();
         if width(tokens) != width(budget) {
-            let (out, _) = render_search(c, result, &report, fmt)?;
             let shown = tokens;
-            (tokens, bytes) = (greeg_query::tokens::estimate(&out), out.len());
+            (tokens, bytes) = size(&render_search(c, result, &report, fmt)?.0);
             // a number as wide leaves the measured bytes and tokens as they are
             if width(tokens) == width(shown) {
                 report.footer.est_tokens = tokens;
@@ -1782,16 +1786,19 @@ fn keep_within(
     fmt: Fmt,
     cap: usize,
 ) -> Result<Report> {
-    // stdout if it fits `limit`, rendered no further than that
-    let within = |r: &Report, limit: usize, keep: bool| -> Result<Option<Capped>> {
-        let mut w = Capped::new(limit, keep);
+    // stdout and its size, timings at a fixed width, if that fits `limit`;
+    // rendered no further than `limit`, as the fixed width is never narrower
+    let within = |r: &Report, limit: usize| -> Result<Option<(Vec<u8>, usize)>> {
+        let mut w = Capped::new(limit, true);
         match write_search(c, &mut w, result, r, fmt) {
-            Ok(_) => Ok(Some(w)),
-            Err(_) if w.over => Ok(None),
-            Err(e) => Err(e),
+            Ok(_) => {}
+            Err(_) if w.over => return Ok(None),
+            Err(e) => return Err(e),
         }
+        let n = greeg_query::tokens::timeless(&w.buf).len();
+        Ok((n <= limit).then_some((w.buf, n)))
     };
-    if within(&report, cap, false)?.is_some() {
+    if within(&report, cap)?.is_some() {
         return Ok(report);
     }
     // the first `n`, with the hint and the estimate of what it writes
@@ -1800,11 +1807,11 @@ fn keep_within(
         r.footer.hints.insert(0, format!("--max-bytes {}", cap * 2));
         // the narrowest estimate, so a rendering over `limit` is over with its own
         r.footer.est_tokens = 0;
-        let Some(out) = within(&r, limit, true)? else {
+        let Some((out, _)) = within(&r, limit)? else {
             return Ok(None);
         };
-        r.footer.est_tokens = greeg_query::tokens::rendered(&out.buf);
-        Ok(within(&r, limit, false)?.map(|w| (r, w.len)))
+        r.footer.est_tokens = greeg_query::tokens::rendered(&out);
+        Ok(within(&r, limit)?.map(|(_, n)| (r, n)))
     };
     let best = largest_below(report.units(), |n| Ok(first(n, cap)?.map(|(r, _)| r)))?;
     if let Some(kept) = best {
