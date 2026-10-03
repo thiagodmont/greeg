@@ -707,15 +707,19 @@ pub fn refs(o: &Options, name: &str, kinds: &[HitKind]) -> Result<RefsResult> {
     d.matching = crate::MatchingPolicy::Exact;
     d.budget = 400;
     d.fresh = greeg_index::fresh::Mode::None;
-    // a failed lookup must not read as "no definitions": retry it from a scan
-    let found = def(&d, name, &[], None).or_else(|_| {
-        let mut s = d.clone();
-        s.use_index = false;
-        def(&s, name, &[], None)
-    })?;
+    // a failed lookup must not read as "no definitions": retry it from a scan,
+    // whose definitions carry no file ids to classify hits by
+    let (found, scanned) = match def(&d, name, &[], None) {
+        Ok(f) => (f, false),
+        Err(_) => {
+            let mut s = d.clone();
+            s.use_index = false;
+            (def(&s, name, &[], None)?, true)
+        }
+    };
     let (defs, defs_total) = (found.entries, found.total);
     let (mut resolved, mut classified) = (0usize, 0usize);
-    if let Some(op) = if o.use_index {
+    if let Some(op) = if o.use_index && !scanned {
         indexed::open_fresh(&d, 1).ok().flatten()
     } else {
         None
