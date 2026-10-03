@@ -31,6 +31,8 @@ class JsonContractTests(unittest.TestCase):
         self.summary["data"]["elapsed_total"] = {"secs": 99}
         self.summary["data"]["stats"]["elapsed"] = {"secs": 99}
         self.footer["data"]["elapsed_ms"] = 99
+        # a JSON search's estimate counts its elapsed digits
+        self.footer["data"]["est_tokens"] = 99
         self.assertEqual(before, stable_stdout(self.output(rows).stdout, True))
         self.footer["data"]["hits_total"] = 99
         self.assertNotEqual(before, stable_stdout(self.output(rows).stdout, True))
@@ -48,6 +50,20 @@ class JsonContractTests(unittest.TestCase):
         self.assertFalse(json_exact_contract(self.output(altered), oracle))
         self.assertFalse(json_exact_contract(self.output(rows, 1), oracle))
         self.assertFalse(json_exact_contract(self.output(rows[1:]), oracle))
+
+    def test_budget_cut_json_holds_a_subset_of_the_matches(self):
+        other = copy.deepcopy(self.match)
+        other["data"]["line_number"] = 2
+        self.summary["data"]["stats"]["matched_lines"] = 2
+        self.footer["data"]["hits_total"] = 2
+        oracle = self.output([self.match, other, self.summary])
+        self.footer["data"]["outcome"] = {"complete": False}
+        self.assertTrue(json_exact_contract(self.output([self.match, self.summary, self.footer]), oracle))
+        stranger = copy.deepcopy(self.match)
+        stranger["data"]["line_number"] = 3
+        self.assertFalse(json_exact_contract(self.output([stranger, self.summary, self.footer]), oracle))
+        self.footer["data"]["outcome"] = {"complete": True}
+        self.assertFalse(json_exact_contract(self.output([self.match, self.summary, self.footer]), oracle))
 
     def test_empty_json_contract_requires_exact_footer(self):
         self.summary["data"]["stats"]["matched_lines"] = 0

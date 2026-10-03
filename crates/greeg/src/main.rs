@@ -1115,13 +1115,20 @@ fn run() -> Result<()> {
     let t0 = std::time::Instant::now();
     let mut result = greeg_query::scan(&opts)?;
     let t_scan = t0.elapsed();
-    let mut report = greeg_query::shape::shape(&mut result);
-    if opts.precise {
-        greeg_query::precise::apply(&mut result, &report);
-    }
-    if let Some(s) = &session {
-        s.dedup(&result, &mut report);
-        s.loop_hint(&opts, &result, &mut report);
+    let build = |result: &mut ScanResult, budget: usize| {
+        let mut report = greeg_query::shape::shape_within(result, budget);
+        if opts.precise {
+            greeg_query::precise::apply(result, &report);
+        }
+        if let Some(s) = &session {
+            s.dedup(result, &mut report);
+            s.loop_hint(&opts, result, &mut report);
+        }
+        report
+    };
+    let mut report = build(&mut result, opts.budget);
+    if c.json() && !c.json_rg() && opts.budget > 0 {
+        report = fit_search_json(c, &mut result, report, build)?;
     }
     let t_shape = t0.elapsed() - t_scan;
     emit(c, &result, &report, fmt)?;
@@ -1418,6 +1425,82 @@ fn run_stdin(c: &Common, mut opts: Options, fmt: Fmt) -> Result<()> {
         },
         &Outcome::of_search(&result, report.footer.hits_shown),
     )
+}
+
+/// A search's JSON records.
+fn search_json(c: &Common, w: &mut Vec<u8>, result: &ScanResult, report: &Report) -> Result<()> {
+    if c.json_greeg() {
+        json_native::search(w, result, report)
+    } else {
+        render_json(w, result, report)
+    }
+}
+
+/// Fit a search's JSON to the budget by its own size. Shaping budgets scaled
+/// by how far the JSON is over find one that fits (or, after six, the floor:
+/// a budget of 1); up to four bisections toward the last one over then fill
+/// what is left, until less than a tenth is unused. The footer's `est_tokens`
+/// is the JSON's.
+fn fit_search_json(
+    c: &Common,
+    result: &mut ScanResult,
+    report: Report,
+    build: impl Fn(&mut ScanResult, usize) -> Report,
+) -> Result<Report> {
+    let budget = result.opts.budget;
+    let measure = |result: &ScanResult, mut report: Report| -> Result<(Report, usize)> {
+        let mut w = Vec::new();
+        search_json(c, &mut w, result, &report)?;
+        report.footer.est_tokens = greeg_query::tokens::estimate(&w);
+        w.clear();
+        search_json(c, &mut w, result, &report)?;
+        Ok((report, greeg_query::tokens::estimate(&w)))
+    };
+    let at = |result: &mut ScanResult, b: usize| {
+        let report = build(result, b);
+        measure(result, report)
+    };
+    if matches!(report.layout, Layout::Files | Layout::Count) {
+        return Ok(report);
+    }
+    let (report, est) = measure(result, report)?;
+    // a budget of 1 shapes the floor already
+    if est <= budget || budget == 1 {
+        return Ok(report);
+    }
+    // JSON grows roughly with the shaping budget
+    let (mut over, mut over_est) = (budget, est);
+    let mut fit = None;
+    for _ in 0..6 {
+        let b =
+            ((over as f64 * budget as f64 / over_est as f64 * 0.97) as usize).clamp(1, over - 1);
+        let (r, e) = at(result, b)?;
+        if e <= budget || b == 1 {
+            fit = Some((b, r, e));
+            break;
+        }
+        (over, over_est) = (b, e);
+    }
+    let (mut lo, mut best, mut best_est) = match fit {
+        Some(f) => f,
+        None => {
+            let (r, e) = at(result, 1)?;
+            (1, r, e)
+        }
+    };
+    for _ in 0..4 {
+        if best_est > budget || best_est >= budget - budget / 10 || over - lo <= 1 {
+            break;
+        }
+        let mid = lo + (over - lo) / 2;
+        let (r, e) = at(result, mid)?;
+        if e <= budget {
+            (lo, best, best_est) = (mid, r, e);
+        } else {
+            over = mid;
+        }
+    }
+    Ok(best)
 }
 
 /// Write the answer: JSON records, or the text body plus the footer (stdout;

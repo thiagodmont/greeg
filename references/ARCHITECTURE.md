@@ -668,11 +668,14 @@ outcome line. Inside the answer, a cut group ends with `+N more` where its
 rows stop. `show` states a clipped body inside it (`… N more lines to L`),
 and its outcome line only reports an unchecked index.
 
-A verb's text fits its budget. Each verb has a row allowance (rows,
-lines or body lines); the answer is rendered, its tokens estimated, and the
-largest allowance whose rendering fits is kept. Allowance 0 is the floor:
-header, counts, outcome line and `next:`, written even when the budget is
-smaller. `cli.rs` `verb_text_fits_its_budget` checks it for every verb.
+A verb's answer fits its budget in the format it is written: text, or
+JSON by its own size. Each verb has a row allowance (rows, lines or body
+lines); the answer is rendered, its tokens estimated, and the largest
+allowance whose rendering fits is kept. Allowance 0 is the floor: header,
+counts, outcome and `next:`, written even when the budget is smaller. A
+search's JSON is fitted the same way, shaping to the largest budget whose
+JSON fits. `cli.rs` `verb_text_fits_its_budget` and `json_fits_its_budget`
+check it.
 
 `tokens::estimate` is the one token estimate, for search shaping, verb
 fitting, the footer and statistics. It splits text into o200k_base's
@@ -681,10 +684,9 @@ weights each piece by kind and length. The weights were fitted on 716 search
 and verb outputs, text and JSON, from seven corpora.
 
 The line counts the rows of the text. These can differ from `--json=greeg`:
-each format counts the rows it fits; `outline`, `map`, `impls` and `impact`
-list more rows in JSON, and `refs`
-text folds import hits into its `imported by` line, which accounts for all
-of them. `cli.rs` `text_states_its_outcome_as_json_does` checks that both
+each format counts the rows it fits, and JSON rows cost more tokens than
+text rows; `refs` text folds import hits into its `imported by` line, which
+accounts for all of them. `cli.rs` `text_states_its_outcome_as_json_does` checks that both
 formats say the same about exit status, cuts, relaxed matches and freshness.
 
 A bare identifier is answered as a whole word. Matches inside *longer*
@@ -720,14 +722,17 @@ one file can answer differently. Also:
 `--json=greeg` is greeg's own format, schema 2, for searches and verbs,
 specified in [JSON.md](JSON.md): typed `{type, data}` records after a header,
 paths and content as `{"text"}` or `{"bytes"}`, each file's encoding and
-offset coordinates, and an `outcome` in every footer. It is shaped by the
-budget, as text is. Serde structs in `json_native.rs` define it.
+offset coordinates, and an `outcome` in every footer. `--budget` bounds its
+own estimated tokens, and `outcome.truncated_by` says when the budget cut
+it. Serde structs in `json_native.rs` define it.
 
 `--json=legacy`, which bare `--json` means until 0.11
 ([migrating](JSON.md#migrating-from-bare---json)), keeps ripgrep's JSON Lines
 schema, adding `kind`, `symbol`, `file_flags` and `score` to match records,
-plus `facets` and `footer` record types. It is budget-shaped like text: `footer.outcome.complete` is false when
-the budget left matches out. Its `absolute_offset` counts a UTF-8 BOM, as it
+plus `facets` and `footer` record types. `--budget` bounds its own size, as
+for `--json=greeg`: `footer.outcome.complete` is false and
+`footer.outcome.truncated_by` is `"budget"` when the budget left matches out.
+Its `show`, `outline` and `map` footers carry an `outcome` too. Its `absolute_offset` counts a UTF-8 BOM, as it
 always has. `end.bytes_searched` is the file's size, or the bytes before the
 line of a NUL that ended its search, a BOM included; the footer adds
 `binary_tails` when there are any. Every search and search-verb footer has the `outcome` object

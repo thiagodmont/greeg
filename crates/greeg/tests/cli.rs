@@ -1572,7 +1572,8 @@ fn a_bom_does_not_count_toward_the_first_64_kib() {
 
 /// `impact` cuts its callers to the budget: the outcome counts them, says the
 /// answer is incomplete, and text says how many were left out, in every
-/// format and both backends.
+/// format and both backends. JSON is larger than text, so it gets a larger
+/// budget for the same kind of cut.
 #[test]
 fn impact_counts_the_callers_it_leaves_out() {
     let f = empty_fixture();
@@ -1584,13 +1585,13 @@ fn impact_counts_the_callers_it_leaves_out() {
     f.indexed();
     for backend in [&["--no-index"][..], &["--fresh", "stat"][..]] {
         let run = |extra: &[&str]| {
-            let mut a = vec!["impact", "target", "--budget", "300"];
+            let mut a = vec!["impact", "target"];
             a.extend_from_slice(extra);
             a.extend_from_slice(backend);
             f.out(&a)
         };
-        let native = json_lines(&run(&["--json=greeg"]));
-        assert_eq!(native[1]["data"]["callers"].as_array().unwrap().len(), 3);
+        let native = json_lines(&run(&["--json=greeg", "--budget", "600"]));
+        assert_eq!(native[1]["data"]["callers"].as_array().unwrap().len(), 4);
         let footer = &native.last().unwrap()["data"];
         assert_eq!(footer["files"], 1, "{footer}");
         assert_eq!(footer["callers_total"], 5, "{footer}");
@@ -1599,18 +1600,18 @@ fn impact_counts_the_callers_it_leaves_out() {
             (&oc["total"], &oc["shown"], &oc["complete"]),
             (
                 &serde_json::json!(6),
-                &serde_json::json!(4),
+                &serde_json::json!(5),
                 &serde_json::json!(false)
             ),
             "{backend:?} {oc}"
         );
 
-        let legacy = json_lines(&run(&["--json=legacy"]));
+        let legacy = json_lines(&run(&["--json=legacy", "--budget", "600"]));
         let footer = &legacy.last().unwrap()["data"];
         assert_eq!(footer["callers_total"], 5, "{footer}");
         assert_eq!(footer["outcome"]["complete"], false, "{footer}");
 
-        let text = run(&[]);
+        let text = run(&["--budget", "300"]);
         assert!(text.contains("\n  +2 more\n"), "{text}");
         assert!(text.ends_with("\n3/5 callers · raise --budget\n"), "{text}");
     }
@@ -1740,6 +1741,100 @@ fn verb_text_fits_its_budget() {
                         "{q:?} {backend:?} budget {budget}: ~{} tokens\n{}",
                         est(&out),
                         String::from_utf8_lossy(&out)
+                    );
+                }
+            }
+        }
+    }
+}
+
+/// JSON records without the fields that vary from run to run.
+fn stable_records(out: &[u8]) -> Vec<serde_json::Value> {
+    fn strip(v: &mut serde_json::Value) {
+        match v {
+            serde_json::Value::Object(m) => {
+                m.retain(|k, _| !k.starts_with("elapsed") && k != "est_tokens");
+                m.values_mut().for_each(strip);
+            }
+            serde_json::Value::Array(a) => a.iter_mut().for_each(strip),
+            _ => {}
+        }
+    }
+    out.split(|&b| b == b'\n')
+        .filter(|l| !l.is_empty())
+        .map(|l| {
+            let mut v = serde_json::from_slice(l).unwrap();
+            strip(&mut v);
+            v
+        })
+        .collect()
+}
+
+/// JSON fits its budget by its own size, in both dialects, and its footer
+/// says when the budget cut it.
+#[test]
+fn json_fits_its_budget() {
+    let f = outcome_fixture();
+    let est = |b: &[u8]| greeg_query::tokens::estimate(b);
+    let queries: [&[&str]; 9] = [
+        &["target"],
+        &["def", "target"],
+        &["refs", "target"],
+        &["callers", "target"],
+        &["impls", "Shape"],
+        &["impact", "target"],
+        &["outline", "src/lib.rs"],
+        &["show", "src/lib.rs:12", "src/lib.rs:20"],
+        &["map", "src"],
+    ];
+    for dialect in ["--json=greeg", "--json=legacy"] {
+        for backend in [&["--fresh", "stat"][..], &["--no-index"][..]] {
+            for q in queries {
+                if backend == ["--no-index"] && q[0] == "map" {
+                    continue;
+                }
+                let run = |budget: usize| {
+                    let mut a: Vec<String> = q.iter().map(|s| s.to_string()).collect();
+                    a.extend(backend.iter().map(|s| s.to_string()));
+                    a.extend([dialect.to_string(), "--budget".into(), budget.to_string()]);
+                    let a: Vec<&str> = a.iter().map(|s| s.as_str()).collect();
+                    f.run(&a).stdout
+                };
+                let floor_out = run(1);
+                let floor = est(&floor_out);
+                for budget in [40, 80, 160, 320, 640, 1000, 2000, 4000] {
+                    let out = run(budget);
+                    let ctx = || format!("{q:?} {backend:?} {dialect} budget {budget}");
+                    // elapsed times move the floor's size by a few tokens
+                    let is_floor = stable_records(&out) == stable_records(&floor_out);
+                    if budget < floor {
+                        assert!(is_floor, "{}", ctx());
+                    } else if !is_floor {
+                        assert!(
+                            est(&out) <= budget,
+                            "{}: ~{} tokens\n{}",
+                            ctx(),
+                            est(&out),
+                            String::from_utf8_lossy(&out)
+                        );
+                    }
+                    let last = out.split(|&b| b == b'\n').rfind(|l| !l.is_empty()).unwrap();
+                    let footer: serde_json::Value = serde_json::from_slice(last).unwrap();
+                    let oc = &footer["data"]["outcome"];
+                    // `show` is also incomplete when it clips a body
+                    let cut = oc["complete"] == false;
+                    if oc["shown"].as_u64() < oc["total"].as_u64() {
+                        assert!(cut, "{}", ctx());
+                    }
+                    assert_eq!(
+                        oc["truncated_by"],
+                        if cut {
+                            serde_json::json!("budget")
+                        } else {
+                            serde_json::Value::Null
+                        },
+                        "{}",
+                        ctx()
                     );
                 }
             }
@@ -2355,7 +2450,7 @@ fn json_greeg_search_records_follow_schema_2() {
     assert_eq!(footer["type"], "footer");
     assert_eq!(
         footer["data"]["outcome"].to_string(),
-        r#"{"exit":0,"exact":true,"rung":"exact","total":5,"shown":5,"complete":true,"source":"scan","fresh":"","deferred":0}"#
+        r#"{"exit":0,"exact":true,"rung":"exact","total":5,"shown":5,"complete":true,"source":"scan","fresh":"","deferred":0,"truncated_by":null}"#
     );
     let files = |args: &[&str]| -> Vec<String> {
         json_lines(&f.out(args))
@@ -2585,7 +2680,8 @@ fn bare_json_is_legacy_and_names_its_change_only_to_a_person() {
             .map(|l| {
                 let mut v: serde_json::Value = serde_json::from_str(l).unwrap();
                 if let Some(d) = v.get_mut("data").and_then(|d| d.as_object_mut()) {
-                    for k in ["elapsed_total", "elapsed_ms"] {
+                    // a JSON search's estimate counts the digits of its elapsed times
+                    for k in ["elapsed_total", "elapsed_ms", "est_tokens"] {
                         d.shift_remove(k);
                     }
                     if let Some(s) = d.get_mut("stats").and_then(|s| s.as_object_mut()) {

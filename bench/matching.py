@@ -69,6 +69,8 @@ def stable_stdout(stdout, is_json):
             data.get("stats", {}).pop("elapsed", None)
         elif record["type"] == "footer":
             data.pop("elapsed_ms", None)
+            # a JSON search's estimate counts the digits of its elapsed times
+            data.pop("est_tokens", None)
     return json.dumps(records, sort_keys=True, separators=(",", ":")).encode()
 
 
@@ -81,8 +83,16 @@ def json_exact_contract(output, oracle):
                       for r in rows if r["type"] == "match")
     footers = [r["data"] for r in records if r["type"] == "footer"]
     summaries = [r["data"]["stats"] for r in expected if r["type"] == "summary"]
-    return (output.returncode == oracle.returncode and matches(records) == matches(expected)
-            and len(footers) == len(summaries) == 1 and footers[0]["rung"] == "exact"
+    if len(footers) != 1 or len(summaries) != 1:
+        return False
+    shown, oracle_matches = matches(records), matches(expected)
+    # a budget cut shows some of ripgrep's matches and says so
+    if footers[0].get("outcome", {}).get("complete", True):
+        same_matches = shown == oracle_matches
+    else:
+        same_matches = set(shown) < set(oracle_matches)
+    return (output.returncode == oracle.returncode and same_matches
+            and footers[0]["rung"] == "exact"
             and footers[0]["hits_total"] == summaries[0]["matched_lines"])
 
 
