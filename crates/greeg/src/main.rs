@@ -1561,7 +1561,12 @@ fn fit_search(
     // the JSON's tokens (its footer's `est_tokens` set to them), and stdout bytes
     let measure = |result: &ScanResult, mut report: Report| -> Result<(Report, usize, usize)> {
         if !json {
-            let n = render_search(c, result, &report, fmt)?.0.len();
+            let out = render_search(c, result, &report, fmt)?.0;
+            let n = if c.json() {
+                greeg_query::tokens::timeless(&out).len()
+            } else {
+                out.len()
+            };
             return Ok((report, 0, n));
         }
         // an estimate as wide as the budget renders the same bytes and tokens,
@@ -1722,9 +1727,15 @@ fn keep_within(
     fmt: Fmt,
     cap: usize,
 ) -> Result<Report> {
+    // ripgrep prints -l and -c as text even under --json
+    let json = c.json() && !(c.json_rg() && matches!(report.layout, Layout::Files | Layout::Count));
     let size = |r: &Report| -> Result<usize> {
         let out = render_search(c, result, r, fmt)?.0;
-        Ok(greeg_query::tokens::timeless(&out).len())
+        Ok(if json {
+            greeg_query::tokens::timeless(&out).len()
+        } else {
+            out.len()
+        })
     };
     let whole = size(&report)?;
     if whole <= cap {
