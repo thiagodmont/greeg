@@ -42,7 +42,8 @@ jobs:
           esac
           f=ripgrep-15.2.0-$t.tar.gz
           curl -fsSLO "https://github.com/BurntSushi/ripgrep/releases/download/15.2.0/$f"
-          echo "$sum  $f" | shasum -a 256 -c -
+          if command -v sha256sum >/dev/null; then check="sha256sum -c -"; else check="shasum -a 256 -c -"; fi
+          echo "$sum  $f" | $check
           tar xzf "$f"
           mkdir -p "$HOME/.local/bin"
           mv "ripgrep-15.2.0-$t/rg" "$HOME/.local/bin/rg"
