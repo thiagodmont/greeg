@@ -390,7 +390,7 @@ coordinates, and an `outcome` in every footer. Bare `--json` is still
 5000, `none` or `0` = unlimited; default 2000 or the level `greeg budget` saved) ·
 `--max-bytes N` (stdout ceiling) ·
 `--capabilities` (what this build supports, one JSON record; [JSON.md](references/JSON.md#capabilities)) ·
-`--explain` (what a search or a symbol verb's answer was built from: index use, candidates, filters, ranking terms; [JSON.md](references/JSON.md#explain)) ·
+`--explain` (what an answer was built from: index use and freshness; a search's candidates, filters and ranking terms; a symbol verb's counts, and `def`'s score terms; [JSON.md](references/JSON.md#explain)) ·
 `--mode files|outline|content|block` · `--kind def,call,…` · `--near PATH` ·
 `--no-tests --no-vendored --no-generated --all` · `--per-file N` · `--chain` ·
 `--matching exact|discover` · `--no-ladder` · `--fresh auto|none|stat|fsevents` · `--no-index` ·

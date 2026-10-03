@@ -238,8 +238,9 @@ fn terms_json(t: &ScoreTerms) -> Value {
     })
 }
 
-/// The `explain` record of a command's answer.
-pub fn verb(verb: &str, o: &Outcome, ex: &VerbExplain) -> Value {
+/// The `explain` record of a command's answer; `fit` is the row allowance it
+/// was rendered at and the limits that cut it.
+pub fn verb(verb: &str, o: &Outcome, ex: &VerbExplain, fit: Value) -> Value {
     let ranking: Vec<Value> = ex
         .ranked
         .iter()
@@ -263,6 +264,7 @@ pub fn verb(verb: &str, o: &Outcome, ex: &VerbExplain) -> Value {
         "total": o.total,
         "shown": o.shown,
         "truncated_by": o.truncated_by(),
+        "fit": fit,
         "considered": ex.considered,
         "ranking": (!ranking.is_empty()).then(|| json!({
             "terms": ["kind", "exported", "nested", "location", "rank", "reach"],
@@ -287,6 +289,23 @@ pub fn write_verb_text(w: &mut impl Write, e: &Value, ex: &VerbExplain) -> std::
     );
     if let Some(t) = d["truncated_by"].as_str() {
         line += &format!(" (cut by the {t})");
+    }
+    let by: Vec<&str> = d["fit"]["cut_by"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|v| match v.as_str()? {
+            "bytes" => Some("byte ceiling"),
+            other => Some(other),
+        })
+        .collect();
+    if !by.is_empty() {
+        line += &format!(
+            " · fit {} of {} rows to the {}",
+            d["fit"]["rows"],
+            d["fit"]["of"],
+            by.join(" and the ")
+        );
     }
     writeln!(w, "{line}")?;
     if let Some(m) = d["considered"].as_object().filter(|m| !m.is_empty()) {
