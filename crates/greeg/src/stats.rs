@@ -890,7 +890,7 @@ pub fn report(o: &ReportOpts) -> Result<()> {
 
 fn shell_join(argv: &[String]) -> String {
     argv.iter()
-        .map(|w| crate::hook::quote(w))
+        .map(|w| crate::rewrite::quote(w))
         .collect::<Vec<_>>()
         .join(" ")
 }
@@ -2472,7 +2472,7 @@ fn admitted(h: &HookEvent) -> std::result::Result<(Vec<String>, Vec<String>), St
     if h.original.first().map(String::as_str) != Some("rg") {
         return Err("the recorded program is not rg".into());
     }
-    let rw = crate::hook::rewrite_full(&shell_join(&h.original))?;
+    let rw = crate::rewrite::rewrite_full(&shell_join(&h.original))?;
     if rw.original != h.original {
         return Err("the recorded arguments do not round-trip".into());
     }

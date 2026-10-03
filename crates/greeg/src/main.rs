@@ -8,6 +8,7 @@ mod hook;
 mod hook_config;
 mod hook_skill;
 mod json_native;
+mod rewrite;
 mod stats;
 mod stream;
 mod verbs_out;
@@ -3006,7 +3007,10 @@ mod tests {
             .map(|c| c.get_name().to_string())
             .filter(|n| n != "help")
             .collect();
-        let mut verbs: Vec<String> = crate::hook::VERBS.iter().map(|v| v.to_string()).collect();
+        let mut verbs: Vec<String> = crate::rewrite::VERBS
+            .iter()
+            .map(|v| v.to_string())
+            .collect();
         names.sort();
         verbs.sort();
         assert_eq!(verbs, names);
