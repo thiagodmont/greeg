@@ -1890,7 +1890,19 @@ pub fn clip_line(
     let lead = (window - mlen) / 2;
     let start = ms.saturating_sub(lead);
     let end = (start + window).min(line.len());
-    let start = end.saturating_sub(window);
+    let mut start = end.saturating_sub(window);
+    let mut end = end;
+    // whole UTF-8 characters at both edges (at most three continuation
+    // bytes, so other encodings lose no more); the match is whole already
+    let continues = |i: usize| line.get(i).is_some_and(|b| b & 0xC0 == 0x80);
+    for _ in 0..3 {
+        if start < ms && continues(start) {
+            start += 1;
+        }
+        if end > me && continues(end) {
+            end -= 1;
+        }
+    }
     let mut v = Vec::with_capacity(max_cols + 4);
     let mut shift = 0usize;
     if start > 0 {
@@ -2504,6 +2516,23 @@ mod tests {
             .bom_sniffing(false);
         sb.build().search_slice(m, src, &mut sink).unwrap();
         sink
+    }
+
+    /// A clipped window starts and ends on whole characters: no half of a
+    /// multi-byte character is written.
+    #[test]
+    fn clip_line_keeps_whole_characters() {
+        let line = format!("let s = \"{}\"; x", "é".repeat(100)).into_bytes();
+        let x = line.len() - 1;
+        for max in 20..60 {
+            for (ms, me) in [(x, x + 1), (0, 3), (21, 23)] {
+                let (t, c, (ts, te)) = clip_line(&line, ms, me, max);
+                assert!(c);
+                let s = std::str::from_utf8(&t).expect("whole characters");
+                assert!(!s.contains('\u{fffd}'));
+                assert_eq!(&t[ts..te], &line[ms..me]);
+            }
+        }
     }
 
     #[test]
