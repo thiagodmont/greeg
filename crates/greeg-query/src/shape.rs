@@ -402,7 +402,15 @@ fn related_cost(related: &[(String, usize)]) -> usize {
 
 /// Build the report. `budget == 0` means unlimited content in path/line order (parity mode).
 pub fn shape(r: &mut ScanResult) -> Report {
-    let o = r.opts.clone();
+    let budget = r.opts.budget;
+    shape_within(r, budget)
+}
+
+/// [`shape`] to `budget` tokens in place of the query's; hints still name the
+/// query's budget.
+pub fn shape_within(r: &mut ScanResult, budget: usize) -> Report {
+    let mut o = r.opts.clone();
+    o.budget = budget;
     let o = &o;
     let mut footer = Footer {
         hits_total: r.stats.total_hits,
