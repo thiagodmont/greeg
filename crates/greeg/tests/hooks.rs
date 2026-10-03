@@ -860,14 +860,14 @@ fn host_payloads_get_replies_their_host_accepts() {
         } else {
             "claude"
         };
-        let template = fs::read_to_string(&path).unwrap();
+        let template: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(template["cwd"], "@CWD@", "{name}");
+        assert_eq!(template["tool_input"]["command"], "@COMMAND@", "{name}");
+        // set as JSON values, so any directory name stays valid JSON
         let payload = |command: &str, tool: &str| -> Value {
-            let mut v: Value = serde_json::from_str(
-                &template
-                    .replace("@CWD@", cwd.to_str().unwrap())
-                    .replace("@COMMAND@", command),
-            )
-            .unwrap();
+            let mut v = template.clone();
+            v["cwd"] = json!(cwd);
+            v["tool_input"]["command"] = json!(command);
             v["tool_name"] = json!(tool);
             v
         };
