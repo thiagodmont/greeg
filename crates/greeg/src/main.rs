@@ -1745,7 +1745,7 @@ fn emit(c: &Common, result: &ScanResult, report: &Report, fmt: Fmt) -> Result<()
             serde_json::to_writer(&mut block, e)?;
             block.push(b'\n');
         } else {
-            explain::write_text(&mut block, e)?;
+            explain::write_text(&mut block, e, result, report)?;
         }
         std::io::stderr().write_all(&block)?;
     }

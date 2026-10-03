@@ -3034,6 +3034,31 @@ fn capabilities_list_what_the_parser_accepts() {
     }
 }
 
+/// Text explain lines escape control bytes in names, and say why the index
+/// was skipped without repeating "not used".
+#[test]
+fn explain_text_is_safe_to_print() {
+    let f = empty_fixture();
+    w(&f.root.join("src/a\x1b[31mb.rs"), "fn target() {}\n");
+    w(&f.root.join("src/plain.rs"), "fn target() {}\n");
+    f.indexed();
+    let err = f.err(&["target", "--no-index", "--explain"]);
+    assert!(!err.contains('\x1b'), "{err:?}");
+    assert!(err.contains("a\\x1B[31mb.rs"), "{err}");
+    assert!(err.contains("source scan (index not used)"), "{err}");
+    // a path outside the index root: the reason names it
+    let outside = f.base.join("outside");
+    w(&outside.join("o.rs"), "fn target() {}\n");
+    let err = f.err(&["target", outside.to_str().unwrap(), "--explain"]);
+    assert!(
+        err.contains(&format!(
+            "index not used: a path outside the index root or not resolvable: {}",
+            outside.display()
+        )),
+        "{err}"
+    );
+}
+
 /// `--explain` adds what a search was built from and changes nothing else:
 /// its ranking terms multiply to each hit's score, and its counts are the
 /// footer's.

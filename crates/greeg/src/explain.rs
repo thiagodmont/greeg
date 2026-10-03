@@ -14,6 +14,14 @@ fn r3(x: f64) -> f64 {
     (x * 1000.0).round() / 1000.0
 }
 
+/// The shown hits whose terms are listed: (file, hit) indexes.
+fn ranked(rep: &Report) -> impl Iterator<Item = (usize, usize)> + '_ {
+    rep.files
+        .iter()
+        .flat_map(|sf| sf.hits.iter().map(move |sh| (sf.file, sh.hit)))
+        .take(RANKED)
+}
+
 /// The `explain` record.
 pub fn search(r: &ScanResult, rep: &Report) -> Value {
     let (s, o) = (&r.stats, &r.opts);
@@ -26,11 +34,7 @@ pub fn search(r: &ScanResult, rep: &Report) -> Value {
     .into_iter()
     .filter_map(|(on, name)| on.then_some(name))
     .collect();
-    let ranked: Vec<Value> = rep
-        .files
-        .iter()
-        .flat_map(|sf| sf.hits.iter().map(move |sh| (sf.file, sh.hit)))
-        .take(RANKED)
+    let ranked: Vec<Value> = ranked(rep)
         .map(|(fi, hi)| {
             let (f, h) = (&r.files[fi], &r.files[fi].hits[hi]);
             json!({
@@ -46,7 +50,7 @@ pub fn search(r: &ScanResult, rep: &Report) -> Value {
         .collect();
     json!({"type": "explain", "data": {
         "source": s.source,
-        "index_skipped": (!s.index_skipped.is_empty()).then_some(s.index_skipped),
+        "index_skipped": (!s.index_skipped.is_empty()).then_some(&s.index_skipped),
         "fresh": index.then(|| json!({
             "method": s.fresh_method,
             "ms": r3(s.fresh_ms),
@@ -85,13 +89,21 @@ pub fn search(r: &ScanResult, rep: &Report) -> Value {
     }})
 }
 
-/// The record as stderr lines, for text answers.
-pub fn write_text(w: &mut impl Write, e: &Value) -> std::io::Result<()> {
+/// The record as stderr lines, for text answers; paths are escaped for a
+/// terminal.
+pub fn write_text(
+    w: &mut impl Write,
+    e: &Value,
+    r: &ScanResult,
+    rep: &Report,
+) -> std::io::Result<()> {
     let d = &e["data"];
     let n = |v: &Value| v.as_u64().unwrap_or(0);
     let mut source = format!("source {}", d["source"].as_str().unwrap_or(""));
-    if let Some(why) = d["index_skipped"].as_str() {
-        source += &format!(" (index not used: {why})");
+    match d["index_skipped"].as_str() {
+        Some("not used") => source += " (index not used)",
+        Some(why) => source += &format!(" (index not used: {why})"),
+        None => {}
     }
     if d["fresh"].is_object() {
         let f = &d["fresh"];
@@ -179,11 +191,11 @@ pub fn write_text(w: &mut impl Write, e: &Value) -> std::io::Result<()> {
             w,
             "explain: score = kind weight × exact boost × prior (location, --near, PageRank)"
         )?;
-        for h in hits {
+        for (h, (fi, _)) in hits.iter().zip(ranked(rep)) {
             writeln!(
                 w,
                 "  {}:{} {} {} = {} × {} × {}",
-                h["path"]["text"].as_str().unwrap_or("?"),
+                r.files[fi].rel_text(),
                 h["line"],
                 h["kind"].as_str().unwrap_or(""),
                 h["score"],

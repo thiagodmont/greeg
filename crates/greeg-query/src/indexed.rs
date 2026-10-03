@@ -439,13 +439,14 @@ fn open_fresh_with(
             }));
         }
         Err(_) => {
-            if greeg_index::integrity::failed() {
+            let corrupt = greeg_index::integrity::failed();
+            if corrupt {
                 note_corruption(o);
             } else {
                 spawn_build(&o.root, &dir);
             }
             return Ok(Err(Rebuilding {
-                reason: "no-index",
+                reason: if corrupt { "corrupt" } else { "no-index" },
                 estimate_ms: None,
                 generation: read_manifest(&dir).map_or(0, |m| m.generation),
             }));
@@ -525,11 +526,11 @@ pub(crate) fn try_index(
     cx: &Ctx,
     threads: usize,
     t0: Instant,
-) -> Result<Result<ScanResult, &'static str>> {
+) -> Result<Result<ScanResult, String>> {
     let o = cx.o;
     let op = match open_fresh_deferred(o, threads)? {
         Ok(op) => op,
-        Err(r) => return Ok(Err(r.reason)),
+        Err(r) => return Ok(Err(r.reason.to_string())),
     };
     let idx = &op.idx;
     // fault injection for the M5 robustness tests
@@ -616,7 +617,10 @@ pub(crate) fn try_index(
                     && !extras.iter().any(|(r, _)| *r == rel)
                     && !idx.live_files().any(|(_, r, _)| r == rel)
                 {
-                    return Ok(Err("an unindexed file named"));
+                    return Ok(Err(format!(
+                        "an unindexed file named {}",
+                        greeg_index::rel::display(&rel)
+                    )));
                 }
                 // likewise a hidden or ignored directory: the walk enters it
                 if p.is_dir()
@@ -627,7 +631,10 @@ pub(crate) fn try_index(
                         .as_ref()
                         .is_some_and(|ch| ch.added_dirs.iter().any(|d| d.rel == rel))
                 {
-                    return Ok(Err("an unindexed directory named"));
+                    return Ok(Err(format!(
+                        "an unindexed directory named {}",
+                        greeg_index::rel::display(&rel)
+                    )));
                 }
                 let mut given = p.as_os_str().as_bytes();
                 while let [rest @ .., b'/'] = given {
@@ -646,14 +653,19 @@ pub(crate) fn try_index(
                 );
                 paths.push(rel);
             }
-            None => return Ok(Err("a path outside the index root")),
+            None => {
+                return Ok(Err(format!(
+                    "a path outside the index root or not resolvable: {}",
+                    greeg_index::rel::display(p.as_os_str().as_bytes())
+                )));
+            }
         }
     }
     let sel = crate::select::Selection::new(o, paths)?;
     // files the index skipped that this request selects are read from disk
     // like changed ones; anything else it selects needs the scan
     let Some(also) = sel.coverage(idx, op.pending.as_ref()) else {
-        return Ok(Err("files the index skipped"));
+        return Ok(Err("files the index skipped".into()));
     };
     extras.extend(also.into_iter().map(|rel| (rel, NONE)));
     let display_rel = |rel: &[u8]| -> Option<Vec<u8>> {
@@ -803,7 +815,7 @@ pub(crate) fn try_index(
     if idx.corrupt() || greeg_index::integrity::failed() {
         // bytes the build did not write were read: nothing above is trusted
         note_corruption(o);
-        return Ok(Err("corrupt"));
+        return Ok(Err("corrupt".into()));
     }
     Ok(Ok(ScanResult {
         opts: o.clone(),

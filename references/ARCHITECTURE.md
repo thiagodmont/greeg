@@ -244,7 +244,8 @@ Cleanup touches only those names, at most 64 per publication.
    the answer, and 50 lines of it won't tell you that.
 
 `--explain` reports what the answer was built from (index use or why not,
-freshness, candidate counts, filters, the score terms of shown hits) in its
+freshness, candidate counts, filters, the score terms of the first ten shown
+hits) in its
 own record or on stderr, outside the budget, the byte ceiling and statistics.
 
 `--budget 0`, `-l` and `-c` bypass token shaping and default to exact matching.
