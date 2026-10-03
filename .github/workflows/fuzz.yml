@@ -1,0 +1,40 @@
+name: fuzz
+# Each fuzz target for a while on nightly, starting from its saved seeds. On
+# demand only (Actions billing). A crash fails the job and uploads its input;
+# reproduce it with `cargo +nightly fuzz run TARGET CRASH-FILE`.
+on:
+  workflow_dispatch:
+    inputs:
+      seconds:
+        description: seconds per target
+        default: "600"
+permissions:
+  contents: read
+jobs:
+  fuzz:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [regex_plan, index_decode, shell_rewrite, lang_extract]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
+        with:
+          toolchain: nightly
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          workspaces: fuzz
+      - run: cargo install cargo-fuzz --locked --version 0.13.2
+      - name: fuzz ${{ matrix.target }}
+        env:
+          SECONDS_PER_TARGET: ${{ inputs.seconds }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/corpus"
+          cargo fuzz run --locked ${{ matrix.target }} "$RUNNER_TEMP/corpus" fuzz/seeds/${{ matrix.target }} -- -max_total_time="$SECONDS_PER_TARGET"
+      - if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: crash-${{ matrix.target }}
+          path: fuzz/artifacts/${{ matrix.target }}
