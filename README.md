@@ -101,6 +101,20 @@ curl -sSL https://github.com/thiagodmont/greeg/releases/download/v$v/greeg-$v-$t
 sudo install greeg-$v-$t/greeg /usr/local/bin/
 ```
 
+Each archive is built and qualified on its own target's runner before
+publication: its version, files and a semantic suite (`bench/qualify.py`).
+The release log prints the minimum macOS each binary declares and the newest
+glibc symbol version each Linux binary needs; systems older than the
+runners (macOS 15, Ubuntu 24.04) are not verified. Archives from 0.11 on
+carry a build provenance attestation; to check one, download the archive and
+verify it with the GitHub CLI (2.49 or newer):
+
+```bash
+v=0.11.0; t=aarch64-apple-darwin
+curl -sSLO https://github.com/thiagodmont/greeg/releases/download/v$v/greeg-$v-$t.tar.gz
+gh attestation verify greeg-$v-$t.tar.gz --repo thiagodmont/greeg
+```
+
 **From source** (Rust 1.90 or newer):
 
 ```bash
