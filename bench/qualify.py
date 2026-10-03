@@ -107,15 +107,20 @@ def suite(exe, t):
     check(j.returncode == 0 and records and records[0].get("type") == "greeg"
           and records[-1].get("type") == "footer", "--json=greeg is valid JSON Lines, header to footer")
     if raw_ok:
-        paths = [r["data"]["path"] for r in records if r.get("type") == "begin"]
-        exact = any("bytes" in p and base64.b64decode(p["bytes"]) == raw for p in paths)
+        try:
+            paths = [r["data"]["path"] for r in records if r.get("type") == "begin"]
+            exact = any(isinstance(p, dict) and "bytes" in p and base64.b64decode(p["bytes"]) == raw
+                        for p in paths)
+        except (KeyError, TypeError, ValueError):
+            exact = False
         check(exact, "a non-UTF-8 file name round-trips as bytes")
     rg = run("alpha", "--json=rg", "--fresh", "stat")
+    lines = rg.stdout.splitlines()
     try:
-        ok = all(json.loads(line)["type"] for line in rg.stdout.splitlines())
-    except (ValueError, KeyError):
+        ok = bool(lines) and all(json.loads(line)["type"] for line in lines)
+    except (ValueError, KeyError, TypeError):
         ok = False
-    check(rg.returncode == 0 and ok, "--json=rg is valid JSON Lines")
+    check(rg.returncode == 0 and ok, "--json=rg is valid JSON Lines, and not empty")
 
 
 if __name__ == "__main__":
