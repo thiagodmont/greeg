@@ -1,0 +1,50 @@
+references/ARCHITECTURE.md
+  s_b1057b2933cdb0::t_42c1ee8384fee3 247
+  s_b1057b2933cdb0::t_3f4768082c4ac1 248-250
+  s_b1057b2933cdb0::t_73978fc0148526 246,251
+crates/greeg-query/src/indexed.rs
+  s_b1057b2933cdb0::t_295d2729fb2da2 1054-1057
+  s_b1057b2933cdb0::t_35c3dae4c65bd3 723-736,752-754,756-760,841,848,857-868
+  s_b1057b2933cdb0::t_843860ab53d95d 712,721
+  s_b1057b2933cdb0::t_5ab16865b39661 823
+  s_b1057b2933cdb0::t_1d29e2584651f5 835
+crates/greeg/src/main.rs
+  s_b1057b2933cdb0::t_843860ab53d95d 905
+  s_b1057b2933cdb0::t_659e3d6ce13ae8 1148-1149
+crates/greeg-query/src/stdin.rs
+  s_b1057b2933cdb0::t_8402aa97228b37 108
+crates/greeg/tests/known_gaps.rs
+  s_b1057b2933cdb0::t_0536ac4ed79fa2 287-341
+crates/greeg-query/src/shape.rs
+  s_b1057b2933cdb0::t_64dfc82a8e5c2f 443,553-557,564-566,582-607,611
+  s_b1057b2933cdb0::t_64c979fd019ca0 309,439-440
+  s_b1057b2933cdb0::t_5ab16865b39661 558-560
+  s_b1057b2933cdb0::t_8402aa97228b37 1093
+  s_b1057b2933cdb0::t_0b29a4e781aa4b 441-442
+crates/greeg-query/src/lib.rs
+  s_b1057b2933cdb0::t_5ab16865b39661 1997-2001,2474-2475,2916-2927
+  s_b1057b2933cdb0::t_35c3dae4c65bd3 1976-1987,2459-2473,2476-2479
+  s_b1057b2933cdb0::t_9f6cb855bfd8ce 431-433,473,499-506
+  s_b1057b2933cdb0::t_a3d9fffca1f6e9 1695-1696,1894-1895
+  s_b1057b2933cdb0::t_843860ab53d95d 2314,3168,3262
+  s_b1057b2933cdb0::t_e439b8858b2d45 507,1697,1774-1775,1778,1788,1791-1793,1848-1849,1879-1886,1891-1893,1896-1917,1933-1942,1963,1988-1996,2002-2044
+  s_b1057b2933cdb0::t_eae8ee3a1a61eb 2904-2915,2928-2930
+  s_b1057b2933cdb0::t_9a147173be24d9 32-34,97-100,142,428-429
+  s_b1057b2933cdb0::t_5abf1bb9ab0616 508,2045,2903
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "46a9e361a311ccb4b3418d817bf2fd8797e099ba",
+  "prompts": {},
+  "sessions": {
+    "s_b1057b2933cdb0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0aa73425-0ec9-4b76-ae94-35b6bdff17bb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
