@@ -3246,7 +3246,22 @@ fn explain_says_how_a_verb_answer_was_built() {
         .unwrap();
     let fit = &e["data"]["fit"];
     assert_eq!(fit["cut_by"], serde_json::json!(["budget"]), "{e}");
-    assert!(fit["rows"].as_u64() < fit["of"].as_u64(), "{e}");
+    assert!(
+        fit["rows"].as_u64().unwrap() < fit["of"].as_u64().unwrap(),
+        "{e}"
+    );
+    // nothing cut, no fit: an unlimited answer has no allowance to report
+    let o = with(
+        &["refs", "target"],
+        &["--json=greeg", "--budget", "0", "--explain"],
+    );
+    let e: serde_json::Value = String::from_utf8(o.stdout)
+        .unwrap()
+        .lines()
+        .map(|l| serde_json::from_str::<serde_json::Value>(l).unwrap())
+        .find(|r| r["type"] == "explain")
+        .unwrap();
+    assert!(e["data"]["fit"].is_null(), "{e}");
 }
 
 /// Of `-i`, `-s` and `-S`, and of `-w` and `-x`, the last flag given wins, as

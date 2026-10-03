@@ -275,7 +275,11 @@ fn write_fitted(
         w.write_all(text)?;
         return Ok(());
     };
-    let fit = json!({"rows": f.rows, "of": f.max, "cut_by": f.cut_by});
+    let fit = if f.cut_by.is_empty() {
+        serde_json::Value::Null
+    } else {
+        json!({"rows": f.rows, "of": f.max, "cut_by": f.cut_by})
+    };
     let record = crate::explain::verb(verb, &f.oc, ex, fit);
     if c.json() && o.max_bytes == 0 {
         let at = text[..text.len().saturating_sub(1)]
