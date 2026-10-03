@@ -537,7 +537,7 @@ pub(crate) fn refs(
         "footer",
         &RefsFooter {
             name,
-            definitions_total: r.defs.len(),
+            definitions_total: r.defs_total,
             files_total: s.stats.files_matched,
             by_kind,
             resolved: r.resolved,
@@ -921,7 +921,7 @@ pub(crate) fn impact(
         "footer",
         &ImpactFooter {
             name: &r.name,
-            definitions_total: r.defs.len(),
+            definitions_total: r.defs_total,
             files,
             callers_total: r.callers.callers.len(),
             total_hits: r.total_hits,

@@ -62,6 +62,8 @@ class JsonContractTests(unittest.TestCase):
         stranger = copy.deepcopy(self.match)
         stranger["data"]["line_number"] = 3
         self.assertFalse(json_exact_contract(self.output([stranger, self.summary, self.footer]), oracle))
+        # a repeated match does not stand in for one left out
+        self.assertFalse(json_exact_contract(self.output([self.match, self.match, self.summary, self.footer]), oracle))
         self.footer["data"]["outcome"] = {"complete": True}
         self.assertFalse(json_exact_contract(self.output([self.match, self.summary, self.footer]), oracle))
 

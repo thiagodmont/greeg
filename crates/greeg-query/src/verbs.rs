@@ -685,7 +685,10 @@ fn scan_defs(
 /// hits reachable from a definition with confidence ≥ 0.8.
 pub struct RefsResult {
     pub scan: ScanResult,
+    /// The best definitions, as many as `def` lists at a small budget.
     pub defs: Vec<DefEntry>,
+    /// Every definition found, listed or not.
+    pub defs_total: usize,
     /// Hits (file idx, hit idx) whose file reaches a definition file with ≥ 0.8.
     pub resolved: usize,
     pub classified: usize,
@@ -704,8 +707,8 @@ pub fn refs(o: &Options, name: &str, kinds: &[HitKind]) -> Result<RefsResult> {
     d.matching = crate::MatchingPolicy::Exact;
     d.budget = 400;
     d.fresh = greeg_index::fresh::Mode::None;
-    let defs = def(&d, name, &[], None)
-        .map(|r| r.entries)
+    let (defs, defs_total) = def(&d, name, &[], None)
+        .map(|r| (r.entries, r.total))
         .unwrap_or_default();
     let (mut resolved, mut classified) = (0usize, 0usize);
     if let Some(op) = if o.use_index {
@@ -726,6 +729,7 @@ pub fn refs(o: &Options, name: &str, kinds: &[HitKind]) -> Result<RefsResult> {
     Ok(RefsResult {
         scan: scan_r,
         defs,
+        defs_total,
         resolved,
         classified,
     })
@@ -1669,6 +1673,7 @@ pub struct ImpactResult {
     pub outcome: Outcome,
     pub name: String,
     pub defs: Vec<DefEntry>,
+    pub defs_total: usize,
     /// A call, type use or import in a file that imports a definition's file.
     pub likely: Vec<ImpactFile>,
     /// Any other use in source.
@@ -1761,6 +1766,7 @@ pub fn impact(o: &Options, name: &str) -> Result<ImpactResult> {
         outcome: Outcome::of_search(&r.scan, 0),
         name: name.to_string(),
         defs: r.defs,
+        defs_total: r.defs_total,
         likely,
         possible,
         review,
