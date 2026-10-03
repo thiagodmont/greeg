@@ -7,7 +7,9 @@ on:
     inputs:
       seconds:
         description: seconds per target
-        default: "600"
+        required: true
+        type: number
+        default: 600
 permissions:
   contents: read
 jobs:

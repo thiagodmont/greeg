@@ -1,6 +1,6 @@
 //! The planner never loses a match: a text the regex matches holds the grams
-//! its plan asks for. Input: a flags byte (1 literal, 2 case-insensitive),
-//! then the pattern and the text, split at the first NUL.
+//! its plan asks for. Input: a flags byte (1 literal, 2 case-insensitive,
+//! 4 multi-line anchors), then the pattern and the text, split at the first NUL.
 #![no_main]
 
 use greeg_index::gram::{Dedup, fold_buf};
@@ -22,7 +22,7 @@ fuzz_target!(|data: &[u8]| {
     let Some((&flags, rest)) = data.split_first() else {
         return;
     };
-    let (fixed, casei) = (flags & 1 != 0, flags & 2 != 0);
+    let (fixed, casei, multi_line) = (flags & 1 != 0, flags & 2 != 0, flags & 4 != 0);
     let (pattern, text) = match rest.iter().position(|&b| b == 0) {
         Some(i) => (&rest[..i], &rest[i + 1..]),
         None => (rest, &[][..]),
@@ -40,6 +40,7 @@ fuzz_target!(|data: &[u8]| {
     };
     let Ok(re) = regex::bytes::RegexBuilder::new(&source)
         .case_insensitive(casei)
+        .multi_line(multi_line)
         .size_limit(1 << 20)
         .build()
     else {

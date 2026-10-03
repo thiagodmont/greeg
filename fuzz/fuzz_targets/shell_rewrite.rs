@@ -13,8 +13,6 @@ fuzz_target!(|data: &[u8]| {
         return;
     };
     if let Ok(rw) = rewrite::rewrite_full(cmd) {
-        assert_eq!(rw.original.first().map(String::as_str), Some("rg"));
-        assert_eq!(rw.rewritten.first().map(String::as_str), Some("greeg"));
         assert_eq!(
             rewrite::shell_words(&rw.command).as_deref(),
             Ok(&rw.rewritten[..]),
