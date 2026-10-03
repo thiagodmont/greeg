@@ -9,6 +9,7 @@ mod hook_config;
 mod hook_skill;
 mod json_native;
 mod stats;
+mod stream;
 mod verbs_out;
 
 use anyhow::Result;
@@ -1154,6 +1155,9 @@ fn run() -> Result<()> {
         opts.near = s.focus();
     }
     let t0 = std::time::Instant::now();
+    if stream::applies(c, &opts) {
+        return stream::run(c, &opts, fmt, session.as_ref(), t0);
+    }
     let mut result = greeg_query::scan(&opts)?;
     let t_scan = t0.elapsed();
     let build = |result: &mut ScanResult, budget: usize| {
@@ -2205,65 +2209,76 @@ fn render_body(w: &mut impl Write, r: &ScanResult, rep: &Report, fmt: Fmt) -> Re
 fn render_parity(w: &mut impl Write, r: &ScanResult, rep: &Report, fmt: Fmt) -> Result<()> {
     let mut first_file = true;
     for sf in &rep.files {
-        let f = &r.files[sf.file];
-        // the path as its bytes, as ripgrep writes it
-        let prefix = |w: &mut dyn Write, ln: u32, sep: char| -> std::io::Result<()> {
-            if !fmt.stdin {
-                w.write_all(&f.rel)?;
-                write!(w, "{sep}")?;
-            }
-            if !fmt.stdin || fmt.line_numbers {
-                write!(w, "{ln}{sep}")?;
-            }
-            Ok(())
-        };
-        let has_ctx = sf.hits.iter().any(|sh| sh.context.is_some());
-        if has_ctx && !first_file {
-            writeln!(w, "--")?;
+        render_parity_file(w, &r.files[sf.file], sf, fmt, &mut first_file)?;
+    }
+    Ok(())
+}
+
+/// One file of [`render_parity`]; `first_file` is whether none was written.
+fn render_parity_file(
+    w: &mut impl Write,
+    f: &greeg_query::FileResult,
+    sf: &ShownFile,
+    fmt: Fmt,
+    first_file: &mut bool,
+) -> Result<()> {
+    // the path as its bytes, as ripgrep writes it
+    let prefix = |w: &mut dyn Write, ln: u32, sep: char| -> std::io::Result<()> {
+        if !fmt.stdin {
+            w.write_all(&f.rel)?;
+            write!(w, "{sep}")?;
         }
-        first_file = false;
-        let hit_lines: std::collections::BTreeSet<u32> =
-            sf.hits.iter().map(|sh| f.hits[sh.hit].line).collect();
-        let mut last = 0u32;
-        for sh in &sf.hits {
-            let h = &f.hits[sh.hit];
-            match &sh.context {
-                Some((first, lines)) => {
-                    if last > 0 && *first > last + 1 {
-                        writeln!(w, "--")?;
-                    }
-                    for (i, l) in lines.iter().enumerate() {
-                        let ln = first + i as u32;
-                        if ln <= last {
-                            continue;
-                        }
-                        prefix(w, ln, if hit_lines.contains(&ln) { ':' } else { '-' })?;
-                        w.write_all(l)?;
-                        writeln!(w)?;
-                        last = ln;
-                    }
+        if !fmt.stdin || fmt.line_numbers {
+            write!(w, "{ln}{sep}")?;
+        }
+        Ok(())
+    };
+    let has_ctx = sf.hits.iter().any(|sh| sh.context.is_some());
+    if has_ctx && !*first_file {
+        writeln!(w, "--")?;
+    }
+    *first_file = false;
+    let hit_lines: std::collections::BTreeSet<u32> =
+        sf.hits.iter().map(|sh| f.hits[sh.hit].line).collect();
+    let mut last = 0u32;
+    for sh in &sf.hits {
+        let h = &f.hits[sh.hit];
+        match &sh.context {
+            Some((first, lines)) => {
+                if last > 0 && *first > last + 1 {
+                    writeln!(w, "--")?;
                 }
-                None => {
-                    if h.line > last {
-                        prefix(w, h.line, ':')?;
-                        w.write_all(&h.raw)?;
-                        writeln!(w)?;
-                        last = h.line;
+                for (i, l) in lines.iter().enumerate() {
+                    let ln = first + i as u32;
+                    if ln <= last {
+                        continue;
                     }
+                    prefix(w, ln, if hit_lines.contains(&ln) { ':' } else { '-' })?;
+                    w.write_all(l)?;
+                    writeln!(w)?;
+                    last = ln;
+                }
+            }
+            None => {
+                if h.line > last {
+                    prefix(w, h.line, ':')?;
+                    w.write_all(&h.raw)?;
+                    writeln!(w)?;
+                    last = h.line;
                 }
             }
         }
-        if let Some(off) = f.binary_offset {
-            if !fmt.stdin {
-                w.write_all(&f.rel)?;
-                write!(w, ": ")?;
-            }
-            writeln!(
-                w,
-                "WARNING: stopped searching binary file after match (found \"\\0\" byte around offset {})",
-                off - u64::from(f.bom)
-            )?;
+    }
+    if let Some(off) = f.binary_offset {
+        if !fmt.stdin {
+            w.write_all(&f.rel)?;
+            write!(w, ": ")?;
         }
+        writeln!(
+            w,
+            "WARNING: stopped searching binary file after match (found \"\\0\" byte around offset {})",
+            off - u64::from(f.bom)
+        )?;
     }
     Ok(())
 }
@@ -2670,30 +2685,27 @@ fn json_hit_records(
 }
 
 fn render_json(w: &mut impl Write, r: &ScanResult, rep: &Report) -> Result<()> {
-    use serde_json::json;
-    let files = &r.files;
     let t0 = std::time::Instant::now();
-    let mut printed_lines = 0usize;
-    let mut printed_matches = 0usize;
-    let mut printed_bytes = 0usize;
-    let mut emit_file = |w: &mut dyn Write, sf: &ShownFile| -> Result<()> {
-        let f = &files[sf.file];
-        serde_json::to_writer(
-            &mut *w,
-            &json!({"type":"begin","data":{"path":json_data(&f.rel)}}),
-        )?;
-        writeln!(w)?;
-        let n = json_hit_records(w, r, sf, false)?;
-        printed_bytes += n.text_bytes;
-        printed_lines += n.lines;
-        printed_matches += n.matches;
-        serde_json::to_writer(
-            &mut *w,
-            &json!({"type":"end","data":{"path":json_data(&f.rel),"binary_offset":f.binary_offset,"stats":{"elapsed":{"secs":0,"nanos":0,"human":"0s"},"searches":1,"searches_with_match":1,"bytes_searched":legacy_bytes_searched(f),"bytes_printed":0,"matched_lines":f.total,"matches":n.matches,"shown":n.lines}}}),
-        )?;
-        writeln!(w)?;
-        Ok(())
-    };
+    legacy_head(w, r, rep)?;
+    let mut acc = LegacyPrinted::default();
+    for sf in &rep.files {
+        legacy_file(w, r, sf, &mut acc)?;
+    }
+    legacy_tail(w, r, rep, &acc, t0)
+}
+
+/// What legacy `--json` has written so far, for its summary.
+#[derive(Default)]
+struct LegacyPrinted {
+    bytes: usize,
+    lines: usize,
+    matches: usize,
+    searched: u64,
+}
+
+/// The `facets` record of a broad answer.
+fn legacy_head(w: &mut impl Write, r: &ScanResult, rep: &Report) -> Result<()> {
+    use serde_json::json;
     if let Some(fc) = &rep.facets {
         serde_json::to_writer(
             &mut *w,
@@ -2702,20 +2714,56 @@ fn render_json(w: &mut impl Write, r: &ScanResult, rep: &Report) -> Result<()> {
                 "by_kind":fc.by_kind.iter().map(|(k,n)| json!([k.name(), n])).collect::<Vec<_>>(),
                 "by_dir":fc.by_dir,"by_lang":fc.by_lang,"by_flag":fc.by_flag,
                 "definitions_total":fc.defs_total,"demoted_definitions":fc.demoted_defs,
-                "imported_by":fc.import_files.iter().map(|&fi| json_rel(&files[fi].rel)).collect::<Vec<_>>()
+                "imported_by":fc.import_files.iter().map(|&fi| json_rel(&r.files[fi].rel)).collect::<Vec<_>>()
             }}),
         )?;
         writeln!(w)?;
     }
-    for sf in &rep.files {
-        emit_file(w, sf)?;
-    }
+    Ok(())
+}
+
+/// One file's `begin`, `match`/`context` and `end` records.
+fn legacy_file(
+    w: &mut impl Write,
+    r: &ScanResult,
+    sf: &ShownFile,
+    acc: &mut LegacyPrinted,
+) -> Result<()> {
+    use serde_json::json;
+    let f = &r.files[sf.file];
+    serde_json::to_writer(
+        &mut *w,
+        &json!({"type":"begin","data":{"path":json_data(&f.rel)}}),
+    )?;
+    writeln!(w)?;
+    let n = json_hit_records(w, r, sf, false)?;
+    acc.bytes += n.text_bytes;
+    acc.lines += n.lines;
+    acc.matches += n.matches;
+    serde_json::to_writer(
+        &mut *w,
+        &json!({"type":"end","data":{"path":json_data(&f.rel),"binary_offset":f.binary_offset,"stats":{"elapsed":{"secs":0,"nanos":0,"human":"0s"},"searches":1,"searches_with_match":1,"bytes_searched":legacy_bytes_searched(f),"bytes_printed":0,"matched_lines":f.total,"matches":n.matches,"shown":n.lines}}}),
+    )?;
+    writeln!(w)?;
+    Ok(())
+}
+
+/// The `summary` and `footer` records; `t0` is when writing began.
+fn legacy_tail(
+    w: &mut impl Write,
+    r: &ScanResult,
+    rep: &Report,
+    acc: &LegacyPrinted,
+    t0: std::time::Instant,
+) -> Result<()> {
+    use serde_json::json;
     let ft = &rep.footer;
     let el = t0.elapsed() + std::time::Duration::from_secs_f64(r.stats.elapsed_ms / 1e3);
     let elapsed = json!({"secs":el.as_secs(),"nanos":el.subsec_nanos(),"human":format!("{:.6}s", el.as_secs_f64())});
+    let searched = acc.searched + r.files.iter().map(legacy_bytes_searched).sum::<u64>();
     serde_json::to_writer(
         &mut *w,
-        &json!({"type":"summary","data":{"elapsed_total":elapsed,"stats":{"elapsed":elapsed,"searches":r.stats.files_searched,"searches_with_match":r.stats.files_matched,"bytes_searched":r.files.iter().map(legacy_bytes_searched).sum::<u64>(),"bytes_printed":printed_bytes,"matched_lines":r.stats.total_hits,"matches":printed_matches,"matched_lines_shown":printed_lines}}}),
+        &json!({"type":"summary","data":{"elapsed_total":elapsed,"stats":{"elapsed":elapsed,"searches":r.stats.files_searched,"searches_with_match":r.stats.files_matched,"bytes_searched":searched,"bytes_printed":acc.bytes,"matched_lines":r.stats.total_hits,"matches":acc.matches,"matched_lines_shown":acc.lines}}}),
     )?;
     writeln!(w)?;
     let mut footer = json!({"type":"footer","data":{
@@ -2751,42 +2799,66 @@ fn legacy_bytes_searched(f: &greeg_query::FileResult) -> u64 {
 /// `searches` and `bytes_searched` count what greeg read, which an index
 /// makes less than what ripgrep reads.
 fn render_rg_json(w: &mut impl Write, r: &ScanResult, rep: &Report) -> Result<()> {
-    use serde_json::json;
-    let (mut printed, mut lines, mut matches) = (0usize, 0usize, 0usize);
+    let mut acc = RgPrinted::default();
     for sf in &rep.files {
-        let f = &r.files[sf.file];
-        let mut buf = Vec::new();
-        serde_json::to_writer(
-            &mut buf,
-            &json!({"type":"begin","data":{"path":json_data(&f.rel)}}),
-        )?;
-        buf.push(b'\n');
-        let n = json_hit_records(&mut buf, r, sf, true)?;
-        w.write_all(&buf)?;
-        serde_json::to_writer(
-            &mut *w,
-            &json!({"type":"end","data":{"path":json_data(&f.rel),"binary_offset":f.binary_offset.map(|o| o - u64::from(f.bom)),"stats":{
-                "elapsed":{"secs":0,"nanos":0,"human":"0.000000s"},
-                "searches":1,"searches_with_match":1,"bytes_searched":f.searched,
-                "bytes_printed":buf.len(),"matched_lines":n.lines,"matches":n.matches
-            }}}),
-        )?;
-        writeln!(w)?;
-        printed += buf.len();
-        lines += n.lines;
-        matches += n.matches;
+        rg_json_file(w, r, sf, &mut acc)?;
     }
-    // ripgrep writes this record with its keys sorted
-    let el = std::time::Duration::from_secs_f64(r.stats.elapsed_ms / 1e3);
+    rg_json_summary(w, &r.stats, &acc)
+}
+
+/// What `--json=rg` has written so far, for its summary.
+#[derive(Default)]
+struct RgPrinted {
+    bytes: usize,
+    lines: usize,
+    matches: usize,
+}
+
+/// One file's `begin`, `match`/`context` and `end` records.
+fn rg_json_file(
+    w: &mut impl Write,
+    r: &ScanResult,
+    sf: &ShownFile,
+    acc: &mut RgPrinted,
+) -> Result<()> {
+    use serde_json::json;
+    let f = &r.files[sf.file];
+    let mut buf = Vec::new();
+    serde_json::to_writer(
+        &mut buf,
+        &json!({"type":"begin","data":{"path":json_data(&f.rel)}}),
+    )?;
+    buf.push(b'\n');
+    let n = json_hit_records(&mut buf, r, sf, true)?;
+    w.write_all(&buf)?;
+    serde_json::to_writer(
+        &mut *w,
+        &json!({"type":"end","data":{"path":json_data(&f.rel),"binary_offset":f.binary_offset.map(|o| o - u64::from(f.bom)),"stats":{
+            "elapsed":{"secs":0,"nanos":0,"human":"0.000000s"},
+            "searches":1,"searches_with_match":1,"bytes_searched":f.searched,
+            "bytes_printed":buf.len(),"matched_lines":n.lines,"matches":n.matches
+        }}}),
+    )?;
+    writeln!(w)?;
+    acc.bytes += buf.len();
+    acc.lines += n.lines;
+    acc.matches += n.matches;
+    Ok(())
+}
+
+/// The `summary` record: ripgrep writes it with its keys sorted.
+fn rg_json_summary(w: &mut impl Write, stats: &greeg_query::Stats, acc: &RgPrinted) -> Result<()> {
+    use serde_json::json;
+    let el = std::time::Duration::from_secs_f64(stats.elapsed_ms / 1e3);
     serde_json::to_writer(
         &mut *w,
         &json!({"data":{
             "elapsed_total":{"human":format!("{:.6}s", el.as_secs_f64()),"nanos":el.subsec_nanos(),"secs":el.as_secs()},
             "stats":{
-                "bytes_printed":printed,"bytes_searched":r.stats.bytes_searched,
+                "bytes_printed":acc.bytes,"bytes_searched":stats.bytes_searched,
                 "elapsed":{"human":"0.000000s","nanos":0,"secs":0},
-                "matched_lines":lines,"matches":matches,
-                "searches":r.stats.files_searched,"searches_with_match":r.stats.files_matched
+                "matched_lines":acc.lines,"matches":acc.matches,
+                "searches":stats.files_searched,"searches_with_match":stats.files_matched
             }
         },"type":"summary"}),
     )?;

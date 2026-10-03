@@ -339,6 +339,45 @@ fn recovery_after_output_started_does_not_repeat_rows() {
     assert!(!rows.is_empty() && rows.len() <= 40, "{rows:?}");
 }
 
+/// `--budget 0` streams from the index: a failed check before the first file
+/// is written answers again from a scan, one after it ends the run as
+/// incomplete, without repeating a row.
+#[test]
+fn a_streamed_answer_recovers_only_before_its_first_file() {
+    let files: Vec<(String, String)> = (0..40)
+        .map(|i| (format!("f{i:02}.txt"), format!("rowneedle {i}\n")))
+        .collect();
+    let refs: Vec<(&str, &str)> = files
+        .iter()
+        .map(|(p, b)| (p.as_str(), b.as_str()))
+        .collect();
+    let run = |at: &str| {
+        let f = Fixture::new(&refs);
+        f.indexed();
+        f.command()
+            .env("GREEG_DEBUG_STREAM_CHECK", at)
+            .args(["--no-session", "--budget", "0", "rowneedle"])
+            .output()
+            .unwrap()
+    };
+    let o = run("first");
+    let err = String::from_utf8_lossy(&o.stderr);
+    assert_eq!(o.status.code(), Some(0), "{o:?}");
+    assert!(err.contains(RERUN), "{err}");
+    assert_eq!(stdout(&o).lines().count(), 40, "{o:?}");
+
+    let o = run("later");
+    let err = String::from_utf8_lossy(&o.stderr);
+    assert_eq!(o.status.code(), Some(2), "{o:?}");
+    assert!(err.contains("output is incomplete"), "{err}");
+    assert!(!err.contains(RERUN), "{err}");
+    let rows: Vec<&str> = std::str::from_utf8(&o.stdout).unwrap().lines().collect();
+    let mut unique = rows.clone();
+    unique.dedup();
+    assert_eq!(rows, unique, "a row was printed twice");
+    assert!(!rows.is_empty() && rows.len() < 40, "{rows:?}");
+}
+
 /// A process recovers from a fault at most once: a fault in the run that
 /// recovers ends it with exit 2, not another run.
 #[test]

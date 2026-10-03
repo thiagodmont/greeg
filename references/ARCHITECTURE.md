@@ -731,6 +731,20 @@ one file can answer differently. Also:
   printing `binary file matches` in place of a match after it; greeg reads
   them as it reads a walked file.
 
+### Unbudgeted answers stream
+
+A `--budget 0` content search (text, `--json=rg`, `--json=greeg` or
+`--json=legacy`, without `--max-bytes` or `--explain`) writes each matched file
+once the files before it in path order are written, so memory is bounded by
+the files in flight instead of the matches: a broad query on TypeScript keeps
+about 200 MB instead of 1.7 GB. Files are read by several threads, in
+chunks of 32, and at most a few chunks are held ahead of the one being
+written. A scan of one root reads while it walks, its walk sorted by name;
+several roots are walked first, then sorted. The index orders its candidates
+the same way and checks each file before it is written. The footer is the
+sum of what was written, and the output is byte for byte what the whole
+answer would have been.
+
 ### JSON output
 
 `--json=greeg` is greeg's own format, schema 2, for searches and verbs,
@@ -798,7 +812,10 @@ The index is a cache, and the failures below end in a correct answer.
 Every answer is complete before its first byte is written: the index
 snapshot is closed by then (debug builds panic on any use of the index after
 it), so each failure is recovered from at most once, by answering again
-without the index.
+without the index. The exception is a `--budget 0` content search, which is
+written as it is found (see [Unbudgeted answers stream](#unbudgeted-answers-stream)):
+a failure before its first file recovers the same way, and one after it ends
+the run with exit 2 and a message that the output is incomplete.
 
 A panic anywhere in the index path is caught, degrades to a scan, and queues a
 background rebuild. A block whose digest does not match, a dictionary entry

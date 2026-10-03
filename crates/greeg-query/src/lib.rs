@@ -2,6 +2,7 @@
 //! the language layer, score it, and hand a `ScanResult` to `shape`.
 
 pub mod indexed;
+mod ordered;
 pub mod outcome;
 pub mod precise;
 mod select;
@@ -666,6 +667,10 @@ fn walk_roots(o: &Options) -> Vec<PathBuf> {
 }
 
 fn walker(o: &Options, threads: usize, bounds: &ScanBounds) -> Result<ignore::WalkParallel> {
+    Ok(walk_builder(o, threads, bounds)?.build_parallel())
+}
+
+fn walk_builder(o: &Options, threads: usize, bounds: &ScanBounds) -> Result<ignore::WalkBuilder> {
     let roots = walk_roots(o);
     let mut wb = ignore::WalkBuilder::new(&roots[0]);
     for r in &roots[1..] {
@@ -694,7 +699,7 @@ fn walker(o: &Options, threads: usize, bounds: &ScanBounds) -> Result<ignore::Wa
         }
         wb.overrides(ob.build()?);
     }
-    Ok(wb.build_parallel())
+    Ok(wb)
 }
 
 /// One matched line as recorded by the sink: line number, absolute line
@@ -2144,7 +2149,7 @@ pub(crate) struct StatsAcc {
     pub(crate) search_ns: std::sync::atomic::AtomicU64,
 }
 
-fn scan_once(o: &Options, bounds: &ScanBounds) -> Result<ScanResult> {
+fn scan_once(o: &Options, bounds: &ScanBounds, out: Option<FileSink>) -> Result<ScanResult> {
     let t0 = Instant::now();
     let matcher = build_matcher(o)?;
     let threads = if o.threads == 0 {
@@ -2166,6 +2171,19 @@ fn scan_once(o: &Options, bounds: &ScanBounds) -> Result<ScanResult> {
         classify,
         filter_kinds: true,
     };
+    // a streamed answer cannot be taken back: once a file went out, a failure
+    // ends the run instead of answering again from a scan
+    let streaming = out.is_some();
+    let handed = std::cell::Cell::new(0usize);
+    let mut out = out;
+    let mut counted = |fr: FileResult| -> Result<()> {
+        handed.set(handed.get() + 1);
+        match out.as_mut() {
+            Some(sink) => sink(fr),
+            None => Ok(()),
+        }
+    };
+    let mut sink: Option<FileSink> = if streaming { Some(&mut counted) } else { None };
     let index_skipped: String = if !o.use_index {
         "not used".into()
     } else if o.no_ignore || o.hidden {
@@ -2174,15 +2192,24 @@ fn scan_once(o: &Options, bounds: &ScanBounds) -> Result<ScanResult> {
         // A panic anywhere in the index path degrades to scan mode:
         // the answer is still correct, one line goes to stderr, and the index is rebuilt.
         match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            indexed::try_index(&cx, threads, t0)
+            let again: Option<FileSink> = match &mut sink {
+                Some(s) => Some(&mut **s),
+                None => None,
+            };
+            indexed::try_index(&cx, threads, t0, again)
         })) {
             Ok(Ok(Ok(r))) => return Ok(r),
             Ok(Ok(Err(why))) => why,
+            Ok(Err(e)) if handed.get() > 0 => return Err(e),
             Ok(Err(e)) => {
                 if std::env::var_os("GREEG_DEBUG").is_some() {
                     eprintln!("greeg: index unavailable: {e:#}");
                 }
                 "error".into()
+            }
+            Err(_) if handed.get() > 0 => {
+                indexed::mark_corrupt(o);
+                anyhow::bail!(INCOMPLETE);
             }
             Err(_) => {
                 eprintln!(
@@ -2193,7 +2220,6 @@ fn scan_once(o: &Options, bounds: &ScanBounds) -> Result<ScanResult> {
             }
         }
     };
-    let out: Mutex<Vec<FileResult>> = Mutex::new(Vec::new());
     let root = &o.root;
     // what the walk finds below a root is read without following a symlink;
     // a root itself, named on the command line, is resolved as given
@@ -2202,6 +2228,18 @@ fn scan_once(o: &Options, bounds: &ScanBounds) -> Result<ScanResult> {
         .filter_map(|r| Some((r.clone(), Arc::new(Tree::open(&r).ok()?))))
         .collect();
     let bases = &bases;
+    if let Some(sink) = sink {
+        let stats = Stats {
+            threads,
+            source: "scan",
+            index_skipped,
+            ..Default::default()
+        };
+        let mut r = scan_streamed(&cx, threads, bounds, bases, sink, stats)?;
+        finish_acc(&mut r.stats, &acc, t0);
+        return Ok(r);
+    }
+    let out: Mutex<Vec<FileResult>> = Mutex::new(Vec::new());
     /// Per-thread results, flushed when full and on drop (walker threads end without notice).
     struct Local<'a> {
         v: Vec<FileResult>,
@@ -2296,6 +2334,137 @@ fn scan_once(o: &Options, bounds: &ScanBounds) -> Result<ScanResult> {
     })
 }
 
+/// A scan written as it goes: files are read in path order, while the walk
+/// goes on, and each is handed to `sink` once those before it are.
+fn scan_streamed(
+    cx: &Ctx,
+    threads: usize,
+    bounds: &ScanBounds,
+    bases: &[(PathBuf, Arc<Tree>)],
+    sink: FileSink,
+    mut stats: Stats,
+) -> Result<ScanResult> {
+    let o = cx.o;
+    // (path, where its rel begins, the root it lies below; None for a root
+    // named as a file): one allocation per file
+    type Found = (Box<[u8]>, u32, Option<u32>);
+    let found_at = |p: &Path, depth: usize| -> Option<Found> {
+        let base = if depth == 0 {
+            None
+        } else {
+            // the deepest root: a named path inside another is read as named
+            let i = (0..bases.len())
+                .filter(|&i| p.starts_with(&bases[i].0))
+                .max_by_key(|&i| bases[i].0.components().count())?;
+            Some(i as u32)
+        };
+        use std::os::unix::ffi::OsStrExt;
+        let bytes = p.as_os_str().as_bytes();
+        let rel = p.strip_prefix(&o.root).unwrap_or(p).as_os_str().as_bytes();
+        Some((bytes.into(), (bytes.len() - rel.len()) as u32, base))
+    };
+    let reader = || {
+        let mut sb = SearcherBuilder::new();
+        sb.line_number(true)
+            .multi_line(o.multiline)
+            .bom_sniffing(false);
+        (sb.build(), Vec::<u8>::with_capacity(256 * 1024))
+    };
+    let read = |(searcher, buf): &mut (Searcher, Vec<u8>), (bytes, at, base): Found| {
+        let p = greeg_index::rel::as_path(&bytes);
+        let rel = bytes[at as usize..].to_vec();
+        let below = base.map(|i| {
+            let (b, tree) = &bases[i as usize];
+            let sub =
+                std::os::unix::ffi::OsStrExt::as_bytes(p.strip_prefix(b).unwrap_or(p).as_os_str());
+            (tree, sub)
+        });
+        let fr = process_file(cx, p, rel, below, searcher, buf, None)?;
+        cx.stats.matched.fetch_add(1, Relaxed);
+        Some(fr)
+    };
+    let mut emit = |fr: FileResult| -> Result<()> {
+        add_file_stats(&mut stats, &fr, o);
+        sink(fr)
+    };
+    let roots = walk_roots(o);
+    if roots.len() == 1 {
+        // one root: a walk sorted by name within each directory is path
+        // order, so files are read while the walk goes on
+        let mut wb = walk_builder(o, threads, bounds)?;
+        wb.sort_by_file_name(|a, b| {
+            use std::os::unix::ffi::OsStrExt;
+            a.as_bytes().cmp(b.as_bytes())
+        });
+        std::thread::scope(|sc| {
+            // batches, so the hand-over costs little per file
+            let (tx, rx) = std::sync::mpsc::sync_channel::<Vec<Found>>(64);
+            sc.spawn(move || {
+                let mut batch = Vec::with_capacity(ordered::CHUNK);
+                for e in wb.build().flatten() {
+                    if !e.file_type().is_some_and(|t| t.is_file()) {
+                        continue;
+                    }
+                    cx.stats.walked.fetch_add(1, Relaxed);
+                    batch.extend(found_at(e.path(), e.depth()));
+                    if batch.len() == ordered::CHUNK && tx.send(std::mem::take(&mut batch)).is_err()
+                    {
+                        return;
+                    }
+                }
+                let _ = tx.send(batch);
+            });
+            let files = rx.into_iter().flatten();
+            ordered::run(files, threads, threads * 4, reader, read, &mut emit)
+        })?;
+    } else {
+        let found: Mutex<Vec<Found>> = Mutex::new(Vec::new());
+        walker(o, threads, bounds)?.run(|| {
+            let found = &found;
+            let found_at = &found_at;
+            Box::new(move |entry| {
+                let Ok(e) = entry else {
+                    return ignore::WalkState::Continue;
+                };
+                if !e.file_type().map(|t| t.is_file()).unwrap_or(false) {
+                    return ignore::WalkState::Continue;
+                }
+                cx.stats.walked.fetch_add(1, Relaxed);
+                if let Some(f) = found_at(e.path(), e.depth()) {
+                    found.lock().unwrap().push(f);
+                }
+                ignore::WalkState::Continue
+            })
+        });
+        let mut found = found.into_inner().unwrap();
+        found.sort_by(|a, b| shape::path_order(&a.0[a.1 as usize..], &b.0[b.1 as usize..]));
+        ordered::run(
+            found.into_iter(),
+            threads,
+            threads * 4,
+            reader,
+            read,
+            &mut emit,
+        )?;
+    }
+    stats.files_walked = cx.stats.walked.load(Relaxed);
+    Ok(ScanResult {
+        opts: o.clone(),
+        files: Vec::new(),
+        stats,
+        rung: Rung::Exact,
+        ignored_only: None,
+        ignored_partial: false,
+        related_index: Vec::new(),
+    })
+}
+
+/// Where a streamed answer goes, one matched file at a time in path order.
+pub type FileSink<'a> = &'a mut dyn FnMut(FileResult) -> Result<()>;
+
+/// A streamed answer that failed after some of it was written.
+pub const INCOMPLETE: &str = "the index failed a check after output started; output is incomplete (the index will be rebuilt)";
+
 /// Finish a `Stats` from per-file results (shared by scan and index paths).
 pub(crate) fn finish_stats(
     stats: &mut Stats,
@@ -2305,20 +2474,30 @@ pub(crate) fn finish_stats(
     t0: Instant,
 ) {
     for f in files {
-        stats.files_matched += 1;
-        stats.total_hits += f.total;
-        stats.total_unfiltered += f.total_unfiltered;
-        for k in 0..9 {
-            stats.by_kind[k] += f.kinds[k] as usize;
-        }
-        if f.flags.demoted() && !o.all {
-            stats.demoted_files += 1;
-            stats.demoted_hits += f.total;
-        }
-        if f.flags.has(FileFlags::MINIFIED) {
-            stats.minified_hits += f.total;
-        }
+        add_file_stats(stats, f, o);
     }
+    finish_acc(stats, acc, t0);
+}
+
+/// Count one matched file into `stats`.
+pub(crate) fn add_file_stats(stats: &mut Stats, f: &FileResult, o: &Options) {
+    stats.files_matched += 1;
+    stats.total_hits += f.total;
+    stats.total_unfiltered += f.total_unfiltered;
+    for k in 0..9 {
+        stats.by_kind[k] += f.kinds[k] as usize;
+    }
+    if f.flags.demoted() && !o.all {
+        stats.demoted_files += 1;
+        stats.demoted_hits += f.total;
+    }
+    if f.flags.has(FileFlags::MINIFIED) {
+        stats.minified_hits += f.total;
+    }
+}
+
+/// Finish a `Stats` from the counters every reader thread added to.
+pub(crate) fn finish_acc(stats: &mut Stats, acc: &StatsAcc, t0: Instant) {
     stats.total_unfiltered += acc.unqualified.load(Relaxed);
     stats.files_searched = acc.searched.load(Relaxed);
     stats.bytes_searched = acc.bytes.load(Relaxed);
@@ -2373,6 +2552,18 @@ pub fn normalize_paths(o: &Options) -> Option<Options> {
     Some(o2)
 }
 
+/// An exact search written as it goes: each matched file is handed to
+/// `sink` in path order, and the result holds the counts, no files. Used for
+/// `--budget 0`, whose answer is every match.
+pub fn scan_streamed_exact(o: &Options, sink: FileSink) -> Result<ScanResult> {
+    let normalized = normalize_paths(o);
+    let o = normalized.as_ref().unwrap_or(o);
+    if let Some(p) = o.paths.iter().find(|p| !p.exists()) {
+        anyhow::bail!("{}: No such file or directory (os error 2)", p.display());
+    }
+    scan_once(o, &ScanBounds::default(), Some(sink))
+}
+
 /// Search under the selected policy; only discovery may climb the escalation ladder.
 pub fn scan(o: &Options) -> Result<ScanResult> {
     let normalized = normalize_paths(o);
@@ -2382,7 +2573,7 @@ pub fn scan(o: &Options) -> Result<ScanResult> {
         anyhow::bail!("{}: No such file or directory (os error 2)", p.display());
     }
     let plain = ScanBounds::default();
-    let mut r = scan_once(o, &plain)?;
+    let mut r = scan_once(o, &plain, None)?;
     if r.stats.total_hits > 0 || o.matching == MatchingPolicy::Exact {
         return Ok(r);
     }
@@ -2390,7 +2581,7 @@ pub fn scan(o: &Options) -> Result<ScanResult> {
     if o.word {
         let mut o2 = o.clone();
         o2.word = false;
-        let mut r2 = scan_once(&o2, &plain)?;
+        let mut r2 = scan_once(&o2, &plain, None)?;
         elapsed += r2.stats.elapsed_ms;
         if r2.stats.total_hits > 0 {
             r2.rung = Rung::NoWord;
@@ -2403,7 +2594,7 @@ pub fn scan(o: &Options) -> Result<ScanResult> {
         let mut o2 = o.clone();
         o2.case_insensitive = true;
         o2.word = false;
-        let mut r2 = scan_once(&o2, &plain)?;
+        let mut r2 = scan_once(&o2, &plain, None)?;
         elapsed += r2.stats.elapsed_ms;
         if r2.stats.total_hits > 0 {
             r2.rung = Rung::CaseInsensitive;
@@ -2454,7 +2645,7 @@ pub fn scan(o: &Options) -> Result<ScanResult> {
                 o2.fixed_strings = false;
                 o2.word = true;
                 o2.case_insensitive = false;
-                let mut r2 = scan_once(&o2, &plain)?;
+                let mut r2 = scan_once(&o2, &plain, None)?;
                 elapsed += r2.stats.elapsed_ms;
                 if r2.stats.total_hits > 0 {
                     r2.rung = rung;
@@ -2478,7 +2669,7 @@ pub fn scan(o: &Options) -> Result<ScanResult> {
             skip_git: true,
             max_matched: 200,
         };
-        let r2 = scan_once(&o2, &bounds)?;
+        let r2 = scan_once(&o2, &bounds, None)?;
         elapsed += r2.stats.elapsed_ms;
         if r2.stats.total_hits > 0 {
             r.ignored_only = Some((r2.stats.files_matched, r2.stats.total_hits));

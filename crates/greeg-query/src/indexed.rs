@@ -526,6 +526,7 @@ pub(crate) fn try_index(
     cx: &Ctx,
     threads: usize,
     t0: Instant,
+    sink: Option<crate::FileSink>,
 ) -> Result<Result<ScanResult, String>> {
     let o = cx.o;
     let op = match open_fresh_deferred(o, threads)? {
@@ -722,85 +723,106 @@ pub(crate) fn try_index(
     // indexed paths are read below the root, never through a symlink
     let tree = Arc::new(Tree::open(&o.root)?);
     let tree = &tree;
-    let out: Mutex<Vec<FileResult>> = Mutex::new(Vec::new());
-    let next = AtomicUsize::new(0);
     let root = &o.root;
     let n_threads = threads.clamp(1, 8).min(entries.len().max(1));
+    let reader = || {
+        let mut sb = SearcherBuilder::new();
+        sb.line_number(true)
+            .multi_line(o.multiline)
+            .bom_sniffing(false);
+        (sb.build(), Vec::<u8>::with_capacity(256 * 1024))
+    };
+    // candidate `i`, verified: its result when it matched
+    let verify = |(searcher, buf): &mut (grep_searcher::Searcher, Vec<u8>),
+                  i: usize|
+     -> Option<FileResult> {
+        let (_, id, prev, rel) = &entries[i];
+        let changed = *id == NONE;
+        let path: PathBuf = root.join(greeg_index::rel::as_path(rel));
+        // an indexed file classifies from its span tables; one
+        // without them, like a changed file, by the scan rules
+        let spans = if use_spans && !changed {
+            idx.symbols_of(*id)
+        } else {
+            None
+        };
+        let lang = Lang::from_path(&path);
+        let fid = *id;
+        let by_index = spans.map(|(_, syms)| {
+            move |src: &[u8], ms: u32, me: u32, ls: u32| {
+                classify_at(idx, fid, syms, lang, src, ms, me, ls).0
+            }
+        });
+        if let Some(mut fr) = process_file(
+            if changed || use_spans && spans.is_none() {
+                cx_scan
+            } else {
+                cx
+            },
+            &path,
+            rel.to_vec(),
+            Some((tree, rel)),
+            searcher,
+            buf,
+            by_index.as_ref().map(|f| f as crate::SpanKindOf),
+        ) {
+            if !changed {
+                fr.file_id = Some(*id);
+            }
+            if let Some(d) = display_rel(rel) {
+                fr.rel = d;
+            }
+            let t = Instant::now();
+            if spans.is_some() {
+                classify_from_index(idx, *id, &mut fr, o, buf);
+            }
+            // PageRank term of the prior: 0.8 was the
+            // placeholder; an edited file keeps its rank, a new one is neutral
+            let rank = if !changed {
+                idx.rank(*id)
+            } else if *prev != NONE {
+                idx.rank(*prev)
+            } else {
+                0.5
+            };
+            let k = (0.6 + 0.4 * rank) / 0.8;
+            fr.prior *= k;
+            for h in &mut fr.hits {
+                h.score *= k;
+            }
+            cx.stats
+                .classify_ns
+                .fetch_add(t.elapsed().as_nanos() as u64, Relaxed);
+            (!fr.hits.is_empty()).then_some(fr)
+        } else {
+            None
+        }
+    };
+    if let Some(sink) = sink {
+        let order = stream_order(&entries, &display_rel);
+        let run = Stream {
+            idx,
+            o,
+            threads: n_threads,
+            acc: cx.stats,
+            t0,
+        };
+        return run.go(&order, reader, verify, sink, stats, related_index);
+    }
+    let out: Mutex<Vec<FileResult>> = Mutex::new(Vec::new());
+    let next = AtomicUsize::new(0);
     std::thread::scope(|sc| {
         for _ in 0..n_threads {
             sc.spawn(|| {
-                let mut sb = SearcherBuilder::new();
-                sb.line_number(true)
-                    .multi_line(o.multiline)
-                    .bom_sniffing(false);
-                let mut searcher = sb.build();
-                let mut buf: Vec<u8> = Vec::with_capacity(256 * 1024);
+                let mut r = reader();
                 let mut local: Vec<FileResult> = Vec::new();
                 loop {
                     let i = next.fetch_add(1, Relaxed);
                     if i >= entries.len() {
                         break;
                     }
-                    let (_, id, prev, rel) = &entries[i];
-                    let changed = *id == NONE;
-                    let path: PathBuf = root.join(greeg_index::rel::as_path(rel));
-                    // an indexed file classifies from its span tables; one
-                    // without them, like a changed file, by the scan rules
-                    let spans = if use_spans && !changed {
-                        idx.symbols_of(*id)
-                    } else {
-                        None
-                    };
-                    let lang = Lang::from_path(&path);
-                    let fid = *id;
-                    let by_index = spans.map(|(_, syms)| {
-                        move |src: &[u8], ms: u32, me: u32, ls: u32| {
-                            classify_at(idx, fid, syms, lang, src, ms, me, ls).0
-                        }
-                    });
-                    if let Some(mut fr) = process_file(
-                        if changed || use_spans && spans.is_none() {
-                            cx_scan
-                        } else {
-                            cx
-                        },
-                        &path,
-                        rel.to_vec(),
-                        Some((tree, rel)),
-                        &mut searcher,
-                        &mut buf,
-                        by_index.as_ref().map(|f| f as crate::SpanKindOf),
-                    ) {
-                        if !changed {
-                            fr.file_id = Some(*id);
-                        }
-                        if let Some(d) = display_rel(rel) {
-                            fr.rel = d;
-                        }
-                        let t = Instant::now();
-                        if spans.is_some() {
-                            classify_from_index(idx, *id, &mut fr, o, &buf);
-                        }
-                        // PageRank term of the prior: 0.8 was the
-                        // placeholder; an edited file keeps its rank, a new one is neutral
-                        let rank = if !changed {
-                            idx.rank(*id)
-                        } else if *prev != NONE {
-                            idx.rank(*prev)
-                        } else {
-                            0.5
-                        };
-                        let k = (0.6 + 0.4 * rank) / 0.8;
-                        fr.prior *= k;
-                        for h in &mut fr.hits {
-                            h.score *= k;
-                        }
-                        cx.stats
-                            .classify_ns
-                            .fetch_add(t.elapsed().as_nanos() as u64, Relaxed);
-                        if !fr.hits.is_empty() {
-                            local.push(fr);
-                        }
+                    if let Some(fr) = verify(&mut r, i) {
+                        local.push(fr);
                     }
                 }
                 if !local.is_empty() {
@@ -826,6 +848,94 @@ pub(crate) fn try_index(
         ignored_partial: false,
         related_index,
     }))
+}
+
+/// Candidates in the order a streamed answer prints them: by shown path.
+fn stream_order(
+    entries: &[(u8, u32, u32, &[u8])],
+    display_rel: &dyn Fn(&[u8]) -> Option<Vec<u8>>,
+) -> Vec<usize> {
+    let mut keyed: Vec<(Vec<u8>, usize)> = entries
+        .iter()
+        .enumerate()
+        .map(|(i, e)| (display_rel(e.3).unwrap_or_else(|| e.3.to_vec()), i))
+        .collect();
+    keyed.sort_by(|a, b| crate::shape::path_order(&a.0, &b.0));
+    keyed.into_iter().map(|(_, i)| i).collect()
+}
+
+/// A streamed index answer: what verifying its candidates needs.
+struct Stream<'a> {
+    idx: &'a Index,
+    o: &'a Options,
+    threads: usize,
+    acc: &'a crate::StatsAcc,
+    t0: Instant,
+}
+
+impl Stream<'_> {
+    /// Verify the candidates in `order` and hand each matched file to `sink`
+    /// once those before it are written. Each is handed over only while every
+    /// block read so far passed its check: a failure before the first falls
+    /// back to a scan, a later one ends the answer as incomplete.
+    fn go<S>(
+        &self,
+        order: &[usize],
+        reader: impl Fn() -> S + Sync,
+        verify: impl Fn(&mut S, usize) -> Option<FileResult> + Sync,
+        sink: crate::FileSink,
+        mut stats: Stats,
+        related_index: Vec<(String, usize)>,
+    ) -> Result<Result<ScanResult, String>> {
+        let (idx, o) = (self.idx, self.o);
+        // fault injection for the recovery tests: a check that fails at the
+        // first file handed over (`first`) or at the second (`later`)
+        let inject = std::env::var("GREEG_DEBUG_STREAM_CHECK").ok();
+        let injected = |emitted: usize| match inject.as_deref() {
+            Some("first") => true,
+            Some("later") => emitted > 0,
+            _ => false,
+        };
+        let failed = || idx.corrupt() || greeg_index::integrity::failed();
+        let (mut emitted, mut stopped) = (0usize, false);
+        let r = crate::ordered::run(
+            order.iter().copied(),
+            self.threads,
+            self.threads * 4,
+            reader,
+            verify,
+            &mut |fr| {
+                if failed() || injected(emitted) {
+                    stopped = true;
+                    anyhow::bail!("an index component failed its check");
+                }
+                crate::add_file_stats(&mut stats, &fr, o);
+                emitted += 1;
+                sink(fr)
+            },
+        );
+        if stopped && emitted == 0 {
+            note_corruption(o);
+            return Ok(Err("corrupt".into()));
+        }
+        if stopped || failed() {
+            mark_corrupt(o);
+        }
+        if stopped {
+            anyhow::bail!(crate::INCOMPLETE);
+        }
+        r?;
+        crate::finish_acc(&mut stats, self.acc, self.t0);
+        Ok(Ok(ScanResult {
+            opts: o.clone(),
+            files: Vec::new(),
+            stats,
+            rung: Rung::Exact,
+            ignored_only: None,
+            ignored_partial: false,
+            related_index,
+        }))
+    }
 }
 
 fn chain_of(idx: &Index, s: SymId) -> Vec<(DefKind, String)> {
