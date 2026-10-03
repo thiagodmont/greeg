@@ -902,6 +902,7 @@ fn build_options(c: &Common, pattern: String, paths: Vec<PathBuf>) -> Result<Opt
         index_dir: c.index_dir.clone(),
         precise: c.precise,
         sort_path,
+        keep_lines: 0,
     })
 }
 
@@ -1144,6 +1145,8 @@ fn run() -> Result<()> {
             "greeg: --sort path applies to -l, -c and --budget 0; ranked output keeps score order"
         );
     }
+    // a ranked answer shows a few lines per file: the best are kept, every line counted
+    opts.keep_lines = greeg_query::RANKED_LINES.max(opts.per_file_cap);
     let session = if c.no_session {
         None
     } else {

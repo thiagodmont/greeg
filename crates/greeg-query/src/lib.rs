@@ -29,6 +29,9 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 
 pub const MAX_HITS_PER_FILE: usize = 64;
+/// Lines a ranked search keeps per file from each of two pools, whole-word
+/// matches and the rest, best first, beside its definitions.
+pub const RANKED_LINES: usize = 16;
 /// Definition lines kept per file beyond `MAX_HITS_PER_FILE` (C10).
 pub const MAX_DEFS_PER_FILE: usize = 64;
 
@@ -91,6 +94,10 @@ pub struct Options {
     pub precise: bool,
     /// `--sort path`: path order for `-l`/`-c` (ranked layouts keep score order).
     pub sort_path: bool,
+    /// A ranked search classifies and counts every matched line, and keeps
+    /// this many of the best per pool ([`RANKED_LINES`]); 0 keeps the first
+    /// [`MAX_HITS_PER_FILE`].
+    pub keep_lines: usize,
 }
 
 impl Default for Options {
@@ -132,6 +139,7 @@ impl Default for Options {
             index_dir: None,
             precise: false,
             sort_path: false,
+            keep_lines: 0,
         }
     }
 }
@@ -417,8 +425,12 @@ pub struct FileResult {
     pub total: usize,
     /// Matched lines before any `--kind` filter.
     pub total_unfiltered: usize,
-    /// Kinds of the kept lines (`hits`).
+    /// Kinds of the kept lines (`hits`), or of every matched line when the
+    /// search counts them all ([`Options::keep_lines`]).
     pub kinds: [u32; 9],
+    /// What the matched lines not kept in `hits` hold, when the search
+    /// counted every line.
+    pub dropped: Option<Box<Dropped>>,
     /// Definitions referenced by `hits[..].def_idx` (only those; a file can hold thousands).
     pub defs: Vec<DefSummary>,
     /// Kinds, chains and `defs` are final (from the index); `refine` skips the file.
@@ -458,6 +470,7 @@ impl FileResult {
             total: 0,
             total_unfiltered: 0,
             kinds: [0; 9],
+            dropped: None,
             defs: vec![],
             refined: false,
             file_id: None,
@@ -481,6 +494,16 @@ impl FileResult {
         }
         self.src.as_ref()
     }
+}
+
+/// Matched lines a ranked search counted but did not keep.
+#[derive(Clone, Debug, Default)]
+pub struct Dropped {
+    pub lines: u32,
+    /// Of them, those whose match is the pattern as a whole word.
+    pub exact: u32,
+    /// For an identifier query: the longer identifiers the others lie in.
+    pub near_names: Box<[Box<str>]>,
 }
 
 #[derive(Clone, Debug)]
@@ -1669,6 +1692,9 @@ pub(crate) struct Ctx<'a> {
     pub(crate) classify: bool,
     /// Apply `--kind` inside `process_file` (false when the index classifies afterwards).
     pub(crate) filter_kinds: bool,
+    /// A ranked search read again: keep the first lines too, as a few-file
+    /// answer shows every line its budget allows.
+    pub(crate) refill: bool,
 }
 
 /// `--no-tests`, `--no-vendored` and `--no-generated`, on one file's flags.
@@ -1745,9 +1771,11 @@ pub(crate) fn process_file(
     let lang = Lang::from_path(path);
     // `-c` shows each file's count: one kept line marks the file as matched
     let count_only = o.mode == Mode::Count;
+    // a ranked search sees every line, counts it and keeps the best
+    let ranked = counts_every_line(o);
     let cap = if count_only {
         1
-    } else if o.budget == 0 {
+    } else if o.budget == 0 || ranked {
         usize::MAX
     } else {
         MAX_HITS_PER_FILE
@@ -1757,9 +1785,12 @@ pub(crate) fn process_file(
         cx.matcher,
         lang,
         cap,
-        !count_only && (cx.classify || kind_of.is_some()) && lang.has_grammar(),
+        !count_only && !ranked && (cx.classify || kind_of.is_some()) && lang.has_grammar(),
         o.multiline,
     );
+    if ranked {
+        sink.max_per_line = 8;
+    }
     sink.base = bom as u32;
     sink.first_only = o.mode == Mode::Files;
     // a kind filter classifies every occurrence before the cap and the counts;
@@ -1813,8 +1844,9 @@ pub(crate) fn process_file(
         .map(|d| d.as_secs_f32() / 86400.0)
         .unwrap_or(365.0);
     let prior = file_prior(flags, &rel, o);
-    let mut hits = Vec::with_capacity(sink.hits.len());
     let mut kinds = [0u32; 9];
+    // (line, its end, kind, whole word, score) of every matched line
+    let mut lines = Vec::with_capacity(sink.hits.len());
     // classification for display: lexed up to the last retained line
     let shown_end = sink
         .hits
@@ -1842,19 +1874,47 @@ pub(crate) fn process_file(
             }
             continue;
         }
-        let line_bytes = &src[ls as usize..le];
         // a multi-line match (-U) is classified and displayed by its first line
         let me_line = (me as usize).min(le) as u32;
-        let kind = if let Some(k) = lh.kind {
-            k
-        } else if cx.classify && !flags.has(FileFlags::MINIFIED) {
-            shown_kinds.kind(ms, me_line, ls)
-        } else {
-            HitKind::Ident
+        let kind = match (lh.kind, kind_of) {
+            (Some(k), _) => k,
+            // the index classifies kept lines again, by the same tables
+            (None, Some(k)) if ranked => k(src, ms, me, ls),
+            _ if cx.classify && !flags.has(FileFlags::MINIFIED) => {
+                shown_kinds.kind(ms, me_line, ls)
+            }
+            _ => HitKind::Ident,
         };
         kinds[kind.idx()] += 1;
         let exact = is_exact(o, src, ms, me);
         let score = kind.weight() * prior * exact_boost(kind, exact);
+        lines.push((lh, le, kind, exact, score));
+    }
+    let keep = if ranked {
+        let lead = if cx.refill { MAX_HITS_PER_FILE } else { 0 };
+        kept_lines(&lines, lead, o.keep_lines)
+    } else {
+        vec![true; lines.len()]
+    };
+    let mut dropped = ranked.then(Dropped::default);
+    let mut near: std::collections::BTreeSet<&[u8]> = Default::default();
+    let mut hits = Vec::with_capacity(keep.iter().filter(|k| **k).count());
+    for ((lh, le, kind, exact, score), keep) in lines.into_iter().zip(keep) {
+        let ls = lh.line_start;
+        let (ms, me) = lh.subs[lh.primary];
+        if !keep {
+            if let Some(d) = &mut dropped {
+                d.lines += 1;
+                d.exact += u32::from(exact);
+                if !exact
+                    && let Some(w) = word_around(src, ls as usize, le, ms as usize, me as usize)
+                {
+                    near.insert(w);
+                }
+            }
+            continue;
+        }
+        let line_bytes = &src[ls as usize..le];
         let raw = line_bytes.strip_suffix(b"\r").unwrap_or(line_bytes).into();
         hits.push(Hit {
             line: lh.line,
@@ -1869,6 +1929,16 @@ pub(crate) fn process_file(
             exact,
             raw,
         });
+    }
+    if let Some(d) = &mut dropped
+        && crate::shape::identifier_query(o)
+    {
+        d.near_names = near
+            .into_iter()
+            .filter_map(|w| std::str::from_utf8(w).ok())
+            .filter(|w| *w != o.pattern)
+            .map(Box::from)
+            .collect();
     }
     cx.stats
         .classify_ns
@@ -1890,6 +1960,7 @@ pub(crate) fn process_file(
         total,
         total_unfiltered: sink.total_all,
         kinds,
+        dropped: dropped.filter(|d| d.lines > 0).map(Box::new),
         defs: Vec::new(),
         refined: false,
         file_id: None,
@@ -1900,6 +1971,76 @@ pub(crate) fn process_file(
         encoding,
         below: below.map(|(tree, sub)| (tree.clone(), sub.to_vec())),
     })
+}
+
+/// A ranked answer of at most three files shows every line its budget
+/// allows: those files are read again, keeping their first lines as well.
+pub(crate) fn refills<'a>(files: impl IntoIterator<Item = &'a FileResult>) -> bool {
+    let mut n = 0;
+    let mut dropped = false;
+    for f in files {
+        n += 1;
+        dropped |= f.dropped.is_some();
+    }
+    dropped && n <= 3
+}
+
+/// A ranked search counts every matched line and keeps the best of them.
+pub(crate) fn counts_every_line(o: &Options) -> bool {
+    o.keep_lines > 0 && o.budget != 0 && !matches!(o.mode, Mode::Count | Mode::Files)
+}
+
+/// Which matched lines a ranked search keeps: the first `lead`, the
+/// definitions after them (up to [`MAX_DEFS_PER_FILE`]), and the best
+/// `per_pool` of the whole-word matches and of the rest. Lines are
+/// `(_, _, kind, whole word, score)` in line order.
+fn kept_lines<T, U>(
+    lines: &[(T, U, HitKind, bool, f32)],
+    lead: usize,
+    per_pool: usize,
+) -> Vec<bool> {
+    let mut keep: Vec<bool> = (0..lines.len()).map(|i| i < lead).collect();
+    let mut defs = 0;
+    for (i, l) in lines.iter().enumerate().skip(lead) {
+        if l.2 == HitKind::Def && defs < MAX_DEFS_PER_FILE {
+            keep[i] = true;
+            defs += 1;
+        }
+    }
+    for exact in [true, false] {
+        let mut pool: Vec<usize> = (0..lines.len()).filter(|&i| lines[i].3 == exact).collect();
+        let better = |a: &usize, b: &usize| {
+            lines[*b]
+                .4
+                .partial_cmp(&lines[*a].4)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then(a.cmp(b))
+        };
+        if per_pool < pool.len() {
+            pool.select_nth_unstable_by(per_pool, better);
+            pool.truncate(per_pool);
+        }
+        for i in pool {
+            keep[i] = true;
+        }
+    }
+    keep
+}
+
+/// The identifier around a match on the line `ls..le`; none for a match
+/// that starts a line later (-U).
+fn word_around(src: &[u8], ls: usize, le: usize, ms: usize, me: usize) -> Option<&[u8]> {
+    let (mut s, mut e) = (ms, me.min(le));
+    if s >= e {
+        return None;
+    }
+    while s > ls && is_word_byte(src[s - 1]) {
+        s -= 1;
+    }
+    while e < le && is_word_byte(src[e]) {
+        e += 1;
+    }
+    Some(&src[s..e])
 }
 
 /// Clip a line around the match. Returns the text, whether it was clipped,
@@ -2170,6 +2311,7 @@ fn scan_once(o: &Options, bounds: &ScanBounds, out: Option<FileSink>) -> Result<
         stats: &acc,
         classify,
         filter_kinds: true,
+        refill: false,
     };
     // a streamed answer cannot be taken back: once a file went out, a failure
     // ends the run instead of answering again from a scan
@@ -2314,6 +2456,27 @@ fn scan_once(o: &Options, bounds: &ScanBounds, out: Option<FileSink>) -> Result<
         })
     });
     let mut files = out.into_inner().unwrap();
+    if refills(&files) {
+        let spare = StatsAcc::default();
+        let again = Ctx {
+            refill: true,
+            stats: &spare,
+            ..cx
+        };
+        let mut sb = SearcherBuilder::new();
+        sb.line_number(true)
+            .multi_line(o.multiline)
+            .bom_sniffing(false);
+        let (mut searcher, mut buf) = (sb.build(), Vec::new());
+        for f in files.iter_mut().filter(|f| f.dropped.is_some()) {
+            let (path, rel, below) = (f.path.clone(), f.rel.clone(), f.below.clone());
+            let below = below.as_ref().map(|(t, sub)| (t, sub.as_slice()));
+            if let Some(fr) = process_file(&again, &path, rel, below, &mut searcher, &mut buf, None)
+            {
+                *f = fr;
+            }
+        }
+    }
     files.sort_by(|a, b| a.rel.cmp(&b.rel));
     let mut stats = Stats {
         files_walked: acc.walked.load(Relaxed),
@@ -2738,6 +2901,34 @@ mod tests {
     /// A kept hit stays small: one match range is stored inline, and the
     /// enclosing chain, the extra ranges and the line are exact-size boxes.
     #[test]
+    fn a_ranked_file_keeps_its_lead_its_definitions_and_the_best_of_each_pool() {
+        use HitKind::*;
+        // (_, _, kind, whole word, score), in line order
+        let lines = [
+            ((), (), Comment, true, 0.25),
+            ((), (), Call, true, 0.69),
+            ((), (), Def, false, 1.0),
+            ((), (), Call, false, 0.6),
+            ((), (), Call, true, 0.69),
+            ((), (), Ident, false, 0.4),
+        ];
+        // a tie goes to the earlier line
+        assert_eq!(
+            kept_lines(&lines, 0, 1),
+            [false, true, true, false, false, false]
+        );
+        assert_eq!(
+            kept_lines(&lines, 2, 2),
+            [true, true, true, true, true, false]
+        );
+        assert_eq!(
+            kept_lines(&lines, 0, 0),
+            [false, false, true, false, false, false]
+        );
+        assert_eq!(kept_lines(&lines, 0, 9), [true; 6]);
+    }
+
+    #[test]
     fn hits_are_compact() {
         assert!(
             std::mem::size_of::<Hit>() <= 80,
@@ -2974,6 +3165,7 @@ mod tests {
             stats: &acc,
             classify: true,
             filter_kinds: true,
+            refill: false,
         };
         let mut sb = SearcherBuilder::new();
         sb.line_number(true)
@@ -3067,6 +3259,7 @@ mod tests {
             stats: &acc,
             classify: false,
             filter_kinds: true,
+            refill: false,
         };
         let mut sb = SearcherBuilder::new();
         sb.line_number(true)

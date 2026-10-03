@@ -709,6 +709,7 @@ pub(crate) fn try_index(
         stats: cx.stats,
         classify: cx.classify && !use_spans,
         filter_kinds: !use_spans,
+        refill: false,
     };
     // a changed file has no spans yet: line-local classification, as in a scan
     let cx_scan = Ctx {
@@ -717,7 +718,22 @@ pub(crate) fn try_index(
         stats: cx.stats,
         classify: cx.classify,
         filter_kinds: true,
+        refill: false,
     };
+    // a few-file answer reads its files again, counted apart
+    let spare = crate::StatsAcc::default();
+    let refill = (
+        Ctx {
+            refill: true,
+            stats: &spare,
+            ..cx_idx
+        },
+        Ctx {
+            refill: true,
+            stats: &spare,
+            ..cx_scan
+        },
+    );
     let cx = &cx_idx;
     let cx_scan = &cx_scan;
     // indexed paths are read below the root, never through a symlink
@@ -733,9 +749,15 @@ pub(crate) fn try_index(
         (sb.build(), Vec::<u8>::with_capacity(256 * 1024))
     };
     // candidate `i`, verified: its result when it matched
-    let verify = |(searcher, buf): &mut (grep_searcher::Searcher, Vec<u8>),
-                  i: usize|
+    let verify_as = |again: bool,
+                     (searcher, buf): &mut (grep_searcher::Searcher, Vec<u8>),
+                     i: usize|
      -> Option<FileResult> {
+        let (cx, cx_scan) = if again {
+            (&refill.0, &refill.1)
+        } else {
+            (cx, cx_scan)
+        };
         let (_, id, prev, rel) = &entries[i];
         let changed = *id == NONE;
         let path: PathBuf = root.join(greeg_index::rel::as_path(rel));
@@ -798,6 +820,7 @@ pub(crate) fn try_index(
             None
         }
     };
+    let verify = |st: &mut (grep_searcher::Searcher, Vec<u8>), i: usize| verify_as(false, st, i);
     if let Some(sink) = sink {
         let order = stream_order(&entries, &display_rel);
         let run = Stream {
@@ -809,20 +832,20 @@ pub(crate) fn try_index(
         };
         return run.go(&order, reader, verify, sink, stats, related_index);
     }
-    let out: Mutex<Vec<FileResult>> = Mutex::new(Vec::new());
+    let out: Mutex<Vec<(usize, FileResult)>> = Mutex::new(Vec::new());
     let next = AtomicUsize::new(0);
     std::thread::scope(|sc| {
         for _ in 0..n_threads {
             sc.spawn(|| {
                 let mut r = reader();
-                let mut local: Vec<FileResult> = Vec::new();
+                let mut local: Vec<(usize, FileResult)> = Vec::new();
                 loop {
                     let i = next.fetch_add(1, Relaxed);
                     if i >= entries.len() {
                         break;
                     }
                     if let Some(fr) = verify(&mut r, i) {
-                        local.push(fr);
+                        local.push((i, fr));
                     }
                 }
                 if !local.is_empty() {
@@ -831,7 +854,18 @@ pub(crate) fn try_index(
             });
         }
     });
-    let mut files = out.into_inner().unwrap();
+    let mut found = out.into_inner().unwrap();
+    if crate::refills(found.iter().map(|(_, f)| f)) {
+        let mut r = reader();
+        for (i, f) in &mut found {
+            if f.dropped.is_some()
+                && let Some(again) = verify_as(true, &mut r, *i)
+            {
+                *f = again;
+            }
+        }
+    }
+    let mut files: Vec<FileResult> = found.into_iter().map(|(_, f)| f).collect();
     files.sort_by(|a, b| a.rel.cmp(&b.rel));
     crate::finish_stats(&mut stats, &files, o, cx.stats, t0);
     if idx.corrupt() || greeg_index::integrity::failed() {
@@ -1017,7 +1051,10 @@ pub(crate) fn classify_from_index(
         hits.push(h);
     }
     f.hits = hits;
-    f.kinds = kinds;
+    // a ranked search counted every line by the same tables
+    if !crate::counts_every_line(o) {
+        f.kinds = kinds;
+    }
     // Only the definitions the hits point at are materialized (a file can hold
     // thousands of symbols; building every summary cost ~100 µs per file).
     let mut used: Vec<u32> = f.hits.iter().filter_map(|h| h.def_idx).collect();
