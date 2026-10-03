@@ -1,6 +1,6 @@
 //! Index-backed search: plan → candidates → verify only those files, then
 //! classify hits from the stored span tables. Falls back to
-//! scan mode (returns Ok(None)) when there is no usable index, spawning a
+//! scan mode, saying why, when there is no usable index, spawning a
 //! background build so the next query has one.
 
 use crate::{
@@ -327,12 +327,13 @@ pub fn open_fresh(o: &Options, threads: usize) -> Result<Option<Opened>> {
     Ok(open_fresh_with(o, threads, false, &mut || {})?.ok())
 }
 
-/// `open_fresh` for a search (answer first): changes below
+/// `open_fresh` for a search (answer first), with the reason when the index
+/// cannot answer: changes below
 /// the rebuild threshold are returned in `pending` instead of being applied,
 /// and a detached `greeg index --refresh` is queued for after the output.
 /// Verbs keep `open_fresh`: they need the symbols of the changed files.
-pub fn open_fresh_deferred(o: &Options, threads: usize) -> Result<Option<Opened>> {
-    Ok(open_fresh_with(o, threads, true, &mut || {})?.ok())
+pub fn open_fresh_deferred(o: &Options, threads: usize) -> Result<Result<Opened, Rebuilding>> {
+    open_fresh_with(o, threads, true, &mut || {})
 }
 
 /// The check to run again after another writer republished: the same mode,
@@ -519,11 +520,16 @@ fn open_fresh_with(
     }))
 }
 
-/// Try to answer from the index. Ok(None) means "use scan mode".
-pub(crate) fn try_index(cx: &Ctx, threads: usize, t0: Instant) -> Result<Option<ScanResult>> {
+/// The index's answer, or why it cannot give one (scan mode answers).
+pub(crate) fn try_index(
+    cx: &Ctx,
+    threads: usize,
+    t0: Instant,
+) -> Result<Result<ScanResult, &'static str>> {
     let o = cx.o;
-    let Some(op) = open_fresh_deferred(o, threads)? else {
-        return Ok(None);
+    let op = match open_fresh_deferred(o, threads)? {
+        Ok(op) => op,
+        Err(r) => return Ok(Err(r.reason)),
     };
     let idx = &op.idx;
     // fault injection for the M5 robustness tests
@@ -610,7 +616,7 @@ pub(crate) fn try_index(cx: &Ctx, threads: usize, t0: Instant) -> Result<Option<
                     && !extras.iter().any(|(r, _)| *r == rel)
                     && !idx.live_files().any(|(_, r, _)| r == rel)
                 {
-                    return Ok(None);
+                    return Ok(Err("an unindexed file named"));
                 }
                 // likewise a hidden or ignored directory: the walk enters it
                 if p.is_dir()
@@ -621,7 +627,7 @@ pub(crate) fn try_index(cx: &Ctx, threads: usize, t0: Instant) -> Result<Option<
                         .as_ref()
                         .is_some_and(|ch| ch.added_dirs.iter().any(|d| d.rel == rel))
                 {
-                    return Ok(None);
+                    return Ok(Err("an unindexed directory named"));
                 }
                 let mut given = p.as_os_str().as_bytes();
                 while let [rest @ .., b'/'] = given {
@@ -640,14 +646,14 @@ pub(crate) fn try_index(cx: &Ctx, threads: usize, t0: Instant) -> Result<Option<
                 );
                 paths.push(rel);
             }
-            None => return Ok(None), // outside the index root: scan mode answers this query
+            None => return Ok(Err("a path outside the index root")),
         }
     }
     let sel = crate::select::Selection::new(o, paths)?;
     // files the index skipped that this request selects are read from disk
     // like changed ones; anything else it selects needs the scan
     let Some(also) = sel.coverage(idx, op.pending.as_ref()) else {
-        return Ok(None);
+        return Ok(Err("files the index skipped"));
     };
     extras.extend(also.into_iter().map(|rel| (rel, NONE)));
     let display_rel = |rel: &[u8]| -> Option<Vec<u8>> {
@@ -797,9 +803,9 @@ pub(crate) fn try_index(cx: &Ctx, threads: usize, t0: Instant) -> Result<Option<
     if idx.corrupt() || greeg_index::integrity::failed() {
         // bytes the build did not write were read: nothing above is trusted
         note_corruption(o);
-        return Ok(None);
+        return Ok(Err("corrupt"));
     }
-    Ok(Some(ScanResult {
+    Ok(Ok(ScanResult {
         opts: o.clone(),
         files,
         stats,

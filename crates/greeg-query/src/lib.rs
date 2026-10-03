@@ -493,6 +493,8 @@ pub struct Stats {
     /// Changed files answered from disk this query; the delta follows the answer.
     pub fresh_deferred: usize,
     pub plan: String,
+    /// Why the index did not answer (empty when it did, or was not asked).
+    pub index_skipped: &'static str,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -1597,7 +1599,7 @@ pub(crate) fn is_word_byte(b: u8) -> bool {
 /// Score multiplier for a match equal to the query as a whole word: exact
 /// definitions (the defined name *is* the query) rank above near-misses like
 /// `spawn_blocking_on` (1.3), other exact matches 1.15.
-pub(crate) fn exact_boost(kind: HitKind, exact: bool) -> f32 {
+pub fn exact_boost(kind: HitKind, exact: bool) -> f32 {
     if !exact {
         1.0
     } else if kind == HitKind::Def {
@@ -2125,27 +2127,33 @@ fn scan_once(o: &Options, bounds: &ScanBounds) -> Result<ScanResult> {
         classify,
         filter_kinds: true,
     };
-    if o.use_index && !o.no_ignore && !o.hidden {
+    let index_skipped = if !o.use_index {
+        "not used"
+    } else if o.no_ignore || o.hidden {
+        "ignored or hidden files asked for"
+    } else {
         // A panic anywhere in the index path degrades to scan mode:
         // the answer is still correct, one line goes to stderr, and the index is rebuilt.
         match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             indexed::try_index(&cx, threads, t0)
         })) {
-            Ok(Ok(Some(r))) => return Ok(r),
-            Ok(Ok(None)) => {}
+            Ok(Ok(Ok(r))) => return Ok(r),
+            Ok(Ok(Err(why))) => why,
             Ok(Err(e)) => {
                 if std::env::var_os("GREEG_DEBUG").is_some() {
                     eprintln!("greeg: index unavailable: {e:#}");
                 }
+                "error"
             }
             Err(_) => {
                 eprintln!(
                     "greeg: internal error in the index path; answering from a scan and rebuilding the index"
                 );
                 indexed::mark_corrupt(o);
+                "internal error"
             }
         }
-    }
+    };
     let out: Mutex<Vec<FileResult>> = Mutex::new(Vec::new());
     let root = &o.root;
     // what the walk finds below a root is read without following a symlink;
@@ -2234,6 +2242,7 @@ fn scan_once(o: &Options, bounds: &ScanBounds) -> Result<ScanResult> {
         files_walked: acc.walked.load(Relaxed),
         threads,
         source: "scan",
+        index_skipped,
         ..Default::default()
     };
     finish_stats(&mut stats, &files, o, &acc, t0);
