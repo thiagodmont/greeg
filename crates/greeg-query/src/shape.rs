@@ -82,9 +82,11 @@ pub struct Footer {
     pub est_tokens: usize,
     pub elapsed_ms: f64,
     pub hints: Vec<String>,
+    /// `--max-bytes`, not the budget, left hits out.
+    pub byte_cut: bool,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Report {
     pub layout: Layout,
     pub files: Vec<ShownFile>,
@@ -93,6 +95,44 @@ pub struct Report {
     /// counts, best first: the near-misses left out of the answer.
     pub related: Vec<(String, usize)>,
     pub footer: Footer,
+}
+
+impl Report {
+    /// Results the answer shows: files for `-l` and `-c`, hits otherwise.
+    pub fn units(&self) -> usize {
+        match self.layout {
+            Layout::Files | Layout::Count => self.files.len(),
+            _ => self.files.iter().map(|f| f.hits.len()).sum(),
+        }
+    }
+
+    /// The first `n` of its [`units`](Self::units), the rest left out by
+    /// `--max-bytes`.
+    pub fn keep(&self, n: usize) -> Report {
+        let mut r = self.clone();
+        match r.layout {
+            Layout::Files | Layout::Count => r.files.truncate(n),
+            _ => {
+                let mut left = n;
+                for f in &mut r.files {
+                    let keep = f.hits.len().min(left);
+                    f.more += f.hits.len() - keep;
+                    f.hits.truncate(keep);
+                    left -= keep;
+                }
+                r.files.retain(|f| !f.hits.is_empty());
+            }
+        }
+        if n < self.units() {
+            r.footer.byte_cut = true;
+            r.footer.files_shown = r.files.len();
+            r.footer.hits_shown = match r.layout {
+                Layout::Files | Layout::Count => r.files.iter().map(|f| f.more).sum(),
+                _ => n,
+            };
+        }
+        r
+    }
 }
 
 /// Token reserve for the footer line and its hints.

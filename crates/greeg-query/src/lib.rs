@@ -68,6 +68,8 @@ pub struct Options {
     pub max_filesize: u64,
     pub mode: Mode,
     pub budget: usize,
+    /// Hard ceiling on the answer's stdout bytes; 0: none.
+    pub max_bytes: usize,
     pub near: Vec<String>,
     pub no_tests: bool,
     pub no_vendored: bool,
@@ -111,6 +113,7 @@ impl Default for Options {
             max_filesize: 4 << 20,
             mode: Mode::Content,
             budget: 2000,
+            max_bytes: 0,
             near: vec![],
             no_tests: false,
             no_vendored: false,
