@@ -3007,6 +3007,7 @@ mod tests {
         for (cmd, globs, types_not) in [
             ("rg --glob=-a.txt bar", &["-a.txt"][..], &[][..]),
             ("rg -g -a.txt bar", &["-a.txt"], &[]),
+            ("rg --glob -a.txt bar", &["-a.txt"], &[]),
             ("rg --type-not=-x bar", &[], &["-x"]),
         ] {
             let r = rewrite::rewrite_full(cmd).unwrap();
