@@ -1,0 +1,33 @@
+crates/greeg/src/budget.rs
+  s_b1057b2933cdb0::t_68679612dc2eef 55-66
+crates/greeg/src/capabilities.rs
+  s_b1057b2933cdb0::t_174dac5267f611 43-44,74,87-101
+  s_b1057b2933cdb0::t_68679612dc2eef 1-42,45-73,75-86,102
+crates/greeg/src/main.rs
+  s_b1057b2933cdb0::t_66f7df5ac15a46 937
+  s_b1057b2933cdb0::t_68679612dc2eef 4,217-219,936,938-941
+crates/greeg/tests/cli.rs
+  s_b1057b2933cdb0::t_02f163cea3fdc9 2939-2942,2946-2952,2973-2976
+  s_b1057b2933cdb0::t_9e957343eb1c57 2977
+  s_b1057b2933cdb0::t_19a24b99d8b969 2925-2938,2943-2945,2953-2972,2978-2980
+references/JSON.md
+  s_b1057b2933cdb0::t_02f163cea3fdc9 212-233
+README.md
+  s_b1057b2933cdb0::t_02f163cea3fdc9 372
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "bc0e3fa866bd180dece1f30bdb8adcee5ddee87b",
+  "prompts": {},
+  "sessions": {
+    "s_b1057b2933cdb0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0aa73425-0ec9-4b76-ae94-35b6bdff17bb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
