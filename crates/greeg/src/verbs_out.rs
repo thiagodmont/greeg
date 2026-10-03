@@ -137,8 +137,11 @@ fn fit(
     max: usize,
     render: impl Fn(Cut) -> Result<(Vec<u8>, Outcome)>,
 ) -> Result<(Vec<u8>, Outcome)> {
-    let tokens_fit = |b: &[u8]| o.budget == 0 || greeg_query::tokens::estimate(b) <= o.budget;
-    let bytes_fit = |b: &[u8]| o.max_bytes == 0 || b.len() <= o.max_bytes;
+    // measured with timings at a fixed width, so a run's clock cannot move the fit
+    let timeless = greeg_query::tokens::timeless;
+    let tokens_fit =
+        |b: &[u8]| o.budget == 0 || greeg_query::tokens::estimate(&timeless(b)) <= o.budget;
+    let bytes_fit = |b: &[u8]| o.max_bytes == 0 || timeless(b).len() <= o.max_bytes;
     // the largest allowance in `0..=hi` whose rendering passes, if any
     type Fitted = (usize, (Vec<u8>, Outcome));
     let largest = |hi: usize,
@@ -202,7 +205,7 @@ fn fit(
             anyhow::bail!(
                 "--max-bytes {} is below the {} bytes this answer needs",
                 o.max_bytes,
-                floor.0.len()
+                timeless(&floor.0).len()
             )
         }
     }

@@ -46,6 +46,54 @@ fn word_end(b: &[u8], mut i: usize) -> usize {
     i
 }
 
+/// Timing fields and stand-ins wider than any value they take.
+const TIMINGS: [(&[u8], &[u8]); 4] = [
+    (b"\"elapsed_ms\":", b"99999.999999999999"),
+    (b"\"secs\":", b"99999"),
+    (b"\"nanos\":", b"999999999"),
+    (b"\"human\":", b"\"99999.999999999s\""),
+];
+
+/// `b` with each JSON timing value replaced by a wider stand-in, so a fit
+/// measured on it gives the same answer on every run and never more than
+/// the real output measures. A quote inside a JSON string is escaped, so
+/// no string value can look like a timing key.
+pub fn timeless(b: &[u8]) -> std::borrow::Cow<'_, [u8]> {
+    if !TIMINGS
+        .iter()
+        .any(|(key, _)| memchr::memmem::find(b, key).is_some())
+    {
+        return std::borrow::Cow::Borrowed(b);
+    }
+    let mut out = Vec::with_capacity(b.len() + 64);
+    let mut i = 0;
+    'bytes: while i < b.len() {
+        if b[i] == b'"' {
+            for (key, stand_in) in TIMINGS {
+                if b[i..].starts_with(key) {
+                    out.extend_from_slice(key);
+                    i += key.len();
+                    if b.get(i) == Some(&b'"') {
+                        i += 1 + memchr::memchr(b'"', &b[i + 1..])
+                            .map_or(b.len() - i - 1, |k| k + 1);
+                    } else {
+                        while i < b.len()
+                            && matches!(b[i], b'0'..=b'9' | b'.' | b'-' | b'+' | b'e' | b'E')
+                        {
+                            i += 1;
+                        }
+                    }
+                    out.extend_from_slice(stand_in);
+                    continue 'bytes;
+                }
+            }
+        }
+        out.push(b[i]);
+        i += 1;
+    }
+    std::borrow::Cow::Owned(out)
+}
+
 /// Estimated o200k tokens of a rendered text.
 pub fn estimate(b: &[u8]) -> usize {
     let n = b.len();
@@ -147,6 +195,27 @@ mod tests {
         // camel and snake pieces are counted separately
         assert!(estimate(b"HTTPResponseRedirect") > estimate(b"Redirect"));
         assert!(estimate(b"tokio/src/sync/batch_semaphore.rs") >= 8);
+    }
+
+    /// Timings are measured at stand-ins wider than any real value.
+    #[test]
+    fn timeless_ignores_the_clock_and_never_measures_less() {
+        let at = |ms: &str, ns: &str| {
+            format!(
+                r#"{{"type":"summary","data":{{"elapsed_total":{{"secs":0,"nanos":{ns},"human":"0.{ns}s"}}}}}}
+{{"type":"footer","data":{{"elapsed_ms":{ms},"text":"\"elapsed_ms\":1"}}}}"#
+            )
+        };
+        let (a, b) = (at("1.864", "1864000"), at("9.909334000000001", "820635292"));
+        assert_eq!(timeless(a.as_bytes()), timeless(b.as_bytes()));
+        for s in [&a, &b] {
+            let t = timeless(s.as_bytes());
+            assert!(t.len() >= s.len() && estimate(&t) >= estimate(s.as_bytes()));
+            // an escaped key inside a string is text, not a timing
+            assert!(String::from_utf8_lossy(&t).contains(r#""text":"\"elapsed_ms\":1""#));
+        }
+        let plain = b"no timings here";
+        assert!(matches!(timeless(plain), std::borrow::Cow::Borrowed(_)));
     }
 
     /// A JSON fit renders `est_tokens` once with a stand-in of the same width.

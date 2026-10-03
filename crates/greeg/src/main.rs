@@ -1568,13 +1568,17 @@ fn fit_search(
         // so render again only when the answer's estimate is another width
         report.footer.est_tokens = budget;
         let (out, _) = render_search(c, result, &report, fmt)?;
-        let (mut tokens, mut bytes) = (greeg_query::tokens::estimate(&out), out.len());
+        // timings at a fixed width: the clock cannot move the fit
+        let size = |out: &[u8]| {
+            let out = greeg_query::tokens::timeless(out);
+            (greeg_query::tokens::estimate(&out), out.len())
+        };
+        let (mut tokens, mut bytes) = size(&out);
         report.footer.est_tokens = tokens;
         let width = |n: usize| n.max(1).ilog10();
         if width(tokens) != width(budget) {
-            let (out, _) = render_search(c, result, &report, fmt)?;
             let shown = tokens;
-            (tokens, bytes) = (greeg_query::tokens::estimate(&out), out.len());
+            (tokens, bytes) = size(&render_search(c, result, &report, fmt)?.0);
             // a number as wide leaves the measured bytes and tokens as they are
             if width(tokens) == width(shown) {
                 report.footer.est_tokens = tokens;
@@ -1718,7 +1722,10 @@ fn keep_within(
     fmt: Fmt,
     cap: usize,
 ) -> Result<Report> {
-    let size = |r: &Report| -> Result<usize> { Ok(render_search(c, result, r, fmt)?.0.len()) };
+    let size = |r: &Report| -> Result<usize> {
+        let out = render_search(c, result, r, fmt)?.0;
+        Ok(greeg_query::tokens::timeless(&out).len())
+    };
     let whole = size(&report)?;
     if whole <= cap {
         return Ok(report);
