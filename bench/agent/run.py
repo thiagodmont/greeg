@@ -34,8 +34,11 @@ sys.path.insert(0, str(HERE.parent))
 from bench import CORPORA, corpus_path  # noqa: E402
 
 ALLOWED = ["Read"] + [f"Bash({c}:*)" for c in (
-    "rg", "greeg", "grep", "find", "ls", "cat", "head", "tail", "sed", "awk",
-    "wc", "sort", "uniq", "cut", "tr", "xargs")]
+    "rg", "greeg", "grep", "find", "ls", "cat", "head", "tail", "sed", "wc",
+    "sort", "uniq", "cut", "tr")]
+# the allowed commands' common ways to write; the clone and the index
+# template are also checked after every run
+DENIED = [f"Bash({c}:*)" for c in ("sed -i", "sed --in-place", "sort -o", "sort --output")]
 HOOK = {"hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "greeg hook run"}]}]}}
 
 
@@ -66,7 +69,8 @@ def tool_bin(out, arm, greeg):
 
 
 def greeg_env(index_dir, stats_dir):
-    env = {k: v for k, v in os.environ.items() if not k.startswith(("GREEG_", "CLAUDE_CODE_", "CLAUDECODE"))}
+    env = {k: v for k, v in os.environ.items()
+           if not k.startswith(("GREEG_", "CLAUDE_CODE_", "CLAUDECODE", "RIPGREP_"))}
     env.update(GREEG_INDEX_DIR=str(index_dir), GREEG_STATS="0", GREEG_STATS_DIR=str(stats_dir),
                GREEG_BUDGET="2000", GREEG_CONFIG_DIR="/dev/null/greeg-config")
     return env
@@ -85,6 +89,12 @@ def prepare(out, corpus, greeg):
     return work, template
 
 
+def tree_state(root):
+    """Paths, sizes and modification times under `root`."""
+    return sorted((str(p.relative_to(root)), p.stat().st_size, p.stat().st_mtime_ns)
+                  for p in root.rglob("*") if p.is_file())
+
+
 def run_cell(a, out, task, arm, n, order):
     d = out / "runs" / task["id"] / arm / str(n)
     if (d / "meta.json").exists():
@@ -92,6 +102,7 @@ def run_cell(a, out, task, arm, n, order):
     d.mkdir(parents=True, exist_ok=True)
     work, template = prepare(out, task["corpus"], a.greeg)
     before = sh(["git", "status", "--porcelain"], cwd=work)
+    template_before = tree_state(template)
     index = d / "index"
     shutil.rmtree(index, ignore_errors=True)
     clone(template, index)
@@ -104,7 +115,8 @@ def run_cell(a, out, task, arm, n, order):
            "--max-budget-usd", str(a.max_budget_usd), "--output-format", "stream-json", "--verbose",
            "--include-hook-events", "--no-session-persistence", "--setting-sources", "",
            "--strict-mcp-config", "--settings", str(settings), "--tools", "Bash,Read",
-           "--permission-mode", "dontAsk", "--allowedTools", *ALLOWED]
+           "--permission-mode", "dontAsk", "--allowedTools", *ALLOWED,
+           "--disallowedTools", *DENIED]
     started = time.time()
     with open(d / "stream.jsonl", "w") as fh:
         p = subprocess.run(cmd, cwd=work, env=env, stdin=subprocess.DEVNULL, stdout=fh,
@@ -126,6 +138,9 @@ def run_cell(a, out, task, arm, n, order):
     if dirty:
         shutil.rmtree(work)
         clone(corpus_path(task["corpus"]), work)
+    if tree_state(template) != template_before:
+        sys.exit(f"{task['id']} {arm} #{n} changed the index template {template}; "
+                 "delete it and the run, then resume")
     shutil.rmtree(index, ignore_errors=True)
     meta = {"task": task["id"], "arm": arm, "run": n, "order": order, "exit": p.returncode,
             "stderr": p.stderr[-2000:], "wall_s": round(wall, 1), "check": check,
@@ -186,13 +201,25 @@ def main():
     cells = [(t, arm, n) for n in range(1, a.repeats + 1) for t in tasks for arm in a.arms.split(",")]
     random.Random(a.seed).shuffle(cells)
     a.out.mkdir(parents=True, exist_ok=True)
-    (a.out / "setup.json").write_text(json.dumps({
+    setup = {
         "claude": sh([a.claude, "--version"]).strip(), "greeg": sh([a.greeg, "--version"]).strip(),
         "model": a.model, "max_turns": a.max_turns, "max_budget_usd": a.max_budget_usd,
-        "seed": a.seed, "allowed": ALLOWED, "tasks": [t["id"] for t in tasks],
+        "seed": a.seed, "allowed": ALLOWED, "denied": DENIED, "tasks": [t["id"] for t in tasks],
         "corpora": {c: sh(["git", "rev-parse", "--short", "HEAD"], cwd=corpus_path(c)).strip()
                     for c in sorted({t["corpus"] for t in tasks})},
-    }, indent=1))
+    }
+    saved = a.out / "setup.json"
+    if saved.exists():
+        old = json.loads(saved.read_text())
+        # tasks and arms may be added to a run; anything else would mix setups
+        changed = [k for k in setup if k not in ("tasks", "seed", "corpora") and old.get(k) != setup[k]]
+        old_corpora = old.get("corpora", {})
+        changed += [c for c, rev in setup["corpora"].items() if old_corpora.get(c, rev) != rev]
+        if changed:
+            sys.exit(f"{a.out} was run with another {', '.join(changed)}; use a new --out")
+        setup["tasks"] = sorted(set(old.get("tasks", [])) | set(setup["tasks"]))
+        setup["corpora"] = {**old_corpora, **setup["corpora"]}
+    saved.write_text(json.dumps(setup, indent=1))
     for i, (t, arm, n) in enumerate(cells, 1):
         m = run_cell(a, a.out, t, arm, n, i)
         print(f"[{i}/{len(cells)}] {t['id']} {arm} #{n}: check {m['check']}, exit {m['exit']}, "

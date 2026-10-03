@@ -28,7 +28,9 @@ python3 bench/agent/run.py --greeg target/release/greeg --out RUN_DIR \
 `run.py` runs each (task, arm, repeat) cell headless (`claude -p`) in a
 shuffled, seeded order, and writes `RUN_DIR/runs/<task>/<arm>/<n>/` with the
 stream, the answer, the check result and `meta.json`. A cell already written
-is skipped, so an interrupted run resumes. Each run is isolated:
+is skipped, so an interrupted run resumes, or grows by tasks and arms. A
+resume with another model, limit, tool version, allowed command or corpus
+revision is refused. Each run is isolated:
 
 - **settings:** none of the user's, the project's or local ones (no hooks,
   CLAUDE.md, skills or MCP servers); only the arm's own settings file;
@@ -38,9 +40,13 @@ is skipped, so an interrupted run resumes. Each run is isolated:
   not change during a run; a run that changed it is left out, and the clone is
   made again;
 - **greeg:** a fresh copy of the corpus's prebuilt index per run (no session
-  memory carries over), statistics off, budget pinned to 2000;
-- **permissions:** `dontAsk`, with read-only search commands allowed. A
-  rewritten command is checked as rewritten, so `greeg` is on the list.
+  memory carries over), statistics off, budget pinned to 2000, and no
+  `RIPGREP_*` variables (a ripgrep config file makes the hook decline);
+- **permissions:** `dontAsk`, with search and viewing commands allowed and
+  their common write forms denied (`sed -i`, `sort -o`). A rewritten command
+  is checked as rewritten, so `greeg` is on the list. This is not a sandbox
+  (`find -exec` is allowed), so the index template is checked after every
+  run too, and a change stops the run.
 
 `RUN_DIR/setup.json` records the Claude Code and greeg versions, the model,
 the corpora's commits and the allowed commands.

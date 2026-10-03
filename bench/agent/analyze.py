@@ -46,10 +46,12 @@ def per_task(runs, arms):
         cells = []
         for a in arms:
             rs = [r for r in runs if r["task"] == task and r["arm"] == a]
-            ok = sum(1 for r in rs if r["success"])
-            cost = statistics.mean([r["cost_usd"] or 0 for r in rs]) if rs else float("nan")
+            scored = [r for r in rs if r["success"] is not None]
+            ok = sum(1 for r in scored if r["success"])
+            costs = [r["cost_usd"] for r in rs if r["cost_usd"] is not None]
+            cost = statistics.mean(costs) if costs else float("nan")
             turns = statistics.mean([r["turns"] for r in rs]) if rs else float("nan")
-            cells.append(f"{ok:>3}/{len(rs):<2} {cost:7.3f} {turns:8.1f}")
+            cells.append(f"{ok:>3}/{len(scored):<2} {cost:7.3f} {turns:8.1f}")
         print(f"{task:34} " + " ".join(cells))
     print()
 
@@ -62,7 +64,9 @@ def main():
     for r in runs:
         by.setdefault((r["task"], r["run"]), {})[r["arm"]] = r
     arms = sorted({r["arm"] for r in runs})
-    base = arms[0]
+    if "A" not in arms:
+        sys.exit("no valid arm A runs: nothing to compare against")
+    base = "A"
     rnd = random.Random(7)
     per_task(runs, arms)
     print(f"{'metric':14} " + " ".join(f"{a:>10}" for a in arms) + "   paired difference vs " + base + " (95 % bootstrap)")
