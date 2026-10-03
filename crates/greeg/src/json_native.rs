@@ -273,6 +273,15 @@ fn file_records(w: &mut dyn Write, r: &ScanResult, sf: &ShownFile) -> Result<()>
 }
 
 pub(crate) fn search(w: &mut dyn Write, r: &ScanResult, rep: &Report) -> Result<()> {
+    search_head(w, r, rep)?;
+    for sf in &rep.files {
+        search_file(w, r, rep.layout, sf)?;
+    }
+    search_footer(w, r, rep)
+}
+
+/// The header record, and `facets` for a broad answer.
+pub(crate) fn search_head(w: &mut dyn Write, r: &ScanResult, rep: &Report) -> Result<()> {
     header(w, "search")?;
     if let Some(fc) = &rep.facets {
         put(
@@ -295,30 +304,43 @@ pub(crate) fn search(w: &mut dyn Write, r: &ScanResult, rep: &Report) -> Result<
             },
         )?;
     }
-    for sf in &rep.files {
-        let f = &r.files[sf.file];
-        match rep.layout {
-            Layout::Files => put(
-                w,
-                "file",
-                &FileRec {
-                    path: Text::of(&f.rel),
-                    count: None,
-                    binary_offset: f.binary_offset,
-                },
-            )?,
-            Layout::Count => put(
-                w,
-                "file",
-                &FileRec {
-                    path: Text::of(&f.rel),
-                    count: Some(f.total),
-                    binary_offset: f.binary_offset,
-                },
-            )?,
-            _ => file_records(w, r, sf)?,
-        }
+    Ok(())
+}
+
+/// One file's records.
+pub(crate) fn search_file(
+    w: &mut dyn Write,
+    r: &ScanResult,
+    layout: Layout,
+    sf: &ShownFile,
+) -> Result<()> {
+    let f = &r.files[sf.file];
+    match layout {
+        Layout::Files => put(
+            w,
+            "file",
+            &FileRec {
+                path: Text::of(&f.rel),
+                count: None,
+                binary_offset: f.binary_offset,
+            },
+        )?,
+        Layout::Count => put(
+            w,
+            "file",
+            &FileRec {
+                path: Text::of(&f.rel),
+                count: Some(f.total),
+                binary_offset: f.binary_offset,
+            },
+        )?,
+        _ => file_records(w, r, sf)?,
     }
+    Ok(())
+}
+
+/// The `footer` record.
+pub(crate) fn search_footer(w: &mut dyn Write, r: &ScanResult, rep: &Report) -> Result<()> {
     let ft = &rep.footer;
     let rung_names: &[String] = match &ft.rung {
         greeg_query::Rung::SplitTokens(v) | greeg_query::Rung::Fuzzy(v) => v,

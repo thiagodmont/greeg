@@ -984,12 +984,38 @@ fn hints(
 /// Path order as `rg --sort path` gives it: by name within each directory,
 /// so `a/x` comes before `a-b/x` although `-` sorts before `/`.
 pub fn path_order(a: &[u8], b: &[u8]) -> std::cmp::Ordering {
-    a.split(|&c| c == b'/').cmp(b.split(|&c| c == b'/'))
+    // byte order with `/` lowest is that order: no name holds a NUL
+    let key = |c: &u8| if *c == b'/' { 0 } else { *c };
+    a.iter().map(key).cmp(b.iter().map(key))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn path_order_compares_name_by_name() {
+        let paths: [&[u8]; 12] = [
+            b"a/x",
+            b"a-b/x",
+            b"a",
+            b"a/b/c",
+            b"ab/c",
+            b"a//b",
+            b"a/",
+            b"",
+            b"b",
+            b"a.b",
+            b"a/x\xff",
+            b"\xc3\xa9/a",
+        ];
+        for a in paths {
+            for b in paths {
+                let names = a.split(|&c| c == b'/').cmp(b.split(|&c| c == b'/'));
+                assert_eq!(path_order(a, b), names, "{a:?} {b:?}");
+            }
+        }
+    }
     use crate::{Hit, Options, Stats};
     use greeg_lang::Lang;
 
