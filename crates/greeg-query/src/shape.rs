@@ -999,13 +999,13 @@ mod tests {
             line_start: 0,
             match_start: 0,
             match_end: 3,
-            submatches: vec![(0, 3)],
+            submatches: Box::default(),
             kind,
-            chain: vec![],
+            chain: Box::default(),
             def_idx: None,
             score,
             exact: true,
-            raw: b"foo bar".to_vec(),
+            raw: b"foo bar".as_slice().into(),
         }
     }
 
@@ -1077,13 +1077,13 @@ mod tests {
             line_start: 0,
             match_start: s,
             match_end: e,
-            submatches: vec![(s, e)],
+            submatches: Box::default(),
             kind,
-            chain: vec![],
+            chain: Box::default(),
             def_idx: None,
             score: kind.weight() * crate::exact_boost(kind, exact),
             exact,
-            raw: raw.as_bytes().to_vec(),
+            raw: raw.as_bytes().into(),
         }
     }
 
