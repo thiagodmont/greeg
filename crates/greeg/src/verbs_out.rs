@@ -717,7 +717,7 @@ pub fn run_refs(c: &Common, o: &Options, name: &str) -> Result<()> {
     let kinds: Vec<HitKind> = o.kinds.clone();
     let r = answered(o, |o| verbs::refs(o, name, &kinds))?;
     let s = &r.scan;
-    let mut w = out();
+    let w = out();
     // group hits by kind, best first within each kind
     let mut by_kind: Vec<(HitKind, Vec<(usize, usize)>)> =
         HitKind::ALL.iter().map(|k| (*k, Vec::new())).collect();
@@ -810,10 +810,14 @@ pub fn run_refs(c: &Common, o: &Options, name: &str) -> Result<()> {
         return finish_fit(w, "refs", fit(o, total_lines, render)?);
     }
     if s.stats.total_hits == 0 {
-        writeln!(w, "refs {name}  no references ({})", s.stats.source)?;
         let oc = Outcome::of_search(s, 0);
-        outcome_line(&mut w, &[], &oc, MORE)?;
-        return finish(w, "refs", &oc);
+        let render = |_: Cut| -> Result<(Vec<u8>, Outcome)> {
+            let mut w = Vec::new();
+            writeln!(w, "refs {name}  no references ({})", s.stats.source)?;
+            outcome_line(&mut w, &[], &oc, MORE)?;
+            Ok((w, oc.clone()))
+        };
+        return finish_fit(w, "refs", fit(o, 0, render)?);
     }
     let fmt = crate::Fmt {
         chain: c.chain,
@@ -918,7 +922,7 @@ pub fn run_refs(c: &Common, o: &Options, name: &str) -> Result<()> {
 
 pub fn run_callers(c: &Common, o: &Options, name: &str, depth: usize) -> Result<()> {
     let r = answered(o, |o| verbs::callers(o, name, depth))?;
-    let mut w = out();
+    let w = out();
     let limit = if o.budget == 0 {
         usize::MAX
     } else {
@@ -959,9 +963,13 @@ pub fn run_callers(c: &Common, o: &Options, name: &str, depth: usize) -> Result<
         return finish_fit(w, "callers", fit(o, limit, render)?);
     }
     if r.callers.is_empty() {
-        writeln!(w, "callers {}  no call sites ({})", r.name, r.source)?;
-        outcome_line(&mut w, &[], &oc, MORE)?;
-        return finish(w, "callers", &oc);
+        let render = |_: Cut| -> Result<(Vec<u8>, Outcome)> {
+            let mut w = Vec::new();
+            writeln!(w, "callers {}  no call sites ({})", r.name, r.source)?;
+            outcome_line(&mut w, &[], &oc, MORE)?;
+            Ok((w, oc.clone()))
+        };
+        return finish_fit(w, "callers", fit(o, 0, render)?);
     }
     let render = |cut: Cut| -> Result<(Vec<u8>, Outcome)> {
         let limit = cut.rows;
@@ -1046,7 +1054,7 @@ pub fn run_callers(c: &Common, o: &Options, name: &str, depth: usize) -> Result<
 
 pub fn run_impls(c: &Common, o: &Options, name: &str) -> Result<()> {
     let r = answered(o, |o| verbs::impls(o, name))?;
-    let mut w = out();
+    let w = out();
     let limit = if o.budget == 0 {
         usize::MAX
     } else {
@@ -1098,9 +1106,13 @@ pub fn run_impls(c: &Common, o: &Options, name: &str) -> Result<()> {
         return finish_fit(w, "impls", fit(o, limit, render)?);
     }
     if r.direct.is_empty() && r.extras.is_empty() {
-        writeln!(w, "impls {}  none found ({})", r.name, r.source)?;
-        outcome_line(&mut w, &[], &oc, MORE)?;
-        return finish(w, "impls", &oc);
+        let render = |_: Cut| -> Result<(Vec<u8>, Outcome)> {
+            let mut w = Vec::new();
+            writeln!(w, "impls {}  none found ({})", r.name, r.source)?;
+            outcome_line(&mut w, &[], &oc, MORE)?;
+            Ok((w, oc.clone()))
+        };
+        return finish_fit(w, "impls", fit(o, 0, render)?);
     }
     // low-confidence extras get half the allowance
     let render = |cut: Cut| -> Result<(Vec<u8>, Outcome)> {
@@ -1501,7 +1513,7 @@ pub fn run_impact(c: &Common, o: &Options, name: &str) -> Result<()> {
     let groups = [&r.likely, &r.possible, &r.review];
     let files = groups.iter().map(|g| g.len()).sum::<usize>();
     let callers_total = r.callers.callers.len();
-    let mut w = out();
+    let w = out();
     let per_group = if o.budget == 0 {
         usize::MAX
     } else {
@@ -1624,9 +1636,13 @@ pub fn run_impact(c: &Common, o: &Options, name: &str) -> Result<()> {
     }
     if r.total_hits == 0 {
         let oc = outcome(0);
-        writeln!(w, "impact {}  no references found", r.name)?;
-        outcome_line(&mut w, &[], &oc, MORE)?;
-        return finish(w, "impact", &oc);
+        let render = |_: Cut| -> Result<(Vec<u8>, Outcome)> {
+            let mut w = Vec::new();
+            writeln!(w, "impact {}  no references found", r.name)?;
+            outcome_line(&mut w, &[], &oc, MORE)?;
+            Ok((w, oc.clone()))
+        };
+        return finish_fit(w, "impact", fit(o, 0, render)?);
     }
     let likely = format!("uses {} and imports a file that defines it", r.name);
     let possible = format!("uses {} without that import link", r.name);

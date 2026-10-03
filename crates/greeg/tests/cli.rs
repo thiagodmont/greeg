@@ -2029,6 +2029,34 @@ fn max_bytes_bounds_stdout() {
     assert!(byte_cuts > 30, "{byte_cuts} byte cuts");
 }
 
+/// An empty verb answer is bounded by `--max-bytes` like any other.
+#[test]
+fn max_bytes_bounds_empty_verb_answers() {
+    let f = outcome_fixture();
+    for q in [
+        ["def", "absent_name"],
+        ["refs", "absent_name"],
+        ["callers", "absent_name"],
+        ["impls", "AbsentShape"],
+        ["impact", "absent_name"],
+    ] {
+        let run = |cap: &str| f.run(&[q[0], q[1], "--fresh", "stat", "--max-bytes", cap]);
+        let (whole, tiny) = (run("1048576"), run("1"));
+        let ctx = format!("{q:?}");
+        assert!(!whole.stdout.is_empty(), "{ctx}");
+        assert_eq!(tiny.status.code(), Some(2), "{ctx}");
+        assert!(
+            tiny.stdout.is_empty(),
+            "{ctx}: {:?}",
+            String::from_utf8_lossy(&tiny.stdout)
+        );
+        assert!(
+            String::from_utf8_lossy(&tiny.stderr).contains("is below the"),
+            "{ctx}"
+        );
+    }
+}
+
 /// A `def` that finds only near names fits their list to the budget too.
 #[test]
 fn def_suggestions_fit_the_budget() {
