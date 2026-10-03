@@ -1,0 +1,15 @@
+{
+  "session_id": "abc123",
+  "transcript_path": "/home/user/.claude/projects/p/transcript.jsonl",
+  "cwd": "@CWD@",
+  "permission_mode": "acceptEdits",
+  "hook_event_name": "PreToolUse",
+  "agent_id": "subagent-id",
+  "agent_type": "Explore",
+  "tool_name": "Bash",
+  "tool_use_id": "toolu_01DEF456",
+  "tool_input": {
+    "command": "@COMMAND@",
+    "run_in_background": true
+  }
+}
