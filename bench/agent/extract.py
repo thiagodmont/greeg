@@ -30,8 +30,19 @@ as `rg`. The executed command is taken, in this order of preference:
 
 Each search count says how it was decided (`search_evidence`), so a run scored
 from the model's intent alone is visible in the table.
+
+`run.py` passes `--include-hook-events`, so the stream itself carries each
+PreToolUse response (`{"type": "system", "subtype": "hook_response", …}`). A
+response names no tool_use id: it goes to the earliest Bash call still waiting
+whose description matches, else the earliest. Calls the permission rules
+denied (`permission_denied`) ran nothing and are counted apart.
+
+A run is marked `invalid`, with reasons, when its `meta.json` says the
+workspace changed, when the stream has no result, when arm A ran greeg, or
+when a search in arm B or C ran without a hook response.
 """
 import json, os, re, sys
+from pathlib import Path
 
 SEARCH = re.compile(r"^\s*(?:command\s+|\\)?(rg|grep|greeg)\b")
 GREEG_FINGERPRINT = re.compile(r"(^|\n)(?:\S.*  [\d,]+ matches · [\d,]+ files|by kind |[\d,]+ of [\d,]+ hits · |greeg: |definitions \(|top hits\n)")
@@ -70,6 +81,32 @@ def hook_updates(lines):
     return upd
 
 
+def stream_hook_updates(lines):
+    """{tool_use_id: executed command} from hook responses in the stream; a
+    declined call maps to its own command."""
+    waiting = []  # (tool_use id, input) of Bash calls not yet answered by the hook
+    upd = {}
+    for l in lines:
+        try:
+            j = json.loads(l)
+        except ValueError:
+            continue
+        if j.get("type") == "assistant":
+            for blk in j.get("message", {}).get("content", []):
+                if blk.get("type") == "tool_use" and blk.get("name") == "Bash":
+                    waiting.append((blk.get("id"), blk.get("input") or {}))
+        elif j.get("type") == "system" and j.get("subtype") == "hook_response" and j.get("hook_name") == "PreToolUse:Bash" and waiting:
+            raw = j.get("stdout") or j.get("output") or ""
+            try:
+                new = (json.loads(raw).get("hookSpecificOutput") or {}).get("updatedInput") or {} if raw.strip() else {}
+            except ValueError:
+                new = {}
+            at = next((i for i, (_, inp) in enumerate(waiting) if "description" in new and inp.get("description") == new["description"]), 0)
+            tid, inp = waiting.pop(at)
+            upd[tid] = new.get("command") or inp.get("command", "")
+    return upd
+
+
 def result_text(block):
     c = block.get("content")
     if isinstance(c, str):
@@ -80,16 +117,18 @@ def result_text(block):
 
 
 def read_run(d):
-    rec = {"tools": {}, "search": {"rg": 0, "grep": 0, "greeg": 0}, "search_evidence": {"hook": 0, "output": 0, "intent": 0}, "input_tokens": 0, "output_tokens": 0, "cache_read": 0, "turns": 0, "duration_ms": None, "cost_usd": None}
+    rec = {"tools": {}, "search": {"rg": 0, "grep": 0, "greeg": 0}, "search_evidence": {"hook": 0, "output": 0, "intent": 0}, "denied": 0, "input_tokens": 0, "output_tokens": 0, "cache_read": 0, "turns": 0, "duration_ms": None, "cost_usd": None, "model": None, "result": None}
     try:
-        lines = open(os.path.join(d, "stream.jsonl")).read().splitlines()
+        lines = Path(d, "stream.jsonl").read_text().splitlines()
     except OSError:
         return None
     try:
-        transcript = open(os.path.join(d, "transcript.jsonl")).read().splitlines()
+        transcript = Path(d, "transcript.jsonl").read_text().splitlines()
     except OSError:
         transcript = []
     updates = hook_updates(lines + transcript)
+    updates.update(stream_hook_updates(lines))
+    denied = set()
     pending = {}  # tool_use id -> command as the model wrote it (Bash only)
     results = {}  # tool_use id -> result text
     for l in lines:
@@ -117,12 +156,23 @@ def read_run(d):
             for blk in (j.get("message", {}).get("content") or []):
                 if isinstance(blk, dict) and blk.get("type") == "tool_result":
                     results[blk.get("tool_use_id")] = result_text(blk)
+        elif t == "system" and j.get("subtype") == "init":
+            rec["model"] = j.get("model")
+        elif t == "system" and j.get("subtype") == "permission_denied":
+            denied.add(j.get("tool_use_id"))
         elif t == "result":
+            rec["result"] = j.get("subtype")
             rec["turns"] = j.get("num_turns", rec["turns"])
             rec["duration_ms"] = j.get("duration_ms")
             rec["cost_usd"] = j.get("total_cost_usd")
+    rec["denied"] = len(denied)
+    unhooked = 0
     for tid, intent_cmd in pending.items():
+        if tid in denied:
+            continue
         intended = search_tools_in(intent_cmd)
+        if intended and tid not in updates:
+            unhooked += 1
         if tid in updates:
             found, how = search_tools_in(updates[tid]), "hook"
         elif intended and tid in results and GREEG_FINGERPRINT.search(results[tid]):
@@ -134,10 +184,29 @@ def read_run(d):
             rec["search"][tool] += 1
             rec["search_evidence"][how] += 1
     try:
-        rec["success"] = open(os.path.join(d, "check.txt")).read().strip() == "0"
+        rec["success"] = Path(d, "check.txt").read_text().strip() == "0"
     except OSError:
         rec["success"] = None
+    rec["unhooked"] = unhooked
     return rec
+
+
+def invalid(rec, d, arm):
+    """Why a run cannot be compared, if it cannot."""
+    why = []
+    try:
+        meta = json.loads(Path(d, "meta.json").read_text())
+    except (OSError, ValueError):
+        meta = None
+    if meta and meta.get("workspace_dirty"):
+        why.append("the agent changed the workspace")
+    if rec["result"] is None:
+        why.append("no result record")
+    if meta is not None and arm == "A" and rec["search"]["greeg"]:
+        why.append("arm A ran greeg")
+    if meta is not None and arm != "A" and rec["unhooked"]:
+        why.append(f"{rec['unhooked']} searches ran without a hook response")
+    return why
 
 
 def main():
@@ -149,7 +218,7 @@ def main():
                 d = os.path.join(root, task, arm, n)
                 r = read_run(d)
                 if r:
-                    r.update({"task": task, "arm": arm, "run": n})
+                    r.update({"task": task, "arm": arm, "run": n, "invalid": invalid(r, d, arm)})
                     out.append(r)
     json.dump(out, sys.stdout, indent=1)
 
