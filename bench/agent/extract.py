@@ -6,8 +6,9 @@
 RUNS_DIR holds one subdirectory per run named <task>/<arm>/<n>/ with
 `stream.jsonl` (the agent's stream-json output), `answer.txt` (the final
 result text) and `check.txt` (`0` if the task's check passed). Emits one JSON
-record per run: tool calls by name, search calls (rg/grep/greeg, by tool),
-input/output tokens, number of turns, wall time, cost and success.
+record per run: tool calls by name, search calls (rg/grep/greeg, by tool), the
+characters the tools returned, input/output and cache tokens, number of turns,
+wall time, cost and success.
 
 Counting search calls in arm B (the hook rewrites `rg`/`grep` to `greeg`): the
 `tool_use` block in the assistant message is what the model *asked for*, before
@@ -117,7 +118,7 @@ def result_text(block):
 
 
 def read_run(d):
-    rec = {"tools": {}, "search": {"rg": 0, "grep": 0, "greeg": 0}, "search_evidence": {"hook": 0, "output": 0, "intent": 0}, "denied": 0, "input_tokens": 0, "output_tokens": 0, "cache_read": 0, "turns": 0, "duration_ms": None, "cost_usd": None, "model": None, "result": None}
+    rec = {"tools": {}, "search": {"rg": 0, "grep": 0, "greeg": 0}, "search_evidence": {"hook": 0, "output": 0, "intent": 0}, "denied": 0, "tool_output_chars": 0, "input_tokens": 0, "output_tokens": 0, "cache_creation": 0, "cache_read": 0, "turns": 0, "duration_ms": None, "cost_usd": None, "model": None, "result": None}
     try:
         lines = Path(d, "stream.jsonl").read_text().splitlines()
     except OSError:
@@ -142,6 +143,7 @@ def read_run(d):
             u = msg.get("usage", {})
             rec["input_tokens"] += u.get("input_tokens", 0)
             rec["output_tokens"] += u.get("output_tokens", 0)
+            rec["cache_creation"] += u.get("cache_creation_input_tokens", 0)
             rec["cache_read"] += u.get("cache_read_input_tokens", 0)
             for blk in msg.get("content", []):
                 if blk.get("type") == "tool_use":
@@ -156,6 +158,7 @@ def read_run(d):
             for blk in (j.get("message", {}).get("content") or []):
                 if isinstance(blk, dict) and blk.get("type") == "tool_result":
                     results[blk.get("tool_use_id")] = result_text(blk)
+                    rec["tool_output_chars"] += len(results[blk.get("tool_use_id")])
         elif t == "system" and j.get("subtype") == "init":
             rec["model"] = j.get("model")
         elif t == "system" and j.get("subtype") == "permission_denied":

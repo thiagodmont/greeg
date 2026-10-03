@@ -1,0 +1,42 @@
+{
+ "claude": "2.1.288 (Claude Code)",
+ "greeg": "greeg 0.10.0+22de3c63f",
+ "model": "sonnet",
+ "max_turns": 25,
+ "max_budget_usd": 2.0,
+ "seed": 7,
+ "allowed": [
+  "Read",
+  "Bash(rg:*)",
+  "Bash(greeg:*)",
+  "Bash(grep:*)",
+  "Bash(find:*)",
+  "Bash(ls:*)",
+  "Bash(cat:*)",
+  "Bash(head:*)",
+  "Bash(tail:*)",
+  "Bash(sed:*)",
+  "Bash(awk:*)",
+  "Bash(wc:*)",
+  "Bash(sort:*)",
+  "Bash(uniq:*)",
+  "Bash(cut:*)",
+  "Bash(tr:*)",
+  "Bash(xargs:*)"
+ ],
+ "tasks": [
+  "tokio-joinhandle-abort",
+  "tokio-semaphore-permits",
+  "django-csrf-token",
+  "ktor-respond-text",
+  "typescript-checker-entry",
+  "coroutines-dispatchers-default"
+ ],
+ "corpora": {
+  "TypeScript-5.9": "5be33469d",
+  "django": "5babd2e21a",
+  "kotlinx-coroutines": "f63a04bac",
+  "ktor": "f92fad043",
+  "tokio": "ea91b33c"
+ }
+}

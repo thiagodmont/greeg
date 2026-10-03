@@ -3,15 +3,15 @@
 
     bench/agent/analyze.py runs.json [--pairs 10000]
 
-For each metric (success rate, turns, search calls, output tokens, cost, wall
-time) pairs runs by (task, run number) across arms, reports the mean paired
+For each metric (success rate, turns, search calls, tool output, tokens,
+cache writes and reads, cost, wall time) pairs runs by (task, run number) across arms, reports the mean paired
 difference and a 95 % bootstrap interval. Success is reported as a rate with
 the interval on the difference in rates. Runs marked invalid by extract.py
 are listed and left out, and so are their pairs.
 """
 import json, random, statistics, sys
 
-METRICS = [("success", "success rate"), ("turns", "turns"), ("search_calls", "search calls"), ("output_tokens", "output tokens"), ("input_tokens", "input tokens"), ("cost_usd", "cost USD"), ("duration_s", "wall time s")]
+METRICS = [("success", "success rate"), ("turns", "turns"), ("search_calls", "search calls"), ("tool_output_chars", "tool output ch"), ("output_tokens", "output tokens"), ("input_tokens", "input tokens"), ("cache_creation", "cache writes"), ("cache_read", "cache reads"), ("cost_usd", "cost USD"), ("duration_s", "wall time s")]
 
 
 def value(r, m):

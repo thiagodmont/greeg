@@ -66,7 +66,7 @@ answer = "checkSourceFile at src/compiler/checker.ts:49277, called by checkSourc
 id = "coroutines-dispatchers-default"
 corpus = "kotlinx-coroutines"
 prompt = "How is Dispatchers.Default implemented on the JVM: which class backs it and where is the thread count decided? file:line each."
-check = "grep -q 'DefaultScheduler\\|CoroutineScheduler' answer.txt && grep -q 'kotlinx-coroutines-core/jvm' answer.txt"
+check = "grep -q 'DefaultScheduler\\|CoroutineScheduler' answer.txt && grep -q 'jvm/src' answer.txt"
 answer = "Dispatchers.Default is DefaultScheduler (kotlinx-coroutines-core/jvm/src/scheduling/Dispatcher.kt:9), backed by CoroutineScheduler; the thread count is CORE_POOL_SIZE at kotlinx-coroutines-core/jvm/src/scheduling/Tasks.kt:29."
 
 [[task]]

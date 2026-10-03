@@ -1,0 +1,23 @@
+arm A search calls decided by: hook 0, output 0, intent 39
+arm B search calls decided by: hook 36, output 0, intent 0
+arm C search calls decided by: hook 81, output 0, intent 0
+
+task                                 A ok     A $  A turns   B ok     B $  B turns   C ok     C $  C turns
+coroutines-dispatchers-default       2/2    0.033      4.5   2/2    0.028      4.0   2/2    0.045      6.0
+django-csrf-token                    2/2    0.040      4.5   2/2    0.046      4.5   2/2    0.034      4.5
+ktor-respond-text                    2/2    0.039      6.5   2/2    0.034      6.5   2/2    0.023      4.0
+tokio-joinhandle-abort               2/2    0.030      2.5   2/2    0.043      3.5   2/2    0.049      5.0
+tokio-semaphore-permits              2/2    0.012      2.0   2/2    0.019      2.0   2/2    0.033      5.5
+typescript-checker-entry             2/2    0.013      2.5   2/2    0.021      3.0   2/2    0.020      4.0
+
+metric                  A          B          C   paired difference vs A (95 % bootstrap)
+success rate         1.00       1.00       1.00   B: +0.00 [+0.00, +0.00] n=12   C: +0.00 [+0.00, +0.00] n=12
+turns                3.75       3.92       4.83   B: +0.17 [-0.25, +0.67] n=12   C: +1.08 [-0.17, +2.17] n=12
+search calls         3.25       3.00       6.75   B: -0.25 [-1.08, +0.58] n=12   C: +3.50 [+1.08, +5.83] n=12
+tool output ch    4019.00    5049.75    5608.08   B: +1030.75 [+566.67, +1574.50] n=12   C: +1589.08 [-475.42, +3258.25] n=12
+output tokens      523.67     610.25     522.17   B: +86.58 [-39.33, +268.33] n=12   C: -1.50 [-187.92, +143.17] n=12
+input tokens         9.00       9.17      13.50   B: +0.17 [-0.67, +1.17] n=12   C: +4.50 [+1.17, +7.50] n=12
+cache writes      3994.83    5039.17    5437.83   B: +1044.33 [-136.17, +2110.50] n=12   C: +1443.00 [-390.92, +3204.75] n=12
+cache reads      27121.58   27716.33   41466.83   B: +594.75 [-2749.92, +4048.17] n=12   C: +14345.25 [+1755.58, +26156.08] n=12
+cost USD             0.03       0.03       0.03   B: +0.00 [-0.00, +0.01] n=12   C: +0.01 [-0.00, +0.01] n=12
+wall time s         11.81      11.52      13.47   B: -0.28 [-1.78, +1.29] n=12   C: +1.67 [-2.06, +5.24] n=12
