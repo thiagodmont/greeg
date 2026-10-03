@@ -1,0 +1,83 @@
+fuzz/seeds.py
+  s_b1057b2933cdb0::t_b1062f8fdb864d 1-10,12-77,80-85,89-92
+  s_b1057b2933cdb0::t_1c48b64a6fd940 11,78-79
+  s_b1057b2933cdb0::t_8afe9093237783 86-88
+fuzz/seeds/lang_extract/unterminated
+  s_b1057b2933cdb0::t_1c48b64a6fd940 1
+fuzz/seeds/shell_rewrite/quoted
+  s_b1057b2933cdb0::t_1c48b64a6fd940 1
+fuzz/seeds/shell_rewrite/fixed
+  s_b1057b2933cdb0::t_1c48b64a6fd940 1
+fuzz/fuzz_targets/lang_extract.rs
+  s_b1057b2933cdb0::t_ec65161deab55e 1-40
+fuzz/fuzz_targets/regex_plan.rs
+  s_b1057b2933cdb0::t_ec65161deab55e 1-59
+fuzz/seeds/shell_rewrite/plain
+  s_b1057b2933cdb0::t_1c48b64a6fd940 1
+references/ARCHITECTURE.md
+  s_b1057b2933cdb0::t_0980f6d8656c7e 877-880
+  s_b1057b2933cdb0::t_0fb54cc85b19fc 872-876,881
+fuzz/seeds/lang_extract/typescript
+  s_b1057b2933cdb0::t_1c48b64a6fd940 1-5
+fuzz/seeds/shell_rewrite/grep
+  s_b1057b2933cdb0::t_1c48b64a6fd940 1
+fuzz/seeds/shell_rewrite/pipe
+  s_b1057b2933cdb0::t_1c48b64a6fd940 1
+fuzz/seeds/shell_rewrite/verb
+  s_b1057b2933cdb0::t_1c48b64a6fd940 1
+fuzz/seeds/lang_extract/kotlin
+  s_b1057b2933cdb0::t_1c48b64a6fd940 1-7
+fuzz/seeds/shell_rewrite/flags
+  s_b1057b2933cdb0::t_1c48b64a6fd940 1
+fuzz/Cargo.toml
+  s_b1057b2933cdb0::t_ec65161deab55e 1-48
+crates/greeg-index/src/format.rs
+  s_b1057b2933cdb0::t_a309e83e7ca8b9 545-546
+  s_b1057b2933cdb0::t_aac1953e7e219e 654-674
+  s_b1057b2933cdb0::t_2f8b4c333b7b58 276-280
+  s_b1057b2933cdb0::t_91ecffaec9dcb7 675
+fuzz/seeds/lang_extract/javascript
+  s_b1057b2933cdb0::t_1c48b64a6fd940 1-2
+.github/workflows/fuzz.yml
+  s_b1057b2933cdb0::t_1b869332b84d70 1-28,30-40
+  s_b1057b2933cdb0::t_1cd18a95987e9d 29
+fuzz/seeds/lang_extract/rust
+  s_b1057b2933cdb0::t_1c48b64a6fd940 1-10
+crates/greeg-index/src/symtab.rs
+  s_b1057b2933cdb0::t_e446046a6ae1e3 932,939,1069-1072
+  s_b1057b2933cdb0::t_aac1953e7e219e 1077-1087
+  s_b1057b2933cdb0::t_46d04259359841 1073-1074
+fuzz/fuzz_targets/shell_rewrite.rs
+  s_b1057b2933cdb0::t_ec65161deab55e 1-24
+fuzz/seeds/shell_rewrite/dashdash
+  s_b1057b2933cdb0::t_1c48b64a6fd940 1
+Cargo.toml
+  s_b1057b2933cdb0::t_1cd18a95987e9d 4
+fuzz/fuzz_targets/index_decode.rs
+  s_b1057b2933cdb0::t_1e1e5b9c248295 3-4,9,25,97-105
+  s_b1057b2933cdb0::t_e53fd0d74fa6ac 1-2,5-8,10-20,26-96,106-107,111-117
+  s_b1057b2933cdb0::t_2f8b4c333b7b58 108-110
+  s_b1057b2933cdb0::t_1e0447d00ec971 21-24
+fuzz/.gitignore
+  s_b1057b2933cdb0::t_46b78af5104f5e 1-4
+fuzz/seeds/lang_extract/tsx
+  s_b1057b2933cdb0::t_5bc6be860efe39 1-2
+fuzz/Cargo.lock
+  s_b1057b2933cdb0::t_7e21420f815e17 1-626
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "3b2bb528dfa0bb3d9fee01844fd62009a6ba833a",
+  "prompts": {},
+  "sessions": {
+    "s_b1057b2933cdb0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0aa73425-0ec9-4b76-ae94-35b6bdff17bb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
