@@ -1,0 +1,33 @@
+crates/greeg/tests/differential.rs
+  s_b1057b2933cdb0::t_1d221625d3acd5 90-92,102-115,138-142,200-207,224-226,261-266
+  s_b1057b2933cdb0::t_86482d0ff1611c 3-4,208,211-218,222-223,260
+  s_b1057b2933cdb0::t_0a7dfc5c282384 1-2,5-89,93-101,116-137,143-199,209-210,219-221,227-259,267-291
+crates/greeg-index/Cargo.toml
+  s_b1057b2933cdb0::t_0a7dfc5c282384 28
+.github/workflows/ci.yml
+  s_b1057b2933cdb0::t_be36f63d0d55b9 29-38,40-41
+crates/greeg-index/tests/plan_props.rs
+  s_b1057b2933cdb0::t_0a7dfc5c282384 1-3,5-28,31-43,47-62,73,76-108,112-135,141-145,151-158,167,174-177,179-186
+  s_b1057b2933cdb0::t_1d221625d3acd5 29-30,44-46,63-72,74-75,109-111,146-150,159-166,168-173
+  s_b1057b2933cdb0::t_86482d0ff1611c 4,136-140,178
+.github/workflows/nightly.yml
+  s_b1057b2933cdb0::t_be36f63d0d55b9 34-42
+Cargo.lock
+  s_b1057b2933cdb0::t_9e80056e8b47ea 428
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "317a9905acd311f0421d598023a97d0cd4abcf7c",
+  "prompts": {},
+  "sessions": {
+    "s_b1057b2933cdb0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0aa73425-0ec9-4b76-ae94-35b6bdff17bb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
