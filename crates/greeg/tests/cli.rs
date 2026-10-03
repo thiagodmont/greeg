@@ -1902,6 +1902,32 @@ fn json_fits_its_budget() {
     }
 }
 
+/// A verb cut by both limits names both: raising `--max-bytes` alone
+/// would still leave out what the budget cut.
+#[test]
+fn a_cut_names_every_limit_that_cut_it() {
+    let f = empty_fixture();
+    let mut src = String::from("pub fn long() {\n");
+    for i in 0..80 {
+        src.push_str(&format!("    let value_{i} = {i};\n"));
+    }
+    src.push_str("}\n");
+    w(&f.root.join("src/lib.rs"), &src);
+    f.indexed();
+    let show = |extra: &[&str]| {
+        let mut a = vec!["show", "src/lib.rs:1"];
+        a.extend_from_slice(extra);
+        f.out(&a)
+    };
+    let budgeted = show(&["--budget", "300"]);
+    assert!(budgeted.contains("(raise --budget)"), "{budgeted}");
+    let cap = (budgeted.len() * 2 / 3).to_string();
+    let both = show(&["--budget", "300", "--max-bytes", &cap]);
+    assert!(both.contains("(raise --budget and --max-bytes)"), "{both}");
+    let bytes = show(&["--budget", "0", "--max-bytes", &cap]);
+    assert!(bytes.contains("(raise --max-bytes)"), "{bytes}");
+}
+
 /// `--max-bytes` bounds stdout in every format: the answer fits, stays whole
 /// records, and says the ceiling cut it; a ceiling below its floor is an error.
 #[test]
@@ -1988,6 +2014,10 @@ fn max_bytes_bounds_stdout() {
                         }
                     }
                 } else if cut {
+                    assert!(
+                        text.is_empty() || text.ends_with('\n'),
+                        "{ctx}: text cut inside a line: {text:?}"
+                    );
                     let all = format!("{text}{}", String::from_utf8_lossy(&out.stderr));
                     assert!(all.contains("--max-bytes"), "{ctx}: {all}");
                 }

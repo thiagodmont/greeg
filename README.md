@@ -288,9 +288,9 @@ greeg budget low      # 1000; also medium (2000), high (5000), a number, or none
 greeg budget none     # no limit: every search prints every match
 ```
 
-`--max-bytes N` caps stdout at N bytes, on top of the budget: the answer keeps
-the most results that fit, in whole lines and records, and its footer says
-`cut by --max-bytes` (`truncated_by: "bytes"` in JSON). It applies to `-l`,
+`--max-bytes N` caps stdout at N bytes, on top of the budget (`0`, the default,
+sets no cap): the answer is fitted to both limits, in whole lines and records,
+and its footer says `cut by --max-bytes` (`truncated_by: "bytes"` in JSON). It applies to `-l`,
 `-c`, `--budget 0` and stdin too, which keep their first results. When not even
 the smallest answer fits, greeg writes nothing and exits `2`. `--json=rg` takes
 no `--max-bytes`.
