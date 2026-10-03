@@ -2950,3 +2950,59 @@ fn bare_json_is_legacy_and_names_its_change_only_to_a_person() {
     assert!(!json_lines(&out).is_empty(), "{out}");
     assert_eq!(err.matches(notice).count(), 1, "{err}");
 }
+
+/// `--capabilities` is one JSON record whose commands and flags are the ones
+/// the parser accepts, as each command's help lists them.
+#[test]
+fn capabilities_list_what_the_parser_accepts() {
+    let o = greeg().arg("--capabilities").output().unwrap();
+    assert!(o.status.success());
+    let out = String::from_utf8(o.stdout).unwrap();
+    assert_eq!(out.lines().count(), 1);
+    let rec: serde_json::Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(rec["type"], "capabilities");
+    let d = &rec["data"];
+    assert_eq!(d["schema"], 1);
+    let version = String::from_utf8(greeg().arg("--version").output().unwrap().stdout).unwrap();
+    assert_eq!(
+        version.trim(),
+        format!("greeg {}", d["version"].as_str().unwrap())
+    );
+    assert_eq!(d["budget"]["default"], 2000);
+    assert_eq!(d["budget"]["source"], "default");
+    for flag in ["--budget", "--max-bytes", "--json", "--capabilities"] {
+        assert!(
+            d["search"]["flags"]
+                .as_array()
+                .unwrap()
+                .contains(&flag.into()),
+            "{flag}"
+        );
+    }
+    fn check(path: &mut Vec<String>, entry: &serde_json::Value) {
+        let mut args = path.clone();
+        args.push("--help".into());
+        let o = greeg().args(&args).output().unwrap();
+        let help = String::from_utf8_lossy(&o.stdout);
+        assert!(o.status.success(), "{path:?}");
+        for flag in entry["flags"].as_array().unwrap() {
+            let flag = flag.as_str().unwrap();
+            assert!(help.contains(flag), "{path:?} lists {flag}:\n{help}");
+        }
+        if let Some(commands) = entry["commands"].as_object() {
+            for (name, sub) in commands {
+                path.push(name.clone());
+                check(path, sub);
+                path.pop();
+            }
+        }
+    }
+    check(&mut Vec::new(), &d["search"]);
+    check(
+        &mut Vec::new(),
+        &serde_json::json!({"flags": [], "commands": d["commands"]}),
+    );
+    let refused = greeg().args(["--capabilities", "foo"]).output().unwrap();
+    assert_eq!(refused.status.code(), Some(2));
+    assert!(refused.stdout.is_empty());
+}

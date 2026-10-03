@@ -52,6 +52,18 @@ fn decide() -> (usize, Source) {
     }
 }
 
+/// The budget a run uses without `--budget`, and where it is set: `env`,
+/// `config` or `default`.
+pub fn in_effect() -> (usize, &'static str) {
+    let (n, source) = decide();
+    let from = match source {
+        Source::Env => "env",
+        Source::Config => "config",
+        Source::Default => "default",
+    };
+    (n, from)
+}
+
 /// [`decide`], once per process.
 pub fn configured() -> usize {
     static B: OnceLock<usize> = OnceLock::new();
