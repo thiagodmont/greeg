@@ -91,7 +91,7 @@ Every footer has `outcome`:
 | `rung` | `exact`, or the relaxed rung that answered |
 | `total` | eligible results: matched lines for a search, entries for a verb (for `impact`, referring files plus callers) |
 | `shown` | results the answer shows |
-| `complete` | `shown` is all of `total`; false only when the budget left results out (or, for `show`, clipped a body) |
+| `complete` | `shown` is all of `total`; false only when the budget or `--max-bytes` left results out (or, for `show`, clipped a body) |
 | `truncated_by` | `"bytes"` when `--max-bytes` cut the answer, `"budget"` when it is otherwise not complete, else null |
 | `source` | `index`, `index (phase 1)` or `scan`; `parse` or `regex` for a file `outline` read itself; `text` for `show` read from the file, or whose locations were not all read one way |
 | `fresh` | the freshness check an index answer ran (`ttl`, `stat`, `fsevents`, `none`; for `show`, the weakest of its locations), empty when files were read directly (a scan, or `show` and `outline` without the index) |
