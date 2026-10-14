@@ -1,0 +1,25 @@
+crates/greeg-query/tests/ranked_memory.rs
+  s_eefb2647553a67::t_3b0e8a2015f58e 1-54
+crates/greeg-query/src/indexed.rs
+  s_eefb2647553a67::t_7a186f2cad57b1 867
+crates/greeg-query/src/lib.rs
+  s_eefb2647553a67::t_3d3e16a95c6a4a 775-778,781-782,807-808,902-906,1738,1741-1742,1796-1867,1878-1879,1899-1903,1905-1906,1913-1918,1921,1941-1942,1946-1948,1951-1960,1979-1980,2004,2006,2036-2084,2385-2420,2588,3039-3100
+references/ARCHITECTURE.md
+  s_eefb2647553a67::t_bc647358edcd64 246-252
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "9c99e83de67bab8ae29b8d54a25256f3d49eb54d",
+  "prompts": {},
+  "sessions": {
+    "s_eefb2647553a67": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9fff36d3-3b5f-4343-be78-7893a6fe3965",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
