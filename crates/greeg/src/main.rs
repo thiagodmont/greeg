@@ -1651,6 +1651,8 @@ fn keep_within(
     let first = |n: usize, limit: usize| -> Result<Option<(Report, usize)>> {
         let mut r = report.keep(n);
         r.footer.hints.insert(0, format!("--max-bytes {}", cap * 2));
+        // the narrowest estimate, so a rendering over `limit` is over with its own
+        r.footer.est_tokens = 0;
         let Some(out) = within(&r, limit, true)? else {
             return Ok(None);
         };
@@ -1658,10 +1660,13 @@ fn keep_within(
         Ok(within(&r, limit, false)?.map(|w| (r, w.len)))
     };
     let best = largest_below(report.units(), |n| Ok(first(n, cap)?.map(|(r, _)| r)))?;
-    match best {
-        Some(kept) => Ok(kept),
-        None => {
-            let n = first(0, usize::MAX)?.map_or(0, |(_, n)| n);
+    if let Some(kept) = best {
+        return Ok(kept);
+    }
+    match first(0, usize::MAX)? {
+        Some((floor, n)) if n <= cap => Ok(floor),
+        floor => {
+            let n = floor.map_or(0, |(_, n)| n);
             anyhow::bail!("--max-bytes {cap} is below the {n} bytes this answer needs")
         }
     }
@@ -2829,6 +2834,43 @@ mod tests {
             Cli::try_parse_from(["greeg", "--help"]).is_err(),
             "--help exits through clap's help action"
         );
+    }
+
+    /// A kept part is measured with its own token estimate, not the whole
+    /// answer's wider one: a cap fits an answer unless it needs more bytes.
+    #[test]
+    fn max_bytes_measures_what_it_keeps_with_its_own_estimate() {
+        let cli = Cli::try_parse_from(["greeg", "--json=greeg", "x"]).unwrap();
+        let c = &cli.common;
+        let opts = Options {
+            pattern: "x".into(),
+            budget: 0,
+            ..Default::default()
+        };
+        let mut result = greeg_query::stdin::scan(&opts, "x\n".repeat(20_000).into()).unwrap();
+        result.stats.elapsed_ms = 0.0;
+        let report = greeg_query::shape::shape(&mut result);
+        assert!(report.footer.est_tokens > 10_000);
+        let fmt = Fmt {
+            chain: false,
+            stats: false,
+            line_numbers: false,
+            stdin: true,
+        };
+        let mut kept = 0;
+        for cap in 1..2_000 {
+            match keep_within(c, &result, report.clone(), fmt, cap) {
+                Ok(r) => {
+                    assert!(render_search(c, &result, &r, fmt).unwrap().0.len() <= cap);
+                    kept += 1;
+                }
+                Err(e) => {
+                    let need: usize = e.to_string().split(' ').nth(5).unwrap().parse().unwrap();
+                    assert!(need > cap, "--max-bytes {cap}: {e}");
+                }
+            }
+        }
+        assert!(kept > 1_000);
     }
 
     /// A flag greeg cannot honour must fail loudly. `-a` and `-uuu` ask for
