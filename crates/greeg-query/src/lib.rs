@@ -220,13 +220,15 @@ pub struct Hit {
     pub line: u32,
     /// Absolute byte offset of the (untrimmed) line start.
     pub line_start: u32,
-    /// Absolute byte offset of the first submatch on the line.
+    /// Absolute byte offset of the match that stands for the line: the first,
+    /// or under a kind filter the first of a requested kind.
     pub match_start: u32,
-    /// End of the first submatch; may pass the line end under `-U`.
+    /// End of that match; may pass the line end under `-U`.
     pub match_end: u32,
-    /// Every submatch on this line as absolute byte ranges (first ==
-    /// match_start..match_end) when there are several; empty for one. Read
-    /// them through [`raw_submatches`](Self::raw_submatches).
+    /// Every submatch on this line as absolute byte ranges, in line order,
+    /// when there are several (match_start..match_end among them, not always
+    /// first); empty for one. Read them through
+    /// [`raw_submatches`](Self::raw_submatches).
     pub submatches: Box<[(u32, u32)]>,
     pub kind: HitKind,
     /// Enclosing definition chain, outermost first.
@@ -274,7 +276,7 @@ impl Hit {
         );
         (std::borrow::Cow::Owned(text), clipped)
     }
-    /// Column (byte offset) of the first submatch within `raw`.
+    /// Column (byte offset) of `match_start` within `raw`.
     pub fn column(&self) -> u32 {
         self.match_start - self.line_start
     }
