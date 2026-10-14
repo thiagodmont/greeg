@@ -1892,14 +1892,14 @@ pub fn clip_line(
     let end = (start + window).min(line.len());
     let mut start = end.saturating_sub(window);
     let mut end = end;
-    // whole UTF-8 characters at both edges (at most three continuation
-    // bytes, so other encodings lose no more); the match is whole already
+    // whole UTF-8 characters at both edges, also where a long match is cut
+    // (at most three continuation bytes, so other encodings lose no more)
     let continues = |i: usize| line.get(i).is_some_and(|b| b & 0xC0 == 0x80);
     for _ in 0..3 {
         if start < ms && continues(start) {
             start += 1;
         }
-        if end > me && continues(end) {
+        if end > ms && continues(end) {
             end -= 1;
         }
     }
@@ -2532,6 +2532,20 @@ mod tests {
                 assert!(!s.contains('\u{fffd}'));
                 assert_eq!(&t[ts..te], &line[ms..me]);
             }
+        }
+    }
+
+    /// A match wider than the window is cut on a whole character too.
+    #[test]
+    fn clip_line_cuts_a_long_match_on_whole_characters() {
+        let line = format!("let s = \"{}\"; x", "é".repeat(100)).into_bytes();
+        let (ms, me) = (8, line.len() - 3);
+        for max in 20..60 {
+            let (t, c, (ts, te)) = clip_line(&line, ms, me, max);
+            assert!(c);
+            let s = std::str::from_utf8(&t).expect("whole characters");
+            assert!(!s.contains('\u{fffd}'));
+            assert!(line[ms..me].starts_with(&t[ts..te]));
         }
     }
 
