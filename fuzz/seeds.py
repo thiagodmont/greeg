@@ -3,14 +3,31 @@
 Index seeds are the component bodies of a real index of a small tree, built
 with the greeg binary given (default target/debug/greeg).
 usage: python3 fuzz/seeds.py [GREEG]"""
-import os, pathlib, subprocess, sys, tempfile
+import os, pathlib, re, subprocess, sys, tempfile
 
 HERE = pathlib.Path(__file__).resolve().parent
 GREEG = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else HERE.parent / "target/debug/greeg")
-HEADER_LEN = 48  # format::HEADER_LEN
-MAGIC = b"GREEG\0\0\0"  # format::MAGIC
-# component id (format::COMP_*) -> the index_decode selector
-SELECTOR = {1: 0, 2: 1, 8: 2, 5: 3, 6: 4, 7: 5, 9: 7}
+INDEX_SRC = HERE.parent / "crates/greeg-index/src"
+
+
+def const(file, name):
+    m = re.search(rf"pub const {name}: [^=]+= (.+);", (INDEX_SRC / file).read_text())
+    if not m:
+        sys.exit(f"{name} not found in {file}")
+    return m.group(1)
+
+
+# the header this script reads: magic, format u32 at 8, component u8 at 12, payload length u64 at 16
+HEADER_LEN = 48
+MAGIC = b"GREEG\0\0\0"
+if (const("format.rs", "HEADER_LEN"), const("format.rs", "MAGIC")) != ("48", r'b"GREEG\0\0\0"'):
+    sys.exit("the index header changed: update seeds.py")
+FORMAT_VERSION = int(const("lib.rs", "FORMAT_VERSION"))
+# component (format::COMP_*) -> the index_decode selector
+SELECTOR = {
+    int(const("format.rs", f"COMP_{name}")): sel
+    for name, sel in [("FILES", 0), ("GRAMS", 1), ("WORDS", 2), ("SYMBOLS", 3), ("SPANS", 4), ("GRAPH", 5), ("SKIPPED", 7)]
+}
 
 SOURCES = {
     "src/lib.rs": "use std::io;\n/// Doc.\npub fn spawn_task(n: u32) -> io::Result<u32> {\n    helper(n) // call\n}\nfn helper(n: u32) -> io::Result<u32> { Ok(n) }\npub struct Pool { size: usize }\nimpl Pool {\n    pub fn new() -> Self { Pool { size: 4 } }\n}\n",
@@ -37,7 +54,7 @@ TEXT = {
         "plain": b"rg -n foo src",
         "quoted": b"rg -i 'a b' -g '*.rs' .",
         "dashdash": b"rg -e pattern -- -x file",
-        "flags": b"rg -uu -w --max-count 3 -C 2 Needle",
+        "flags": b"rg -uu -w --max-columns 80 -C 2 Needle",
         "dash_value": b"rg --glob=-a.txt -g -b.rs Needle",
         "fixed": b'rg -F "x.y" src/lib.rs',
         "verb": b"rg def",
@@ -74,21 +91,26 @@ with tempfile.TemporaryDirectory() as t:
         (root / rel).write_text(body)
     env = dict(os.environ, HOME=t, GREEG_INDEX_DIR=str(index), GREEG_STATS="0", GREEG_CONFIG_DIR="/dev/null/greeg-config")
     subprocess.run([GREEG, "index", "--quiet"], cwd=root, env=env, check=True)
-    found = 0
+    found = set()
     for f in sorted(index.rglob("*")):
         b = f.read_bytes() if f.is_file() else b""
         if len(b) < HEADER_LEN or b[:8] != MAGIC:
             continue
+        version = int.from_bytes(b[8:12], "little")
+        if version != FORMAT_VERSION:
+            sys.exit(f"{f}: index format {version}, want {FORMAT_VERSION}")
         comp = b[12]
         if comp not in SELECTOR:
             continue
         n = int.from_bytes(b[16:24], "little")
+        if HEADER_LEN + n > len(b):
+            sys.exit(f"{f}: payload of {n} bytes past the end of a {len(b)}-byte file")
         body = b[HEADER_LEN:HEADER_LEN + n]
         write("index_decode", f"comp{comp}", bytes([SELECTOR[comp]]) + body)
-        if comp == 9:
+        if SELECTOR[comp] == 7:
             # the skipped list is also read from its whole file
             write("index_decode", "skipped_file", bytes([SELECTOR[comp]]) + b)
-        found += 1
-    if found < 7:
-        sys.exit(f"found {found} index components, want 7")
+        found.add(comp)
+    if found != SELECTOR.keys():
+        sys.exit(f"found index components {sorted(found)}, want {sorted(SELECTOR)}")
 print("seeds written to", HERE / "seeds")
