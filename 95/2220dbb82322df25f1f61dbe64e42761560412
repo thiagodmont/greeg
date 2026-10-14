@@ -1,0 +1,33 @@
+bench/test_agent_tasks.py
+  s_b1057b2933cdb0::t_bb40efaebd035b 40,45,51,53,55
+bench/agent/run.py
+  s_b1057b2933cdb0::t_bb40efaebd035b 28,39-44,98,139-141,143-144,146-148,161
+crates/greeg/src/main.rs
+  s_eefb2647553a67::t_52c1f260818290 3088
+crates/greeg/src/verbs_out.rs
+  s_eefb2647553a67::t_f3213db2ac17c1 1926
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "952220dbb82322df25f1f61dbe64e42761560412",
+  "prompts": {},
+  "sessions": {
+    "s_b1057b2933cdb0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0aa73425-0ec9-4b76-ae94-35b6bdff17bb",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    },
+    "s_eefb2647553a67": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9fff36d3-3b5f-4343-be78-7893a6fe3965",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
