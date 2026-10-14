@@ -1635,43 +1635,100 @@ fn keep_within(
     fmt: Fmt,
     cap: usize,
 ) -> Result<Report> {
-    let size = |r: &Report| -> Result<usize> { Ok(render_search(c, result, r, fmt)?.0.len()) };
-    let whole = size(&report)?;
-    if whole <= cap {
+    // stdout if it fits `limit`, rendered no further than that
+    let within = |r: &Report, limit: usize, keep: bool| -> Result<Option<Capped>> {
+        let mut w = Capped::new(limit, keep);
+        match write_search(c, &mut w, result, r, fmt) {
+            Ok(_) => Ok(Some(w)),
+            Err(_) if w.over => Ok(None),
+            Err(e) => Err(e),
+        }
+    };
+    if within(&report, cap, false)?.is_some() {
         return Ok(report);
     }
     // the first `n`, with the hint and the estimate of what it writes
-    let first = |n: usize| -> Result<(Report, usize)> {
+    let first = |n: usize, limit: usize| -> Result<Option<(Report, usize)>> {
         let mut r = report.keep(n);
         r.footer.hints.insert(0, format!("--max-bytes {}", cap * 2));
-        let out = render_search(c, result, &r, fmt)?.0;
-        r.footer.est_tokens = greeg_query::tokens::rendered(&out);
-        let n = size(&r)?;
-        Ok((r, n))
+        let Some(out) = within(&r, limit, true)? else {
+            return Ok(None);
+        };
+        r.footer.est_tokens = greeg_query::tokens::rendered(&out.buf);
+        Ok(within(&r, limit, false)?.map(|w| (r, w.len)))
     };
-    let (mut lo, mut hi) = (0, report.units().saturating_sub(1));
-    // a guess from the average result's size spares rendering large halves
-    let guess = (report.units() * cap / whole * 2).max(1);
-    if guess < hi {
-        if first(guess)?.1 <= cap {
-            lo = guess;
-        } else {
-            hi = guess - 1;
+    let best = largest_below(report.units(), |n| Ok(first(n, cap)?.map(|(r, _)| r)))?;
+    match best {
+        Some(kept) => Ok(kept),
+        None => {
+            let n = first(0, usize::MAX)?.map_or(0, |(_, n)| n);
+            anyhow::bail!("--max-bytes {cap} is below the {n} bytes this answer needs")
         }
     }
-    while lo < hi {
-        let mid = lo + (hi - lo).div_ceil(2);
-        if first(mid)?.1 <= cap {
-            lo = mid;
-        } else {
-            hi = mid - 1;
+}
+
+/// The passing probe at the largest `n` below `over`, doubling from 0 and then
+/// bisecting, so a probe stays near the size that passes; `over` may be
+/// unbounded. Assumes a probe that fails at `n` fails above it too.
+pub(crate) fn largest_below<T>(
+    mut over: usize,
+    mut probe: impl FnMut(usize) -> Result<Option<T>>,
+) -> Result<Option<T>> {
+    let (mut best, mut lo, mut n) = (None, 0, 0);
+    while n < over {
+        match probe(n)? {
+            Some(t) => (best, lo) = (Some(t), n + 1),
+            None => over = n,
+        }
+        n = n.saturating_mul(2).max(1);
+    }
+    while lo < over {
+        let mid = lo + (over - lo) / 2;
+        match probe(mid)? {
+            Some(t) => (best, lo) = (Some(t), mid + 1),
+            None => over = mid,
         }
     }
-    let (kept, n) = first(lo)?;
-    if n > cap {
-        anyhow::bail!("--max-bytes {cap} is below the {n} bytes this answer needs");
+    Ok(best)
+}
+
+/// A sink whose writes fail past `cap` bytes; it keeps them when asked.
+struct Capped {
+    cap: usize,
+    len: usize,
+    over: bool,
+    keep: bool,
+    buf: Vec<u8>,
+}
+
+impl Capped {
+    fn new(cap: usize, keep: bool) -> Self {
+        Capped {
+            cap,
+            len: 0,
+            over: false,
+            keep,
+            buf: Vec::new(),
+        }
     }
-    Ok(kept)
+}
+
+impl Write for Capped {
+    fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+        if b.len() > self.cap - self.len {
+            self.over = true;
+            return Err(std::io::Error::other("over --max-bytes"));
+        }
+        self.len += b.len();
+        if self.keep {
+            self.buf.extend_from_slice(b);
+        }
+        Ok(b.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
 }
 
 /// Write the answer: JSON records, or the text body plus the footer (stdout;
