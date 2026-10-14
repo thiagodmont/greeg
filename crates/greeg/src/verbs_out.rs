@@ -184,15 +184,26 @@ fn fit(
     if bytes_fit(&by_budget.0) {
         return Ok(by_budget);
     }
+    // the largest passing allowance below `over` (`rows` is over the ceiling)
+    let below = |over: usize, (bytes, budget): (bool, bool), pass: &dyn Fn(&[u8]) -> bool| {
+        crate::largest_below(over, |rows| {
+            let r = render(Cut {
+                rows,
+                bytes,
+                budget,
+            })?;
+            Ok(pass(&r.0).then_some(r))
+        })
+    };
     // the ceiling cuts further; below the budget's floor only bytes count
     let both = |b: &[u8]| tokens_fit(b) && bytes_fit(b);
     let cut = (true, rows < max);
-    let found = match largest(rows, cut, &both)? {
+    let found = match below(rows, cut, &both)? {
         Some(f) => Some(f),
-        None => largest(rows, cut, &bytes_fit)?,
+        None => below(rows, cut, &bytes_fit)?,
     };
     match found {
-        Some((_, r)) => Ok(r),
+        Some(r) => Ok(r),
         None => {
             let floor = render(Cut {
                 rows: 0,
@@ -1739,4 +1750,35 @@ pub fn run_impact(c: &Common, o: &Options, name: &str) -> Result<()> {
         Ok((w, oc))
     };
     finish_fit(w, "impact", fit(o, per_group, render)?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::cell::Cell;
+
+    /// `--budget 0` leaves the allowance unbounded; fitting `--max-bytes`
+    /// must not render the whole answer again and again.
+    #[test]
+    fn byte_fit_renders_near_the_ceiling() {
+        let o = Options {
+            budget: 0,
+            max_bytes: 100,
+            ..Default::default()
+        };
+        let (renders, widest) = (Cell::new(0), Cell::new(0));
+        let render = |cut: Cut| -> Result<(Vec<u8>, Outcome)> {
+            let shown = cut.rows.min(10_000);
+            renders.set(renders.get() + 1);
+            if cut.bytes {
+                widest.set(widest.get().max(shown));
+            }
+            let oc = answered_outcome(10_000, shown, "scan", "");
+            Ok(("x\n".repeat(shown).into_bytes(), oc))
+        };
+        let (out, _) = fit(&o, usize::MAX, render).unwrap();
+        assert_eq!(out.len(), 100);
+        assert!(renders.get() <= 16, "{} renders", renders.get());
+        assert!(widest.get() <= 128, "rendered {} rows", widest.get());
+    }
 }
