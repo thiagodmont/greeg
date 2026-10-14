@@ -243,11 +243,13 @@ Cleanup touches only those names, at most 64 per publication.
    the top hits. What an agent needs first from a 357-hit query is the shape of
    the answer, and 50 lines of it won't tell you that.
 
-   Facets count every matched line: each is classified, and per file only
-   the best are kept for the answer: 16 whole-word matches, 16 others (or
-   `--per-file` of each, if larger) and up to 64 definitions. When at most
-   three files match, an answer can show more of each, so they are read
-   again, keeping their first 64 lines as well.
+   Facets count every matched line: each is classified as it is found, and
+   per file only the best are held for the answer: 16 whole-word matches, 16
+   others (or `--per-file` of each, if larger) and up to 64 definitions, so
+   memory does not grow with a file's matches. When at most three files
+   match and some of their lines were dropped, an answer can show more of
+   each, so those files are read again, keeping their first 64 matched
+   lines as well.
 
 `--explain` reports what the answer was built from (index use or why not,
 freshness, candidate counts, filters, the score terms of the first ten shown

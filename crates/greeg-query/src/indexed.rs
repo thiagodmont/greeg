@@ -864,6 +864,7 @@ pub(crate) fn try_index(
                 *f = again;
             }
         }
+        cx.stats.add_times(&spare);
     }
     let mut files: Vec<FileResult> = found.into_iter().map(|(_, f)| f).collect();
     files.sort_by(|a, b| a.rel.cmp(&b.rel));
