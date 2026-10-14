@@ -1,0 +1,21 @@
+fuzz/seeds.py
+  s_eefb2647553a67::t_8c853ca9eb0dd4 6,10-30,57,94,99-101,106-107,110,113-115
+fuzz/seeds/shell_rewrite/flags
+  s_eefb2647553a67::t_f10cb10fb0e104 1
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "c2a0a3c2cfd54c593a32ee442998fa01c7b60281",
+  "prompts": {},
+  "sessions": {
+    "s_eefb2647553a67": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9fff36d3-3b5f-4343-be78-7893a6fe3965",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
