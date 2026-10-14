@@ -300,10 +300,13 @@ pub fn write_verb_text(w: &mut impl Write, e: &Value, ex: &VerbExplain) -> std::
         })
         .collect();
     if !by.is_empty() {
+        let of = match d["fit"]["of"].as_u64() {
+            Some(n) => format!(" of {n}"),
+            None => String::new(),
+        };
         line += &format!(
-            " · fit {} of {} rows to the {}",
+            " · fit {}{of} rows to the {}",
             d["fit"]["rows"],
-            d["fit"]["of"],
             by.join(" and the ")
         );
     }

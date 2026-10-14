@@ -3176,19 +3176,41 @@ fn explain_says_what_a_search_was_built_from() {
 
 /// A symbol verb's `--explain` adds one record and changes nothing else: in
 /// text it goes to stderr, in JSON before the footer, and to stderr under a
-/// byte ceiling. A definition's score terms multiply to its score.
+/// byte ceiling. Its counts are the fixture's, and a definition's score terms
+/// multiply to its score.
 #[test]
 fn explain_says_how_a_verb_answer_was_built() {
     let f = outcome_fixture();
-    let queries: [&[&str]; 8] = [
-        &["def", "target"],
-        &["refs", "target"],
-        &["callers", "target"],
-        &["impls", "Shape"],
-        &["impact", "target"],
-        &["outline", "src/lib.rs"],
-        &["show", "src/lib.rs:12", "src/lib.rs:20"],
-        &["map", "src"],
+    let queries: [(&[&str], serde_json::Value); 8] = [
+        (&["def", "target"], serde_json::json!({"definitions": 9})),
+        (
+            &["refs", "target"],
+            serde_json::json!({"definitions": 9, "files_searched": 10, "files_matched": 10, "hits": 27}),
+        ),
+        (
+            &["callers", "target"],
+            serde_json::json!({"depth": 1, "files": 2, "hits": 17, "callers": 17}),
+        ),
+        (
+            &["impls", "Shape"],
+            serde_json::json!({"direct": 8, "extras": 0}),
+        ),
+        (
+            &["impact", "target"],
+            serde_json::json!({"definitions": 9, "callers": 17, "hits": 27}),
+        ),
+        (
+            &["outline", "src/lib.rs"],
+            serde_json::json!({"symbols": 35, "imports": 0}),
+        ),
+        (
+            &["show", "src/lib.rs:12", "src/lib.rs:20"],
+            serde_json::json!({"locations": 2, "in_a_definition": 2}),
+        ),
+        (
+            &["map", "src"],
+            serde_json::json!({"files": 10, "symbols": 44}),
+        ),
     ];
     let with = |q: &[&str], extra: &[&str]| {
         let mut a = q.to_vec();
@@ -3196,7 +3218,7 @@ fn explain_says_how_a_verb_answer_was_built() {
         a.extend_from_slice(extra);
         f.run(&a)
     };
-    for q in queries {
+    for (q, counts) in queries {
         let verb = q[0];
         let plain = with(q, &[]);
         let explained = with(q, &["--explain"]);
@@ -3229,6 +3251,9 @@ fn explain_says_how_a_verb_answer_was_built() {
             let oc = &records[n - 1]["data"]["outcome"];
             for k in ["total", "shown", "source"] {
                 assert_eq!(e[k], oc[k], "{q:?} {dialect} {k}");
+            }
+            for (k, n) in counts.as_object().unwrap() {
+                assert_eq!(e["considered"][k], *n, "{q:?} {dialect} {k}");
             }
             if verb == "def" {
                 assert_eq!(e["considered"]["definitions"], e["total"], "{e}");
@@ -3299,6 +3324,35 @@ fn explain_says_how_a_verb_answer_was_built() {
         .find(|r| r["type"] == "explain")
         .unwrap();
     assert!(e["data"]["fit"].is_null(), "{e}");
+    // a byte ceiling under no budget: rows kept, no allowance to cut from
+    for q in [
+        &["callers", "target"][..],
+        &["impls", "Shape"],
+        &["map", "src"],
+    ] {
+        let o = with(
+            q,
+            &[
+                "--json=greeg",
+                "--budget",
+                "0",
+                "--max-bytes",
+                "900",
+                "--explain",
+            ],
+        );
+        let e: serde_json::Value = serde_json::from_slice(&o.stderr).unwrap();
+        let fit = &e["data"]["fit"];
+        assert_eq!(fit["cut_by"], serde_json::json!(["bytes"]), "{q:?} {e}");
+        assert!(fit["rows"].is_u64() && fit["of"].is_null(), "{q:?} {e}");
+    }
+    let o = with(
+        &["refs", "target"],
+        &["--budget", "0", "--max-bytes", "900", "--explain"],
+    );
+    let err = String::from_utf8_lossy(&o.stderr);
+    assert!(err.contains(" rows to the byte ceiling"), "{err}");
+    assert!(!err.contains(&usize::MAX.to_string()), "{err}");
 }
 
 /// Of `-i`, `-s` and `-S`, and of `-w` and `-x`, the last flag given wins, as
