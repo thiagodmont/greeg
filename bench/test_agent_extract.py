@@ -5,7 +5,7 @@ import tempfile
 import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "agent"))
-from extract import read_run, invalid  # noqa: E402
+from extract import invalid, read_run, search_tools_in, writes_in  # noqa: E402
 
 
 def bash(tid, command, description):
@@ -102,6 +102,31 @@ class AgentExtractTests(unittest.TestCase):
         rec, _ = run([bash("a", "rg foo", "d"), result("a", "foo  3 matches · 2 files\n"), END], "B")
         self.assertEqual(rec["search"]["greeg"], 1)
         self.assertEqual(rec["search_evidence"]["output"], 1)
+
+    def test_each_command_of_a_list_counts(self):
+        self.assertEqual(search_tools_in("rg a; grep b && command rg c || greeg d | head"),
+                         ["rg", "grep", "rg", "greeg"])
+        self.assertEqual(search_tools_in("cd src && \\rg a"), ["rg"])
+        self.assertEqual(search_tools_in("ls; cat f"), [])
+
+    def test_commands_that_could_write_are_seen(self):
+        for cmd in ("cat a > out", "grep x f >> log", "grep x f &>log", "find . -name x -exec rm {} \;",
+                    "find . -delete", "sed -i s/a/b/ f", "sed -e s/a/b/ -ni f", "sort -o x f",
+                    "cd src && rm x", "command tee f"):
+            with self.subTest(cmd):
+                self.assertTrue(writes_in(cmd))
+        for cmd in ("rg -n foo src 2>/dev/null | head", "rg x 2>&1 | head", 'grep -rn "a > b" .',
+                    "grep -E '=>' f", "sed -n 1,5p f", "sort -u f | uniq -c", "find . -name '*.rs'"):
+            with self.subTest(cmd):
+                self.assertFalse(writes_in(cmd))
+
+    def test_a_run_that_could_write_is_not_compared(self):
+        _, why = run([bash("a", "find . -name '*.orig' -delete", "d"), result("a", ""), END], "A", meta={})
+        self.assertEqual(why, ["1 commands could write files"])
+        _, why = run([bash("a", "sed -i s/a/b/ f", "d"),
+                      {"type": "system", "subtype": "permission_denied", "tool_use_id": "a"},
+                      result("a", "denied"), END], "A", meta={})
+        self.assertEqual(why, [])
 
     def test_runs_that_cannot_be_compared_say_why(self):
         _, why = run([bash("a", "rg foo", "d"), result("a", "x"), END], "B", meta={})

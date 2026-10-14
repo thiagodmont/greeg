@@ -42,8 +42,10 @@ denied (`permission_denied`) ran nothing and are counted apart.
 A run is marked `invalid`, with reasons, when it has no `meta.json` (only
 `run.py` runs are compared), when its `meta.json` says the workspace changed,
 when the stream has no result, when arm A ran greeg, when a search in arm B or
-C ran without a hook response, or when a hook response could belong to more
-than one waiting call.
+C ran without a hook response, when a command it ran could write files (a
+redirect to a file, `find -exec`/`-delete`, `sed -i`, `sort -o`, `rm`, …; the
+permission rules are not a sandbox), or when a hook response could belong to
+more than one waiting call.
 """
 import json, os, re, sys
 from pathlib import Path
@@ -60,6 +62,32 @@ def search_tools_in(cmd):
         if m:
             out.append(m.group(1))
     return out
+
+
+QUOTED = re.compile(r"'[^']*'|\"(?:[^\"\\]|\\.)*\"")
+REDIRECT = re.compile(r"[\d&]?>>?\|?\s*([^\s;&|<>]*)")
+WRITERS = {"rm", "mv", "cp", "tee", "touch", "mkdir", "ln", "chmod", "truncate", "dd"}
+FIND_WRITES = {"-exec", "-execdir", "-ok", "-okdir", "-delete", "-fprint", "-fprint0", "-fprintf", "-fls"}
+
+
+def writes_in(cmd):
+    """Whether a shell command could write files: a redirect to a file, or a
+    write form of a command (`find -exec`, `sed -i`, `sort -o`, `rm`, …)."""
+    bare = QUOTED.sub("''", cmd or "")
+    if any(m.group(1) not in ("", "/dev/null") for m in REDIRECT.finditer(bare)):
+        return True
+    for seg in re.split(r"\s*(?:\|\||&&|\||;)\s*", bare):
+        words = seg.split()
+        if words[:1] == ["command"]:
+            words = words[1:]
+        if not words:
+            continue
+        name, args = os.path.basename(words[0]), words[1:]
+        if (name in WRITERS or name == "find" and FIND_WRITES & set(args)
+                or name == "sed" and any(re.match(r"-[a-zA-Z]*i|--in-place", a) for a in args)
+                or name == "sort" and any(re.match(r"-[a-zA-Z]*o|--output", a) for a in args)):
+            return True
+    return False
 
 
 def hook_updates(lines):
@@ -177,10 +205,11 @@ def read_run(d):
             rec["duration_ms"] = j.get("duration_ms")
             rec["cost_usd"] = j.get("total_cost_usd")
     rec["denied"] = len(denied)
-    unhooked = 0
+    unhooked = writes = 0
     for tid, intent_cmd in pending.items():
         if tid in denied:
             continue
+        writes += writes_in(intent_cmd) or writes_in(updates.get(tid))
         intended = search_tools_in(intent_cmd)
         if intended and tid not in updates:
             unhooked += len(intended)
@@ -199,6 +228,7 @@ def read_run(d):
     except OSError:
         rec["success"] = None
     rec["unhooked"] = unhooked
+    rec["writes"] = writes
     return rec
 
 
@@ -218,6 +248,8 @@ def invalid(rec, d, arm):
         why.append("arm A ran greeg")
     if arm != "A" and rec["unhooked"]:
         why.append(f"{rec['unhooked']} searches ran without a hook response")
+    if rec.get("writes"):
+        why.append(f"{rec['writes']} commands could write files")
     if rec["ambiguous_hooks"]:
         why.append(f"{rec['ambiguous_hooks']} hook responses could belong to more than one call")
     return why

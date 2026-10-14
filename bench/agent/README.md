@@ -4,7 +4,8 @@ Measures whether a coding agent does better with greeg than with ripgrep on
 real tasks. It is run by hand: it spends API credits and needs a Claude Code
 login, so it is not part of CI. Tasks live in `tasks.toml`, ten across tokio,
 django, ktor, TypeScript 5.9 and kotlinx.coroutines, each with a mechanical
-check on the agent's final answer.
+check on the agent's final answer. A check must pass the task's verified
+`answer`, and fail it without its line numbers and each `incomplete` answer.
 
 ## Arms
 
@@ -47,7 +48,8 @@ corpus revision is refused. Each run is isolated:
   their common write forms denied (`sed -i`, `sort -o`). A rewritten command
   is checked as rewritten, so `greeg` is on the list. This is not a sandbox
   (`find -exec` is allowed), so the index template is checked after every
-  run too, and a change stops the run.
+  run too, and a change stops the run; `extract.py` leaves out a run whose
+  commands could write files.
 
 `RUN_DIR/setup.json` records the Claude Code and greeg versions, the model,
 the corpora's commits and the allowed and denied commands.
@@ -72,11 +74,12 @@ check outcome. The executed command comes from the hook responses in the
 stream. Calls the permission rules denied are counted apart. A run is marked
 invalid, with its reasons, when it has no `meta.json` (only `run.py` runs are
 compared), the workspace changed, the stream has no result, arm A ran greeg, a
-search in B or C ran without a hook response, or a hook response could belong
-to more than one call.
+search in B or C ran without a hook response, a command could write files (a
+redirect to a file, `find -exec` or `-delete`, `sed -i`, `sort -o`, `rm`, …),
+or a hook response could belong to more than one call.
 
-`analyze.py` lists the invalid runs and leaves them out, along with their
-pairs. It then prints each task's successes, cost and turns per arm, and the
+`analyze.py` lists the invalid runs and leaves them out, along with the runs
+of the other arms they pair with, so every column averages the same pairs. It then prints each task's successes, cost and turns per arm, and the
 mean paired difference of each metric for arms B and C against A with a 95 %
 bootstrap interval (10,000 resamples). Pairs are matched on (task, run number).
 
@@ -93,7 +96,10 @@ Claude Code 2.1.288 on Sonnet (`claude-sonnet-5-5`) and greeg at 22de3c6.
 analysis, and `-setup.json` the setup. 36 runs cost $1.13 in all.
 
 - **Every run passed its check**, in every arm. The tasks are too easy to
-  separate the arms: 1 to 7 tool calls each.
+  separate the arms: 1 to 7 tool calls each. The checks have since been made
+  to require file:line; these verdicts are from the checks at the time.
+- **Arm A never ran ripgrep.** All 39 of its searches were `grep`, which is on
+  `PATH` and allowed in every arm, so this baseline measured grep, not rg.
 - **Arm B never ran greeg.** The model searched with `grep` only (no Grep tool
   in this Claude Code), mostly in pipelines (`| head`), command lists (`;`),
   `cd … &&` chains or with `--include=*.kt`. The hook declined all 36 calls,

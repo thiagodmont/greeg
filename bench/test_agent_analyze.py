@@ -41,6 +41,15 @@ class AgentAnalyzeTests(unittest.TestCase):
         self.assertIn("1/1", row)
         self.assertIn("0.100", row)
 
+    def test_an_invalid_run_takes_its_pairs_out(self):
+        bad = record("t", "B", "1", cost=0.5)
+        bad["invalid"] = ["no result record"]
+        out = analyzed([record("t", "A", "1", cost=0.3), bad,
+                        record("t", "A", "2"), record("t", "B", "2")])
+        self.assertIn("left out: t A #1: a run it pairs with is invalid", out)
+        row = next(l for l in out.splitlines() if l.startswith("t "))
+        self.assertEqual(row.split()[1:], ["1/1", "0.100", "2.0", "1/1", "0.100", "2.0"])
+
     def test_without_a_valid_baseline_it_says_so(self):
         bad = record("t", "A", "1")
         bad["invalid"] = ["no result record"]

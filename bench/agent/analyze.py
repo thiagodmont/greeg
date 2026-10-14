@@ -30,6 +30,11 @@ def validity(runs):
     bad = [r for r in runs if r.get("invalid")]
     for r in bad:
         print(f"left out: {r['task']} {r['arm']} #{r['run']}: {'; '.join(r['invalid'])}")
+    # every arm averages the same (task, run) pairs
+    unpaired = {(r["task"], r["run"]) for r in bad}
+    for r in runs:
+        if not r.get("invalid") and (r["task"], r["run"]) in unpaired:
+            print(f"left out: {r['task']} {r['arm']} #{r['run']}: a run it pairs with is invalid")
     ev = {}
     for r in runs:
         for k, v in r["search_evidence"].items():
@@ -37,7 +42,7 @@ def validity(runs):
             ev[r["arm"]][k] += v
     for arm, e in sorted(ev.items()):
         print(f"arm {arm} search calls decided by: " + ", ".join(f"{k} {v}" for k, v in e.items()))
-    return [r for r in runs if not r.get("invalid")]
+    return [r for r in runs if (r["task"], r["run"]) not in unpaired]
 
 
 def per_task(runs, arms):

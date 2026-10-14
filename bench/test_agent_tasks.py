@@ -30,7 +30,11 @@ class AgentTaskTests(unittest.TestCase):
         self.assertEqual(len({t["id"] for t in ts}), len(ts))
         for t in ts:
             with self.subTest(t["id"]):
-                for answer, want in ((t["answer"], True), ("", False), (t["prompt"], False)):
+                self.assertTrue(t["incomplete"], "an incomplete answer the check must fail")
+                cases = [(t["answer"], True), ("", False), (t["prompt"], False),
+                         (re.sub(r":\d+", "", t["answer"]), False)]
+                cases += [(answer, False) for answer in t["incomplete"]]
+                for answer, want in cases:
                     self.assertEqual(passes(t["check"], answer), want,
                                      f"check {t['check']!r} on answer {answer!r}")
 

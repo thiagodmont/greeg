@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run paired agent tasks headless: ripgrep only (arm A) against greeg through
+"""Run paired agent tasks headless: rg and grep only (arm A) against greeg through
 its hook (arm B) and, if asked, the hook plus a prompt that names greeg (arm C).
 
     bench/agent/run.py --greeg BIN --out DIR [--tasks ID,…] [--repeats 2]
@@ -25,7 +25,7 @@ and `greeg hook run` as their PreToolUse hook. Isolation:
 Each run directory holds `stream.jsonl`, `answer.txt`, `check.txt` and
 `meta.json`. It needs a Claude Code login and spends API credits.
 """
-import argparse, json, os, random, shutil, signal, subprocess, sys, time, tomllib
+import argparse, contextlib, json, os, random, shutil, signal, subprocess, sys, time, tomllib
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -146,6 +146,11 @@ def run_cell(a, out, task, arm, n, order):
             os.killpg(p.pid, signal.SIGKILL)
             _, stderr = p.communicate()
             exit_code = "timeout"
+        except BaseException:
+            # an interrupted runner leaves no agent writing to the clone it resumes with
+            with contextlib.suppress(ProcessLookupError):
+                os.killpg(p.pid, signal.SIGKILL)
+            raise
     wall = time.time() - started
     answer = ""
     for line in open(d / "stream.jsonl"):
