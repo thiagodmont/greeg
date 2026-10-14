@@ -274,10 +274,10 @@ impl Session {
     }
 
     /// Files this session's queries showed, as `greeg_index::rel::key` spells them.
-    pub fn seen_files(&self) -> HashSet<String> {
+    pub fn seen_files(&self) -> HashSet<&str> {
         self.records
             .iter()
-            .flat_map(|r| r.files.iter().cloned())
+            .flat_map(|r| r.files.iter().map(String::as_str))
             .collect()
     }
 

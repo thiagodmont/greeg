@@ -734,15 +734,19 @@ one file can answer differently. Also:
 ### Unbudgeted answers stream
 
 A `--budget 0` content search (text, `--json=rg`, `--json=greeg` or
-`--json=legacy`, without `--max-bytes` or `--explain`) writes each matched file
-once the files before it in path order are written, so memory is bounded by
-the files in flight instead of the matches: a broad query on TypeScript keeps
-about 200 MB instead of 1.7 GB. Files are read by several threads, in
-chunks of 32, and at most a few chunks are held ahead of the one being
-written. A scan of one root reads while it walks, its walk sorted by name;
-several roots are walked first, then sorted. The index orders its candidates
-the same way and checks each file before it is written. The footer is the
-sum of what was written, and the output is byte for byte what the whole
+`--json=legacy`, without `--max-bytes`, `--explain` or `--matching discover`)
+writes each matched file once the files before it in path order are written,
+so memory is bounded by the files in flight instead of the matches: a broad
+query on TypeScript keeps about 200 MB instead of 1.7 GB. Files are read by
+several threads, in chunks of 32, and at most a few chunks are held ahead of
+the one being written. A scan of one root reads while it walks, its walk
+sorted by name, and the walk stops when the output fails. Several roots are
+walked first, then sorted, so their paths are held at once: one per file
+walked, not per match. The index orders its candidates the same way and
+checks each file before it is written. A failed check, also one on a
+candidate that does not match, answers again from a scan while no file is
+written, and otherwise ends the run with exit 2 as incomplete. The footer is
+the sum of what was written, and the output is byte for byte what the whole
 answer would have been.
 
 ### JSON output

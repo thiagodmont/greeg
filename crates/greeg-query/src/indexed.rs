@@ -21,7 +21,7 @@ use grep_searcher::SearcherBuilder;
 use std::fs;
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering::Relaxed};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering::Relaxed};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
@@ -889,8 +889,12 @@ impl Stream<'_> {
     ) -> Result<Result<ScanResult, String>> {
         let (idx, o) = (self.idx, self.o);
         // fault injection for the recovery tests: a check that fails at the
-        // first file handed over (`first`) or at the second (`later`)
-        let inject = std::env::var("GREEG_DEBUG_STREAM_CHECK").ok();
+        // first file handed over (`first`), at the second (`later`), or after
+        // the last candidate, as one that does not match can (`end`); never
+        // in a release build
+        let inject = cfg!(debug_assertions)
+            .then(|| std::env::var("GREEG_DEBUG_STREAM_CHECK").ok())
+            .flatten();
         let injected = |emitted: usize| match inject.as_deref() {
             Some("first") => true,
             Some("later") => emitted > 0,
@@ -902,6 +906,7 @@ impl Stream<'_> {
             order.iter().copied(),
             self.threads,
             self.threads * 4,
+            &AtomicBool::new(false),
             reader,
             verify,
             &mut |fr| {
@@ -914,14 +919,14 @@ impl Stream<'_> {
                 sink(fr)
             },
         );
-        if stopped && emitted == 0 {
-            note_corruption(o);
-            return Ok(Err("corrupt".into()));
-        }
-        if stopped || failed() {
+        // a check can fail on a candidate that does not match, after the
+        // last file handed over or before any
+        if stopped || failed() || inject.as_deref() == Some("end") {
+            if emitted == 0 {
+                note_corruption(o);
+                return Ok(Err("corrupt".into()));
+            }
             mark_corrupt(o);
-        }
-        if stopped {
             anyhow::bail!(crate::INCOMPLETE);
         }
         r?;

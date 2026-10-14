@@ -24,7 +24,7 @@ use grep_searcher::{Searcher, SearcherBuilder, Sink, SinkMatch};
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering::Relaxed};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering::Relaxed};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 
@@ -2398,12 +2398,17 @@ fn scan_streamed(
             use std::os::unix::ffi::OsStrExt;
             a.as_bytes().cmp(b.as_bytes())
         });
+        let stopped = AtomicBool::new(false);
         std::thread::scope(|sc| {
             // batches, so the hand-over costs little per file
             let (tx, rx) = std::sync::mpsc::sync_channel::<Vec<Found>>(64);
+            let stopped = &stopped;
             sc.spawn(move || {
                 let mut batch = Vec::with_capacity(ordered::CHUNK);
                 for e in wb.build().flatten() {
+                    if stopped.load(Relaxed) {
+                        return;
+                    }
                     if !e.file_type().is_some_and(|t| t.is_file()) {
                         continue;
                     }
@@ -2417,7 +2422,15 @@ fn scan_streamed(
                 let _ = tx.send(batch);
             });
             let files = rx.into_iter().flatten();
-            ordered::run(files, threads, threads * 4, reader, read, &mut emit)
+            ordered::run(
+                files,
+                threads,
+                threads * 4,
+                stopped,
+                reader,
+                read,
+                &mut emit,
+            )
         })?;
     } else {
         let found: Mutex<Vec<Found>> = Mutex::new(Vec::new());
@@ -2444,6 +2457,7 @@ fn scan_streamed(
             found.into_iter(),
             threads,
             threads * 4,
+            &AtomicBool::new(false),
             reader,
             read,
             &mut emit,

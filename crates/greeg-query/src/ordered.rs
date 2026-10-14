@@ -4,6 +4,7 @@
 use anyhow::Result;
 use std::collections::BTreeMap;
 use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
+use std::sync::atomic::{AtomicBool, Ordering::Relaxed};
 use std::sync::{Condvar, Mutex};
 
 type Outcome<R> = std::thread::Result<Vec<Option<R>>>;
@@ -27,10 +28,12 @@ struct State<R> {
 /// source (a walk) overlaps the work, and stay about `window` items (at least
 /// a chunk per worker) ahead of the next one to emit. An error from `emit`
 /// stops the workers and is returned; a panic in `work` is resumed here.
+/// Either sets `stopped`, so a source that waits for its items can end.
 pub(crate) fn run<T: Send, S, R: Send>(
     items: impl Iterator<Item = T> + Send,
     threads: usize,
     window: usize,
+    stopped: &AtomicBool,
     init: impl Fn() -> S + Sync,
     work: impl Fn(&mut S, T) -> Option<R> + Sync,
     emit: &mut dyn FnMut(R) -> Result<()>,
@@ -113,12 +116,14 @@ pub(crate) fn run<T: Send, S, R: Send>(
                 Ok(rs) => {
                     for r in rs.into_iter().flatten() {
                         if let Err(e) = emit(r) {
+                            stopped.store(true, Relaxed);
                             result = Err(e);
                             break 'chunks;
                         }
                     }
                 }
                 Err(panic) => {
+                    stopped.store(true, Relaxed);
                     state.lock().unwrap().stop = true;
                     room.notify_all();
                     resume_unwind(panic);
@@ -137,7 +142,8 @@ pub(crate) fn run<T: Send, S, R: Send>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::{AtomicUsize, Ordering::Relaxed};
+    use std::sync::atomic::AtomicUsize;
+    use std::time::{Duration, Instant};
 
     #[test]
     fn results_arrive_in_order_with_a_bounded_lead() {
@@ -149,6 +155,7 @@ mod tests {
             items.iter().copied(),
             8,
             16,
+            &AtomicBool::new(false),
             || (),
             |_, i| {
                 started.fetch_add(1, Relaxed);
@@ -182,6 +189,7 @@ mod tests {
             items.iter().copied(),
             4,
             8,
+            &AtomicBool::new(false),
             || (),
             |_, i| {
                 started.fetch_add(1, Relaxed);
@@ -210,6 +218,7 @@ mod tests {
                 items.iter().copied(),
                 4,
                 8,
+                &AtomicBool::new(false),
                 || (),
                 |_, i| {
                     assert!(i != 37, "boom");
@@ -219,5 +228,28 @@ mod tests {
             )
         }));
         assert!(r.is_err());
+    }
+
+    #[test]
+    fn an_emit_error_ends_a_source_that_waits() {
+        let stopped = AtomicBool::new(false);
+        let t0 = Instant::now();
+        // a chunk, then a source that waits, as a walk can, until the run stops
+        let mut n = 0;
+        let items = std::iter::from_fn(|| {
+            n += 1;
+            if n <= CHUNK {
+                return Some(n);
+            }
+            while !stopped.load(Relaxed) && t0.elapsed() < Duration::from_secs(20) {
+                std::thread::sleep(Duration::from_millis(1));
+            }
+            None
+        });
+        let r = run(items, 2, 8, &stopped, || (), |_, i| Some(i), &mut |_| {
+            anyhow::bail!("stop")
+        });
+        assert!(r.is_err());
+        assert!(t0.elapsed() < Duration::from_secs(10), "{:?}", t0.elapsed());
     }
 }

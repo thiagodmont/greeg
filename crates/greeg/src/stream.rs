@@ -69,7 +69,7 @@ pub(crate) fn run(
         Format::Legacy
     };
     let repeats = session.map_or(0, |s| s.repeats(o));
-    let seen: Option<HashSet<String>> = session.filter(|_| repeats >= 2).map(|s| s.seen_files());
+    let seen: Option<HashSet<&str>> = session.filter(|_| repeats >= 2).map(|s| s.seen_files());
     let stdout = std::io::stdout();
     let mut w = BufWriter::with_capacity(64 * 1024, stats::Tee(stdout.lock()));
     if let Format::Native = format {
@@ -113,7 +113,7 @@ pub(crate) fn run(
             }
             if session.is_some() {
                 let key = greeg_index::rel::key(&f.rel).into_owned();
-                if seen.as_ref().is_some_and(|s| !s.contains(&key)) {
+                if seen.as_ref().is_some_and(|s| !s.contains(key.as_str())) {
                     done.new_files += 1;
                 }
                 for sh in &sf.hits {

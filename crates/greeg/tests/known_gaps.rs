@@ -343,6 +343,7 @@ fn recovery_after_output_started_does_not_repeat_rows() {
 /// is written answers again from a scan, one after it ends the run as
 /// incomplete, without repeating a row.
 #[test]
+#[cfg(debug_assertions)]
 fn a_streamed_answer_recovers_only_before_its_first_file() {
     let files: Vec<(String, String)> = (0..40)
         .map(|i| (format!("f{i:02}.txt"), format!("rowneedle {i}\n")))
@@ -376,6 +377,57 @@ fn a_streamed_answer_recovers_only_before_its_first_file() {
     unique.dedup();
     assert_eq!(rows, unique, "a row was printed twice");
     assert!(!rows.is_empty() && rows.len() < 40, "{rows:?}");
+}
+
+/// A failed check seen only after the last file was written, or with none
+/// written, still counts: no file written answers again from a scan, some
+/// written ends the run as incomplete.
+#[test]
+#[cfg(debug_assertions)]
+fn a_streamed_answer_counts_a_check_failed_after_its_last_file() {
+    let files: Vec<(String, String)> = (0..40)
+        .map(|i| (format!("f{i:02}.txt"), format!("rowneedle {i}\n")))
+        .collect();
+    let refs: Vec<(&str, &str)> = files
+        .iter()
+        .map(|(p, b)| (p.as_str(), b.as_str()))
+        .collect();
+    let run = |pattern: &str| {
+        let f = Fixture::new(&refs);
+        f.indexed();
+        f.command()
+            .env("GREEG_DEBUG_STREAM_CHECK", "end")
+            .args(["--no-session", "--budget", "0", pattern])
+            .output()
+            .unwrap()
+    };
+    let o = run("rowneedle");
+    let err = String::from_utf8_lossy(&o.stderr);
+    assert_eq!(o.status.code(), Some(2), "{o:?}");
+    assert!(err.contains("output is incomplete"), "{err}");
+    assert_eq!(stdout(&o).lines().count(), 40, "{o:?}");
+
+    let o = run("rowneedle 99");
+    let err = String::from_utf8_lossy(&o.stderr);
+    assert!(err.contains(RERUN), "{o:?}");
+    assert!(o.stdout.is_empty(), "{o:?}");
+}
+
+/// The streamed check's fault injection is for tests: a release build
+/// ignores it.
+#[test]
+#[cfg(not(debug_assertions))]
+fn a_release_build_ignores_the_stream_check_injection() {
+    let f = Fixture::new(&[("a.txt", "rowneedle\n")]);
+    f.indexed();
+    let o = f
+        .command()
+        .env("GREEG_DEBUG_STREAM_CHECK", "first")
+        .args(["--no-session", "--budget", "0", "rowneedle"])
+        .output()
+        .unwrap();
+    assert_eq!(o.status.code(), Some(0), "{o:?}");
+    assert!(!String::from_utf8_lossy(&o.stderr).contains(RERUN), "{o:?}");
 }
 
 /// A process recovers from a fault at most once: a fault in the run that
