@@ -1812,7 +1812,8 @@ fn keep_within(
     if within(&report, cap)?.is_some() {
         return Ok(report);
     }
-    // the first `n`, with the hint and the estimate of what it writes
+    // the first `n`, with the hint and the estimate of what it writes (JSON's
+    // timings at a fixed width, as its bytes are)
     let first = |n: usize, limit: usize| -> Result<Option<(Report, usize)>> {
         let mut r = report.keep(n);
         r.footer.hints.insert(0, format!("--max-bytes {}", cap * 2));
@@ -1821,7 +1822,11 @@ fn keep_within(
         let Some((out, _)) = within(&r, limit)? else {
             return Ok(None);
         };
-        r.footer.est_tokens = greeg_query::tokens::rendered(&out);
+        r.footer.est_tokens = if json {
+            greeg_query::tokens::rendered(&greeg_query::tokens::timeless(&out))
+        } else {
+            greeg_query::tokens::rendered(&out)
+        };
         Ok(within(&r, limit)?.map(|(_, n)| (r, n)))
     };
     let best = largest_below(report.units(), |n| Ok(first(n, cap)?.map(|(r, _)| r)))?;
@@ -3084,6 +3089,44 @@ mod tests {
             }
         }
         assert!(kept > 1_000);
+    }
+
+    /// The clock cannot change what a byte ceiling keeps: its estimate is of
+    /// the timings at a fixed width, as its bytes are.
+    #[test]
+    fn max_bytes_keeps_the_same_answer_whatever_the_clock() {
+        for dialect in ["--json=greeg", "--json=legacy"] {
+            let cli = Cli::try_parse_from(["greeg", dialect, "x"]).unwrap();
+            let c = &cli.common;
+            let opts = Options {
+                pattern: "x".into(),
+                budget: 0,
+                ..Default::default()
+            };
+            let mut result = greeg_query::stdin::scan(&opts, "x\n".repeat(2_000).into()).unwrap();
+            let report = greeg_query::shape::shape(&mut result);
+            let fmt = Fmt {
+                chain: false,
+                stats: false,
+                line_numbers: false,
+                stdin: true,
+                cols: 0,
+            };
+            let kept = |result: &mut ScanResult, ms: f64, cap: usize| {
+                result.stats.elapsed_ms = ms;
+                let r = keep_within(c, result, report.clone(), fmt, cap).ok()?;
+                // legacy JSON adds the render's own time
+                let out = render_search(c, result, &r, fmt).unwrap().0;
+                Some(greeg_query::tokens::timeless(&out).into_owned())
+            };
+            for cap in (300..3_000).step_by(7) {
+                assert_eq!(
+                    kept(&mut result, 0.0, cap),
+                    kept(&mut result, 1234.567890123, cap),
+                    "{dialect} --max-bytes {cap}"
+                );
+            }
+        }
     }
 
     /// Global flags given on both sides of a verb: the last one still wins.

@@ -131,6 +131,16 @@ pub const TTL_MS: u64 = 100;
 /// the check falls through to the stat pass (≈ 41 ms on 66k files), bounding the worst case at
 /// about 80 ms instead of 150 ms plus a stat pass.
 pub const FSEVENTS_CUTOFF: Duration = Duration::from_millis(40);
+/// [`FSEVENTS_CUTOFF`], or `GREEG_DEBUG_FSEVENTS_CUTOFF_MS` (tests that must
+/// take the event path on a loaded machine).
+#[cfg(target_os = "macos")]
+fn fsevents_cutoff() -> Duration {
+    std::env::var("GREEG_DEBUG_FSEVENTS_CUTOFF_MS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .map_or(FSEVENTS_CUTOFF, Duration::from_millis)
+}
+
 /// A check that found nothing rewrites `verified_unix_ms` at most this often.
 pub const VERIFY_WRITE_MS: u64 = 1000;
 
@@ -503,6 +513,37 @@ pub fn check_fsevents(_idx: &Index, _root: &Path, _threads: usize) -> Option<Cha
     None
 }
 
+/// An empty directory beside the index for one FSEvents read, removed after
+/// (`.tmp`: the orphan sweep removes one a crash leaves).
+#[cfg(target_os = "macos")]
+struct Cookie(std::path::PathBuf);
+
+#[cfg(target_os = "macos")]
+impl Cookie {
+    fn new(dir: &Path) -> Option<Cookie> {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .ok()?
+            .subsec_nanos();
+        let p = dir.join(format!("fsevents-{}-{nanos}.tmp", std::process::id()));
+        std::fs::create_dir(&p).ok()?;
+        match std::fs::canonicalize(&p) {
+            Ok(c) => Some(Cookie(c)),
+            Err(_) => {
+                let _ = std::fs::remove_dir(&p);
+                None
+            }
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+impl Drop for Cookie {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
 /// FSEvents-scoped check (macOS). Returns None when the log is unusable.
 #[cfg(target_os = "macos")]
 pub fn check_fsevents(idx: &Index, root: &Path, threads: usize) -> Option<Changes> {
@@ -515,8 +556,18 @@ pub fn check_fsevents(idx: &Index, root: &Path, threads: usize) -> Option<Change
     let abs_root = std::fs::canonicalize(root).ok()?;
     // a root that is not UTF-8 cannot be named to FSEvents: the stat pass runs
     let root_s = abs_root.to_str()?;
-    let dirs =
-        greeg_fsevents::changed_dirs_since(idx.manifest.fsevents_id, root_s, FSEVENTS_CUTOFF)?;
+    // the read waits for an event of its own, written beside the index (not
+    // in the tree); without writes, the stat pass runs
+    if !crate::persist::allowed() {
+        return None;
+    }
+    let cookie = Cookie::new(&idx.dir)?;
+    let dirs = greeg_fsevents::changed_dirs_since(
+        idx.manifest.fsevents_id,
+        root_s,
+        cookie.0.to_str()?,
+        fsevents_cutoff(),
+    )?;
     let mut ch = Changes {
         method: "fsevents",
         fsevents_id,
