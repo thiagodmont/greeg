@@ -1,8 +1,8 @@
 # greeg
 
 **Code search built for coding agents.** It speaks ripgrep's flags, answers
-from an index, puts definitions first, and fits every answer in a token budget,
-so your agent reads the hits that matter instead of a wall of matches.
+from an index, puts definitions first, and fits its ranked answers in a token
+budget, so your agent reads the hits that matter instead of a wall of matches.
 
 [![CI](https://github.com/thiagodmont/greeg/actions/workflows/ci.yml/badge.svg)](https://github.com/thiagodmont/greeg/actions/workflows/ci.yml)
 [![release](https://img.shields.io/github/v/release/thiagodmont/greeg)](https://github.com/thiagodmont/greeg/releases)
@@ -112,7 +112,8 @@ tool; `greeg hook explain 'rg -l foo src'` shows what it would do.
 > RTK, add `exclude_commands = ["grep", "rg"]` under `[hooks]` in its config.
 
 Any other agent can call `greeg` directly: it prints to stdout and exits `0` on
-exact hits, `1` on none, `2` on error.
+exact hits, `1` when there are none (it may still print relaxed, discovery-only
+results), `2` on error.
 
 ## Use it
 
@@ -139,8 +140,9 @@ greeg outline src/sync/oneshot.rs   # the shape of a file
 greeg map tokio/src/sync            # the most important files, by import graph
 ```
 
-Answers fit 2,000 tokens by default. Change it per call (`--budget 5000`,
-`--budget 0` for everything) or once (`greeg budget high`). The
+Ranked searches and symbol commands fit 2,000 tokens by default. Change it per
+call (`--budget 5000`, `--budget 0` for everything) or once (`greeg budget
+high`); `-l`, `-c` and `--json=rg` are never budgeted. The
 [usage guide](references/USAGE.md) covers every flag, the JSON formats and
 matching rules.
 
@@ -157,8 +159,10 @@ matching rules.
 - **Ranks, then budgets.** Definitions outrank calls, source outranks tests,
   central files outrank leaves. Tests and generated files are demoted, never
   hidden, and the footer always says what was cut.
-- **Fails safe.** A damaged or outdated index falls back to a scan, so you get
-  a correct answer either way, and rebuilds in the background.
+- **Fails safe.** A damaged or outdated index is rebuilt in the background,
+  and the query is answered by a scan instead. If `--budget 0` has already
+  streamed part of its output, greeg stops with an error instead of a partial
+  answer that looks complete.
 
 Design and internals: [`references/ARCHITECTURE.md`](references/ARCHITECTURE.md).
 

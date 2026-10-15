@@ -108,7 +108,7 @@ terminal. See
 `--mode files|outline|content|block` · `--kind def,call,…` · `--near PATH` ·
 `--no-tests --no-vendored --no-generated --all` · `--per-file N` · `--chain` ·
 `--matching exact|discover` · `--no-ladder` · `--fresh auto|none|stat|fsevents` · `--no-index` ·
-`--index-dir DIR` · `--stats` · `--precise` · `--session ID` · `--no-session` ·
+`--root PATH` · `--index-dir DIR` · `--stats` · `--precise` · `--session ID` · `--no-session` ·
 `--no-persist` (write nothing to disk: no index build or refresh, session or
 statistic; also `GREEG_NO_PERSIST=1`)
 
@@ -122,8 +122,11 @@ it. See [`references/ARCHITECTURE.md`](ARCHITECTURE.md).
 **When something goes wrong**: a panic in the index path, a corrupt component
 or a truncated file all fall back to a scan-mode answer plus a background
 rebuild. Every component carries a digest per block, checked as it is read,
-so a changed byte is found before it can change an answer. You get a correct
-answer either way. Writers hold a lock and publish
+so a changed byte is found before it can change an answer. A `--budget 0`
+search streams its output, so a failed check after output has started can't
+fall back: greeg stops with `the index failed a check after output started;
+output is incomplete (the index will be rebuilt)` and exits `2`. Otherwise
+you get a correct answer either way. Writers hold a lock and publish
 atomically; readers never lock.
 
 ## The index

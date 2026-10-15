@@ -6,7 +6,7 @@ cargo test --workspace                                   # unit + CLI contract t
 cargo clippy --all-targets -- -D warnings
 
 python3 bench/bench.py fetch tokio ktor django           # pinned corpora
-python3 bench/parity.py "$GREEG_BENCH_CACHE" target/release/greeg   # rg parity
+python3 bench/parity.py "${GREEG_BENCH_CACHE:-$HOME/.cache/greeg-bench/corpora}" target/release/greeg   # rg parity
 python3 bench/bench.py speed --corpora tokio,ktor,django # hyperfine protocol
 python3 bench/bench.py oracle tokio django TypeScript-5.9 # SCIP accuracy oracle
 ```
