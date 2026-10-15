@@ -2,7 +2,7 @@ class Greeg < Formula
   desc "A grep for coding agents: indexed, syntax-aware, budgeted"
   homepage "https://github.com/thiagodmont/greeg"
   version "@VERSION@"
-  license "MIT OR Apache-2.0"
+  license "MIT"
 
   on_macos do
     on_arm do

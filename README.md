@@ -6,7 +6,7 @@ answer in a token budget instead of dumping every match.
 
 [![CI](https://github.com/thiagodmont/greeg/actions/workflows/ci.yml/badge.svg)](https://github.com/thiagodmont/greeg/actions/workflows/ci.yml)
 [![release](https://img.shields.io/github/v/release/thiagodmont/greeg)](https://github.com/thiagodmont/greeg/releases)
-[![license](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue)](#license)
+[![license](https://img.shields.io/badge/license-MIT-blue)](#license)
 
 ---
 
@@ -459,4 +459,4 @@ useful things to include.
 
 ## License
 
-MIT or Apache-2.0, at your option.
+MIT. See [`LICENSE-MIT`](LICENSE-MIT).
