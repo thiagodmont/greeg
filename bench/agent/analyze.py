@@ -7,7 +7,8 @@ For each metric (success rate, turns, search calls, tool output, tokens,
 cache writes and reads, cost, wall time) pairs runs by (task, run number) across arms, reports the mean paired
 difference and a 95 % bootstrap interval. Success is reported as a rate with
 the interval on the difference in rates. Runs marked invalid by extract.py
-are listed and left out, and so are their pairs.
+are listed and left out, and so are their pairs and any (task, run) that
+lacks a run in some arm.
 """
 import json, random, statistics, sys
 
@@ -35,6 +36,15 @@ def validity(runs):
     for r in runs:
         if not r.get("invalid") and (r["task"], r["run"]) in unpaired:
             print(f"left out: {r['task']} {r['arm']} #{r['run']}: a run it pairs with is invalid")
+    arms = {r["arm"] for r in runs}
+    have = {}
+    for r in runs:
+        have.setdefault((r["task"], r["run"]), set()).add(r["arm"])
+    for r in runs:
+        key = (r["task"], r["run"])
+        if key not in unpaired and have[key] != arms:
+            print(f"left out: {r['task']} {r['arm']} #{r['run']}: no run in arm {', '.join(sorted(arms - have[key]))}")
+    unpaired |= {k for k, a in have.items() if a != arms}
     ev = {}
     for r in runs:
         for k, v in r["search_evidence"].items():
@@ -62,7 +72,8 @@ def per_task(runs, arms):
 
 
 def main():
-    runs = json.load(open(sys.argv[1]))
+    with open(sys.argv[1]) as fh:
+        runs = json.load(fh)
     pairs = int(sys.argv[sys.argv.index("--pairs") + 1]) if "--pairs" in sys.argv else 10000
     runs = validity(runs)
     by = {}

@@ -110,7 +110,7 @@ class AgentExtractTests(unittest.TestCase):
         self.assertEqual(search_tools_in("ls; cat f"), [])
 
     def test_commands_that_could_write_are_seen(self):
-        for cmd in ("cat a > out", "grep x f >> log", "grep x f &>log", "find . -name x -exec rm {} \;",
+        for cmd in ("cat a > out", "grep x f >> log", "grep x f &>log", "find . -name x -exec rm {} \\;",
                     "find . -delete", "sed -i s/a/b/ f", "sed -e s/a/b/ -ni f", "sort -o x f",
                     "cd src && rm x", "command tee f"):
             with self.subTest(cmd):

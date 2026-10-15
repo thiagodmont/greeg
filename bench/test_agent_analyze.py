@@ -50,6 +50,12 @@ class AgentAnalyzeTests(unittest.TestCase):
         row = next(l for l in out.splitlines() if l.startswith("t "))
         self.assertEqual(row.split()[1:], ["1/1", "0.100", "2.0", "1/1", "0.100", "2.0"])
 
+    def test_a_run_without_a_pair_in_every_arm_is_left_out(self):
+        out = analyzed([record("t", "A", "1"), record("t", "B", "1"), record("t", "A", "2", cost=0.5)])
+        self.assertIn("left out: t A #2: no run in arm B", out)
+        row = next(l for l in out.splitlines() if l.startswith("t "))
+        self.assertEqual(row.split()[1:], ["1/1", "0.100", "2.0", "1/1", "0.100", "2.0"])
+
     def test_without_a_valid_baseline_it_says_so(self):
         bad = record("t", "A", "1")
         bad["invalid"] = ["no result record"]
