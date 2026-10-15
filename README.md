@@ -381,8 +381,9 @@ match: no budget, ripgrep's offsets (after a UTF-8 BOM) and exit status. It
 takes no `--budget`, no `--max-bytes`, no command and no `-U` (exit `2`). `--json=greeg` is greeg's
 own format for searches and verbs: a header naming the schema, typed records,
 paths and content that never lose a byte, each file's encoding and offset
-coordinates, and an `outcome` in every footer. Bare `--json` is
-`--json=greeg` since 0.11. `--json=legacy`, greeg's earlier records with
+coordinates, and an `outcome` in every footer. For searches and verbs, bare
+`--json` is `--json=greeg` since 0.11; commands with a JSON report of their
+own (`stats`, `index --status`) keep it. `--json=legacy`, greeg's earlier records with
 `kind`, `score`, `facets` and `footer`, is removed in 0.12 and says so on a
 terminal. See
 [`references/JSON.md`](references/JSON.md#migrating-from-bare---json).

@@ -3011,10 +3011,26 @@ fn bare_json_is_greeg_and_legacy_names_its_removal_only_to_a_person() {
             );
         }
     }
+    // commands with a report of their own keep it; stats prints a notice
+    // instead when collection is off, never greeg's records
     let stats = f.run(&["stats", "--json"]);
     assert_eq!(stats.status.code(), Some(0));
-    serde_json::from_slice::<serde_json::Value>(&stats.stdout).expect("stats' own JSON");
-    assert_eq!(f.run(&["stats", "--json=greeg"]).status.code(), Some(2));
+    assert!(!String::from_utf8_lossy(&stats.stdout).contains(r#""type":"greeg""#));
+    let status = f.run(&["--json", "index", "--status"]);
+    assert_eq!(status.status.code(), Some(0));
+    let first = serde_json::Deserializer::from_slice(&status.stdout)
+        .into_iter::<serde_json::Value>()
+        .next()
+        .expect("a JSON value")
+        .expect("index --status's own JSON");
+    assert!(first.get("format").is_some(), "{first}");
+    for cmd in ["stats", "index"] {
+        assert_eq!(
+            f.run(&["--json=greeg", cmd]).status.code(),
+            Some(2),
+            "{cmd}"
+        );
+    }
     let notice = "greeg: --json=legacy is removed in 0.12; --json (greeg's records) replaces it";
     for args in [
         &["--json=legacy", "needle"][..],

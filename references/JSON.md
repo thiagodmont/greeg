@@ -4,7 +4,7 @@ greeg writes JSON Lines in three dialects:
 
 | Flag | Dialect | For |
 |---|---|---|
-| `--json=greeg`, bare `--json` | greeg's own records, schema 2 (this page) | agents and tools that read greeg |
+| `--json=greeg`, and bare `--json` for searches and verbs | greeg's own records, schema 2 (this page) | agents and tools that read greeg |
 | `--json=rg` | ripgrep's records, nothing else | tools written for `rg --json` |
 | `--json=legacy` | ripgrep's records plus greeg's fields, removed in 0.12 | consumers of greeg 0.10 and earlier |
 
