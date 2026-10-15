@@ -1,0 +1,20 @@
+{
+  "session_id": "abc123",
+  "prompt_id": "550e8400-e29b-41d4-a716-446655440001",
+  "transcript_path": "/home/user/.claude/projects/p/transcript.jsonl",
+  "cwd": "@CWD@",
+  "scratchpad_dir": "/tmp/claude-1000/p/abc123/scratchpad",
+  "permission_mode": "acceptEdits",
+  "effort": {"level": "high"},
+  "hook_event_name": "PreToolUse",
+  "agent_id": "subagent-id",
+  "agent_type": "Explore",
+  "tool_name": "Bash",
+  "tool_use_id": "toolu_01DEF456",
+  "tool_input": {
+    "command": "@COMMAND@",
+    "description": "Search the subtree for the needle",
+    "timeout": 60000,
+    "run_in_background": true
+  }
+}

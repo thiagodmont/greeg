@@ -1,0 +1,16 @@
+{
+  "session_id": "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b",
+  "turn_id": "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a61",
+  "transcript_path": "/home/user/.codex/sessions/rollout.jsonl",
+  "cwd": "@CWD@",
+  "hook_event_name": "PreToolUse",
+  "model": "gpt-5-codex",
+  "permission_mode": "bypassPermissions",
+  "agent_id": "agent-1",
+  "agent_type": "worker",
+  "tool_name": "Bash",
+  "tool_use_id": "call_def456",
+  "tool_input": {
+    "command": "@COMMAND@"
+  }
+}

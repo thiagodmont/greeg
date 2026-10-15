@@ -841,3 +841,98 @@ fn failed_skill_publication_reports_applied_configuration() {
         );
     }
 }
+
+/// Each host's documented PreToolUse payload (`fixtures/hooks`) gets a reply
+/// that host accepts: Claude Code's rewrite keeps every other `tool_input`
+/// field and leaves the permission decision to the user's rules; Codex's
+/// pairs `updatedInput` with `permissionDecision: allow`, as it requires. A
+/// declined command or another tool gets no reply.
+#[test]
+fn host_payloads_get_replies_their_host_accepts() {
+    let f = Fixture::new();
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/hooks");
+    let cwd = f.0.join("tree");
+    for entry in fs::read_dir(&dir).unwrap() {
+        let path = entry.unwrap().path();
+        let name = path.file_name().unwrap().to_string_lossy().into_owned();
+        let agent = if name.starts_with("codex") {
+            "codex"
+        } else {
+            "claude"
+        };
+        let template: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(template["cwd"], "@CWD@", "{name}");
+        assert_eq!(template["tool_input"]["command"], "@COMMAND@", "{name}");
+        // set as JSON values, so any directory name stays valid JSON
+        let payload = |command: &str, tool: &str| -> Value {
+            let mut v = template.clone();
+            v["cwd"] = json!(cwd);
+            v["tool_input"]["command"] = json!(command);
+            v["tool_name"] = json!(tool);
+            v
+        };
+        let reply = |v: &Value| -> Output {
+            let mut child = f
+                .command(BIN)
+                .args(["hook", "run", "--agent", agent])
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .unwrap();
+            child
+                .stdin
+                .take()
+                .unwrap()
+                .write_all(v.to_string().as_bytes())
+                .unwrap();
+            child.wait_with_output().unwrap()
+        };
+        let input = payload("rg -n needle", "Bash");
+        let out = reply(&input);
+        assert!(
+            out.status.success() && out.stderr.is_empty(),
+            "{name}: {out:?}"
+        );
+        let text = String::from_utf8(out.stdout).unwrap();
+        assert_eq!(text.lines().count(), 1, "{name}: one JSON object");
+        let r: Value = serde_json::from_str(&text).unwrap();
+        let top: Vec<&String> = r.as_object().unwrap().keys().collect();
+        assert_eq!(top, ["hookSpecificOutput"], "{name}");
+        let s = &r["hookSpecificOutput"];
+        assert_eq!(s["hookEventName"], "PreToolUse", "{name}");
+        let updated = s["updatedInput"].as_object().unwrap();
+        assert!(
+            updated["command"].as_str().unwrap().starts_with("greeg "),
+            "{name}"
+        );
+        // every other field of the call is kept, whether the host merges or replaces
+        for (k, v) in input["tool_input"].as_object().unwrap() {
+            if k != "command" {
+                assert_eq!(updated.get(k), Some(v), "{name}: {k}");
+            }
+        }
+        assert!(
+            updated.keys().all(|k| input["tool_input"].get(k).is_some()),
+            "{name}"
+        );
+        if agent == "codex" {
+            assert_eq!(s["permissionDecision"], "allow", "{name}");
+        } else {
+            assert!(
+                s.get("permissionDecision").is_none(),
+                "{name}: no auto-allow"
+            );
+        }
+        for silent in [
+            payload("rg needle | head", "Bash"),
+            payload("rg -n needle", "Read"),
+        ] {
+            let out = reply(&silent);
+            assert!(
+                out.status.success() && out.stdout.is_empty() && out.stderr.is_empty(),
+                "{name}"
+            );
+        }
+    }
+}

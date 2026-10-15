@@ -1,0 +1,14 @@
+{
+  "session_id": "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b",
+  "turn_id": "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a60",
+  "transcript_path": null,
+  "cwd": "@CWD@",
+  "hook_event_name": "PreToolUse",
+  "model": "gpt-5-codex",
+  "permission_mode": "default",
+  "tool_name": "Bash",
+  "tool_use_id": "call_abc123",
+  "tool_input": {
+    "command": "@COMMAND@"
+  }
+}
