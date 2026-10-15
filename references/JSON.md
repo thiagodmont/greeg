@@ -4,9 +4,9 @@ greeg writes JSON Lines in three dialects:
 
 | Flag | Dialect | For |
 |---|---|---|
-| `--json=greeg` | greeg's own records, schema 2 (this page) | agents and tools that read greeg |
+| `--json=greeg`, and bare `--json` for searches and verbs | greeg's own records, schema 2 (this page) | agents and tools that read greeg |
 | `--json=rg` | ripgrep's records, nothing else | tools written for `rg --json` |
-| `--json=legacy` | ripgrep's records plus greeg's fields | consumers of greeg 0.9 and earlier |
+| `--json=legacy` | ripgrep's records plus greeg's fields, removed in 0.12 | consumers of greeg 0.10 and earlier |
 
 `--json=rg` and `--json=legacy` are described under
 [JSON output](ARCHITECTURE.md#json-output).
@@ -18,13 +18,14 @@ Bare `--json` names no dialect, so its meaning changes:
 | Release | Bare `--json` | `--json=legacy` |
 |---|---|---|
 | 0.10 | `legacy`; on a terminal, stderr says it will change | available |
-| 0.11 | `greeg` | available |
+| 0.11 | `greeg` | available; on a terminal, stderr says it goes in 0.12 |
 | 0.12 | `greeg` | removed |
 
 Name a dialect so the release does not choose for you: `--json=greeg` and
-`--json=rg` stay, and `--json=legacy` keeps today's records through 0.11 only. The notice goes only to a terminal, never to a pipe, so scripts and
-agents see no change in 0.10. `greeg stats --json` is a report of its own and
-does not change.
+`--json=rg` stay, and `--json=legacy` keeps 0.10's records through 0.11 only.
+Its notice goes only to a terminal, never to a pipe. Commands with a JSON
+report of their own, such as `greeg stats --json`, keep it under bare
+`--json`.
 
 From `legacy` to `greeg`:
 - Read the header first; `command` says which records follow.

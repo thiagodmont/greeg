@@ -33,9 +33,9 @@ CASES = {
     "glob_files": ["-l", "load_config", "-g", "*.rs"],
     "hit_count": ["-c", "-i", "LOAD_CONFIG"],
     "hit_unlimited": ["--budget", "0", "load_config"],
-    # bare `--json`, which every baseline accepts: the legacy records until 0.11
-    "case_miss_json": ["--json", "LOAD_CONFIG"],
-    "hit_json": ["--json", "load_config"],
+    # the records bare `--json` printed through 0.10; 0.10 and later accept the name
+    "case_miss_json": ["--json=legacy", "LOAD_CONFIG"],
+    "hit_json": ["--json=legacy", "load_config"],
     "def_hit": ["def", "load_config", "--matching", "exact"],
     "def_case_hit": ["def", "LOAD_CONFIG", "-i", "--matching", "exact"],
     "def_case_miss": ["def", "load_confiq", "-i", "--matching", "exact"],
@@ -100,8 +100,15 @@ ELAPSED = re.compile(rb'"(elapsed|elapsed_total)":\{[^}]*\}')
 READ_COUNTS = re.compile(rb'"(bytes_searched|searches)":[0-9]+')
 
 
+def rg_oracle_query(query):
+    """The ripgrep command that answers a greeg case: its lines, or its JSON."""
+    if query[:2] == ["--budget", "0"]:
+        return ["-n", "--with-filename", *query[2:]]
+    return ["--json" if arg.startswith("--json") else arg for arg in query]
+
+
 def rg_dialect_query(query):
-    query = [arg for arg in query if arg != "--json"]
+    query = [arg for arg in query if not arg.startswith("--json")]
     return query[2:] if query[:2] == ["--budget", "0"] else query
 
 
@@ -215,7 +222,7 @@ def main():
         for backend in ("scan", "index"):
             for name in args.cases:
                 query = CASES[name]
-                is_json = "--json" in query
+                is_json = any(arg.startswith("--json") for arg in query)
                 is_def = query[0] == "def"
                 extra = ["--no-index"] if backend == "scan" else []
                 if not name.startswith("ranked"):
@@ -239,7 +246,7 @@ def main():
                        "backend_flags": extra}
                 oracle = None
                 if not name.startswith("ranked"):
-                    rg_query = ["-n", "--with-filename", *query[2:]] if query[:2] == ["--budget", "0"] else query
+                    rg_query = rg_oracle_query(query)
                     if is_def:
                         rg_query = ["-l", "-w", query[1], *(["-i"] if "-i" in query else [])]
                     oracle, _ = run([rg, "--no-config", "--color", "never", "--sort", "path", *rg_query, "src"],
