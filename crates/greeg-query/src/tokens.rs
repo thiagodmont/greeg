@@ -149,6 +149,27 @@ mod tests {
         assert!(estimate(b"tokio/src/sync/batch_semaphore.rs") >= 8);
     }
 
+    /// A JSON fit renders `est_tokens` once with a stand-in of the same width.
+    #[test]
+    fn numbers_of_one_width_estimate_alike() {
+        let footer = |n: usize| format!(r#"{{"est_tokens":{n},"elapsed_ms":1.864}}"#);
+        for (a, b) in [(1000, 1872), (2000, 9999), (300, 153), (7, 1)] {
+            assert_eq!(footer(a).len(), footer(b).len());
+            assert_eq!(
+                estimate(footer(a).as_bytes()),
+                estimate(footer(b).as_bytes())
+            );
+        }
+        // another width is rendered again
+        for (a, b) in [(99, 100), (999, 1000), (9999, 10000)] {
+            assert_ne!(footer(a).len(), footer(b).len());
+        }
+        assert_ne!(
+            estimate(footer(999).as_bytes()),
+            estimate(footer(1000).as_bytes())
+        );
+    }
+
     /// Verb layouts and JSON lines, with their o200k_base counts.
     #[test]
     fn estimate_is_within_ten_percent_on_verb_layouts_and_json() {
