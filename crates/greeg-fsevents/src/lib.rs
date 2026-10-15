@@ -127,6 +127,9 @@ mod imp {
         dirs: Vec<Vec<u8>>,
         done: bool,
         unreliable: bool,
+        /// The cookie directory, with a trailing slash as event paths have it.
+        cookie: Vec<u8>,
+        cookie_seen: bool,
     }
 
     extern "C" fn cb(
@@ -157,6 +160,10 @@ mod imp {
             }
             // the path's bytes: a name that is not UTF-8 must still match the index
             let p = unsafe { CStr::from_ptr(*paths.add(i)) }.to_bytes().to_vec();
+            if p.starts_with(&st.cookie) {
+                st.cookie_seen = true;
+                continue;
+            }
             st.dirs.push(p);
         }
     }
@@ -171,22 +178,43 @@ mod imp {
 
     /// Directories (absolute path bytes, trailing slash) with events since
     /// `id`. `None` when the log could not be read reliably within `cutoff`.
-    pub fn changed_dirs_since(id: u64, root: &str, cutoff: Duration) -> Option<Vec<Vec<u8>>> {
+    ///
+    /// The log is read up to now, not up to what the event service has
+    /// processed: the stream also watches `cookie`, an empty directory outside
+    /// the tree (both canonical paths), writes a file there once started, and
+    /// waits for that event. Events arrive in order, so every change made
+    /// before the call has arrived by then.
+    pub fn changed_dirs_since(
+        id: u64,
+        root: &str,
+        cookie: &str,
+        cutoff: Duration,
+    ) -> Option<Vec<Vec<u8>>> {
         let a = api()?;
         let mut st = State {
             dirs: Vec::new(),
             done: false,
             unreliable: false,
+            cookie: format!("{}/", cookie.trim_end_matches('/')).into_bytes(),
+            cookie_seen: false,
         };
         let croot = CString::new(root).ok()?;
+        let ccookie = CString::new(cookie).ok()?;
         unsafe {
             let cfpath =
                 (a.CFStringCreateWithFileSystemRepresentation)(std::ptr::null(), croot.as_ptr());
             if cfpath.is_null() {
                 return None;
             }
+            let cfcookie =
+                (a.CFStringCreateWithFileSystemRepresentation)(std::ptr::null(), ccookie.as_ptr());
+            if cfcookie.is_null() {
+                (a.CFRelease)(cfpath);
+                return None;
+            }
             let arr = (a.CFArrayCreateMutable)(std::ptr::null(), 0, a.kCFTypeArrayCallBacks);
             (a.CFArrayAppendValue)(arr, cfpath);
+            (a.CFArrayAppendValue)(arr, cfcookie);
             let ctx = Context {
                 version: 0,
                 info: &mut st as *mut State as *mut c_void,
@@ -199,6 +227,7 @@ mod imp {
             if stream.is_null() {
                 (a.CFRelease)(arr);
                 (a.CFRelease)(cfpath);
+                (a.CFRelease)(cfcookie);
                 return None;
             }
             (a.FSEventStreamScheduleWithRunLoop)(
@@ -208,7 +237,8 @@ mod imp {
             );
             (a.FSEventStreamStart)(stream);
             let deadline = Instant::now() + cutoff;
-            while !st.done && Instant::now() < deadline {
+            let wrote = std::fs::write(std::path::Path::new(cookie).join("c"), b"").is_ok();
+            while wrote && !(st.done && st.cookie_seen) && Instant::now() < deadline {
                 (a.CFRunLoopRunInMode)(a.kCFRunLoopDefaultMode, 0.002, 1);
             }
             (a.FSEventStreamStop)(stream);
@@ -216,9 +246,14 @@ mod imp {
             (a.FSEventStreamRelease)(stream);
             (a.CFRelease)(arr);
             (a.CFRelease)(cfpath);
+            (a.CFRelease)(cfcookie);
         }
         let _: c_int = 0;
-        if !st.done || st.unreliable {
+        // fault injection for the fallback test: the log read as if events were dropped
+        if std::env::var_os("GREEG_DEBUG_FSEVENTS_LOST").is_some() {
+            st.unreliable = true;
+        }
+        if !st.done || !st.cookie_seen || st.unreliable {
             return None;
         }
         st.dirs.sort();
@@ -238,6 +273,7 @@ pub fn current_id() -> u64 {
 pub fn changed_dirs_since(
     _id: u64,
     _root: &str,
+    _cookie: &str,
     _cutoff: std::time::Duration,
 ) -> Option<Vec<Vec<u8>>> {
     None
