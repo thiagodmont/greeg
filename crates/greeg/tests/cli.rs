@@ -2964,11 +2964,12 @@ fn run_on_terminal(
     )
 }
 
-/// Bare `--json` is `legacy` in this release. On a terminal it says, once,
-/// that it becomes `greeg` in 0.11; a pipe, `--no-messages`, a named dialect and
-/// commands that keep their own JSON hear nothing.
+/// Bare `--json` is `greeg` for searches and the verbs, and other commands
+/// keep their own JSON. `--json=legacy` says, once and only on a terminal,
+/// that it goes in 0.12; a pipe, `--no-messages` and the other dialects hear
+/// nothing.
 #[test]
-fn bare_json_is_legacy_and_names_its_change_only_to_a_person() {
+fn bare_json_is_greeg_and_legacy_names_its_removal_only_to_a_person() {
     let f = empty_fixture();
     w(
         &f.root.join("src/lib.rs"),
@@ -2981,11 +2982,8 @@ fn bare_json_is_legacy_and_names_its_change_only_to_a_person() {
                 let mut v: serde_json::Value = serde_json::from_str(l).unwrap();
                 if let Some(d) = v.get_mut("data").and_then(|d| d.as_object_mut()) {
                     // a JSON search's estimate counts the digits of its elapsed times
-                    for k in ["elapsed_total", "elapsed_ms", "est_tokens"] {
+                    for k in ["elapsed_ms", "est_tokens"] {
                         d.shift_remove(k);
-                    }
-                    if let Some(s) = d.get_mut("stats").and_then(|s| s.as_object_mut()) {
-                        s.shift_remove("elapsed");
                     }
                 }
                 v.to_string()
@@ -2995,39 +2993,52 @@ fn bare_json_is_legacy_and_names_its_change_only_to_a_person() {
     };
     for args in [&["needle"][..], &["def", "needle"][..]] {
         let bare = f.run(&[&["--json"][..], args].concat());
-        let legacy = f.run(&[&["--json=legacy"][..], args].concat());
-        assert_eq!(bare.status.code(), legacy.status.code(), "{args:?}");
+        let greeg = f.run(&[&["--json=greeg"][..], args].concat());
+        assert_eq!(bare.status.code(), Some(0), "{args:?}");
+        assert_eq!(bare.status.code(), greeg.status.code(), "{args:?}");
         assert_eq!(
             elapsed(&String::from_utf8_lossy(&bare.stdout)),
-            elapsed(&String::from_utf8_lossy(&legacy.stdout)),
+            elapsed(&String::from_utf8_lossy(&greeg.stdout)),
             "{args:?}"
         );
-        assert!(
-            bare.stderr.is_empty(),
-            "{args:?}: {}",
-            String::from_utf8_lossy(&bare.stderr)
-        );
+        let legacy = f.run(&[&["--json=legacy"][..], args].concat());
+        assert_eq!(legacy.status.code(), Some(0), "{args:?}");
+        for o in [&bare, &legacy] {
+            assert!(
+                o.stderr.is_empty(),
+                "{args:?}: {}",
+                String::from_utf8_lossy(&o.stderr)
+            );
+        }
     }
-    let notice = "greeg: --json will mean --json=greeg in 0.11; --json=legacy keeps this output";
-    for args in [&["--json", "needle"][..], &["--json", "def", "needle"][..]] {
+    let stats = f.run(&["stats", "--json"]);
+    assert_eq!(stats.status.code(), Some(0));
+    serde_json::from_slice::<serde_json::Value>(&stats.stdout).expect("stats' own JSON");
+    assert_eq!(f.run(&["stats", "--json=greeg"]).status.code(), Some(2));
+    let notice = "greeg: --json=legacy is removed in 0.12; --json (greeg's records) replaces it";
+    for args in [
+        &["--json=legacy", "needle"][..],
+        &["--json=legacy", "def", "needle"][..],
+    ] {
         let (out, err, code) = run_on_terminal(&f, args, &[]);
         assert_eq!(code, Some(0), "{args:?}: {err}");
         assert!(!json_lines(&out).is_empty(), "{args:?}: {out}");
         assert_eq!(err.matches(notice).count(), 1, "{args:?}: {err}");
     }
     for args in [
-        &["--json=legacy", "needle"][..],
+        &["--json", "needle"][..],
         &["--json=greeg", "needle"][..],
-        &["--json", "--no-messages", "needle"][..],
+        &["--json=rg", "needle"][..],
+        &["--json=legacy", "--no-messages", "needle"][..],
         &["--json", "stats"][..],
     ] {
         let (_, err, _) = run_on_terminal(&f, args, &[]);
-        assert!(!err.contains("--json will mean"), "{args:?}: {err}");
+        assert!(!err.contains("--json=legacy is removed"), "{args:?}: {err}");
     }
     // a truncated index file re-runs greeg once; the notice is not repeated
     let (out, err, code) = run_on_terminal(
         &f,
-        &["--json", "needle"],
+        &["--json=legacy", "needle"],
         &[("GREEG_DEBUG_SIGBUS", "index")],
     );
     assert_eq!(code, Some(0), "{err}");

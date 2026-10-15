@@ -150,9 +150,10 @@ class RgDialectTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 rg_dialect_checks(broken, "rg", d, dict(os.environ), [], [])
 
-    def test_query_drops_budget_and_bare_json(self):
+    def test_query_drops_budget_and_the_json_flag(self):
         self.assertEqual(rg_dialect_query(["--budget", "0", "x"]), ["x"])
         self.assertEqual(rg_dialect_query(["--json", "x"]), ["x"])
+        self.assertEqual(rg_dialect_query(["--json=legacy", "x"]), ["x"])
         self.assertEqual(rg_dialect_query(["-c", "-w", "x"]), ["-c", "-w", "x"])
 
 

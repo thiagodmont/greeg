@@ -77,7 +77,8 @@ enum JsonDialect {
     Rg,
     /// greeg's own records, schema 2: typed, byte-safe, shaped by the budget
     Greeg,
-    /// Bare `--json`: `legacy` until it becomes `greeg` in 0.11
+    /// Bare `--json`: `greeg` for searches and the verbs, and a command's own
+    /// JSON for the others
     #[value(hide = true)]
     Default,
 }
@@ -166,8 +167,8 @@ struct Common {
     max_filesize: u64,
     /// JSON Lines output. `--json=greeg`: greeg's own records, schema 2.
     /// `--json=rg`: exactly ripgrep's records and semantics. `--json=legacy`:
-    /// ripgrep's schema plus kind/symbol/facets/footer, shaped by the budget.
-    /// Bare `--json` is `legacy`, and becomes `greeg` in 0.11
+    /// ripgrep's schema plus kind/symbol/facets/footer, shaped by the budget,
+    /// removed in 0.12. Bare `--json` is `greeg`
     #[arg(
         long = "json",
         global = true,
@@ -326,7 +327,10 @@ impl Common {
     }
 
     fn json_greeg(&self) -> bool {
-        self.json_dialect == Some(JsonDialect::Greeg)
+        matches!(
+            self.json_dialect,
+            Some(JsonDialect::Greeg | JsonDialect::Default)
+        )
     }
 
     fn json_rg(&self) -> bool {
@@ -839,16 +843,16 @@ fn main_inner() -> Result<()> {
     run()
 }
 
-/// Bare `--json` changes meaning in 0.11; say so to a person, not to a pipe,
-/// and once: not again in the run that recovers from a SIGBUS.
+/// `--json=legacy` goes in 0.12; say so to a person, not to a pipe, and once:
+/// not again in the run that recovers from a SIGBUS.
 fn json_notice(c: &Common) {
     use std::io::IsTerminal;
-    if c.json_dialect == Some(JsonDialect::Default)
+    if c.json_dialect == Some(JsonDialect::Legacy)
         && !c.after_sigbus
         && !c._no_messages
         && std::io::stderr().is_terminal()
     {
-        eprintln!("greeg: --json will mean --json=greeg in 0.11; --json=legacy keeps this output");
+        eprintln!("greeg: --json=legacy is removed in 0.12; --json (greeg's records) replaces it");
     }
 }
 
@@ -1073,7 +1077,7 @@ fn run() -> Result<()> {
                 "--explain explains searches and the symbol verbs; this command does not take it"
             );
         }
-        if c.json_greeg() && verb.is_empty() {
+        if c.json_dialect == Some(JsonDialect::Greeg) && verb.is_empty() {
             anyhow::bail!(
                 "--json=greeg covers searches and the symbol verbs; this command takes --json"
             );

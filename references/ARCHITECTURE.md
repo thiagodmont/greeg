@@ -781,7 +781,7 @@ bounds its own estimated tokens once its smallest answer fits (that answer is
 written regardless), `--budget 0` writes everything, and
 `outcome.truncated_by` says when the budget cut it. Serde structs in `json_native.rs` define it.
 
-`--json=legacy`, which bare `--json` means until 0.11
+`--json=legacy`, what bare `--json` meant through 0.10 and removed in 0.12
 ([migrating](JSON.md#migrating-from-bare---json)), keeps ripgrep's JSON Lines
 schema, adding `kind`, `symbol`, `file_flags` and `score` to match records,
 plus `facets` and `footer` record types. `--budget` bounds its own size, as

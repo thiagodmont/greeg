@@ -46,7 +46,7 @@ fn record() -> Value {
             "json": {
                 "dialects": ["greeg", "legacy", "rg"],
                 "greeg_schema": json_native::SCHEMA,
-                "bare": "legacy",
+                "bare": "greeg",
             },
             "global": global,
             "search": arguments(&cli, &global),
