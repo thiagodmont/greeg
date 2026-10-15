@@ -35,6 +35,8 @@ pub struct DefEntry {
     pub score: f32,
     /// Reachability from the origin (1.0 direct import … 0.4 unrelated).
     pub reach: f32,
+    /// What `score` multiplies, when the index ranked the definition.
+    pub terms: Option<ScoreTerms>,
     pub start: u32,
     pub end: u32,
     pub file_id: Option<u32>,
@@ -284,9 +286,39 @@ const DESCRIBED_IMPLS: usize = 200;
 /// signature); `--budget 0` describes them all.
 const DESCRIBED_DEFS: usize = 256;
 
-/// A definition's ranking score, from the index alone.
-fn def_score(idx: &Index, s: SymId, fid: u32, rel: &[u8], all: bool, reach: f32) -> f32 {
-    let Some(r) = idx.sym(s) else { return 0.0 };
+/// The factors of a definition's ranking score.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ScoreTerms {
+    pub kind: f32,
+    /// 1.0 exported, 0.85 not.
+    pub exported: f32,
+    /// 0.6 an object-literal member, 0.7 inside a function, 1.0 otherwise.
+    pub nested: f32,
+    /// Tests, mocks, vendored and generated files rank lower.
+    pub location: f32,
+    /// `0.6 + 0.4 × PageRank` of the file.
+    pub rank: f32,
+    pub reach: f32,
+}
+
+impl ScoreTerms {
+    pub fn score(&self) -> f32 {
+        self.kind * self.exported * self.nested * self.location * self.rank * self.reach
+    }
+}
+
+/// A definition's ranking terms, from the index alone.
+fn def_score(idx: &Index, s: SymId, fid: u32, rel: &[u8], all: bool, reach: f32) -> ScoreTerms {
+    let Some(r) = idx.sym(s) else {
+        return ScoreTerms {
+            kind: 0.0,
+            exported: 0.0,
+            nested: 0.0,
+            location: 0.0,
+            rank: 0.0,
+            reach,
+        };
+    };
     let fflags = FileFlags(idx.rec(fid).map(|r| r.flags).unwrap_or(0));
     let exported = if r.flags & SYM_EXPORTED != 0 {
         1.0
@@ -307,12 +339,14 @@ fn def_score(idx: &Index, s: SymId, fid: u32, rel: &[u8], all: bool, reach: f32)
     } else {
         1.0
     };
-    kind_weight(r.kind)
-        * exported
-        * nested
-        * loc_w(fflags, rel, all)
-        * (0.6 + 0.4 * idx.rank(fid))
-        * reach
+    ScoreTerms {
+        kind: kind_weight(r.kind),
+        exported,
+        nested,
+        location: loc_w(fflags, rel, all),
+        rank: 0.6 + 0.4 * idx.rank(fid),
+        reach,
+    }
 }
 
 /// Does the request select the indexed file `fid`?
@@ -439,15 +473,15 @@ pub fn def(
         let origins = origin_ids(idx, from);
         // rank every eligible definition on metadata, then describe the best
         // ones: all of them without a budget
-        let mut ranked: Vec<(f32, SymId, &[u8], u32, f32)> = syms
+        let mut ranked: Vec<(f32, SymId, &[u8], u32, ScoreTerms)> = syms
             .iter()
             .filter_map(|s| {
                 let r = idx.sym(*s)?;
                 let fid = idx.sym_file(*s);
                 let rel = idx.path(fid).unwrap_or_default();
                 let rch = reach(idx, &origins, fid);
-                let score = def_score(idx, *s, fid, rel, o.all, rch);
-                Some((score, *s, rel, r.line, rch))
+                let terms = def_score(idx, *s, fid, rel, o.all, rch);
+                Some((terms.score(), *s, rel, r.line, terms))
             })
             .collect();
         ranked.sort_by(|a, b| {
@@ -460,7 +494,7 @@ pub fn def(
             ranked.truncate(DESCRIBED_DEFS);
         }
         let mut entries: Vec<DefEntry> = Vec::with_capacity(ranked.len() + file_mods.len());
-        for &(score, s, rel, _, rch) in &ranked {
+        for &(score, s, rel, _, terms) in &ranked {
             let Some(r) = idx.sym(s) else { continue };
             let fid = idx.sym_file(s);
             let rec = idx.rec(fid).context("file record")?;
@@ -482,7 +516,8 @@ pub fn def(
                 file_flags: FileFlags(rec.flags),
                 supers: idx.sym_supers(s).iter().map(|s| s.to_string()).collect(),
                 score,
-                reach: rch,
+                reach: terms.reach,
+                terms: Some(terms),
                 start: r.start,
                 end: r.end,
                 file_id: Some(fid),
@@ -494,8 +529,15 @@ pub fn def(
             let fflags = FileFlags(rec.flags);
             let rel = idx.path(fid).unwrap_or_default().to_vec();
             let rch = reach(idx, &origins, fid);
-            let score =
-                FILE_MODULE_W * loc_w(fflags, &rel, o.all) * (0.6 + 0.4 * idx.rank(fid)) * rch;
+            let terms = ScoreTerms {
+                kind: FILE_MODULE_W,
+                exported: 1.0,
+                nested: 1.0,
+                location: loc_w(fflags, &rel, o.all),
+                rank: 0.6 + 0.4 * idx.rank(fid),
+                reach: rch,
+            };
+            let score = terms.score();
             entries.push(DefEntry {
                 rel,
                 line: 1,
@@ -509,6 +551,7 @@ pub fn def(
                 supers: Vec::new(),
                 score,
                 reach: rch,
+                terms: Some(terms),
                 start: 0,
                 end: rec.size.min(u32::MAX as u64) as u32,
                 file_id: Some(fid),
@@ -672,6 +715,7 @@ fn scan_defs(
                 supers: vec![],
                 score: h.score,
                 reach: 0.6,
+                terms: None,
                 start: dstart,
                 end: dend,
                 file_id: None,
@@ -974,6 +1018,7 @@ fn implementors_in(f: &mut crate::FileResult, name: &str, all: bool) -> Vec<DefE
                 * loc_w(file_flags, &rel, all)
                 * 0.8,
             reach: 0.6,
+            terms: None,
             start: s.start,
             end: s.end,
             file_id,
@@ -1080,6 +1125,7 @@ pub fn impls(o: &Options, name: &str) -> Result<ImplsResult> {
                 supers: idx.sym_supers(s).iter().map(|x| x.to_string()).collect(),
                 score,
                 reach: 0.6,
+                terms: None,
                 start: r.start,
                 end: r.end,
                 file_id: Some(fid),
@@ -1168,6 +1214,7 @@ pub fn impls(o: &Options, name: &str) -> Result<ImplsResult> {
                     supers: vec![name.to_string()],
                     score: h.score,
                     reach: 0.6,
+                    terms: None,
                     start: h.line_start,
                     end: h.match_end,
                     file_id: f.file_id,

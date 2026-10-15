@@ -3167,13 +3167,194 @@ fn explain_says_what_a_search_was_built_from() {
     assert!(err.contains("explain: source index"), "{err}");
     assert!(err.contains("explain: score = kind weight"), "{err}");
     for refused in [
-        &["def", "target", "--explain"][..],
+        &["index", "--explain"][..],
         &["target", "--json=rg", "--explain"],
     ] {
         let o = f.run(refused);
         assert_eq!(o.status.code(), Some(2), "{refused:?}");
         assert!(o.stdout.is_empty());
     }
+}
+
+/// A symbol verb's `--explain` adds one record and changes nothing else: in
+/// text it goes to stderr, in JSON before the footer, and to stderr under a
+/// byte ceiling. Its counts are the fixture's, and a definition's score terms
+/// multiply to its score.
+#[test]
+fn explain_says_how_a_verb_answer_was_built() {
+    let f = outcome_fixture();
+    let queries: [(&[&str], serde_json::Value); 8] = [
+        (&["def", "target"], serde_json::json!({"definitions": 9})),
+        (
+            &["refs", "target"],
+            serde_json::json!({"definitions": 9, "files_searched": 10, "files_matched": 10, "hits": 27}),
+        ),
+        (
+            &["callers", "target"],
+            serde_json::json!({"depth": 1, "files": 2, "hits": 17, "callers": 17}),
+        ),
+        (
+            &["impls", "Shape"],
+            serde_json::json!({"direct": 8, "extras": 0}),
+        ),
+        (
+            &["impact", "target"],
+            serde_json::json!({"definitions": 9, "callers": 17, "hits": 27}),
+        ),
+        (
+            &["outline", "src/lib.rs"],
+            serde_json::json!({"symbols": 35, "imports": 0}),
+        ),
+        (
+            &["show", "src/lib.rs:12", "src/lib.rs:20"],
+            serde_json::json!({"locations": 2, "in_a_definition": 2}),
+        ),
+        (
+            &["map", "src"],
+            serde_json::json!({"files": 10, "symbols": 44}),
+        ),
+    ];
+    let with = |q: &[&str], extra: &[&str]| {
+        let mut a = q.to_vec();
+        a.extend_from_slice(&["--fresh", "stat"]);
+        a.extend_from_slice(extra);
+        f.run(&a)
+    };
+    for (q, counts) in queries {
+        let verb = q[0];
+        let plain = with(q, &[]);
+        let explained = with(q, &["--explain"]);
+        assert_eq!(explained.status.code(), plain.status.code(), "{q:?}");
+        assert_eq!(
+            String::from_utf8_lossy(&explained.stdout),
+            String::from_utf8_lossy(&plain.stdout),
+            "{q:?}"
+        );
+        let err = String::from_utf8_lossy(&explained.stderr);
+        assert!(
+            err.contains(&format!("explain: {verb} · source")),
+            "{q:?}\n{err}"
+        );
+        assert!(err.contains("explain: considered: "), "{q:?}\n{err}");
+
+        for dialect in ["--json=greeg", "--json=legacy"] {
+            let plain = with(q, &[dialect]);
+            let o = with(q, &[dialect, "--explain"]);
+            assert_eq!(o.status.code(), plain.status.code(), "{q:?} {dialect}");
+            let records: Vec<serde_json::Value> = String::from_utf8(o.stdout.clone())
+                .unwrap()
+                .lines()
+                .map(|l| serde_json::from_str(l).unwrap())
+                .collect();
+            let n = records.len();
+            assert_eq!(records[n - 2]["type"], "explain", "{q:?} {dialect}");
+            let e = &records[n - 2]["data"];
+            assert_eq!(e["verb"], verb, "{q:?} {dialect}");
+            let oc = &records[n - 1]["data"]["outcome"];
+            for k in ["total", "shown", "source"] {
+                assert_eq!(e[k], oc[k], "{q:?} {dialect} {k}");
+            }
+            for (k, n) in counts.as_object().unwrap() {
+                assert_eq!(e["considered"][k], *n, "{q:?} {dialect} {k}");
+            }
+            if verb == "def" {
+                assert_eq!(e["considered"]["definitions"], e["total"], "{e}");
+            }
+            let without: Vec<u8> = o
+                .stdout
+                .split_inclusive(|&b| b == b'\n')
+                .filter(|l| !l.starts_with(br#"{"type":"explain""#))
+                .flatten()
+                .copied()
+                .collect();
+            assert_eq!(
+                stable_records(&without),
+                stable_records(&plain.stdout),
+                "{q:?} {dialect}"
+            );
+            if verb == "def" {
+                let defs = e["ranking"]["definitions"].as_array().unwrap();
+                assert!(!defs.is_empty() && defs.len() <= 10, "{e}");
+                for d in defs {
+                    let product: f64 = d["terms"]
+                        .as_object()
+                        .unwrap()
+                        .values()
+                        .map(|v| v.as_f64().unwrap())
+                        .product();
+                    let score = d["score"].as_f64().unwrap();
+                    assert!((product - score).abs() < 0.01, "{d}");
+                }
+            }
+        }
+
+        let capped = with(q, &["--json=greeg", "--max-bytes", "4000", "--explain"]);
+        assert!(capped.stdout.len() <= 4000, "{q:?}");
+        assert!(
+            !String::from_utf8_lossy(&capped.stdout).contains(r#""type":"explain""#),
+            "{q:?}"
+        );
+        let err: serde_json::Value = serde_json::from_slice(&capped.stderr).unwrap();
+        assert_eq!(err["type"], "explain", "{q:?}");
+    }
+    // a body clipped to the budget is reported, though every location is shown
+    let o = with(
+        &["show", "src/lib.rs:12", "src/lib.rs:20"],
+        &["--json=greeg", "--budget", "60", "--explain"],
+    );
+    let e: serde_json::Value = String::from_utf8(o.stdout)
+        .unwrap()
+        .lines()
+        .map(|l| serde_json::from_str::<serde_json::Value>(l).unwrap())
+        .find(|r| r["type"] == "explain")
+        .unwrap();
+    let fit = &e["data"]["fit"];
+    assert_eq!(fit["cut_by"], serde_json::json!(["budget"]), "{e}");
+    assert!(
+        fit["rows"].as_u64().unwrap() < fit["of"].as_u64().unwrap(),
+        "{e}"
+    );
+    // nothing cut, no fit: an unlimited answer has no allowance to report
+    let o = with(
+        &["refs", "target"],
+        &["--json=greeg", "--budget", "0", "--explain"],
+    );
+    let e: serde_json::Value = String::from_utf8(o.stdout)
+        .unwrap()
+        .lines()
+        .map(|l| serde_json::from_str::<serde_json::Value>(l).unwrap())
+        .find(|r| r["type"] == "explain")
+        .unwrap();
+    assert!(e["data"]["fit"].is_null(), "{e}");
+    // a byte ceiling under no budget: rows kept, no allowance to cut from
+    for q in [
+        &["callers", "target"][..],
+        &["impls", "Shape"],
+        &["map", "src"],
+    ] {
+        let o = with(
+            q,
+            &[
+                "--json=greeg",
+                "--budget",
+                "0",
+                "--max-bytes",
+                "900",
+                "--explain",
+            ],
+        );
+        let e: serde_json::Value = serde_json::from_slice(&o.stderr).unwrap();
+        let fit = &e["data"]["fit"];
+        assert_eq!(fit["cut_by"], serde_json::json!(["bytes"]), "{q:?} {e}");
+        assert!(fit["rows"].is_u64() && fit["of"].is_null(), "{q:?} {e}");
+    }
+    let o = with(
+        &["refs", "target"],
+        &["--budget", "0", "--max-bytes", "900", "--explain"],
+    );
+    let err = String::from_utf8_lossy(&o.stderr);
+    assert!(err.contains(" rows to the byte ceiling"), "{err}");
+    assert!(!err.contains(&usize::MAX.to_string()), "{err}");
 }
 
 /// Of `-i`, `-s` and `-S`, and of `-w` and `-x`, the last flag given wins, as
