@@ -201,8 +201,10 @@ fn fit(
             })?,
         ),
     };
+    // the allowance itself comes from the budget, which can cut at `max` too
+    let budget_cut = rows < max || (o.budget > 0 && !by_budget.1.complete());
     if bytes_fit(&by_budget.0) {
-        let cut_by = if rows < max { vec!["budget"] } else { vec![] };
+        let cut_by = if budget_cut { vec!["budget"] } else { vec![] };
         let (text, oc) = by_budget;
         return Ok(Fitted {
             text,
@@ -225,7 +227,7 @@ fn fit(
     };
     // the ceiling cuts further; below the budget's floor only bytes count
     let both = |b: &[u8]| tokens_fit(b) && bytes_fit(b);
-    let cut = (true, rows < max);
+    let cut = (true, budget_cut);
     let found = match below(rows, cut, &both)? {
         Some(f) => Some(f),
         None => below(rows, cut, &bytes_fit)?,
@@ -246,7 +248,7 @@ fn fit(
             let floor = render(Cut {
                 rows: 0,
                 bytes: true,
-                budget: rows < max,
+                budget: budget_cut,
             })?;
             anyhow::bail!(
                 "--max-bytes {} is below the {} bytes this answer needs",
@@ -1903,6 +1905,28 @@ pub fn run_impact(c: &Common, o: &Options, name: &str) -> Result<()> {
 mod tests {
     use super::*;
     use std::cell::Cell;
+
+    /// A verb's allowance comes from the budget, so the budget can cut at the
+    /// full allowance; a byte cut after it names both limits.
+    #[test]
+    fn a_cut_at_the_full_allowance_names_the_budget() {
+        let render = |cut: Cut| -> Result<(Vec<u8>, Outcome)> {
+            let shown = cut.rows.min(50);
+            let oc = cut.mark(answered_outcome(80, shown, "scan", ""));
+            Ok(("x\n".repeat(shown).into_bytes(), oc))
+        };
+        let o = Options {
+            budget: 100_000,
+            max_bytes: 60,
+            ..Default::default()
+        };
+        assert_eq!(
+            fit(false, &o, 50, render).unwrap().cut_by,
+            ["budget", "bytes"]
+        );
+        let o = Options { max_bytes: 0, ..o };
+        assert_eq!(fit(false, &o, 50, render).unwrap().cut_by, ["budget"]);
+    }
 
     /// `--budget 0` leaves the allowance unbounded; fitting `--max-bytes`
     /// must not render the whole answer again and again.

@@ -113,8 +113,8 @@ result, as ripgrep does.
 `outcome` counts a verb's results. The definitions `refs` and `impact` list
 beside them are context: `definitions_total` says how many there are.
 
-`--max-bytes N` bounds the JSON's bytes too: the answer is fitted to the budget,
-then cut to the most results whose records fit in N bytes, with
+`--max-bytes N` bounds the JSON's bytes too (`0`, the default, sets no bound): the
+answer is fitted to the budget, then cut so its records fit in N bytes, with
 `"truncated_by": "bytes"` and a `--max-bytes` hint. Records are never split.
 When even the smallest answer is larger, nothing is written and greeg exits `2`.
 

@@ -1722,9 +1722,18 @@ fn fit_search(
         return Ok(report);
     }
     let hint = format!("--max-bytes {}", cap * 2);
+    // a smaller shape asks for a bigger budget only if the budget cut too
+    let budget_cut = report
+        .footer
+        .hints
+        .iter()
+        .any(|h| h.starts_with("--budget "));
     let size = |result: &mut ScanResult, b: usize| {
         let mut r = build(result, b);
         r.footer.byte_cut = true;
+        if !budget_cut {
+            r.footer.hints.retain(|h| !h.starts_with("--budget "));
+        }
         r.footer.hints.insert(0, hint.clone());
         let (r, _, n) = measure(result, r)?;
         Ok((r, n))
