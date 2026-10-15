@@ -12,7 +12,8 @@ mod stats;
 mod verbs_out;
 
 use anyhow::Result;
-use clap::{ArgAction, Args, CommandFactory, Parser, Subcommand};
+use clap::parser::ValueSource;
+use clap::{Arg, ArgAction, ArgMatches, Args, CommandFactory, FromArgMatches, Parser, Subcommand};
 use greeg_query::outcome::Outcome;
 use greeg_query::shape::{Layout, Report, ShownFile};
 use greeg_query::{HitKind, MatchingPolicy, Mode, Options, ScanResult};
@@ -43,7 +44,7 @@ Exit 1 = no hits for the pattern as given (a relaxed match is reported, exit 1).
 The index builds itself in the background on first use; `greeg doctor` shows it.";
 
 #[derive(Parser, Debug)]
-#[command(name = "greeg", version = stats::VERSION, about = "A grep for coding agents: syntax-aware, ranked, budgeted. Accepts ripgrep flags.", after_help = EXAMPLES, disable_help_subcommand = true, disable_help_flag = true)]
+#[command(name = "greeg", version = stats::VERSION, about = "A grep for coding agents: syntax-aware, ranked, budgeted. Accepts ripgrep flags.", after_help = EXAMPLES, disable_help_subcommand = true, disable_help_flag = true, args_override_self = true)]
 struct Cli {
     #[command(subcommand)]
     cmd: Option<Cmd>,
@@ -87,20 +88,31 @@ struct Common {
     _help: Option<bool>,
 
     // ---- ripgrep-compatible ----
+    // as in ripgrep, the last of -i/-S/-s and of -w/-x wins
     /// Case-insensitive search
-    #[arg(short = 'i', long = "ignore-case", global = true)]
+    #[arg(short = 'i', long = "ignore-case", global = true, overrides_with_all = ["smart_case", "case_sensitive"])]
     ignore_case: bool,
     /// Smart case: insensitive unless the pattern has uppercase
-    #[arg(short = 'S', long = "smart-case", global = true)]
+    #[arg(short = 'S', long = "smart-case", global = true, overrides_with_all = ["ignore_case", "case_sensitive"])]
     smart_case: bool,
     /// Case-sensitive search (default)
-    #[arg(short = 's', long = "case-sensitive", global = true)]
+    #[arg(short = 's', long = "case-sensitive", global = true, overrides_with_all = ["ignore_case", "smart_case"])]
     case_sensitive: bool,
     /// Only match whole words
-    #[arg(short = 'w', long = "word-regexp", global = true)]
+    #[arg(
+        short = 'w',
+        long = "word-regexp",
+        global = true,
+        overrides_with = "line_regexp"
+    )]
     word: bool,
     /// Only match whole lines
-    #[arg(short = 'x', long = "line-regexp", global = true)]
+    #[arg(
+        short = 'x',
+        long = "line-regexp",
+        global = true,
+        overrides_with = "word"
+    )]
     line_regexp: bool,
     /// Treat the pattern as a literal string
     #[arg(short = 'F', long = "fixed-strings", global = true)]
@@ -293,6 +305,19 @@ struct Common {
 }
 
 impl Common {
+    /// The last of each rival flag group given at any command level.
+    fn keep_last_given(&mut self, m: &ArgMatches) {
+        if let Some(id) = last_given(m, &CASE_FLAGS) {
+            self.ignore_case = id == "ignore_case";
+            self.smart_case = id == "smart_case";
+            self.case_sensitive = id == "case_sensitive";
+        }
+        if let Some(id) = last_given(m, &BOUNDARY_FLAGS) {
+            self.word = id == "word";
+            self.line_regexp = id == "line_regexp";
+        }
+    }
+
     /// Any JSON output.
     fn json(&self) -> bool {
         self.json_dialect.is_some()
@@ -314,6 +339,56 @@ impl Common {
             self.budget_arg.unwrap_or_else(budget::configured)
         }
     }
+}
+
+const CASE_FLAGS: [&str; 3] = ["ignore_case", "smart_case", "case_sensitive"];
+const BOUNDARY_FLAGS: [&str; 2] = ["word", "line_regexp"];
+
+fn is_rival(a: &Arg) -> bool {
+    let id = a.get_id().as_str();
+    CASE_FLAGS.contains(&id) || BOUNDARY_FLAGS.contains(&id)
+}
+
+/// A global flag's overrides act only within its command level, and clap
+/// copies the deepest occurrence to every level, so `-s refs -i` keeps both.
+/// Declaring the rival flags at each level instead keeps where each was given.
+fn parse_command() -> clap::Command {
+    fn declare(cmd: clap::Command, rivals: &[Arg]) -> clap::Command {
+        cmd.args(rivals.iter().cloned())
+            .mut_subcommands(|sc| declare(sc, rivals))
+    }
+    let cmd = Cli::command().mut_args(|a| if is_rival(&a) { a.global(false) } else { a });
+    let rivals: Vec<Arg> = cmd
+        .get_arguments()
+        .filter(|a| is_rival(a))
+        .cloned()
+        .collect();
+    cmd.mut_subcommands(|sc| declare(sc, &rivals))
+}
+
+/// The last of `ids` given, the deepest command level first; overrides leave
+/// at most one per level.
+fn last_given(m: &ArgMatches, ids: &[&'static str]) -> Option<&'static str> {
+    let here = ids
+        .iter()
+        .filter(|id| m.value_source(id) == Some(ValueSource::CommandLine))
+        .max_by_key(|id| m.index_of(id))
+        .copied();
+    m.subcommand()
+        .and_then(|(_, sub)| last_given(sub, ids))
+        .or(here)
+}
+
+fn parse_cli<I, T>(args: I) -> Result<Cli, clap::Error>
+where
+    I: IntoIterator<Item = T>,
+    T: Into<std::ffi::OsString> + Clone,
+{
+    let mut cmd = parse_command();
+    let m = cmd.try_get_matches_from_mut(args)?;
+    let mut cli = Cli::from_arg_matches(&m).map_err(|e| e.format(&mut cmd))?;
+    cli.common.keep_last_given(&m);
+    Ok(cli)
 }
 
 #[derive(Subcommand, Debug)]
@@ -935,7 +1010,7 @@ fn run() -> Result<()> {
             stats::since_start_us()
         );
     }
-    let cli = Cli::parse();
+    let cli = parse_cli(std::env::args_os()).unwrap_or_else(|e| e.exit());
     if trace {
         eprintln!("greeg: args parsed at {:?} µs", stats::since_start_us());
     }
@@ -2935,6 +3010,51 @@ mod tests {
             }
         }
         assert!(kept > 1_000);
+    }
+
+    /// Global flags given on both sides of a verb: the last one still wins.
+    #[test]
+    fn the_last_case_or_boundary_flag_wins_across_a_verb() {
+        let flags = |args: &[&str]| {
+            let c = parse_cli(args)
+                .unwrap_or_else(|e| panic!("{args:?}: {e}"))
+                .common;
+            let case = [c.ignore_case, c.smart_case, c.case_sensitive];
+            (case, [c.word, c.line_regexp])
+        };
+        const I: [bool; 3] = [true, false, false];
+        const BIG_S: [bool; 3] = [false, true, false];
+        const S: [bool; 3] = [false, false, true];
+        const NONE: [bool; 2] = [false, false];
+        for (args, want) in [
+            (&["greeg", "-s", "refs", "-i", "FOO"][..], (I, NONE)),
+            (&["greeg", "-i", "refs", "-s", "FOO"], (S, NONE)),
+            (&["greeg", "-i", "refs", "-S", "FOO"], (BIG_S, NONE)),
+            (&["greeg", "-S", "refs", "-i", "FOO"], (I, NONE)),
+            (&["greeg", "-S", "def", "-s", "FOO"], (S, NONE)),
+            (&["greeg", "-s", "def", "-S", "FOO"], (BIG_S, NONE)),
+            (&["greeg", "-i", "-s", "refs", "-S", "FOO"], (BIG_S, NONE)),
+            (&["greeg", "-S", "refs", "-i", "-s", "FOO"], (S, NONE)),
+            (
+                &["greeg", "-x", "refs", "-w", "FOO"],
+                ([false; 3], [true, false]),
+            ),
+            (
+                &["greeg", "-w", "refs", "-x", "FOO"],
+                ([false; 3], [false, true]),
+            ),
+            (
+                &["greeg", "-i", "-x", "def", "-s", "-w", "FOO"],
+                (S, [true, false]),
+            ),
+            // a flag on one side only is kept
+            (&["greeg", "-i", "refs", "-w", "FOO"], (I, [true, false])),
+            (&["greeg", "-i", "refs", "-i", "FOO"], (I, NONE)),
+            (&["greeg", "-i", "-S", "FOO"], (BIG_S, NONE)),
+            (&["greeg", "-x", "-w", "FOO"], ([false; 3], [true, false])),
+        ] {
+            assert_eq!(flags(args), want, "{args:?}");
+        }
     }
 
     /// A flag greeg cannot honour must fail loudly. `-a` and `-uuu` ask for
