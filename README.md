@@ -1,25 +1,22 @@
 # greeg
 
-**A grep for coding agents.** Familiar ripgrep flags. It answers from a
-persistent index, knows which hits are *definitions*, ranks them, and fits the
-answer in a token budget instead of dumping every match.
+**Code search built for coding agents.** It speaks ripgrep's flags, answers
+from an index, puts definitions first, and fits its ranked answers in a token
+budget, so your agent reads the hits that matter instead of a wall of matches.
 
 [![CI](https://github.com/thiagodmont/greeg/actions/workflows/ci.yml/badge.svg)](https://github.com/thiagodmont/greeg/actions/workflows/ci.yml)
 [![release](https://img.shields.io/github/v/release/thiagodmont/greeg)](https://github.com/thiagodmont/greeg/releases)
 [![license](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue)](#license)
 
----
-
 ## The problem
 
 Your agent runs `rg isIdentifier` on the TypeScript compiler. ripgrep does its
-job perfectly: **774 lines, 88,147 bytes**.
+job: **774 lines, 18,987 tokens**. Claude Code truncates tool output at 30,000
+characters, so the agent sees about a third of it, and the definitions it was
+looking for may sit past the cut.
 
-Claude Code truncates tool output at 30,000 characters. So your agent reads a
-third of that wall, and the definitions it was actually after sit somewhere
-past the cut.
-
-greeg answers the same question in **2,553 bytes**, and opens with them:
+greeg answers the same question in **666 tokens** (o200k; its footer shows
+greeg's own estimate), definitions first:
 
 ```console
 $ greeg isIdentifier
@@ -34,57 +31,44 @@ tests/cases/compiler/reverseMappedUnionInference.ts  [test]
   24  declare function isIdentifier(node: unknown): node is Identifier;
   +2 test definitions (--all)
 …
-14/767 hits · 8/105 files · 4 files demoted (17) · skipped 2 huge · ~745 tokens
+14/767 hits · 8/105 files · 4 files demoted (17) · skipped 2 huge · ~708 tokens
 ```
 
-Definitions first, each with the type it belongs to. Tests demoted, still
-counted.
+Between the definitions and the footer, greeg summarizes the other 753 hits:
+their kinds, where they live, the top call sites with the function each sits
+in, 122 imports folded into one line, and similar names. The footer says what
+was left out and which flag brings it back. Nothing is silently dropped.
 
-Where the `…` is, greeg prints the shape of the other 753 hits: a kind
-breakdown, the directories they live in, the top call sites with the function
-each one sits in, 122 import lines collapsed to a single line, and the
-near-miss names (`isIdentifierText`, `isIdentifierPart`) listed off to the side
-instead of competing for space. The footer says what got left out and which
-flag brings it back.
+## Why use it
 
-Every hit is still accounted for. The answer is **ranked**.
-
-## Why it's worth installing
-
-**It's faster.** The index means a query opens only the files that could match,
-instead of every file in the tree. On TypeScript-5.9 (74k files, 368 MB):
+**Faster.** The index means a query opens only the files that could match.
+On TypeScript 5.9 (74k files, 368 MB):
 
 | query | `grep` | `rg` | `rg -j4` | **greeg** |
 |---|---:|---:|---:|---:|
 | `createSourceFile` | 4.29 s | 2.42 s | 672 ms | **30 ms** |
 | `node` (30,445 matches) | 4.52 s | 2.33 s | 882 ms | **43 ms** |
 
-**It's right more often.** Scored against SCIP ground truth from
-`rust-analyzer`, `scip-python` and `scip-typescript`. The question being asked:
-"I wanted to know where this symbol is defined. Was the first result correct?"
+**Right more often.** Asked "where is this symbol defined?", greeg's first
+result is correct far more often, scored against SCIP ground truth from
+`rust-analyzer`, `scip-python` and `scip-typescript`:
 
 | corpus | **greeg** | `rg -nw` | `grep` |
 |---|---:|---:|---:|
-| TypeScript-5.9 | **96 %** | 28 % | 47 % |
+| TypeScript 5.9 | **96 %** | 28 % | 47 % |
 | django | **100 %** | 24 % | 29 % |
 | tokio | **96 %** | 17 % | 19 % |
 
-**It costs fewer tokens**, and the broader the search, the bigger the gap.
-Eight identifier searches across the TypeScript compiler, `rg` output against
-greeg's answer: 4×, 5×, 8×, 8×, 20×, 21×, 36×, 44× smaller.
+**Fewer tokens.** The broader the search, the bigger the saving: 28× on the
+search above. A narrow one-file search costs about the same as grep, a few
+tokens more for the path and symbol context. You can
+[measure it on your own work](#is-it-actually-helping).
 
-Narrow searches land closer to even. A single-file grep actually costs you a
-few tokens *more*, because greeg adds the path header, the kind column and the
-enclosing symbol. You can
-[measure it on your own traffic](#is-it-actually-helping) instead of taking my
-word for it.
-
-Full numbers, protocol and caveats: [`references/BENCH.md`](references/BENCH.md).
+Protocols, raw data and caveats: [`references/BENCH.md`](references/BENCH.md).
 
 ## Install
 
-macOS (arm64, x86_64) or Linux (x86_64, aarch64). You don't need ripgrep
-installed.
+macOS (arm64, x86_64) or Linux (x86_64, aarch64). ripgrep is not required.
 
 ```bash
 brew install thiagodmont/greeg/greeg
@@ -93,26 +77,13 @@ brew install thiagodmont/greeg/greeg
 <details>
 <summary>Other ways to install</summary>
 
-**Release tarball** (binary + man page, sha256 alongside):
+**Release archive** (binary and man page; checksums and a provenance
+attestation alongside, see [verifying an archive](references/USAGE.md#verifying-a-release-archive)):
 
 ```bash
 v=0.11.0; t=aarch64-apple-darwin   # or x86_64-apple-darwin, x86_64-unknown-linux-gnu, aarch64-unknown-linux-gnu
 curl -sSL https://github.com/thiagodmont/greeg/releases/download/v$v/greeg-$v-$t.tar.gz | tar xz
 sudo install greeg-$v-$t/greeg /usr/local/bin/
-```
-
-Each archive is built and qualified on its own target's runner before
-publication: its version, files and a semantic suite (`bench/qualify.py`).
-The release log prints the minimum macOS each binary declares and the newest
-glibc symbol version each Linux binary needs; systems older than the
-runners (macOS 15, Ubuntu 24.04) are not verified. Archives from 0.11 on
-carry a build provenance attestation; to check one, download the archive and
-verify it with the GitHub CLI (2.49 or newer):
-
-```bash
-v=0.11.0; t=aarch64-apple-darwin
-curl -sSLO https://github.com/thiagodmont/greeg/releases/download/v$v/greeg-$v-$t.tar.gz
-gh attestation verify greeg-$v-$t.tar.gz --repo thiagodmont/greeg
 ```
 
 **From source** (Rust 1.90 or newer):
@@ -123,220 +94,82 @@ cargo install --git https://github.com/thiagodmont/greeg greeg
 
 </details>
 
-Check it:
-
-```bash
-greeg --version
-greeg doctor            # index location, freshness mode, languages, disk use
-```
-
-## Point your agent at it
-
-One command installs a hook that rewrites supported simple `rg` calls to
-`greeg --matching exact`, plus a skill file so the agent knows the extra verbs.
-**You don't have to change how you prompt.** The agent keeps writing `rg`, and
-greeg answers eligible calls.
+## Connect your agent
 
 ```bash
 greeg hook claude       # Claude Code   (--dry-run to preview, --uninstall to remove)
-greeg hook codex        # Codex         (then run /hooks in Codex to trust it)
+greeg hook codex        # Codex 0.131+  (then run /hooks in Codex to trust it)
 ```
 
-A rewrite changes only the command: the call's timeout, background flag and
-description are passed back unchanged. Codex applies hook rewrites from 0.131
-on. `crates/greeg/tests/fixtures/hooks` holds each host's documented hook
-payload; the hook tests check that each reply has the shape that host's
-documentation accepts.
+This installs a hook and a skill file. The agent keeps writing `rg`; the hook
+sends simple `rg` searches to greeg, and the skill teaches the agent greeg's
+symbol commands. **You don't change how you prompt.** Commands the hook can't
+translate exactly (pipelines, `grep`, redirections, …) run with the original
+tool; `greeg hook explain 'rg -l foo src'` shows what it would do.
 
-Install/uninstall recognizes exact command handlers: `greeg hook run` (also
-`--agent claude`) for Claude, and `greeg hook run --agent codex` for Codex.
-Uninstall removes those handlers while preserving other handlers and entry
-metadata. Prefix lookalikes, wrappers and custom commands are left alone.
-Newly empty entries are removed only when they have no custom metadata and
-their matcher is absent or exactly `Bash`; pre-existing empty entries stay intact.
-New registrations append without moving existing entries; no-op configuration
-edits preserve the original text. Invalid or unreadable settings stop the edit.
-Comments on retained TOML entries and stored trust data are preserved, but
-removing handlers can change positional hook IDs; review `/hooks` after changing the configuration.
+> If you use `Bash(rg:*)` allow rules, add `Bash(greeg:*)` next to them. If
+> another hook also rewrites `rg` (RTK, for example), only one can win; for
+> RTK, add `exclude_commands = ["grep", "rg"]` under `[hooks]` in its config.
 
-Configuration changes use a synced temporary file and atomic publication. A
-nonblocking lock serializes greeg writers; changed content or file identity
-causes a conflict instead of overwriting a detected external edit. Config-file
-symlinks, hard links and files owned by another user cannot be replaced.
-Existing permissions are retained; new configurations use mode `0600`.
-On macOS, metadata is copied; on Linux, configurations with extended attributes
-or ACLs are left unchanged with an error. See the
-[configuration update contract](references/ARCHITECTURE.md#hook-configuration-updates)
-for concurrency and interruption limits.
+Any other agent can call `greeg` directly: it prints to stdout and exits `0` on
+exact hits, `1` when there are none (it may still print relaxed, discovery-only
+results), `2` on error.
 
-Generated skills carry a versioned ownership marker and content checksum.
-Reinstall updates unmodified managed skills; uninstall removes only those skills
-or an exact copy of the bundled legacy text. Edited or unrecognized skills are
-preserved with a message; move one aside before reinstalling to regenerate it.
-Skill-file symlinks, nonregular files and unreadable content stop the operation
-before configuration changes. Configuration and skill updates are separate
-operations; `--dry-run` previews both and writes neither.
+## Use it
 
-The hook preserves supported search arguments and requests exact matching; text
-results still use greeg's ranking and token budget. An explicit file-size flag
-preserves ripgrep's requested limit (unlimited by default), so files over 4 MiB
-are not silently omitted. It leaves grep variants,
-JSON/stats output, explicit executable paths, pipelines, compound commands,
-comments, redirections and shell expansions with the original tool. An inherited
-`RIPGREP_CONFIG_PATH` also disables rewriting. `greeg hook explain 'rg -l foo src'`
-shows the rewrite, or why a command is left alone. See the
-[hook capability matrix](references/ARCHITECTURE.md#agent-hook-contract) for the
-supported subset and validation limits.
-
-> **If you use `Bash(rg:*)` allow rules**, add `Bash(greeg:*)` next to them.
->
-> **If you run another hook that rewrites `rg`/`grep`** (RTK, for example),
-> only one can win: hooks run in parallel, and the last one to finish decides.
-> For RTK: add `exclude_commands = ["grep", "rg"]` under `[hooks]` in its config.
-
-Any other agent can just call `greeg` directly: it prints to stdout and exits
-`0` on exact hits, `1` on none (including discovery-only results), `2` on error.
-
-## Using it
-
-Common ripgrep flags work alongside ranked output:
+Search like ripgrep:
 
 ```bash
-greeg get_queryset                  # ranked hits, definitions first, ~600 tokens
-greeg -w respond -l                 # files only, rg-shaped, pipe-safe
-greeg 'fn poll_read' -t rs -C 3     # ripgrep flags behave as they do in rg
-greeg createSourceFile --json=greeg # typed JSON Lines for tools and agents
-greeg createSourceFile --json=rg    # ripgrep JSON Lines only: every match
-greeg respond --budget 0            # unlimited exact matches, path order
+greeg get_queryset                  # ranked hits, definitions first
+greeg 'fn poll_read' -t rs -C 3     # ripgrep flags behave as in rg
+greeg -w respond -l                 # files only, pipe-safe
+greeg respond --budget 0            # every match, in path order
+greeg createSourceFile --json       # typed JSON Lines for tools
 ```
 
-File searches with `-l`, `-c`, `--mode files|count`, `--budget 0`, or `--json`
-default to **exact matching**: a miss never becomes a case, word-boundary, or
-fuzzy-name match. Ranked text keeps the discovery ladder. Use
-`--matching exact` to disable it there, or `--matching discover` to explicitly
-request relaxed results in another format. `--no-ladder` remains a spelling
-of `--matching exact`; use one or the other. Relaxed results still exit `1`
-and name the rung: in the footer of a search, and in the header and the closing outcome line of a symbol verb. See [matching policies](references/ARCHITECTURE.md#when-nothing-matches).
-
-And then the part grep can't do. Asking about *symbols* instead of *text*:
+Or ask about symbols, which grep can't:
 
 ```bash
-greeg def JoinHandle                # where it's defined: ranked, with signature and doc
-greeg refs Semaphore                # references grouped by kind (call, type, import, …)
-greeg callers spawn_blocking        # which functions call it (not which lines)
+greeg def JoinHandle                # where it's defined, with signature and doc
+greeg refs Semaphore                # references grouped by kind
+greeg callers spawn_blocking        # the functions that call it
 greeg impls Future                  # implementations and subclasses
-greeg impact get_queryset           # files using it, by evidence: LIKELY AFFECTED / POSSIBLE / REVIEW
+greeg impact get_queryset           # files likely affected by a change
+greeg show src/sync/oneshot.rs:340  # the whole definition around a line
 greeg outline src/sync/oneshot.rs   # the shape of a file
-greeg show src/sync/oneshot.rs:340  # the whole definition enclosing that line
-greeg map tokio/src/sync            # important files and directories, by PageRank
+greeg map tokio/src/sync            # the most important files, by import graph
 ```
 
-Two of those are worth committing to memory. `greeg show FILE:LINE` and
-`greeg def NAME --mode block` both print a whole definition, which beats
-guessing a `sed -n '340,380p'` range and reading the wrong 40 lines.
-
-Every verb takes the search flags (`--budget`, `--json`, `--no-tests`, `--root`)
-and answers in a few milliseconds from the index.
+Ranked searches and symbol commands fit 2,000 tokens by default. Change it per
+call (`--budget 5000`, `--budget 0` for everything) or once (`greeg budget
+high`); `-l`, `-c` and `--json=rg` are never budgeted. The
+[usage guide](references/USAGE.md) covers every flag, the JSON formats and
+matching rules.
 
 ## How it works
 
-1. **First query** in a repo is answered by a ripgrep-speed scan, while a
-   trigram and word index is built in the background. No setup step, no daemon.
-2. **Later queries** open only candidate files. A whole-word query opens exactly
-   the files that hold that word: on a 74k-file tree, 31 files instead of 486.
-3. **Edits are picked up per query** by a cheap `stat` pass, or the FSEvents log
-   on macOS. A search after an edit reads the changed files directly and
-   publishes the index update afterwards, so you never wait for it.
-4. **Every hit is classified** from syntax computed at index time (`def`,
-   `call`, `import`, `type`, `member`, `ident`, `doc`, `comment`, `string`),
-   and carries the symbol it sits inside.
-5. **Ranking and budget**: definitions outrank calls, source outranks tests,
-   important files (import-graph PageRank) outrank leaves. The answer is cut to
-   a token budget (2,000 by default) and the footer always says what was cut.
+- **No setup.** The first query scans like ripgrep while an index is built in
+  the background. The index lives in your cache directory, never in the repo.
+- **Always fresh.** Each query checks for edits (a `stat` pass, or FSEvents on
+  macOS) and reads changed files directly, so answers include your latest edits.
+- **Understands code.** Every hit is classified from syntax (definition, call,
+  import, type, comment, …) and tagged with the symbol it sits in. Python,
+  TypeScript/JavaScript, Rust and Kotlin get full syntax support; other
+  languages get regex-based definitions, and you can add a tree-sitter grammar.
+- **Ranks, then budgets.** Definitions outrank calls, source outranks tests,
+  central files outrank leaves. Tests and generated files are demoted, never
+  hidden, and the footer always says what was cut.
+- **Fails safe.** A damaged or outdated index is rebuilt in the background,
+  and the query is answered by a scan instead. If `--budget 0` has already
+  streamed part of its output, greeg stops with an error instead of a partial
+  answer that looks complete.
 
-Test, vendored, generated, minified and mock files are **demoted, never
-hidden**. `--budget 0`, `-l` and `-c` disable query relaxation by default.
-
-The index lives outside your repo (under `~/Library/Caches/greeg` on macOS,
-`$XDG_CACHE_HOME/greeg` elsewhere), so it never dirties the working tree and
-survives `git clean`; an `--index-dir` inside the tree is left out of searches,
-and one that is the tree itself is refused.
-Each greeg version has its own `v<N>-<key>/` directory there, so two versions
-used on one repository in turn never rebuild each other's index; another
-version's index is removed once it has gone unused for 14 days. A new greeg
-version, or a change to the extra languages, rebuilds once in the background;
-so does an edit to a file import resolution reads (`tsconfig.json`,
-`package.json`, `Cargo.toml`, ...), since it moves the edges of unchanged
-files.
-
-```bash
-greeg index                 # build now instead of on first query
-greeg index --status        # manifest: files, generation, deltas, build peak RSS
-greeg --no-index PATTERN    # scan the tree like ripgrep, ignore the index
-greeg purge                 # list every index, session and statistic greeg keeps
-greeg purge --yes           # remove them (what is in use is kept)
-```
-
-How all of this is put together, what each index component holds, and why the
-shape was chosen: [`references/ARCHITECTURE.md`](references/ARCHITECTURE.md).
-
-## Session memory
-
-Session memory is separate from opt-in statistics. Agent searches remember recently
-shown files and context for up to 24 hours. `--no-session` disables those reads and
-writes; it does not disable indexing or opt-in statistics.
-
-Session logs use a private `0700` directory and `0600` files under the index
-location. Each log is limited to 2,000 records and 4 MiB; individual records are
-limited to 256 KiB. Expired records cannot influence ranking or context deduplication.
-New records contain normalized query tokens and shown paths/ranges, but no raw
-pattern field. These tokens and paths can still reveal sensitive activity.
-
-Unsafe storage is refused. Session persistence is best effort: a busy lock or I/O
-failure can skip a record while the search still succeeds. See the
-[session storage contract](references/ARCHITECTURE.md#session-memory) for retention,
-compatibility and concurrency limits.
-
-### Setting the budget
-
-`--budget` sets one run's token budget. Without it, greeg uses `GREEG_BUDGET`,
-then the level saved with `greeg budget`, then 2000:
-
-```bash
-greeg budget          # the budget in use and where it comes from
-greeg budget low      # 1000; also medium (2000), high (5000), a number, or none
-greeg budget none     # no limit: every search prints every match
-```
-
-`--max-bytes N` caps stdout at N bytes, on top of the budget (`0`, the default,
-sets no cap): the answer is fitted to both limits, in whole lines and records,
-and its footer says `cut by --max-bytes` (`truncated_by: "bytes"` in JSON). It applies to `-l`,
-`-c`, `--budget 0` and stdin too, which keep their first results. When not even
-the smallest answer fits, greeg writes nothing and exits `2`. `--json=rg` takes
-no `--max-bytes`.
-
-The level is saved as `budget = N` in `~/.config/greeg/config.toml`
-(`GREEG_CONFIG_DIR` names another directory). `none`
-suits a human at a terminal more than an agent: a search for a common word
-can print hundreds of thousands of tokens. `--json=rg`, `-l` and `-c` are
-never budgeted. A search for the word `budget` needs `greeg -e budget`, as
-for any command name.
-
-Tokens are estimated, not counted: greeg splits text the way OpenAI's
-o200k_base tokenizer does for ASCII and weights each piece. Measured on 716
-search and verb answers from seven corpora, the estimate is within 8 % of
-the real count for 95 % of them; short answers with unusual words can be off
-by up to 24 %. Non-ASCII characters count as punctuation, so text in scripts
-such as Chinese or Japanese is undercounted.
+Design and internals: [`references/ARCHITECTURE.md`](references/ARCHITECTURE.md).
 
 ## Is it actually helping?
 
-Don't take my benchmarks on faith. greeg can measure itself against *your*
-traffic, on *your* repositories.
-
-It's off by default, because the records hold your search patterns and paths.
-Everything stays on your machine. Nothing is collected, nothing is sent
-anywhere.
+Measure it on your own repositories, against your agent's real searches. It's
+off by default and nothing leaves your machine:
 
 ```bash
 greeg stats enable
@@ -353,109 +186,20 @@ savings vs rg/grep · 145 replayed queries · same machine and tree
   time, total                  4.64 s       866 ms       3.77 s  81%
 ```
 
-Read both halves together. The totals are what the agent actually paid; the
-typical query says how that total is distributed. **Agents mostly grep one file
-at a time, and on those greeg is a few tokens *larger* than grep.** The savings
-come from the repo-wide searches, where grep dumps everything and greeg budgets
-it. So a handful of queries carry most of the win.
+Most savings come from a few broad searches; a typical one-file search costs
+about the same. More in [`references/STATS.md`](references/STATS.md).
 
-The records live in a private cache directory (`0700`, files `0600`), stay under
-about 33 MB per file kind, never leave the machine, and `greeg stats clear`
-deletes them. Replay runs only a ripgrep found on an absolute `PATH` entry, or the
-one you pass with `--rg /absolute/path`. See [`references/STATS.md`](references/STATS.md) for per-session
-breakdowns and build-to-build comparisons.
+## Documentation
 
-## Reference
+- [Usage guide](references/USAGE.md): every flag, budgets, JSON, the index, sessions, the hook
+- [JSON output](references/JSON.md): `--json`, `--json=rg`, `--capabilities`, `--explain`
+- [Architecture](references/ARCHITECTURE.md): how the index, ranking and freshness work
+- [Benchmarks](references/BENCH.md): every measurement, with protocol and raw data
+- [Statistics](references/STATS.md): measuring greeg on your own traffic
+- [Development](references/DEVELOPMENT.md): building, testing and benchmarking
 
-**ripgrep-compatible flags**: `-i -S -s -w -x -F -U -n -l -c -A -B -C -g -t -T
--e -j --no-ignore --hidden -u -uu --max-columns --max-filesize --json --sort path`.
-Cosmetic flags (`-N -H --color --no-heading --column --trim`) are accepted and
-ignored, because the output they ask for is the output greeg already gives.
-`-a`/`--text` and `-uuu` exit `2` rather than quietly answering without the
-binary files ripgrep would have searched. A NUL byte in a file's first 64 KiB
-skips it as binary; a later one ends its search at that line, and the output
-says where ([binary files](references/ARCHITECTURE.md#binary-files)).
-
-`--json=rg` prints ripgrep's JSON Lines records and nothing else, for every
-match: no budget, ripgrep's offsets (after a UTF-8 BOM) and exit status. It
-takes no `--budget`, no `--max-bytes`, no command and no `-U` (exit `2`). `--json=greeg` is greeg's
-own format for searches and verbs: a header naming the schema, typed records,
-paths and content that never lose a byte, each file's encoding and offset
-coordinates, and an `outcome` in every footer. For searches and verbs, bare
-`--json` is `--json=greeg` since 0.11; commands with a JSON report of their
-own (`stats`, `index --status`) keep it. `--json=legacy`, greeg's earlier records with
-`kind`, `score`, `facets` and `footer`, is removed in 0.12 and says so on a
-terminal. See
-[`references/JSON.md`](references/JSON.md#migrating-from-bare---json).
-
-**greeg flags**: `--budget LEVEL|N` (tokens: `low` 1000, `medium` 2000, `high`
-5000, `none` or `0` = unlimited; default 2000 or the level `greeg budget` saved) ·
-`--max-bytes N` (stdout ceiling) ·
-`--capabilities` (what this build supports, one JSON record; [JSON.md](references/JSON.md#capabilities)) ·
-`--explain` (what an answer was built from: index use and freshness; a search's candidates, filters and ranking terms; a symbol verb's counts, and `def`'s score terms; [JSON.md](references/JSON.md#explain)) ·
-`--mode files|outline|content|block` · `--kind def,call,…` · `--near PATH` ·
-`--no-tests --no-vendored --no-generated --all` · `--per-file N` · `--chain` ·
-`--matching exact|discover` · `--no-ladder` · `--fresh auto|none|stat|fsevents` · `--no-index` ·
-`--index-dir DIR` · `--stats` · `--precise` · `--session ID` · `--no-session` ·
-`--no-persist` (write nothing to disk: no index build or refresh, session or
-statistic; also `GREEG_NO_PERSIST=1`)
-
-**Languages with full syntax support**: Python, TypeScript/TSX, JavaScript,
-Rust, Kotlin. Everything else gets a regex-based definition extractor, so
-search, ranking and budgeting still work. You just lose the precise symbol
-kinds. You can add a language yourself by dropping a tree-sitter grammar and a
-`tags.scm` into `~/.config/greeg/lang/<name>/`; `greeg lang check DIR` validates
-it. See [`references/ARCHITECTURE.md`](references/ARCHITECTURE.md).
-
-**When something goes wrong**: a panic in the index path, a corrupt component
-or a truncated file all fall back to a scan-mode answer plus a background
-rebuild. Every component carries a digest per block, checked as it is read,
-so a changed byte is found before it can change an answer. You get a correct
-answer either way. Writers hold a lock and publish
-atomically; readers never lock.
-
-## Development
-
-```bash
-cargo build --release
-cargo test --workspace                                   # unit + CLI contract tests, no network
-cargo clippy --all-targets -- -D warnings
-
-python3 bench/bench.py fetch tokio ktor django           # pinned corpora
-python3 bench/parity.py "$GREEG_BENCH_CACHE" target/release/greeg   # rg parity
-python3 bench/bench.py speed --corpora tokio,ktor,django # hyperfine protocol
-python3 bench/bench.py oracle tokio django TypeScript-5.9 # SCIP accuracy oracle
-```
-
-CI runs build, tests, clippy, a binary-size gate, the rg parity suite and the
-small-corpus speed protocol. The nightly workflow adds the large-corpus
-benchmarks, the accuracy oracle and a randomized soak
-(`bench/soak.py MINUTES GREEG CORPUS… --seed SEED`).
-
-`bench/index_costs.py BASELINE CANDIDATE --corpora tokio,django --output costs.json`
-compares two binaries' index build time, disk size, peak memory, open,
-freshness and post-edit refresh costs, in paired randomized runs.
-
-`bench/edits.py CORPUS GREEG`, the index-cost harness and the soak harness copy
-each source into a private temporary snapshot and working directory. Dirty, untracked and ignored
-files are included; edits and restores affect only the copy. Each corpus gets
-its own index and isolated home/config/cache, with sessions and statistics
-disabled. Relative executable paths are resolved before changing directories.
-Symlinks are copied without following them and cannot be mutation targets.
-
-Allow space for two copies of each corpus plus its index. Copying and initial
-setup happen outside the soak duration; restores count toward it. Copies keep
-in-tree ignore files but omit Git metadata, parent/global ignore rules and user
-configuration, so these runs are not directly comparable with older in-place
-runs. A Git source gets an empty repository marker for in-tree ignore handling.
-Snapshots are not atomic against concurrent source edits; use a fixed source
-revision for reproducible measurements. Exceptions, Ctrl-C and SIGTERM clean up
-owned directories; an uncatchable kill or detached index writer can leave
-private temporary files, but source corpora remain untouched.
-
-Issues and pull requests are welcome. If you're reporting a wrong or missing
-result, `greeg <query> --stats` and `greeg doctor` output are the two most
-useful things to include.
+Issues and pull requests are welcome. For a wrong or missing result, include
+the output of `greeg <query> --stats` and `greeg doctor`.
 
 ## License
 
