@@ -233,17 +233,36 @@ pub struct Hit {
     pub score: f32,
     /// The match is the whole pattern as a word, exact case (`is_exact`).
     pub exact: bool,
-    /// Line text without the terminator, trimmed at the start and clipped to
-    /// `max_columns` around the match (display form).
-    pub text: Vec<u8>,
-    /// Match range within `text` (after trimming and clipping).
-    pub text_match: (u32, u32),
-    pub clipped: bool,
     /// The untrimmed line without its terminator (ripgrep's `lines.text` minus `\n`).
     pub raw: Vec<u8>,
 }
 
 impl Hit {
+    /// Whether [`display`](Self::display) clips the line, without clipping it.
+    pub fn clipped(&self, max_cols: usize) -> bool {
+        let line = greeg_lang::trim_start(&self.raw);
+        max_cols != 0 && line.strip_suffix(b"\r").unwrap_or(line).len() > max_cols
+    }
+
+    /// The line as shown: trimmed at the start and clipped to `max_cols`
+    /// around the match (0: never), and whether it was clipped. Only a
+    /// clipped line is copied.
+    pub fn display(&self, max_cols: usize) -> (std::borrow::Cow<'_, [u8]>, bool) {
+        let line = greeg_lang::trim_start(&self.raw);
+        if max_cols == 0 || line.len() <= max_cols {
+            return (std::borrow::Cow::Borrowed(line), false);
+        }
+        let lead = self.raw.len() - line.len();
+        let ms = (self.match_start - self.line_start) as usize;
+        let me = (self.match_end - self.line_start) as usize;
+        let (text, clipped, _) = clip_line(
+            line,
+            ms.saturating_sub(lead),
+            me.saturating_sub(lead),
+            max_cols,
+        );
+        (std::borrow::Cow::Owned(text), clipped)
+    }
     /// Column (byte offset) of the first submatch within `raw`.
     pub fn column(&self) -> u32 {
         self.match_start - self.line_start
@@ -1815,16 +1834,6 @@ pub(crate) fn process_file(
         kinds[kind.idx()] += 1;
         let exact = is_exact(o, src, ms, me);
         let score = kind.weight() * prior * exact_boost(kind, exact);
-        let lead = line_bytes.len()
-            - greeg_lang::trim_start(line_bytes)
-                .len()
-                .min(line_bytes.len());
-        let (text, clipped, tm) = clip_line(
-            &line_bytes[lead..],
-            ((ms - ls) as usize).saturating_sub(lead),
-            ((me_line - ls) as usize).saturating_sub(lead),
-            o.max_columns,
-        );
         let raw = line_bytes
             .strip_suffix(b"\r")
             .unwrap_or(line_bytes)
@@ -1840,9 +1849,6 @@ pub(crate) fn process_file(
             def_idx: None,
             score,
             exact,
-            text,
-            text_match: (tm.0 as u32, tm.1 as u32),
-            clipped,
             raw,
         });
     }
@@ -2523,6 +2529,56 @@ mod tests {
             .bom_sniffing(false);
         sb.build().search_slice(m, src, &mut sink).unwrap();
         sink
+    }
+
+    /// A hit's display line is what collection used to store: the line
+    /// trimmed at the start, without `\r`, clipped around the match.
+    #[test]
+    fn display_is_the_clipped_line() {
+        let lines: [&[u8]; 5] = [
+            b"    let handle = spawn_blocking(move || work());",
+            b"\tcall(spawn_blocking)\r",
+            "        // é é é spawn_blocking é é é é é é é é é é é é é é é é é".as_bytes(),
+            b"spawn_blocking",
+            b"   \r",
+        ];
+        for line in lines {
+            let raw = line.strip_suffix(b"\r").unwrap_or(line).to_vec();
+            let ms = raw
+                .windows(14)
+                .position(|w| w == b"spawn_blocking")
+                .unwrap_or(0);
+            let me = (ms + 14).min(raw.len());
+            let h = Hit {
+                line: 1,
+                line_start: 100,
+                match_start: 100 + ms as u32,
+                match_end: 100 + me as u32,
+                submatches: vec![],
+                kind: HitKind::Ident,
+                chain: vec![],
+                def_idx: None,
+                score: 1.0,
+                exact: true,
+                raw,
+            };
+            for cols in [0, 10, 20, 24, 30, 60] {
+                let lead = line.len() - greeg_lang::trim_start(line).len().min(line.len());
+                let (want, clipped, _) = clip_line(
+                    &line[lead..],
+                    ms.saturating_sub(lead),
+                    me.saturating_sub(lead),
+                    cols,
+                );
+                let (got, got_clipped) = h.display(cols);
+                assert_eq!(
+                    (&*got, got_clipped),
+                    (&want[..], clipped),
+                    "{line:?} {cols}"
+                );
+                assert_eq!(h.clipped(cols), clipped, "{line:?} {cols}");
+            }
+        }
     }
 
     /// A clipped window starts and ends on whole characters: no half of a

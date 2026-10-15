@@ -251,7 +251,7 @@ fn file_records(w: &mut dyn Write, r: &ScanResult, sf: &ShownFile) -> Result<()>
                         kind: h.kind.name(),
                         symbol,
                         score: r3(h.score as f64),
-                        clipped: h.clipped,
+                        clipped: h.clipped(r.opts.max_columns),
                     },
                 )?;
             }
@@ -517,7 +517,7 @@ pub(crate) fn refs(
                 kind: k.name(),
                 path: Text::of(&f.rel),
                 line: h.line,
-                text: Text::of(&h.text),
+                text: Text::of(&h.display(s.opts.max_columns).0),
                 symbol: chain_str(&h.chain),
                 file_flags: f.flags.names(),
                 score: r3(h.score as f64),

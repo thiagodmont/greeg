@@ -391,7 +391,7 @@ fn per_hit(r: &ScanResult, fi: usize, hi: usize) -> usize {
         .take(2)
         .map(|(_, n)| n.len() / 4 + 1)
         .sum();
-    tokens::code(&h.text) + 4 + container
+    tokens::code(&h.display(r.opts.max_columns).0) + 4 + container
 }
 
 fn header_cost(r: &ScanResult, fi: usize) -> usize {
@@ -1005,9 +1005,6 @@ mod tests {
             def_idx: None,
             score,
             exact: true,
-            text: b"foo bar".to_vec(),
-            text_match: (0, 3),
-            clipped: false,
             raw: b"foo bar".to_vec(),
         }
     }
@@ -1086,9 +1083,6 @@ mod tests {
             def_idx: None,
             score: kind.weight() * crate::exact_boost(kind, exact),
             exact,
-            text: raw.as_bytes().to_vec(),
-            text_match: (s, e),
-            clipped: false,
             raw: raw.as_bytes().to_vec(),
         }
     }
