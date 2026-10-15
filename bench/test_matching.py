@@ -6,7 +6,7 @@ import subprocess
 import tempfile
 import unittest
 
-from matching import (definition_contract, json_exact_contract, native_dialect_contract,
+from matching import (definition_contract, rg_oracle_query, json_exact_contract, native_dialect_contract,
                       rg_dialect_checks, rg_dialect_contract, rg_dialect_query, stable_stdout)
 
 
@@ -149,6 +149,11 @@ class RgDialectTests(unittest.TestCase):
             broken = stub("error: index unusable")
             with self.assertRaises(RuntimeError):
                 rg_dialect_checks(broken, "rg", d, dict(os.environ), [], [])
+
+    def test_oracle_query_asks_ripgrep_for_its_own_json(self):
+        self.assertEqual(rg_oracle_query(["--json=legacy", "x"]), ["--json", "x"])
+        self.assertEqual(rg_oracle_query(["--budget", "0", "x"]), ["-n", "--with-filename", "x"])
+        self.assertEqual(rg_oracle_query(["-l", "x"]), ["-l", "x"])
 
     def test_query_drops_budget_and_the_json_flag(self):
         self.assertEqual(rg_dialect_query(["--budget", "0", "x"]), ["x"])

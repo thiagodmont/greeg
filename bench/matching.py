@@ -100,6 +100,13 @@ ELAPSED = re.compile(rb'"(elapsed|elapsed_total)":\{[^}]*\}')
 READ_COUNTS = re.compile(rb'"(bytes_searched|searches)":[0-9]+')
 
 
+def rg_oracle_query(query):
+    """The ripgrep command that answers a greeg case: its lines, or its JSON."""
+    if query[:2] == ["--budget", "0"]:
+        return ["-n", "--with-filename", *query[2:]]
+    return ["--json" if arg.startswith("--json") else arg for arg in query]
+
+
 def rg_dialect_query(query):
     query = [arg for arg in query if not arg.startswith("--json")]
     return query[2:] if query[:2] == ["--budget", "0"] else query
@@ -239,7 +246,7 @@ def main():
                        "backend_flags": extra}
                 oracle = None
                 if not name.startswith("ranked"):
-                    rg_query = ["-n", "--with-filename", *query[2:]] if query[:2] == ["--budget", "0"] else query
+                    rg_query = rg_oracle_query(query)
                     if is_def:
                         rg_query = ["-l", "-w", query[1], *(["-i"] if "-i" in query else [])]
                     oracle, _ = run([rg, "--no-config", "--color", "never", "--sort", "path", *rg_query, "src"],
