@@ -1625,20 +1625,29 @@ fn fit_search(
     // the JSON's tokens (its footer's `est_tokens` set to them), and stdout bytes
     let measure = |result: &ScanResult, mut report: Report| -> Result<(Report, usize, usize)> {
         if !json {
-            let n = render_search(c, result, &report, fmt)?.0.len();
+            let out = render_search(c, result, &report, fmt)?.0;
+            let n = if c.json() {
+                greeg_query::tokens::timeless(&out).len()
+            } else {
+                out.len()
+            };
             return Ok((report, 0, n));
         }
         // an estimate as wide as the budget renders the same bytes and tokens,
         // so render again only when the answer's estimate is another width
         report.footer.est_tokens = budget;
         let (out, _) = render_search(c, result, &report, fmt)?;
-        let (mut tokens, mut bytes) = (greeg_query::tokens::estimate(&out), out.len());
+        // timings at a fixed width: the clock cannot move the fit
+        let size = |out: &[u8]| {
+            let out = greeg_query::tokens::timeless(out);
+            (greeg_query::tokens::estimate(&out), out.len())
+        };
+        let (mut tokens, mut bytes) = size(&out);
         report.footer.est_tokens = tokens;
         let width = |n: usize| n.max(1).ilog10();
         if width(tokens) != width(budget) {
-            let (out, _) = render_search(c, result, &report, fmt)?;
             let shown = tokens;
-            (tokens, bytes) = (greeg_query::tokens::estimate(&out), out.len());
+            (tokens, bytes) = size(&render_search(c, result, &report, fmt)?.0);
             // a number as wide leaves the measured bytes and tokens as they are
             if width(tokens) == width(shown) {
                 report.footer.est_tokens = tokens;
@@ -1782,29 +1791,43 @@ fn keep_within(
     fmt: Fmt,
     cap: usize,
 ) -> Result<Report> {
-    // stdout if it fits `limit`, rendered no further than that
-    let within = |r: &Report, limit: usize, keep: bool| -> Result<Option<Capped>> {
-        let mut w = Capped::new(limit, keep);
+    // ripgrep prints -l and -c as text even under --json
+    let json = c.json() && !(c.json_rg() && matches!(report.layout, Layout::Files | Layout::Count));
+    // stdout and its size (JSON's timings at a fixed width) if that fits
+    // `limit`; rendered no further than `limit`, as the fixed width is never narrower
+    let within = |r: &Report, limit: usize| -> Result<Option<(Vec<u8>, usize)>> {
+        let mut w = Capped::new(limit, true);
         match write_search(c, &mut w, result, r, fmt) {
-            Ok(_) => Ok(Some(w)),
-            Err(_) if w.over => Ok(None),
-            Err(e) => Err(e),
+            Ok(_) => {}
+            Err(_) if w.over => return Ok(None),
+            Err(e) => return Err(e),
         }
+        let n = if json {
+            greeg_query::tokens::timeless(&w.buf).len()
+        } else {
+            w.len
+        };
+        Ok((n <= limit).then_some((w.buf, n)))
     };
-    if within(&report, cap, false)?.is_some() {
+    if within(&report, cap)?.is_some() {
         return Ok(report);
     }
-    // the first `n`, with the hint and the estimate of what it writes
+    // the first `n`, with the hint and the estimate of what it writes (JSON's
+    // timings at a fixed width, as its bytes are)
     let first = |n: usize, limit: usize| -> Result<Option<(Report, usize)>> {
         let mut r = report.keep(n);
         r.footer.hints.insert(0, format!("--max-bytes {}", cap * 2));
         // the narrowest estimate, so a rendering over `limit` is over with its own
         r.footer.est_tokens = 0;
-        let Some(out) = within(&r, limit, true)? else {
+        let Some((out, _)) = within(&r, limit)? else {
             return Ok(None);
         };
-        r.footer.est_tokens = greeg_query::tokens::rendered(&out.buf);
-        Ok(within(&r, limit, false)?.map(|w| (r, w.len)))
+        r.footer.est_tokens = if json {
+            greeg_query::tokens::rendered(&greeg_query::tokens::timeless(&out))
+        } else {
+            greeg_query::tokens::rendered(&out)
+        };
+        Ok(within(&r, limit)?.map(|(_, n)| (r, n)))
     };
     let best = largest_below(report.units(), |n| Ok(first(n, cap)?.map(|(r, _)| r)))?;
     if let Some(kept) = best {
@@ -3066,6 +3089,44 @@ mod tests {
             }
         }
         assert!(kept > 1_000);
+    }
+
+    /// The clock cannot change what a byte ceiling keeps: its estimate is of
+    /// the timings at a fixed width, as its bytes are.
+    #[test]
+    fn max_bytes_keeps_the_same_answer_whatever_the_clock() {
+        for dialect in ["--json=greeg", "--json=legacy"] {
+            let cli = Cli::try_parse_from(["greeg", dialect, "x"]).unwrap();
+            let c = &cli.common;
+            let opts = Options {
+                pattern: "x".into(),
+                budget: 0,
+                ..Default::default()
+            };
+            let mut result = greeg_query::stdin::scan(&opts, "x\n".repeat(2_000).into()).unwrap();
+            let report = greeg_query::shape::shape(&mut result);
+            let fmt = Fmt {
+                chain: false,
+                stats: false,
+                line_numbers: false,
+                stdin: true,
+                cols: 0,
+            };
+            let kept = |result: &mut ScanResult, ms: f64, cap: usize| {
+                result.stats.elapsed_ms = ms;
+                let r = keep_within(c, result, report.clone(), fmt, cap).ok()?;
+                // legacy JSON adds the render's own time
+                let out = render_search(c, result, &r, fmt).unwrap().0;
+                Some(greeg_query::tokens::timeless(&out).into_owned())
+            };
+            for cap in (300..3_000).step_by(7) {
+                assert_eq!(
+                    kept(&mut result, 0.0, cap),
+                    kept(&mut result, 1234.567890123, cap),
+                    "{dialect} --max-bytes {cap}"
+                );
+            }
+        }
     }
 
     /// Global flags given on both sides of a verb: the last one still wins.

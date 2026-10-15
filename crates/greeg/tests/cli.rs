@@ -2029,6 +2029,45 @@ fn max_bytes_bounds_stdout() {
     assert!(byte_cuts > 30, "{byte_cuts} byte cuts");
 }
 
+/// A ceiling a little above the whole answer keeps it whole: the constant
+/// zero timing of every file's legacy `end` record is measured as written.
+#[test]
+fn max_bytes_measures_per_file_timings_as_written() {
+    let f = empty_fixture();
+    for i in 0..40 {
+        w(&f.root.join(format!("f{i:02}.txt")), "needle\n");
+    }
+    // both answers from the index, not a scan racing its background build
+    f.indexed();
+    for budget in ["0", "100000"] {
+        let run = |cap: Option<String>| {
+            let mut a = vec![
+                "needle",
+                "--fresh",
+                "stat",
+                "--json=legacy",
+                "--budget",
+                budget,
+            ];
+            if let Some(cap) = &cap {
+                a.extend(["--max-bytes", cap]);
+            }
+            f.run(&a)
+        };
+        let whole = run(None);
+        assert!(whole.status.success(), "--budget {budget}");
+        // the slack covers the answer's own timings at their widest (their
+        // printed width varies by run), not 40 files' zeros (about 1 KB)
+        let out = run(Some((whole.stdout.len() + 400).to_string()));
+        assert!(out.status.success(), "--budget {budget}");
+        assert_eq!(
+            stable_records(&out.stdout),
+            stable_records(&whole.stdout),
+            "--budget {budget}"
+        );
+    }
+}
+
 /// An empty verb answer is bounded by `--max-bytes` like any other.
 #[test]
 fn max_bytes_bounds_empty_verb_answers() {
