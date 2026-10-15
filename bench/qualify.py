@@ -17,6 +17,8 @@ def check(ok, what):
 
 
 def main(archive, version):
+    # the suite runs greeg from a scratch directory
+    archive = os.path.abspath(archive)
     exe = os.path.join(archive, "greeg")
     print(f"archive {archive}")
     check(os.access(exe, os.X_OK), "greeg is executable")
