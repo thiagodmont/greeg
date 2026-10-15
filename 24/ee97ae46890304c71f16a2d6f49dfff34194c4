@@ -1,0 +1,27 @@
+bench/agent/README.md
+  s_eefb2647553a67::t_1c1900206b8cf4 7-9,16,19-20,97-99,103-104
+bench/agent/extract.py
+  s_eefb2647553a67::t_3b019826f18781 13,219-220
+bench/agent/tasks.toml
+  s_eefb2647553a67::t_2a31ab56310f4c 7,23,25,31,33,39,41,47,49,55,57,63,65,71,73,79,81,87-89
+bench/test_agent_extract.py
+  s_eefb2647553a67::t_09b7ef0788d456 106-109
+bench/test_agent_tasks.py
+  s_eefb2647553a67::t_6d368c666c9c45 50-54
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "24ee97ae46890304c71f16a2d6f49dfff34194c4",
+  "prompts": {},
+  "sessions": {
+    "s_eefb2647553a67": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9fff36d3-3b5f-4343-be78-7893a6fe3965",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
