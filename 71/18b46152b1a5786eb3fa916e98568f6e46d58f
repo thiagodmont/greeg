@@ -1,0 +1,19 @@
+bench/results/release-0.11.0-2026-10-15-darwin-arm64.json
+  s_eefb2647553a67::t_9cfa039628dda5 1-5695
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "7118b46152b1a5786eb3fa916e98568f6e46d58f",
+  "prompts": {},
+  "sessions": {
+    "s_eefb2647553a67": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9fff36d3-3b5f-4343-be78-7893a6fe3965",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
