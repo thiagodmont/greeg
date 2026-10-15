@@ -1,0 +1,39 @@
+bench/bench.py
+  s_eefb2647553a67::t_0937aa79d91702 1467
+  s_eefb2647553a67::t_e001d354101d40 1411
+references/JSON.md
+  s_eefb2647553a67::t_e001d354101d40 7,9
+  s_eefb2647553a67::t_db1cba24458ae7 21,25-28
+crates/greeg/tests/cli.rs
+  s_eefb2647553a67::t_8d7acf768cc70c 3016
+  s_eefb2647553a67::t_15b4e3c2df146f 2967-2970,2972,2985,2996-2998,3001,3004-3012,3014-3015,3017-3022,3029,3031-3032,3036,3041
+bench/test_matching.py
+  s_eefb2647553a67::t_b122cc0685f06c 153
+  s_eefb2647553a67::t_0937aa79d91702 156
+crates/greeg/src/capabilities.rs
+  s_eefb2647553a67::t_0e1023c2f3d193 49
+bench/matching.py
+  s_eefb2647553a67::t_e001d354101d40 36-38,104,218
+crates/greeg/src/main.rs
+  s_eefb2647553a67::t_0e1023c2f3d193 80-81,170-171,330-333,846-847,850,855,1080
+README.md
+  s_eefb2647553a67::t_db1cba24458ae7 384-387
+references/ARCHITECTURE.md
+  s_eefb2647553a67::t_db1cba24458ae7 784
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "2f6ecf302a4dd6429447f9305950b4409c65f40b",
+  "prompts": {},
+  "sessions": {
+    "s_eefb2647553a67": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9fff36d3-3b5f-4343-be78-7893a6fe3965",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
