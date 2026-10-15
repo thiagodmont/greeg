@@ -1,0 +1,21 @@
+bench/reports.toml
+  s_eefb2647553a67::t_beef4753a48c60 766
+references/BENCH.md
+  s_eefb2647553a67::t_6a9a0f3f13fa8d 2432
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a300954102b134a7581518d837a5bae1744e3874",
+  "prompts": {},
+  "sessions": {
+    "s_eefb2647553a67": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9fff36d3-3b5f-4343-be78-7893a6fe3965",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
