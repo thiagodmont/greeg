@@ -1,7 +1,7 @@
 [workspace]
 resolver = "3"
 members = ["crates/greeg", "crates/greeg-lang", "crates/greeg-query", "crates/greeg-index", "crates/greeg-fsevents"]
-exclude = ["spikes"]
+exclude = ["spikes", "fuzz"]
 
 [workspace.package]
 version = "0.10.0"

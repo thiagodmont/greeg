@@ -1,0 +1,10 @@
+use std::io;
+/// Doc.
+pub fn spawn_task(n: u32) -> io::Result<u32> {
+    helper(n) // call
+}
+fn helper(n: u32) -> io::Result<u32> { Ok(n) }
+pub struct Pool { size: usize }
+impl Pool {
+    pub fn new() -> Self { Pool { size: 4 } }
+}

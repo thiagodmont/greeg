@@ -273,11 +273,11 @@ pub fn check_ident_header(h: &[u8], file_len: u64, comp: u8, id: Ident) -> Resul
 }
 
 pub fn check_header(bytes: &[u8], comp: u8) -> Result<&[u8]> {
-    let len = fields(bytes, comp)? as usize;
-    if bytes.len() < HEADER_LEN + len {
-        bail!("truncated index file");
-    }
-    Ok(&bytes[HEADER_LEN..HEADER_LEN + len])
+    let len = fields(bytes, comp)?;
+    usize::try_from(len)
+        .ok()
+        .and_then(|len| bytes.get(HEADER_LEN..HEADER_LEN.checked_add(len)?))
+        .context("truncated index file")
 }
 
 /// Magic, format and component of a header; its payload length.
@@ -542,7 +542,8 @@ impl<'a> GramsView<'a> {
         // avoided by reading with from_le_bytes when misaligned.
         let ob = body.get(off..off + (n + 1) * 8).context("offsets")?;
         off += (n + 1) * 8;
-        let postings = body.get(off..off + plen).context("postings")?;
+        let end = off.checked_add(plen).context("postings")?;
+        let postings = body.get(off..end).context("postings")?;
         let offsets: &[u64] = match bytemuck::try_cast_slice(ob) {
             Ok(s) => s,
             Err(_) => bail!("unaligned offsets table"),
@@ -649,4 +650,26 @@ pub fn write_atomic_with(
     }
     std::fs::rename(&tmp, path)?;
     Ok(crate::integrity::root(&trailer))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Found by fuzzing: a length near `u64::MAX` is an error, not an
+    /// overflow.
+    #[test]
+    fn a_huge_stored_length_is_refused() {
+        let mut file = vec![0u8; HEADER_LEN];
+        file[..8].copy_from_slice(MAGIC);
+        file[8..12].copy_from_slice(&crate::FORMAT_VERSION.to_le_bytes());
+        file[12] = COMP_SKIPPED;
+        file[16..24].copy_from_slice(&u64::MAX.to_le_bytes());
+        assert!(check_header(&file, COMP_SKIPPED).is_err());
+
+        // no grams, and postings that claim almost every byte there is
+        let mut words = [0u64; 3];
+        words[1] = u64::MAX;
+        assert!(GramsView::parse(bytemuck::cast_slice(&words), None).is_err());
+    }
 }
