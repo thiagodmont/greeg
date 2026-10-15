@@ -80,8 +80,8 @@ fn record() -> Value {
 }
 
 /// A command's arguments: positional names and the visible long flags it
-/// declares, leaving out those listed above it (`above`: global ones and its
-/// parents' flags, which clap propagates).
+/// declares, leaving out the global flags clap copies down from those listed
+/// above it (`above`). A flag of its own that shares a global's name stays.
 fn arguments(c: &clap::Command, above: &[String]) -> Value {
     let args: Vec<String> = c
         .get_positionals()
@@ -91,9 +91,9 @@ fn arguments(c: &clap::Command, above: &[String]) -> Value {
     let flags: Vec<String> = c
         .get_arguments()
         .filter(|a| !a.is_hide_set())
-        .filter_map(|a| a.get_long())
-        .map(|l| format!("--{l}"))
-        .filter(|f| !above.contains(f))
+        .filter_map(|a| Some((a.is_global_set(), format!("--{}", a.get_long()?))))
+        .filter(|(global, f)| !(*global && above.contains(f)))
+        .map(|(_, f)| f)
         .collect();
     json!({ "args": args, "flags": flags })
 }

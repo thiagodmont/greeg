@@ -2068,6 +2068,52 @@ fn max_bytes_measures_per_file_timings_as_written() {
     }
 }
 
+/// A cut made by `--max-bytes` alone does not ask for a bigger budget: the
+/// budget showed every hit, so raising it cannot restore any.
+#[test]
+fn a_byte_cut_suggests_a_bigger_budget_only_when_the_budget_cut() {
+    let f = empty_fixture();
+    for i in 0..5 {
+        let pad = "x".repeat(60);
+        w(
+            &f.root.join(format!("m{i}.rs")),
+            &format!("fn f{i}() {{ let needle_{i} = {i}; /* {pad} */ }}\n"),
+        );
+    }
+    let footer = |cap: Option<&str>| {
+        let mut a = vec!["needle", "--fresh", "stat", "--json=greeg"];
+        if let Some(cap) = cap {
+            a.extend(["--max-bytes", cap]);
+        }
+        let o = f.run(&a);
+        let last = String::from_utf8_lossy(&o.stdout)
+            .lines()
+            .last()
+            .map(String::from);
+        last.map(|l| serde_json::from_str::<serde_json::Value>(&l).unwrap()["data"].clone())
+    };
+    let hints = |d: &serde_json::Value| d["hints"].as_array().cloned().unwrap_or_default();
+    let budget_hint = |d: &serde_json::Value| {
+        hints(d)
+            .iter()
+            .any(|h| h.as_str().is_some_and(|h| h.starts_with("--budget")))
+    };
+    let whole = footer(None).unwrap();
+    assert_eq!(whole["outcome"]["complete"], true);
+    assert!(!budget_hint(&whole), "{whole}");
+    let mut cut = 0;
+    for cap in (200..1500).step_by(25) {
+        let Some(d) = footer(Some(&cap.to_string())) else {
+            continue;
+        };
+        if d["outcome"]["truncated_by"] == "bytes" {
+            cut += 1;
+            assert!(!budget_hint(&d), "--max-bytes {cap}: {:?}", hints(&d));
+        }
+    }
+    assert!(cut > 0);
+}
+
 /// An empty verb answer is bounded by `--max-bytes` like any other.
 #[test]
 fn max_bytes_bounds_empty_verb_answers() {
@@ -3016,6 +3062,11 @@ fn capabilities_list_what_the_parser_accepts() {
     let search = d["search"]["flags"].as_array().unwrap();
     for flag in ["--capabilities", "--version"] {
         assert!(search.contains(&flag.into()), "{flag}");
+    }
+    // a command's own flag is listed even when a global flag shares its name
+    let index = d["commands"]["index"]["flags"].as_array().unwrap();
+    for flag in ["--root", "--index-dir", "--fresh", "--threads"] {
+        assert!(index.contains(&flag.into()), "index {flag}");
     }
     // every listed flag and command is in its command's help, global flags in
     // all; every flag the help shows is listed by the command or one above it
