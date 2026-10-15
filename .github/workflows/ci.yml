@@ -42,7 +42,8 @@ jobs:
       - name: release qualification on this build
         shell: bash
         run: |
-          d=$(mktemp -d)/greeg-ci
+          # a relative path, as the release workflow passes
+          d=qualify-ci/greeg-ci
           mkdir -p "$d"
           cp target/release/greeg README.md LICENSE-MIT "$d"/
           ./target/release/greeg man > "$d"/greeg.1
