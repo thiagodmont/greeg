@@ -2425,6 +2425,53 @@ v0.10.0 (built from eec7db8, the tag's code) against 22de3c6, the branch where d
 
 [Raw samples, environment, and binary/corpus digests](../bench/results/verb-explain-2026-10-03-darwin-arm64.json). Reproduce: `python3 bench/matching.py BASELINE CANDIDATE --cases case_miss_files word_miss_count split_miss_unlimited fuzzy_miss_unlimited absent_files hit_files type_files glob_files hit_count hit_unlimited case_miss_json hit_json def_hit def_case_hit def_case_miss ranked_hit ranked_discovery --runs 51 --tokens --output verb-explain-2026-10-03-darwin-arm64.json`.
 
+## Release 0.11.0 against 0.10.0: exact-search regression (2026-10-15)
+
+Originating PR: [#96](https://github.com/thiagodmont/greeg/pull/96).
+
+v0.10.0 (built from the tag, ca4d5e0) against the 0.11.0 release commit (budgets in every format, --max-bytes, --explain, --capabilities, evidence-graded impact, streaming --budget 0, bare --json as greeg's records). All 34 cases keep their exit status. stdout changes only in the JSON cases (hit_json fitted to the 2000 budget, 2,738 to 1,876 o200k tokens on a scan and 2,740 to 1,878 with the index; case_miss_json's truncated_by and own est_tokens) and in ranked_discovery's ~N tokens footer, from the new token estimate. The JSON cases name --json=legacy, which both binaries print. JSON is compared without elapsed fields or est_tokens. Every contract passes (30/30); --json=rg equals rg --json (28/28) and --json=greeg --budget 0 holds ripgrep's matches (28/28). Started at 1- and 5-minute loads of 3.3 and 3.4: medians range from −2.5% to +5.7% and p95 from −6.4% to +11.8%, with no flag. The harness records no execution time; the result file was written at 2026-10-15T16:38:31Z.
+
+`greeg 0.10.0` → `greeg 0.11.0+696e13e32`; 51 randomized pairs per case, 3 warmups on the same 256-file warm synthetic corpus. Contract checks passed: **30/30 → 30/30**. `--json=rg` equal to `rg --json` (timings aside): **28/28** case/backend pairs. `--json=greeg --budget 0` holds ripgrep's matches: **28/28** case/backend pairs. Cases above the 10% median / 20% p95 investigation thresholds: **0**.
+
+| Backend | Case | Median ms, before → after | p95 ms, before → after | Tokens, before → after |
+|---|---|---:|---:|---:|
+| scan | case miss files | 7.228 → 7.375 | 8.533 → 8.705 | 3 → 3 |
+| scan | word miss count | 7.693 → 7.727 | 9.227 → 8.635 | 3 → 3 |
+| scan | split miss unlimited | 7.835 → 7.901 | 8.823 → 8.636 | 3 → 3 |
+| scan | fuzzy miss unlimited | 8.255 → 8.119 | 8.718 → 8.921 | 3 → 3 |
+| scan | absent files | 8.223 → 8.192 | 9.052 → 8.867 | 3 → 3 |
+| scan | hit files | 7.866 → 8.066 | 8.919 → 8.698 | 55 → 55 |
+| scan | type files | 8.100 → 8.109 | 8.637 → 8.893 | 55 → 55 |
+| scan | glob files | 7.728 → 7.772 | 8.345 → 8.399 | 55 → 55 |
+| scan | hit count | 8.071 → 8.101 | 8.803 → 8.724 | 71 → 71 |
+| scan | hit unlimited | 8.664 → 8.445 | 9.574 → 9.483 | 295 → 295 |
+| scan | case miss json | 8.429 → 8.357 | 9.954 → 9.440 | 263 → 269 |
+| scan | hit json | 9.050 → 9.567 | 19.114 → 20.418 | 2738 → 1876 |
+| scan | def hit | 8.986 → 9.145 | 10.503 → 10.132 | 214 → 214 |
+| scan | def case hit | 9.112 → 9.184 | 9.581 → 9.626 | 214 → 214 |
+| scan | def case miss | 9.639 → 9.730 | 11.158 → 11.068 | 35 → 35 |
+| scan | ranked hit | 8.449 → 8.448 | 9.201 → 9.322 | 295 → 295 |
+| scan | ranked discovery | 11.622 → 11.475 | 13.804 → 13.169 | 308 → 308 |
+| index | case miss files | 6.536 → 6.523 | 7.516 → 8.055 | 3 → 3 |
+| index | word miss count | 6.494 → 6.557 | 7.506 → 7.489 | 3 → 3 |
+| index | split miss unlimited | 6.833 → 6.904 | 7.778 → 7.560 | 3 → 3 |
+| index | fuzzy miss unlimited | 6.575 → 6.579 | 7.459 → 7.514 | 3 → 3 |
+| index | absent files | 6.585 → 6.623 | 7.706 → 7.641 | 3 → 3 |
+| index | hit files | 6.998 → 7.040 | 8.301 → 9.278 | 55 → 55 |
+| index | type files | 7.443 → 7.506 | 8.304 → 8.908 | 55 → 55 |
+| index | glob files | 7.061 → 7.081 | 8.488 → 8.075 | 55 → 55 |
+| index | hit count | 7.453 → 7.532 | 8.053 → 8.658 | 71 → 71 |
+| index | hit unlimited | 7.147 → 7.197 | 7.852 → 8.348 | 295 → 295 |
+| index | case miss json | 6.711 → 6.899 | 7.715 → 7.769 | 265 → 271 |
+| index | hit json | 7.508 → 7.883 | 8.580 → 8.607 | 2740 → 1878 |
+| index | def hit | 7.244 → 7.253 | 8.934 → 9.621 | 254 → 254 |
+| index | def case hit | 7.055 → 7.208 | 7.891 → 7.862 | 278 → 278 |
+| index | def case miss | 6.697 → 6.899 | 7.505 → 7.520 | 35 → 35 |
+| index | ranked hit | 6.920 → 6.971 | 7.653 → 7.605 | 295 → 295 |
+| index | ranked discovery | 8.125 → 8.153 | 9.137 → 9.196 | 308 → 308 |
+
+[Raw samples, environment, and binary/corpus digests](../bench/results/release-0.11.0-2026-10-15-darwin-arm64.json). Reproduce: `python3 bench/matching.py BASELINE CANDIDATE --cases case_miss_files word_miss_count split_miss_unlimited fuzzy_miss_unlimited absent_files hit_files type_files glob_files hit_count hit_unlimited case_miss_json hit_json def_hit def_case_hit def_case_miss ranked_hit ranked_discovery --runs 51 --tokens --output release-0.11.0-2026-10-15-darwin-arm64.json`.
+
 JSON contracts compare match paths, lines, offsets, submatches, status, exact rung, and total hit counts with ripgrep. Repeat-output checks remove only elapsed fields; byte/token measurements retain them and use the first raw sample, so small JSON size differences reflect timing values. Definition checks compare paths and status on this controlled fixture, not general symbol-resolution accuracy.
 
 ## Hook contract: initial measurements
@@ -3524,7 +3571,7 @@ What each column prints:
 * `greeg`: the budgeted digest an agent reads (facets, definitions, top hits, ~2k tokens; `--budget 2000`, the default)
 * `fresh`: the index freshness check every `greeg`/`greeg-full` run pays under this protocol (median of `--stats` samples, mode in parentheses: `fsevents` or `stat` walk); `--fresh none` skips it (JSON column `greeg-nofresh`).
 
-Match sets: `rg --json` is the reference. `greeg-full` gets verified from the text the timed command prints. The budgeted `greeg` digest can't be verified from its own output, so it's checked as `--json --budget 0` with the same query. Rows marked ⚠ in the matches column failed one of those checks. grep has no `.gitignore` support, so its count can run past rg's.
+Match sets: `rg --json` is the reference. `greeg-full` gets verified from the text the timed command prints. The budgeted `greeg` digest can't be verified from its own output, so it's checked as `--json=greeg --budget 0` with the same query. Rows marked ⚠ in the matches column failed one of those checks. grep has no `.gitignore` support, so its count can run past rg's.
 
 ### Index build
 
@@ -3637,7 +3684,7 @@ Names are sampled from symbols defined in the repository, stratified by ambiguit
 
 Acc@k means a true definition is among the first k locations the tool prints. The columns: `greeg def NAME`; `rg -nw NAME` (thread order, first lines); `rg-def`, which is `rg -n --sort path` with the language's definition regex for NAME (what an agent types when it wants the definition); and `grep -rnw NAME`. Brackets are 95 % bootstrap intervals of Acc@1 (n ≈ 75 → ±10 pp).
 
-Reference recall: SCIP reference occurrences found by `greeg refs NAME --budget 0`. Classification: `greeg -w NAME --json` hit kinds against SCIP roles on the same line, from stored spans and with `--precise`.
+Reference recall: SCIP reference occurrences found by `greeg refs NAME --budget 0`. Classification: `greeg -w NAME --json=greeg` hit kinds against SCIP roles on the same line, from stored spans and with `--precise`.
 
 Context@500 reads the first 500 lines each tool prints for the bare name. Useful = distinct lines carrying a SCIP occurrence of the name, over the lines that name a location. Summary lines (header, facets, file headers, `+N more`, footer) are neutral and leave the denominator. Tokens are o200k_base counts.
 
