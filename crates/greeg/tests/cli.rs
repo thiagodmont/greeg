@@ -2037,6 +2037,8 @@ fn max_bytes_measures_per_file_timings_as_written() {
     for i in 0..40 {
         w(&f.root.join(format!("f{i:02}.txt")), "needle\n");
     }
+    // both answers from the index, not a scan racing its background build
+    f.indexed();
     for budget in ["0", "100000"] {
         let run = |cap: Option<String>| {
             let mut a = vec![
