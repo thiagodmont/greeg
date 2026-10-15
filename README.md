@@ -6,7 +6,7 @@ budget, so your agent reads the hits that matter instead of a wall of matches.
 
 [![CI](https://github.com/thiagodmont/greeg/actions/workflows/ci.yml/badge.svg)](https://github.com/thiagodmont/greeg/actions/workflows/ci.yml)
 [![release](https://img.shields.io/github/v/release/thiagodmont/greeg)](https://github.com/thiagodmont/greeg/releases)
-[![license](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue)](#license)
+[![license](https://img.shields.io/badge/license-MIT-blue)](#license)
 
 ## The problem
 
@@ -203,4 +203,4 @@ the output of `greeg <query> --stats` and `greeg doctor`.
 
 ## License
 
-MIT or Apache-2.0, at your option.
+MIT. See [`LICENSE-MIT`](LICENSE-MIT).
