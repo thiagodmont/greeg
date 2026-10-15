@@ -647,7 +647,7 @@ fn scan_defs(
                 ),
                 None => (
                     DefKind::Function,
-                    h.chain.clone(),
+                    h.chain.to_vec(),
                     h.line_start,
                     h.match_end,
                 ),
@@ -797,7 +797,7 @@ pub fn callers(o: &Options, name: &str, depth: usize) -> Result<CallersResult> {
             let (chain, def_line) = match h.def_idx.map(|d| &f.defs[d as usize]) {
                 Some(d) => (
                     if d.chain.is_empty() {
-                        h.chain.clone()
+                        h.chain.to_vec()
                     } else {
                         d.chain.clone()
                     },
