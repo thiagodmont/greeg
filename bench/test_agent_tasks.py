@@ -47,7 +47,11 @@ class AgentTaskTests(unittest.TestCase):
             if not root.is_dir():
                 continue
             fetched += 1
-            for name, path, line in re.findall(r"([\w.:]+)\W+(?:at |\()([\w./-]+/[\w.-]+):(\d+)", t["answer"]):
+            found = re.findall(r"([\w.:]+)\W+(?:at |\()([\w./-]+/[\w.-]+):(\d+)", t["answer"])
+            # a citation the pattern does not take (a bare file name) would go unchecked
+            self.assertEqual(sorted(f"{p}:{n}" for _, p, n in found),
+                             sorted(re.findall(r"[\w./-]+\.\w+:\d+", t["answer"])), t["id"])
+            for name, path, line in found:
                 with self.subTest(t["id"], path=path):
                     lines = (root / path).read_text(errors="replace").splitlines()
                     self.assertGreaterEqual(len(lines), int(line))

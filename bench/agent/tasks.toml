@@ -4,7 +4,7 @@
 # check must pass; it fails with its line numbers taken out, and fails each
 # `incomplete` answer. Arms:
 #   A  no greeg:         rg and grep only, no greeg on PATH, no hook
-#   B  greeg hook:       `greeg hook run` as the PreToolUse hook (rg/grep rewritten)
+#   B  greeg hook:       `greeg hook run` as the PreToolUse hook (rg rewritten, grep left alone)
 #   C  hook and prompt:  as B, and the prompt starts with "Use greeg for code search."
 # `run.py` runs them; see README.md.
 
@@ -20,70 +20,70 @@ incomplete = ["JoinHandle::abort at tokio/src/runtime/task/join.rs:227."]
 id = "tokio-semaphore-permits"
 corpus = "tokio"
 prompt = "Which struct owns the permit count behind tokio::sync::Semaphore, and which method releases permits back? Give file:line for the struct and the method."
-check = "grep -q 'batch_semaphore.rs:[0-9]' answer.txt && grep -q 'release' answer.txt"
+check = "grep -q 'Semaphore' answer.txt && grep -q 'release' answer.txt && grep -o 'batch_semaphore.rs:[0-9]*' answer.txt | sort -u | sed -n 2p | grep -q ."
 answer = "The permit count lives in Semaphore at tokio/src/sync/batch_semaphore.rs:35; Semaphore::release at tokio/src/sync/batch_semaphore.rs:231 gives permits back."
-incomplete = ["Semaphore at tokio/src/sync/batch_semaphore.rs:35 owns the permits."]
+incomplete = ["Semaphore at tokio/src/sync/batch_semaphore.rs:35 owns the permits.", "Semaphore::release at tokio/src/sync/batch_semaphore.rs:231 gives permits back."]
 
 [[task]]
 id = "django-queryset-ordering"
 corpus = "django"
 prompt = "Where does ModelAdmin decide the ordering of its changelist queryset? Name the method and the file:line, and say which other method it calls to get the ordering."
-check = "grep -q 'django/contrib/admin/options.py:[0-9]' answer.txt && grep -q 'get_ordering' answer.txt"
+check = "grep -q 'django/contrib/admin/views/main.py:[0-9]' answer.txt && grep -q 'django/contrib/admin/options.py:[0-9]' answer.txt && grep -q 'get_ordering' answer.txt"
 answer = "ChangeList.get_ordering at django/contrib/admin/views/main.py:375 decides it, calling ModelAdmin.get_ordering at django/contrib/admin/options.py:462."
-incomplete = ["ModelAdmin at django/contrib/admin/options.py:686 orders the changelist."]
+incomplete = ["ModelAdmin at django/contrib/admin/options.py:686 orders the changelist.", "ModelAdmin.get_ordering at django/contrib/admin/options.py:462."]
 
 [[task]]
 id = "django-csrf-token"
 corpus = "django"
 prompt = "Trace how the csrf_token template tag obtains its value: list the functions involved from the template tag down to the function that reads the cookie, with file:line each."
-check = "grep -q 'get_token' answer.txt && grep -q 'django/middleware/csrf.py:[0-9]' answer.txt"
+check = "grep -q 'django/template/defaulttags.py:[0-9]' answer.txt && grep -q 'django/template/context_processors.py:[0-9]' answer.txt && grep -q 'get_token' answer.txt && grep -q '_get_secret' answer.txt && grep -o 'django/middleware/csrf.py:[0-9]*' answer.txt | sort -u | sed -n 2p | grep -q ."
 answer = "csrf_token at django/template/defaulttags.py:705 builds CsrfTokenNode; the token comes from the context processor csrf at django/template/context_processors.py:19, which calls get_token at django/middleware/csrf.py:96; the cookie is read by CsrfViewMiddleware._get_secret at django/middleware/csrf.py:221."
-incomplete = ["csrf_token at django/template/defaulttags.py:705; the cookie is read at django/middleware/csrf.py:221."]
+incomplete = ["csrf_token at django/template/defaulttags.py:705; the cookie is read at django/middleware/csrf.py:221.", "get_token at django/middleware/csrf.py:96 returns what CsrfViewMiddleware._get_secret at django/middleware/csrf.py:221 reads from the cookie."]
 
 [[task]]
 id = "ktor-content-negotiation"
 corpus = "ktor"
 prompt = "Find the plugin that installs ContentNegotiation on the server side and list the converters it registers by default. Give file:line."
-check = "grep -qi 'ContentNegotiation' answer.txt && grep -q 'ktor-server.*\\.kt:[0-9]' answer.txt"
+check = "grep -q 'ktor-server[^ ]*/ContentNegotiation.kt:[0-9]' answer.txt && grep -Eqi 'no [a-z ]*converters?|none|not register|n.t register' answer.txt"
 answer = "ContentNegotiation at ktor-server/ktor-server-plugins/ktor-server-content-negotiation/common/src/io/ktor/server/plugins/contentnegotiation/ContentNegotiation.kt:60; it registers no converters by default."
-incomplete = ["It registers no converters by default."]
+incomplete = ["It registers no converters by default.", "ContentNegotiation at ktor-server/ktor-server-plugins/ktor-server-content-negotiation/common/src/io/ktor/server/plugins/contentnegotiation/ContentNegotiation.kt:60 registers a JSON converter by default."]
 
 [[task]]
 id = "ktor-respond-text"
 corpus = "ktor"
 prompt = "Which function implements ApplicationCall.respondText, and what ContentType does it default to? file:line please."
-check = "grep -q 'respondText' answer.txt && grep -qi 'text/plain\\|Text.Plain' answer.txt && grep -q '\\.kt:[0-9]' answer.txt"
+check = "grep -q 'respondText' answer.txt && grep -qi 'text/plain\\|Text.Plain' answer.txt && grep -q 'ApplicationResponseFunctions.kt:[0-9]' answer.txt"
 answer = "ApplicationCall.respondText at ktor-server/ktor-server-core/common/src/io/ktor/server/response/ApplicationResponseFunctions.kt:124; the content type defaults to ContentType.Text.Plain."
-incomplete = ["ApplicationCall.respondText at ktor-server/ktor-server-core/common/src/io/ktor/server/response/ApplicationResponseFunctions.kt:124."]
+incomplete = ["ApplicationCall.respondText at ktor-server/ktor-server-core/common/src/io/ktor/server/response/ApplicationResponseFunctions.kt:124.", "ApplicationCall.respondText at ktor-server/ktor-server-core/common/src/io/ktor/server/response/ApplicationResponses.kt:12 defaults to ContentType.Text.Plain."]
 
 [[task]]
 id = "typescript-create-source-file"
 corpus = "TypeScript-5.9"
 prompt = "Where is createSourceFile defined in the compiler, and which function does it delegate parsing to? Give file:line for both."
-check = "grep -q 'src/compiler/parser.ts:[0-9]' answer.txt && grep -q 'parseSourceFile' answer.txt"
+check = "grep -q 'createSourceFile' answer.txt && grep -q 'parseSourceFile' answer.txt && grep -o 'src/compiler/parser.ts:[0-9]*' answer.txt | sort -u | sed -n 2p | grep -q ."
 answer = "createSourceFile at src/compiler/parser.ts:1344 delegates to Parser.parseSourceFile at src/compiler/parser.ts:1603."
-incomplete = ["createSourceFile at src/compiler/parser.ts:1344."]
+incomplete = ["createSourceFile at src/compiler/parser.ts:1344.", "createSourceFile delegates to Parser.parseSourceFile at src/compiler/parser.ts:1603."]
 
 [[task]]
 id = "typescript-checker-entry"
 corpus = "TypeScript-5.9"
 prompt = "Which function is the entry point for type-checking a whole source file in the checker, and which function calls it? file:line for both."
-check = "grep -q 'src/compiler/checker.ts:[0-9]' answer.txt && grep -q 'checkSourceFile' answer.txt"
+check = "grep -Eq 'checkSourceFile([^W]|$)' answer.txt && grep -q 'checkSourceFileWithEagerDiagnostics' answer.txt && grep -o 'src/compiler/checker.ts:[0-9]*' answer.txt | sort -u | sed -n 2p | grep -q ."
 answer = "checkSourceFile at src/compiler/checker.ts:49277, called by checkSourceFileWithEagerDiagnostics at src/compiler/checker.ts:49439."
-incomplete = ["getDiagnostics at src/compiler/checker.ts:49418 runs the checker."]
+incomplete = ["getDiagnostics at src/compiler/checker.ts:49418 runs the checker.", "checkSourceFile at src/compiler/checker.ts:49277.", "checkSourceFileWithEagerDiagnostics at src/compiler/checker.ts:49439 checks a file."]
 
 [[task]]
 id = "coroutines-dispatchers-default"
 corpus = "kotlinx-coroutines"
 prompt = "How is Dispatchers.Default implemented on the JVM: which class backs it and where is the thread count decided? file:line each."
-check = "grep -q 'DefaultScheduler\\|CoroutineScheduler' answer.txt && grep -q 'jvm/src/[^ ]*:[0-9]' answer.txt"
+check = "grep -q 'DefaultScheduler\\|CoroutineScheduler' answer.txt && grep -q 'CORE_POOL_SIZE' answer.txt && grep -q 'jvm/src/scheduling/Tasks.kt:[0-9]' answer.txt && grep -Eq 'jvm/src/scheduling/(Dispatcher|CoroutineScheduler)[.]kt:[0-9]' answer.txt"
 answer = "Dispatchers.Default is DefaultScheduler (kotlinx-coroutines-core/jvm/src/scheduling/Dispatcher.kt:9), backed by CoroutineScheduler; the thread count is CORE_POOL_SIZE at kotlinx-coroutines-core/jvm/src/scheduling/Tasks.kt:29."
-incomplete = ["Dispatchers.Default is DefaultScheduler."]
+incomplete = ["Dispatchers.Default is DefaultScheduler.", "Dispatchers.Default is DefaultScheduler (kotlinx-coroutines-core/jvm/src/scheduling/Dispatcher.kt:9)."]
 
 [[task]]
 id = "coroutines-launch"
 corpus = "kotlinx-coroutines"
 prompt = "Find the definition of CoroutineScope.launch and the coroutine class it instantiates. file:line for both."
-check = "grep -q 'Builders.common.kt:[0-9]' answer.txt && grep -q 'StandaloneCoroutine\\|LazyStandaloneCoroutine' answer.txt"
-answer = "CoroutineScope.launch at kotlinx-coroutines-core/common/src/Builders.common.kt:200 creates StandaloneCoroutine (Builders.common.kt:519), or LazyStandaloneCoroutine when lazy."
-incomplete = ["CoroutineScope.launch at kotlinx-coroutines-core/common/src/Builders.common.kt:200."]
+check = "grep -q 'launch' answer.txt && grep -q 'StandaloneCoroutine' answer.txt && grep -o 'Builders.common.kt:[0-9]*' answer.txt | sort -u | sed -n 2p | grep -q ."
+answer = "CoroutineScope.launch at kotlinx-coroutines-core/common/src/Builders.common.kt:200 creates StandaloneCoroutine (kotlinx-coroutines-core/common/src/Builders.common.kt:519), or LazyStandaloneCoroutine when lazy."
+incomplete = ["CoroutineScope.launch at kotlinx-coroutines-core/common/src/Builders.common.kt:200.", "It creates StandaloneCoroutine at kotlinx-coroutines-core/common/src/Builders.common.kt:519."]

@@ -10,7 +10,7 @@ record per run: tool calls by name, search calls (rg/grep/greeg, by tool), the
 characters the tools returned, input/output and cache tokens, number of turns,
 wall time, cost and success.
 
-Counting search calls in arm B (the hook rewrites `rg`/`grep` to `greeg`): the
+Counting search calls in arm B (the hook rewrites `rg` to `greeg`): the
 `tool_use` block in the assistant message is what the model *asked for*, before
 the PreToolUse hook ran, so counting it would report every hook-rewritten call
 as `rg`. The executed command is taken, in this order of preference:
@@ -216,8 +216,8 @@ def read_run(d):
         if tid in updates:
             found, how = search_tools_in(updates[tid]), "hook"
         elif intended and tid in results and GREEG_FINGERPRINT.search(results[tid]):
-            # the output is greeg's: every rg/grep segment the model wrote was rewritten
-            found, how = ["greeg" if x in ("rg", "grep") else x for x in intended], "output"
+            # the output is greeg's: the rg the model wrote was rewritten (grep never is)
+            found, how = ["greeg" if x == "rg" else x for x in intended], "output"
         else:
             found, how = intended, "intent"
         for tool in found:

@@ -103,6 +103,10 @@ class AgentExtractTests(unittest.TestCase):
         self.assertEqual(rec["search"]["greeg"], 1)
         self.assertEqual(rec["search_evidence"]["output"], 1)
 
+    def test_greeg_output_never_turns_a_grep_into_greeg(self):
+        rec, _ = run([bash("a", "grep -n foo f; greeg bar", "d"), result("a", "foo  3 matches · 2 files\n"), END], "B")
+        self.assertEqual((rec["search"]["grep"], rec["search"]["greeg"]), (1, 1))
+
     def test_each_command_of_a_list_counts(self):
         self.assertEqual(search_tools_in("rg a; grep b && command rg c || greeg d | head"),
                          ["rg", "grep", "rg", "greeg"])

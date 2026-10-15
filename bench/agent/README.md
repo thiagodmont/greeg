@@ -4,19 +4,20 @@ Measures whether a coding agent does better with greeg than with ripgrep on
 real tasks. It is run by hand: it spends API credits and needs a Claude Code
 login, so it is not part of CI. Tasks live in `tasks.toml`, ten across tokio,
 django, ktor, TypeScript 5.9 and kotlinx.coroutines, each with a mechanical
-check on the agent's final answer. A check must pass the task's verified
-`answer`, and fail it without its line numbers and each `incomplete` answer.
+check on the agent's final answer: every item the prompt asks for, with its
+file:line. A check must pass the task's verified `answer`, and fail it without
+its line numbers and each `incomplete` answer.
 
 ## Arms
 
 | arm | search available to the agent | how |
 |---|---|---|
 | A | ripgrep and grep via Bash, no greeg | greeg not on `PATH`, no hook |
-| B | greeg through the hook | `greeg hook run` as the run's PreToolUse hook; plain `rg`/`grep` calls are rewritten |
+| B | greeg through the hook | `greeg hook run` as the run's PreToolUse hook; plain `rg` calls are rewritten, `grep` is left alone |
 | C | greeg through the hook, named in the prompt | as B, and the prompt starts with "Use greeg for code search." |
 
-Same model, prompt, turn limit, tools (`Bash`, `Read`) and allowed commands
-for every arm.
+Same model, task prompt (C adds its prefix), turn limit, tools (`Bash`,
+`Read`) and allowed commands for every arm.
 
 ## Running
 
@@ -93,11 +94,14 @@ rewrite rules, not in the prompt.
 Six tasks (one per corpus, two from tokio) × arms A, B and C × 2 repeats, with
 Claude Code 2.1.288 on Sonnet (`claude-sonnet-5-5`) and greeg at 22de3c6.
 `results/pilot-2026-10-03.json` holds the extracted records, `.txt` the
-analysis, and `-setup.json` the setup. 36 runs cost $1.13 in all.
+analysis, and `-setup.json` the setup. 36 runs cost $1.13 in all. The pilot
+predates the denied commands: its setup has no deny list, and `awk` and
+`xargs` were still allowed.
 
 - **Every run passed its check**, in every arm. The tasks are too easy to
   separate the arms: 1 to 7 tool calls each. The checks have since been made
-  to require file:line; these verdicts are from the checks at the time.
+  to require file:line and every item the prompt asks for; these verdicts are
+  from the checks at the time.
 - **Arm A never ran ripgrep.** All 39 of its searches were `grep`, which is on
   `PATH` and allowed in every arm, so this baseline measured grep, not rg.
 - **Arm B never ran greeg.** The model searched with `grep` only (no Grep tool
