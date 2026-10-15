@@ -306,6 +306,7 @@ fn facets(r: &ScanResult, ranked: &[Ranked]) -> (Facets, usize) {
                 word_hits += 1;
             }
         }
+        word_hits += f.dropped.as_deref().map_or(0, |d| d.exact as usize);
     }
     let total = r.stats.total_hits.max(1);
     let mut by_lang: Vec<_> = by_lang
@@ -435,6 +436,11 @@ fn related_names(r: &ScanResult, ranked: &[Ranked]) -> Vec<(String, usize)> {
             by_name.entry(w).or_default().insert(fi);
         }
     }
+    for (fi, f) in r.files.iter().enumerate() {
+        for w in f.dropped.iter().flat_map(|d| &d.near_names) {
+            by_name.entry(w).or_default().insert(fi);
+        }
+    }
     let mut v: Vec<(String, usize)> = by_name
         .into_iter()
         .map(|(n, c)| (n.to_string(), c.len()))
@@ -544,11 +550,20 @@ pub fn shape_within(r: &mut ScanResult, budget: usize) -> Report {
     let mut related: Vec<(String, usize)> = Vec::new();
     let mut near_misses_left = false;
     if !parity && identifier_query(o) {
+        // lines a ranked search counted but did not keep count too
+        let (dropped_exact, dropped) = r
+            .files
+            .iter()
+            .filter_map(|f| f.dropped.as_deref())
+            .fold((0, 0), |(e, n), d| {
+                (e + d.exact as usize, n + d.lines as usize)
+            });
         let exact = ranked
             .iter()
             .filter(|&&(fi, hi, _)| r.files[fi].hits[hi].exact)
-            .count();
-        if exact > 0 && exact < ranked.len() {
+            .count()
+            + dropped_exact;
+        if exact > 0 && exact < ranked.len() + dropped {
             related = related_names(r, &ranked);
             ranked.retain(|&(fi, hi, _)| r.files[fi].hits[hi].exact);
             near_misses_left = true;
@@ -558,21 +573,42 @@ pub fn shape_within(r: &mut ScanResult, budget: usize) -> Report {
             related = r.related_index.clone();
         }
     }
-    // Hits the answer may draw on: `r.stats.total_hits` still counts the near-misses.
-    let hit_total = ranked.len();
     // Per file, for `+N more`: it must not promise hits that left the answer.
     let mut eligible: BTreeMap<usize, usize> = BTreeMap::new();
     if near_misses_left {
         for &(fi, _, _) in &ranked {
             *eligible.entry(fi).or_default() += 1;
         }
+        for (fi, f) in r.files.iter().enumerate() {
+            if let Some(d) = f.dropped.as_deref().filter(|d| d.exact > 0) {
+                *eligible.entry(fi).or_default() += d.exact as usize;
+            }
+        }
+    }
+    // Hits the answer may draw on, and what showing them all would cost: a
+    // file whose lines were not all kept counts as if its first
+    // `MAX_HITS_PER_FILE` were. `r.stats.total_hits` still counts the near-misses.
+    let mut kept: BTreeMap<usize, (usize, usize)> = BTreeMap::new();
+    for &(fi, hi, _) in &ranked {
+        let e = kept.entry(fi).or_default();
+        e.0 += 1;
+        e.1 += per_hit(r, fi, hi);
+    }
+    let (mut hit_total, mut hits_cost) = (0, 0);
+    for (&fi, &(n, cost)) in &kept {
+        let f = &r.files[fi];
+        let all = match f.dropped.as_deref() {
+            Some(d) if near_misses_left => n + d.exact as usize,
+            Some(d) => n + d.lines as usize,
+            None => n,
+        };
+        let counted = n.max(all.min(crate::MAX_HITS_PER_FILE));
+        hit_total += counted;
+        hits_cost += cost * counted / n;
     }
 
     // Estimated cost of rendering everything in content layout.
-    let full_cost: usize = ranked
-        .iter()
-        .map(|(fi, hi, _)| per_hit(r, *fi, *hi))
-        .sum::<usize>()
+    let full_cost: usize = hits_cost
         + r.files
             .iter()
             .enumerate()
@@ -1054,6 +1090,7 @@ mod tests {
             total,
             total_unfiltered: total,
             kinds,
+            dropped: None,
             defs: vec![],
             refined: true,
             file_id: None,

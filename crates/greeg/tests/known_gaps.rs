@@ -284,6 +284,61 @@ fn a_definition_after_many_uses_is_shown_by_both_backends() {
     }
 }
 
+/// 70 comment lines, then 30 calls: past the first 64 lines a search kept.
+fn calls_after_comments() -> String {
+    let mut body = String::from("fn main() {\n");
+    for j in 0..70 {
+        body += &format!("// foo note {j}\n");
+    }
+    for j in 0..30 {
+        body += &format!("    foo(); // c{j}\n");
+    }
+    body + "}\n"
+}
+
+#[test]
+fn facet_counts_include_the_lines_a_ranked_search_drops() {
+    let body = calls_after_comments();
+    let names: Vec<String> = (0..20).map(|i| format!("src/m{i:02}.rs")).collect();
+    let files: Vec<(&str, &str)> = names.iter().map(|n| (n.as_str(), body.as_str())).collect();
+    let f = Fixture::new(&files);
+    f.indexed();
+    for o in [f.run(&["foo"]), f.scan(&["foo"])] {
+        let out = stdout(&o);
+        let first = out.lines().next().unwrap_or_default();
+        assert_eq!(
+            first, "foo  2,000 hits · 20 files · call 600 comment 1,400",
+            "{o:?}"
+        );
+        // the best lines lie past the first 64
+        assert!(out.contains("  72 call  foo(); // c0"), "{o:?}");
+    }
+    for o in [
+        f.run(&["foo", "--json=greeg"]),
+        f.scan(&["foo", "--json=greeg"]),
+    ] {
+        assert!(
+            stdout(&o).contains(r#""by_kind":[["call",600],["comment",1400]]"#),
+            "{o:?}"
+        );
+    }
+}
+
+#[test]
+fn a_few_file_answer_keeps_its_first_lines_and_its_best() {
+    let f = Fixture::new(&[("src/m.rs", &calls_after_comments())]);
+    f.indexed();
+    let args = ["foo", "src/m.rs", "--budget", "5000"];
+    for o in [f.run(&args), f.scan(&args)] {
+        let out = stdout(&o);
+        assert!(out.starts_with("src/m.rs\n  72 call"), "{o:?}");
+        // the first 64 lines and the 16 best calls; the rest are counted by kind
+        assert!(out.contains("  65 comment  // foo note 63\n"), "{o:?}");
+        assert!(out.contains("  +20 more (14 call, 6 comment)\n"), "{o:?}");
+        assert!(out.contains("80/100 hits · 1/1 files"), "{o:?}");
+    }
+}
+
 #[test]
 fn a_rerun_after_sigbus_keeps_arguments_after_a_double_dash() {
     let f = Fixture::new(&[("a.txt", "-dashneedle here\n")]);

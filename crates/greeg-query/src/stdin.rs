@@ -105,6 +105,7 @@ pub fn scan(o: &Options, mut data: Vec<u8>) -> Result<ScanResult> {
             total,
             total_unfiltered: total,
             kinds,
+            dropped: None,
             defs: Vec::new(),
             refined: true,
             file_id: None,
