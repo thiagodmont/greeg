@@ -225,9 +225,10 @@ pub struct Hit {
     pub match_start: u32,
     /// End of that match; may pass the line end under `-U`.
     pub match_end: u32,
-    /// Every submatch on this line as absolute byte ranges, in line order,
-    /// when there are several (match_start..match_end among them, not always
-    /// first); empty for one. Read them through
+    /// The submatches kept on this line as absolute byte ranges, in line
+    /// order, when there are several (match_start..match_end among them, not
+    /// always first); empty for one. A budgeted search keeps the first 8;
+    /// `--budget 0` and stdin keep every one. Read them through
     /// [`raw_submatches`](Self::raw_submatches).
     pub submatches: Box<[(u32, u32)]>,
     pub kind: HitKind,
@@ -280,7 +281,8 @@ impl Hit {
     pub fn column(&self) -> u32 {
         self.match_start - self.line_start
     }
-    /// Submatch ranges relative to `raw`, clamped to the line.
+    /// The kept submatch ranges (see [`submatches`](Self::submatches))
+    /// relative to `raw`, clamped to the line.
     pub fn raw_submatches(&self) -> Vec<(u32, u32)> {
         let len = self.raw.len() as u32;
         let one = [(self.match_start, self.match_end)];
