@@ -1,0 +1,19 @@
+bench/results/release-0.12.0-2026-10-16-darwin-arm64.json
+  s_eefb2647553a67::t_b569014c0515f1 1-5695
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "794dbc8388a992ce8031abdc17055f1c23108791",
+  "prompts": {},
+  "sessions": {
+    "s_eefb2647553a67": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9fff36d3-3b5f-4343-be78-7893a6fe3965",
+        "model": "unknown"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
