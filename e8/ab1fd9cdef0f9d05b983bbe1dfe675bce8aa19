@@ -1,0 +1,45 @@
+crates/greeg-query/src/lib.rs
+  s_eefb2647553a67::t_c81ccac55b2d74 627-633
+crates/greeg/src/main.rs
+  s_eefb2647553a67::t_c81ccac55b2d74 308-310
+  s_eefb2647553a67::t_a03a54e03a5178 1228-1233
+crates/greeg/src/rewrite.rs
+  s_eefb2647553a67::t_9878986c972069 930-934,960-963,971-974,982-985,989-993
+  s_eefb2647553a67::t_04b41c9c0f6151 72-80
+  s_eefb2647553a67::t_11a23ca9d01ce3 889-897,899-929,935-959,964-970,975-981,986-988,994-1016
+  s_eefb2647553a67::t_94a4144cfeef00 327,330,335-345,820-821,841,859
+  s_eefb2647553a67::t_0b534d16e43aaf 314,317-318,321,325-326,332-333,346-356,364,366-367,380-406,413-418,420-554,564-570,572-593,595-621,624-740
+  s_eefb2647553a67::t_6c452bcbbe71f6 331,407-412,419,555-563,571,594,622-623,822,868-871,879
+  s_eefb2647553a67::t_e0cd6bc967be66 898
+crates/greeg/src/hook.rs
+  s_eefb2647553a67::t_9878986c972069 809-812
+  s_eefb2647553a67::t_2f113b6387d38d 778,804-808,815,819
+  s_eefb2647553a67::t_6c452bcbbe71f6 679-688
+references/USAGE.md
+  s_eefb2647553a67::t_264836f3a4ee25 225-228
+README.md
+  s_eefb2647553a67::t_264836f3a4ee25 104-109
+references/ARCHITECTURE.md
+  s_eefb2647553a67::t_264836f3a4ee25 324-325,355-358
+crates/greeg/tests/hooks.rs
+  s_eefb2647553a67::t_2e29a7e6c8ca76 3,262-273,279-322
+  s_eefb2647553a67::t_2f113b6387d38d 137
+  s_eefb2647553a67::t_9878986c972069 274-278,323-332
+  s_eefb2647553a67::t_5b745fd94278ca 333-335
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e8ab1fd9cdef0f9d05b983bbe1dfe675bce8aa19",
+  "prompts": {},
+  "sessions": {
+    "s_eefb2647553a67": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9fff36d3-3b5f-4343-be78-7893a6fe3965",
+        "model": "unknown"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
