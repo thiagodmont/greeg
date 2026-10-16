@@ -1,0 +1,47 @@
+arm A search calls decided by: hook 0, output 0, intent 81
+arm B search calls decided by: hook 71, output 0, intent 0
+== development tasks: 4 tasks
+
+task                                 A ok     A $  A turns   B ok     B $  B turns
+coroutines-io-dispatch-target        1/2    0.064      6.0   2/2    0.062      4.5
+django-admin-utils-importers         2/2    0.030      3.5   2/2    0.037      5.0
+django-changelist-get-queryset       2/2    0.031      3.5   2/2    0.045      5.0
+tokio-tcp-poll-read-target           2/2    0.032      3.0   2/2    0.033      3.5
+
+success A: 7/8 (88 %, 95 % Wilson [53, 98])
+success B: 8/8 (100 %, 95 % Wilson [68, 100])
+
+metric                  A          B   paired difference vs A (95 % bootstrap: over pairs | over tasks)
+success rate         0.88       1.00   B: +0.12 [+0.00, +0.38] | [+0.00, +0.38] n=8 tasks=4
+turns                4.00       4.50   B: +0.50 [-1.00, +1.62] | [-0.75, +1.50] n=8 tasks=4
+search calls         6.25       7.00   B: +0.75 [-0.38, +1.88] | [-0.50, +2.12] n=8 tasks=4
+tool output ch    7229.75    8484.75   B: +1255.00 [-812.00, +3239.75] | [-329.75, +2630.25] n=8 tasks=4
+output tokens      278.75     742.12   B: +463.38 [+204.25, +714.25] | [+411.25, +516.12] n=8 tasks=4
+input tokens        11.50      13.00   B: +1.50 [-1.75, +4.00] | [-2.25, +4.75] n=8 tasks=4
+cache writes      8770.00    8729.75   B: -40.25 [-3235.75, +2827.62] | [-2106.25, +1840.25] n=8 tasks=4
+cache reads      37867.25   44437.50   B: +6570.25 [-7967.00, +18612.50] | [-11170.12, +20355.00] n=8 tasks=4
+cost USD             0.04       0.04   B: +0.01 [-0.00, +0.01] | [-0.00, +0.01] n=8 tasks=4
+wall time s         14.82      17.15   B: +2.33 [-0.95, +5.14] | [-1.33, +4.92] n=8 tasks=4
+
+== held-out tasks: 4 tasks
+
+task                                 A ok     A $  A turns   B ok     B $  B turns
+django-year-exact-as-sql             2/2    0.033      4.5   2/2    0.032      3.5
+ktor-statement-execute-context       2/2    0.071      7.5   2/2    0.146     11.5
+tokio-net-pollevented-types          2/2    0.049     10.0   2/2    0.047     10.0
+typescript-incremental-visitnode     2/2    0.046      4.5   2/2    0.032      4.0
+
+success A: 8/8 (100 %, 95 % Wilson [68, 100])
+success B: 8/8 (100 %, 95 % Wilson [68, 100])
+
+metric                  A          B   paired difference vs A (95 % bootstrap: over pairs | over tasks)
+success rate         1.00       1.00   B: +0.00 [+0.00, +0.00] | [+0.00, +0.00] n=8 tasks=4
+turns                6.62       7.25   B: +0.62 [-0.88, +2.62] | [-0.75, +2.88] n=8 tasks=4
+search calls         3.88       1.88   B: -2.00 [-5.00, +0.25] | [-6.38, +0.38] n=8 tasks=4
+tool output ch    7760.00   15396.62   B: +7636.62 [-2368.25, +26027.75] | [-2228.12, +25239.00] n=8 tasks=4
+output tokens      392.62     281.12   B: -111.50 [-470.50, +222.75] | [-293.00, +20.00] n=8 tasks=4
+input tokens        17.75      20.75   B: +3.00 [-1.25, +10.50] | [-1.50, +10.50] n=8 tasks=4
+cache writes     11282.25   19616.25   B: +8334.00 [-2611.12, +28701.50] | [-2704.12, +28741.62] n=8 tasks=4
+cache reads      63328.88  122276.12   B: +58947.25 [-7035.50, +185596.25] | [-4657.00, +181228.50] n=8 tasks=4
+cost USD             0.05       0.06   B: +0.01 [-0.01, +0.06] | [-0.01, +0.06] n=8 tasks=4
+wall time s         18.75      19.88   B: +1.12 [-1.21, +5.10] | [-1.10, +4.57] n=8 tasks=4

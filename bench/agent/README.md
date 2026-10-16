@@ -160,3 +160,32 @@ out, a line not cited.
 
 Next: more held-out tasks (and repeats) before any decision, and arm C to
 see whether naming greeg in the prompt changes the share of searches it runs.
+
+## Ambiguous-definition run (2026-10-16)
+
+The eight ambiguous-definition and focused-map tasks × arms A and B × 2
+repeats, with Claude Code 2.1.302 on Sonnet and greeg at the 0.12.0 release
+commit. `results/ambiguous-2026-10-16.json` holds the records, `.txt` the
+analysis, `-setup.json` the setup. 32 runs, all valid, cost $1.58. It asks
+whether agents pick the wrong one of many same-named definitions today, which
+an ambiguity-aware `def` would fix.
+
+The checks were loosened after the run, and every saved answer was scored
+again (`--recheck`). The first checks rejected right answers that list files
+in a table (`` `actions.py` | 8 ``), cite `main.py:464` after naming
+`views/main.py`, or give bare lines after "all lines are in parser.ts". A
+citation may now separate the file and its line by a table cell or "line",
+and the single-file TypeScript task takes lines once the file is named. The
+one answer that still fails gives `safeDispatch` without its file:line.
+
+- **Success:** held out 8/8 in both arms (Wilson 68–100 %). Development
+  tasks: A 7/8, B 8/8. No answer followed a wrong same-named definition: the
+  agents read the receiver's type, the class hierarchy or the method
+  resolution order with `grep` and `Read`, in four to eleven turns.
+- **The hook:** it answered all 71 of B's search calls and rewrote 10 to
+  greeg; the other 61 are greps of named files and pipelines.
+- **Held out, search calls:** B made 2.0 fewer a run (3.9 → 1.9), interval
+  −6.4…+0.4 over tasks. Cost, turns and output show no difference.
+
+These tasks give an ambiguity-aware `def` nothing to fix for this model:
+picking the definition a call site reaches is not where it fails.

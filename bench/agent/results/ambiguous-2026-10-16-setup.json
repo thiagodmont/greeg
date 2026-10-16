@@ -1,0 +1,48 @@
+{
+ "claude": "2.1.302 (Claude Code)",
+ "greeg": "greeg 0.12.0+0e5164f2d",
+ "model": "sonnet",
+ "max_turns": 25,
+ "max_budget_usd": 2.0,
+ "seed": 7,
+ "allowed": [
+  "Read",
+  "Bash(rg:*)",
+  "Bash(greeg:*)",
+  "Bash(grep:*)",
+  "Bash(find:*)",
+  "Bash(ls:*)",
+  "Bash(cat:*)",
+  "Bash(head:*)",
+  "Bash(tail:*)",
+  "Bash(sed:*)",
+  "Bash(wc:*)",
+  "Bash(sort:*)",
+  "Bash(uniq:*)",
+  "Bash(cut:*)",
+  "Bash(tr:*)"
+ ],
+ "denied": [
+  "Bash(sed -i:*)",
+  "Bash(sed --in-place:*)",
+  "Bash(sort -o:*)",
+  "Bash(sort --output:*)"
+ ],
+ "tasks": [
+  "tokio-tcp-poll-read-target",
+  "django-changelist-get-queryset",
+  "django-year-exact-as-sql",
+  "coroutines-io-dispatch-target",
+  "ktor-statement-execute-context",
+  "typescript-incremental-visitnode",
+  "django-admin-utils-importers",
+  "tokio-net-pollevented-types"
+ ],
+ "corpora": {
+  "TypeScript-5.9": "5be33469d",
+  "django": "5babd2e21a",
+  "kotlinx-coroutines": "f63a04bac",
+  "ktor": "f92fad043",
+  "tokio": "ea91b33c"
+ }
+}
