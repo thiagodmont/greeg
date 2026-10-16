@@ -953,6 +953,14 @@ fn host_payloads_get_replies_their_host_accepts() {
                 "{name}: no auto-allow"
             );
         }
+        // Codex would run it without asking: a list with another command stays as it is
+        if agent == "codex" {
+            let out = reply(&payload("rg -n needle; touch sentinel", "Bash"));
+            assert!(
+                out.status.success() && out.stdout.is_empty(),
+                "{name}: {out:?}"
+            );
+        }
         for silent in [
             payload("rg needle | head", "Bash"),
             payload("rg -n needle", "Read"),

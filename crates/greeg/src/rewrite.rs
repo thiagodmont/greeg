@@ -408,6 +408,10 @@ pub(crate) fn list_segments(s: &str) -> Result<Vec<std::ops::Range<usize>>, &'st
                 b'"' => double = true,
                 b'`' => return Err("command substitution"),
                 b'$' if matches!(next, Some(b'(' | b'{')) => return Err("command substitution"),
+                // `$'…'` takes backslash escapes, so `\'` would not end it here
+                b'$' if matches!(next, Some(b'\'' | b'"')) => {
+                    return Err("ANSI-C or locale quoting");
+                }
                 b'(' | b')' | b'{' | b'}' => return Err("subshell, group or brace expansion"),
                 b'<' if next == Some(b'<') => return Err("here-document"),
                 b'#' if word_start => return Err("shell comment"),
@@ -450,6 +454,8 @@ pub struct Part {
 pub struct Rewrite {
     pub command: String,
     pub parts: Vec<Part>,
+    /// Every command in the line is one the hook rewrote.
+    pub whole: bool,
 }
 
 fn part(seg: &str) -> Result<Part, String> {
@@ -478,6 +484,7 @@ pub fn rewrite_full(cmd: &str) -> Result<Rewrite, String> {
         return Ok(Rewrite {
             command: p.command.clone(),
             parts: vec![p],
+            whole: true,
         });
     }
     let mut command = String::with_capacity(cmd.len() + 64);
@@ -511,5 +518,10 @@ pub fn rewrite_full(cmd: &str) -> Result<Rewrite, String> {
         return Err(why.map_or_else(|| "not an rg command".into(), |(_, e)| e));
     }
     command.push_str(&cmd[at..]);
-    Ok(Rewrite { command, parts })
+    let whole = why.is_none();
+    Ok(Rewrite {
+        command,
+        parts,
+        whole,
+    })
 }

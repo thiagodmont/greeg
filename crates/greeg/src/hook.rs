@@ -670,19 +670,28 @@ fn hook_reply(agent: Agent, tool_input: &Value, command: &str) -> Value {
 
 /// What the hook does with `cmd` in this environment: the rewrite, or why
 /// the original command runs unchanged.
-fn decide(cmd: &str) -> Result<Rewrite, String> {
+fn decide(cmd: &str, agent: Agent) -> Result<Rewrite, String> {
     // A configured ripgrep can select another file set or run a preprocessor.
     if std::env::var_os("RIPGREP_CONFIG_PATH").is_some_and(|p| !p.is_empty()) {
         return Err("RIPGREP_CONFIG_PATH is set (ripgrep configuration is not interpreted)".into());
     }
-    rewrite_full(cmd)
+    let rw = rewrite_full(cmd)?;
+    // Codex runs an allowed rewrite without asking: it may hold only commands
+    // the hook wrote
+    if agent == Agent::Codex && !rw.whole {
+        return Err(
+            "Codex approves a rewrite without asking; a list with other commands runs unchanged"
+                .into(),
+        );
+    }
+    Ok(rw)
 }
 
 /// `greeg hook explain COMMAND`: the command the hook would run instead
 /// (exit 0), or `declined: REASON` (exit 1).
-pub fn explain(cmd: &str) -> Result<bool> {
+pub fn explain(cmd: &str, agent: Agent) -> Result<bool> {
     let mut w = std::io::stdout().lock();
-    match decide(cmd) {
+    match decide(cmd, agent) {
         Ok(rw) => {
             writeln!(w, "{}", rw.command)?;
             Ok(true)
@@ -710,7 +719,7 @@ pub fn run(agent: Agent) -> Result<()> {
     let Some(cmd) = tool_input.get("command").and_then(|c| c.as_str()) else {
         return Ok(());
     };
-    if let Ok(rw) = decide(cmd) {
+    if let Ok(rw) = decide(cmd, agent) {
         let out = hook_reply(agent, tool_input, &rw.command);
         let mut w = std::io::stdout().lock();
         serde_json::to_writer(&mut w, &out)?;
@@ -845,9 +854,25 @@ mod tests {
             ("rg a; cat <<EOF", "here-document"),
             ("rg a; echo 'open", "unterminated quote"),
             ("rg x 2>/dev/null; echo done", "redirection"),
+            ("rg a; echo $'it\\'s'; rg b", "ANSI-C or locale quoting"),
+            ("rg a; echo $\"x\"", "ANSI-C or locale quoting"),
         ] {
             let got = rewrite_full(cmd).err().unwrap_or_default();
             assert!(got.contains(why), "{cmd:?}: {got:?}");
+        }
+    }
+
+    #[test]
+    fn codex_gets_a_list_only_when_the_hook_wrote_every_command_in_it() {
+        // Codex runs an allowed rewrite without asking
+        for cmd in ["rg a; rm -rf build", "cd src && rg a", "rg a || curl x"] {
+            assert!(decide(cmd, Agent::Claude).is_ok(), "{cmd}");
+            let why = decide(cmd, Agent::Codex).err().unwrap_or_default();
+            assert!(why.contains("Codex approves"), "{cmd}: {why}");
+        }
+        for cmd in ["rg a", "rg a; rg -l b src", "rg a && rg b"] {
+            let rw = decide(cmd, Agent::Codex).unwrap();
+            assert!(rw.whole && !rw.command.contains("rg "), "{cmd}");
         }
     }
 
