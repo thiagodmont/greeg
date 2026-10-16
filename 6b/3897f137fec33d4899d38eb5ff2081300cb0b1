@@ -1,0 +1,51 @@
+.github/workflows/ci.yml
+  s_99f99e261fc81a::t_234947df9d7efa 84-103
+.github/workflows/dependencies.yml
+  s_99f99e261fc81a::t_3bd21ea68b6a31 1-37
+.github/workflows/release.yml
+  s_99f99e261fc81a::t_a96ace58a918fb 14-16,46-48
+README.md
+  s_99f99e261fc81a::t_77faf71e54057e 71-72
+bench/qualify.py
+  s_99f99e261fc81a::t_6857627734de07 7-9,21,34,44-62,65-78,156-161,163
+bench/test_qualify.py
+  s_99f99e261fc81a::t_8c3a363aa96eb9 1-65
+crates/greeg/src/hook.rs
+  s_99f99e261fc81a::t_7a808169158570 761-765
+crates/greeg/tests/hooks.rs
+  s_eefb2647553a67::t_7930661f159ba3 1121-1135,1139-1141
+crates/greeg/tests/known_gaps.rs
+  s_99f99e261fc81a::t_8aaeb86edd4e89 230-264
+deny.toml
+  s_99f99e261fc81a::t_a1f9db0bd98e92 1-20
+fuzz/Cargo.lock
+  s_99f99e261fc81a::t_a3e576e6f470f6 195,215,237
+references/DEVELOPMENT.md
+  s_99f99e261fc81a::t_ab89fc303424af 19-25
+references/USAGE.md
+  s_99f99e261fc81a::t_5373be85f8eb36 263-268
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "6b3897f137fec33d4899d38eb5ff2081300cb0b1",
+  "prompts": {},
+  "sessions": {
+    "s_99f99e261fc81a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "cfd57ff0-7aa5-4485-a613-655d4014a0d2",
+        "model": "unknown"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    },
+    "s_eefb2647553a67": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9fff36d3-3b5f-4343-be78-7893a6fe3965",
+        "model": "unknown"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
