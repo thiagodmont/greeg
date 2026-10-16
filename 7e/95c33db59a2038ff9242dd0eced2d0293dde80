@@ -1,0 +1,29 @@
+crates/greeg-index/src/lock.rs
+  s_eefb2647553a67::t_686dedf9bb2b58 52-119
+crates/greeg-query/src/indexed.rs
+  s_eefb2647553a67::t_505045af9fe17c 69-70,72,77,115,117-120,1599-1601,1633-1636,1641,1644-1646
+crates/greeg/src/doctor.rs
+  s_eefb2647553a67::t_a4c27cf2b53dbc 51
+crates/greeg/src/main.rs
+  s_eefb2647553a67::t_48b13bcf1c59df 697-702,704-705,715
+crates/greeg/tests/known_gaps.rs
+  s_eefb2647553a67::t_86099e731fd50d 2025-2087
+references/ARCHITECTURE.md
+  s_eefb2647553a67::t_05a84e0d7bbf0c 153-157
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "7e95c33db59a2038ff9242dd0eced2d0293dde80",
+  "prompts": {},
+  "sessions": {
+    "s_eefb2647553a67": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9fff36d3-3b5f-4343-be78-7893a6fe3965",
+        "model": "unknown"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
