@@ -948,6 +948,18 @@ pub fn extract_symbols(
     recorded: &Stamp,
     buf: &mut Vec<u8>,
 ) -> (Option<FileExtract>, bool) {
+    extract_symbols_within(tree, rel, recorded, buf, None)
+}
+
+/// [`extract_symbols`], the parse charged to `budget` by the bytes it parses
+/// (read now and transcoded, not the size phase 1 recorded).
+fn extract_symbols_within(
+    tree: &Tree,
+    rel: &[u8],
+    recorded: &Stamp,
+    buf: &mut Vec<u8>,
+    budget: Option<&ParseBudget>,
+) -> (Option<FileExtract>, bool) {
     let Some(read) = read_file(tree, rel, recorded, buf) else {
         return (None, true);
     };
@@ -956,7 +968,12 @@ pub fn extract_symbols(
     if buf.len() as u64 > MAX_FILE || buf[..buf.len().min(8192)].contains(&0) {
         return (None, recheck);
     }
-    (Some(symbols_of_bytes(rel, buf)), recheck)
+    let parse = || symbols_of_bytes(rel, buf);
+    let ex = match budget {
+        Some(b) => b.run(buf.len() as u64, parse),
+        None => parse(),
+    };
+    (Some(ex), recheck)
 }
 
 fn symbols_of_bytes(rel: &[u8], src: &[u8]) -> FileExtract {
@@ -1042,11 +1059,8 @@ fn phase2(
                 |buf, &i| {
                     let w = &walked[i as usize];
                     let rec = ft.files[i as usize].stamp();
-                    let size = ft.files[i as usize].size;
-                    (
-                        i,
-                        budget.run(size, || extract_symbols(&tree, &w.rel, &rec, buf)),
-                    )
+                    let ex = extract_symbols_within(&tree, &w.rel, &rec, buf, Some(&budget));
+                    (i, ex)
                 },
             )
             .collect()

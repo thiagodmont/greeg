@@ -167,9 +167,11 @@ budget and never spill.
 cache), parses them with tree-sitter on all cores, extracts definitions,
 comment/string spans and imports, resolves the imports into graph edges, runs
 PageRank, and republishes the file table with ranks. A parse holds many times
-its file in syntax tree, so files of 256 KiB and more share a budget of 4 MiB
-of source parsed at once (a 4 MiB file parses alone); a parse stopped by its
-budget releases its partial tree at once. The extracts of every file are still
+its file in syntax tree, so the eligible files of 256 KiB to 4 MiB share a
+budget of 4 MiB of source parsed at once, charged by the bytes read for the
+parse (a 4 MiB file parses alone). That budget only delays a parse's start.
+A parse stopped by its own limit (tree-sitter progress reports and wall time,
+`PARSE_BUDGET` and `PARSE_WALL_LIMIT`) releases its partial tree at once. The extracts of every file are still
 held until the imports resolve, so phase 2 grows with the repository's symbols.
 
 Between the two phases, queries already prune candidates with the grams, and
