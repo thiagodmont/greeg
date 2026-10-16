@@ -2,8 +2,9 @@
 
 Measures whether a coding agent does better with greeg than with ripgrep on
 real tasks. It is run by hand: it spends API credits and needs a Claude Code
-login, so it is not part of CI. Tasks live in `tasks.toml`, ten across tokio,
-django, ktor, TypeScript 5.9 and kotlinx.coroutines, each with a mechanical
+login, so it is not part of CI. Tasks live in `tasks.toml`, twenty across tokio,
+django, ktor, TypeScript 5.9 and kotlinx.coroutines (ten single lookups, ten
+that take several hops, five of those held out), each with a mechanical
 check on the agent's final answer: every item the prompt asks for, with its
 file:line. A check must pass the task's verified `answer`, and fail it without
 its line numbers and each `incomplete` answer.
@@ -80,9 +81,18 @@ redirect to a file, `find -exec` or `-delete`, `sed -i`, `sort -o`, `rm`, …),
 or a hook response could belong to more than one call.
 
 `analyze.py` lists the invalid runs and leaves them out, along with the runs
-of the other arms they pair with, so every column averages the same pairs. It then prints each task's successes, cost and turns per arm, and the
-mean paired difference of each metric for arms B and C against A with a 95 %
-bootstrap interval (10,000 resamples). Pairs are matched on (task, run number).
+of the other arms they pair with, so every column averages the same pairs. It
+then prints each task's successes, cost and turns per arm, each arm's success
+rate with a 95 % Wilson interval, and the mean paired difference of each metric
+for arms B and C against A with two 95 % bootstrap intervals (10,000
+resamples): over pairs, and over tasks. Pairs are matched on (task, run
+number). The task interval draws whole tasks, so the repeats of one task do not
+count as independent evidence; with few tasks it is rough too. Read a
+difference as shown only when both intervals exclude zero.
+
+Tasks with `held_out = true` are reported in their own section. greeg's
+output and the hook's rules are not tuned on them, so a decision rests on
+them; the development tasks are the ones to look at when changing greeg.
 
 What decides: arm B vs A on success rate and search calls answers "does the
 model use it and does it help"; arm C vs B answers whether the model needs to
