@@ -1,0 +1,23 @@
+bench/qualify.py
+  s_eefb2647553a67::t_720baf09c3a787 66-71
+.github/workflows/release.yml
+  s_eefb2647553a67::t_720baf09c3a787 46-48
+bench/test_qualify.py
+  s_eefb2647553a67::t_e44e47732bc91e 2,4,54-62
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "7f1331c3e03c74fcd88302621be9820fe381e8d0",
+  "prompts": {},
+  "sessions": {
+    "s_eefb2647553a67": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9fff36d3-3b5f-4343-be78-7893a6fe3965",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
