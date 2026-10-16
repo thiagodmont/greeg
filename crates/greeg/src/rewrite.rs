@@ -892,6 +892,47 @@ pub(crate) fn trim_blanks(seg: &str) -> (usize, &str) {
     (lead, &seg[lead..end])
 }
 
+/// `seg` split before its trailing redirections that leave its output alone:
+/// stderr to `/dev/null` or stdout (`2>/dev/null`, `2>&1`) and stdin from
+/// `/dev/null`. The redirections are kept as they are.
+fn split_redirections(seg: &str) -> (&str, &str) {
+    const KEPT: [&str; 7] = [
+        "2>/dev/null",
+        "2> /dev/null",
+        "2>>/dev/null",
+        "2>> /dev/null",
+        "2>&1",
+        "</dev/null",
+        "< /dev/null",
+    ];
+    let mut end = seg.len();
+    'strip: loop {
+        let rest = trim_blanks(&seg[..end]).1;
+        for r in KEPT {
+            let Some(before) = rest.strip_suffix(r) else {
+                continue;
+            };
+            let b = before.as_bytes();
+            let escaped =
+                |n: usize| b[..n].iter().rev().take_while(|&&c| c == b'\\').count() % 2 == 1;
+            let redirects = if r.starts_with('<') {
+                // `a</dev/null` redirects too, unless the `<` is escaped
+                !escaped(b.len())
+            } else {
+                // the `2` starts a word: after an unescaped blank
+                b.last().is_some_and(|c| matches!(c, b' ' | b'\t')) && !escaped(b.len() - 1)
+            };
+            if redirects {
+                end = before.len();
+                continue 'strip;
+            }
+        }
+        break;
+    }
+    let search = trim_blanks(&seg[..end]).1;
+    (search, &seg[search.len()..])
+}
+
 /// A command that can change what a later command in its line sees: the
 /// environment (`RIPGREP_CONFIG_PATH`, for one), aliases or shell options.
 fn changes_environment(seg: &str) -> bool {
@@ -968,14 +1009,30 @@ pub fn rewrite_full(cmd: &str) -> Result<Rewrite, String> {
         if body.is_empty() && seg.stages.len() == 1 {
             continue;
         }
+        let (search, redirections) = split_redirections(body);
         let rewritten = match &seg.stages[..] {
-            [_] => rewrite_words(body),
-            [_, then] if is_head(&cmd[then.clone()]) => rewrite_words(body).map(|mut p| {
+            [_] => rewrite_words(search),
+            [_, then] if is_head(&cmd[then.clone()]) => rewrite_words(search).map(|mut p| {
                 p.piped = true;
                 p
             }),
             _ => Err("pipeline (only `| head [-n N]` is kept)".into()),
         }
+        .and_then(|p| {
+            let quiet = [
+                "2>/dev/null",
+                "2> /dev/null",
+                "2>>/dev/null",
+                "2>> /dev/null",
+            ];
+            if p.original[0] != "rg" && quiet.iter().any(|r| redirections.contains(r)) {
+                return Err(
+                    "`2>/dev/null` would hide that greeg skips ignored, hidden and binary files"
+                        .into(),
+                );
+            }
+            Ok(p)
+        })
         // a `cd` before it may change the directory its glob would match in
         .and_then(|p| match why {
             Some(_) if p.unquoted_glob => {
@@ -989,7 +1046,7 @@ pub fn rewrite_full(cmd: &str) -> Result<Rewrite, String> {
                 let from = seg.stages[0].start + lead;
                 command.push_str(&cmd[at..from]);
                 command.push_str(&p.command);
-                at = from + body.len();
+                at = from + search.len();
                 parts.push(p);
             }
             // left as it is; a search's reason says more than another's

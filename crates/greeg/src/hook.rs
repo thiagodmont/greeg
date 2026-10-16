@@ -82,9 +82,12 @@ const CLAUDE_HOOK_NOTES: &str = "## Hook notes
 
 The installed PreToolUse hook (`greeg hook run`) rewrites `rg` and `grep -r`
 Bash calls into `greeg --matching exact`, also each one in a `;`/`&&`/`||`
-list or piped into `head -N` (head then shows greeg's best lines). A
-rewritten `grep -r` skips ignored, hidden and binary files, as rg does, and
-says so on stderr (`-uu` searches ignored and hidden files). Other greps,
+list or piped into `head -N` (head then shows greeg's best lines). Trailing
+redirections of stderr to `/dev/null` or stdout (`2>/dev/null`, `2>&1`, also
+`2>>` and with a space) and of stdin from `/dev/null` are kept. A rewritten
+`grep -r` skips ignored, hidden and binary files, as rg does, and says so on
+stderr (`-uu` searches ignored and hidden files), so one whose stderr goes to
+`/dev/null` runs unchanged. Other greps,
 JSON, other pipes, subshells, comments, expansions and explicit executable
 paths stay unchanged. PreToolUse hooks run in parallel and the last `updatedInput`
 wins, so another Bash rewriter (for example RTK) can override or be overridden by
@@ -98,9 +101,12 @@ const CODEX_HOOK_NOTES: &str = "## Hook notes
 The installed PreToolUse hook (`greeg hook run --agent codex`) rewrites `rg`
 and `grep -r` shell calls into `greeg --matching exact`, also one piped into
 `head -N` (head then shows greeg's best lines) and a `;`/`&&`/`||` list of
-them only (a list with any other command stays unchanged). A rewritten
+them only (a list with any other command stays unchanged). Trailing
+redirections of stderr to `/dev/null` or stdout (`2>/dev/null`, `2>&1`, also
+`2>>` and with a space) and of stdin from `/dev/null` are kept. A rewritten
 `grep -r` skips ignored, hidden and binary files, as rg does, and says so on
-stderr (`-uu` searches ignored and hidden files). Other greps, JSON, other
+stderr (`-uu` searches ignored and hidden files), so one whose stderr goes to
+`/dev/null` runs unchanged. Other greps, JSON, other
 pipes, subshells, comments, expansions and explicit executable paths
 stay unchanged. PreToolUse hooks run in parallel and the
 rewrite from the hook that finishes last wins, so another shell rewriter (for
@@ -889,7 +895,8 @@ mod tests {
                 format!("echo $HOME;  {g} needle  "),
             ),
             ("rg 'a;b' || echo none", format!("{g} 'a;b' || echo none")),
-            ("rg x 2>&1; rg y", format!("rg x 2>&1; {g} y")),
+            ("rg x 2>&1; rg y", format!("{g} x 2>&1; {g} y")),
+            ("rg x 2>err; rg y", format!("rg x 2>err; {g} y")),
             ("rg a | sort; rg b", format!("rg a | sort; {g} b")),
         ] {
             let r = rewrite_full(cmd).unwrap_or_else(|e| panic!("{cmd:?}: {e}"));
@@ -906,7 +913,7 @@ mod tests {
             ("rg a # c; rg b", "shell comment"),
             ("rg a; cat <<EOF", "here-document"),
             ("rg a; echo 'open", "unterminated quote"),
-            ("rg x 2>/dev/null; echo done", "redirection"),
+            ("rg x 2>err; echo done", "redirection"),
             ("rg a; echo $'it\\'s'; rg b", "ANSI-C or locale quoting"),
             ("rg a; echo $\"x\"", "ANSI-C or locale quoting"),
             ("[[ -d src && -f x ]] && rg a", "conditional expression"),
@@ -986,6 +993,55 @@ mod tests {
         // a pipeline into another reader is left as it is
         let r = rewrite_full("rg a | sort; rg b").unwrap();
         assert!(!r.whole && r.parts.len() == 1);
+    }
+
+    #[test]
+    fn redirections_that_leave_the_output_alone_are_kept() {
+        let g = "greeg --matching exact --max-filesize 18446744073709551615";
+        for kept in [
+            "2>/dev/null",
+            "2> /dev/null",
+            "2>>/dev/null",
+            "2>> /dev/null",
+            "2>&1",
+            "</dev/null",
+            "< /dev/null",
+            "2>&1 </dev/null",
+            "2>&1  ",
+        ] {
+            same(&format!("rg a {kept}"), &format!("{g} a {kept}"));
+        }
+        // stdin's `<` needs no blank before it
+        same("rg a</dev/null", &format!("{g} a</dev/null"));
+        same("rg a 2>&1</dev/null", &format!("{g} a 2>&1</dev/null"));
+        same("rg a\\</dev/null", &format!("{g} 'a</dev/null'"));
+        same("rg a 2>&1 | head -3", &format!("{g} a 2>&1 | head -3"));
+        same("rg a\\  2>&1", &format!("{g} 'a ' 2>&1"));
+        same(
+            "rg a 2>/dev/null; rg b\t2>&1",
+            &format!("{g} a 2>/dev/null; {g} b\t2>&1"),
+        );
+        let r = rewrite_full("grep -rn a . 2>&1 | head").unwrap();
+        assert!(r.command.ends_with(" a . 2>&1 | head"), "{}", r.command);
+        for (cmd, why) in [
+            ("rg a >/dev/null", "redirection"),
+            ("rg a > out.txt", "redirection"),
+            ("rg a 2>err.txt", "redirection"),
+            ("rg a 2>&1 >/dev/null", "redirection"),
+            ("rg a &>/dev/null", "background job"),
+            ("rg 2>/dev/null a", "redirection"),
+            ("rg a\\ 2>&1", "redirection"),
+            ("rg a 12>&1", "redirection"),
+            ("rg a2>&1", "redirection"),
+            ("rg 'a'2>/dev/null", "redirection"),
+            ("2>&1", "redirection"),
+            ("grep -rn a . 2>/dev/null", "hide that greeg skips"),
+            ("grep -rl a . 2> /dev/null | head", "hide that greeg skips"),
+            ("grep -rl a . 2>> /dev/null", "hide that greeg skips"),
+        ] {
+            let got = rewrite_full(cmd).err().unwrap_or_default();
+            assert!(got.contains(why), "{cmd:?}: {got:?}");
+        }
     }
 
     #[test]
@@ -1172,7 +1228,7 @@ mod tests {
             "xargs rg foo",
             "sudo rg foo",
             "nice rg foo",
-            "rg foo 2>/dev/null",
+            "rg foo 2>err.txt",
             "rg foo > out.txt",
             "rg foo >> out.txt",
             "rg foo < in.txt",

@@ -1,0 +1,1 @@
+rg -n a 2>/dev/null | head -5; grep -rl b . 2>&1 </dev/null

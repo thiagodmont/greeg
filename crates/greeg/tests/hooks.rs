@@ -299,6 +299,48 @@ fn head_shows_the_first_lines_of_a_rewritten_search_and_nothing_else() {
     assert!(!f.0.join("stats/events.jsonl").exists());
 }
 
+#[test]
+fn kept_redirections_reach_the_rewritten_search() {
+    let f = Fixture::new();
+    let bin = f.0.join("bin");
+    fs::create_dir_all(&bin).unwrap();
+    std::os::unix::fs::symlink(BIN, bin.join("greeg")).unwrap();
+    let path = format!("{}:/usr/bin:/bin", bin.display());
+    let run = |command: &str| {
+        let rewritten = f.rewrite("claude", command);
+        assert!(rewritten.starts_with("greeg "), "{command}: {rewritten}");
+        let out = f
+            .command("/bin/sh")
+            .args(["-c", &rewritten])
+            .env("PATH", &path)
+            .output()
+            .unwrap();
+        let text = |b: &[u8]| String::from_utf8_lossy(b).into_owned();
+        (out.status.code(), text(&out.stdout), text(&out.stderr))
+    };
+    // the note grep's rewrite prints on stderr comes first on stdout
+    let (code, stdout, stderr) = run("grep -rl needle . 2>&1 | head -5");
+    assert_eq!(code, Some(0));
+    assert!(stderr.is_empty(), "{stderr}");
+    let lines: Vec<_> = stdout.lines().collect();
+    assert!(
+        lines[0].starts_with("greeg: grep -r ran as greeg"),
+        "{stdout}"
+    );
+    assert!(
+        lines.contains(&"./file.rs") || lines.contains(&"file.rs"),
+        "{stdout}"
+    );
+    // greeg's -l footer goes to stderr, which the agent asked to drop
+    let (code, stdout, stderr) = run("rg -l needle 2>/dev/null </dev/null");
+    assert_eq!(
+        (code, stdout.as_str(), stderr.as_str()),
+        (Some(0), "file.rs\n", "")
+    );
+    let (code, stdout, _) = run("rg -l missing 2>/dev/null || echo none");
+    assert_eq!((code, stdout.as_str()), (Some(0), "none\n"));
+}
+
 /// On a tree with no ignored or hidden files, a rewritten `grep -r` finds the
 /// lines grep finds.
 #[test]
