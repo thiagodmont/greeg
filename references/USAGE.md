@@ -225,10 +225,13 @@ preserves ripgrep's requested limit (unlimited by default), so files over 4 MiB
 are not silently omitted. A recursive `grep -r` is rewritten too: its pattern
 is translated from grep's syntax, and ignore rules apply as in rg (greeg says
 so on stderr; `-uu` searches ignored and hidden files). It leaves other grep
-forms, JSON/stats output, explicit executable paths, pipelines, subshells,
-comments, redirections and shell expansions with the original tool. In a
-`;`/`&&`/`||` list, each eligible `rg` command is rewritten on its own. An inherited
-`RIPGREP_CONFIG_PATH` also disables rewriting. `greeg hook explain 'rg -l foo src'`
+forms, JSON/stats output, explicit executable paths, pipelines, subshells and
+groups, comments, redirections, command substitutions and other shell
+expansions with the original tool. In a list joined by `;`, `&&`, `||` or
+newlines, each eligible search is rewritten on its own; a list with a command
+that can change the environment (an assignment, `export`, `source`, `alias`,
+`set`, …) is left alone. An inherited `RIPGREP_CONFIG_PATH` also disables
+rewriting. `greeg hook explain 'rg -l foo src'`
 shows the rewrite, or why a command is left alone. See the
 [hook capability matrix](ARCHITECTURE.md#agent-hook-contract) for the
 supported subset and validation limits.

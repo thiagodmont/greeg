@@ -115,7 +115,7 @@ pipelines, redirections, grep without `-r`, …) run with the original tool;
 Any other agent can call `greeg` directly: it prints to stdout and exits `0` on
 exact hits, `1` when there are none (it may still print relaxed, discovery-only
 results), `2` on error. When the reader of its output leaves (`| head`), it ends
-quietly by SIGPIPE, as grep does.
+quietly by SIGPIPE, as grep does (shell status 141).
 
 ## Use it
 
