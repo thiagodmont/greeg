@@ -48,7 +48,8 @@ jobs:
           mkdir -p "$HOME/.local/bin"
           mv "ripgrep-15.2.0-$t/rg" "$HOME/.local/bin/rg"
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-          "$HOME/.local/bin/rg" --version | head -1 | grep -qx "ripgrep 15.2.0"
+          # release builds say `ripgrep 15.2.0 (rev …)`
+          "$HOME/.local/bin/rg" --version | head -1 | grep -qE '^ripgrep 15\.2\.0( |$)'
       - run: cargo test --workspace --locked
         env:
           GREEG_TEST_RG: "1"
