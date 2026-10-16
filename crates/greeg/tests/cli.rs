@@ -901,8 +901,50 @@ fn stdin_does_not_silently_accept_discovery() {
 #[cfg(unix)]
 #[test]
 fn output_failure_overrides_an_exact_match() {
+    use std::process::Stdio;
+
+    let f = fixture();
+    let mut c = greeg();
+    c.args(["--no-session", "--no-index", "-l", "load_config", "."])
+        .current_dir(&f.root)
+        .env("GREEG_STATS", "0")
+        .stderr(Stdio::piped());
+    stdout_fails_to_write(&mut c, &f.base.join("out"));
+    let output = c.output().unwrap();
+    assert_eq!(output.status.code(), Some(2), "{output:?}");
+    assert!(!output.stderr.is_empty());
+}
+
+/// Writes to stdout fail past its first byte (EFBIG): stdout is a regular
+/// file and the run may write files of one byte at most.
+#[cfg(unix)]
+fn stdout_fails_to_write(c: &mut Command, file: &Path) {
+    use std::os::unix::process::CommandExt;
+    c.stdout(fs::File::create(file).unwrap());
+    // SAFETY: only async-signal-safe calls between fork and exec
+    unsafe {
+        c.pre_exec(|| {
+            libc::signal(libc::SIGXFSZ, libc::SIG_IGN);
+            let one = libc::rlimit {
+                rlim_cur: 1,
+                rlim_max: libc::RLIM_INFINITY,
+            };
+            if libc::setrlimit(libc::RLIMIT_FSIZE, &one) != 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+}
+
+/// `greeg … | head`: the reader leaving ends the run as it ends grep, by
+/// SIGPIPE and without a message; not a success, since nothing was delivered.
+#[cfg(unix)]
+#[test]
+fn a_closed_reader_ends_the_run_quietly() {
     use std::os::fd::OwnedFd;
     use std::os::unix::net::UnixStream;
+    use std::os::unix::process::ExitStatusExt;
     use std::process::Stdio;
 
     let f = fixture();
@@ -919,8 +961,8 @@ fn output_failure_overrides_an_exact_match() {
         .stderr(Stdio::piped())
         .output()
         .unwrap();
-    assert_eq!(output.status.code(), Some(2));
-    assert!(!output.stderr.is_empty());
+    assert_eq!(output.status.signal(), Some(libc::SIGPIPE), "{output:?}");
+    assert!(output.stderr.is_empty(), "{output:?}");
 }
 
 // ---------------------------------------------------------------------------

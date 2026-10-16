@@ -113,7 +113,8 @@ tool; `greeg hook explain 'rg -l foo src'` shows what it would do.
 
 Any other agent can call `greeg` directly: it prints to stdout and exits `0` on
 exact hits, `1` when there are none (it may still print relaxed, discovery-only
-results), `2` on error.
+results), `2` on error. When the reader of its output leaves (`| head`), it ends
+quietly by SIGPIPE, as grep does (shell status 141).
 
 ## Use it
 

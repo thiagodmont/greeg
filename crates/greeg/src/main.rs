@@ -818,9 +818,31 @@ fn main() {
     let r = main_inner();
     greeg_query::indexed::flush_pending_build();
     if let Err(e) = r {
+        if reader_left(&e) {
+            die_of_sigpipe();
+        }
         eprintln!("greeg: {e:#}");
         std::process::exit(2);
     }
+}
+
+/// Stdout's reader went away (`greeg … | head`).
+fn reader_left(e: &anyhow::Error) -> bool {
+    e.chain().any(|c| {
+        c.downcast_ref::<std::io::Error>()
+            .is_some_and(|io| io.kind() == std::io::ErrorKind::BrokenPipe)
+    })
+}
+
+/// End as grep does when its reader leaves: killed by SIGPIPE, without a
+/// message. The answer was not delivered, so the status is not a success.
+fn die_of_sigpipe() -> ! {
+    // SAFETY: restores the default action, then raises it on this thread
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+        libc::raise(libc::SIGPIPE);
+    }
+    std::process::exit(2)
 }
 
 fn main_inner() -> Result<()> {
