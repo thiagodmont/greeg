@@ -29,11 +29,12 @@ fuzz_target!(|data: &[u8]| {
     };
     let (before, after) = (stages(cmd), stages(&rw.command));
     assert_eq!(before.len(), after.len(), "{cmd:?}");
+    // put each original command back in place of its rewrite: the line again
     let mut parts = rw.parts.iter();
     let mut rebuilt = String::new();
     let mut at = 0;
     for (b, a) in before.into_iter().zip(after) {
-        let (_, b_body) = rewrite::trim_blanks(&cmd[b.clone()]);
+        let (_, b_body) = rewrite::trim_blanks(&cmd[b]);
         let (a_lead, a_body) = rewrite::trim_blanks(&rw.command[a.clone()]);
         if a_body != b_body {
             let p = parts.next().expect("a changed command is a part");

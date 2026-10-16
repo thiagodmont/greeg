@@ -1228,7 +1228,7 @@ fn run() -> Result<()> {
     // before the answer: a `| head` may end the run before its end
     if c.from_grep && !c._no_messages {
         eprintln!(
-            "greeg: grep -r ran as greeg: ignored and hidden files are skipped, as rg skips them (-uu searches them)"
+            "greeg: grep -r ran as greeg: ignored, hidden and binary files are skipped, as rg skips them (-uu searches ignored and hidden ones)"
         );
     }
     let fmt = Fmt {
