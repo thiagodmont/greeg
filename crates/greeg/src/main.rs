@@ -3300,8 +3300,8 @@ mod tests {
             ("rg --type-not=-x bar", &[], &["-x"]),
         ] {
             let r = rewrite::rewrite_full(cmd).unwrap();
-            let cli = Cli::try_parse_from(&r.rewritten)
-                .unwrap_or_else(|e| panic!("{cmd}: {:?}: {e}", r.rewritten));
+            let cli = Cli::try_parse_from(&r.parts[0].rewritten)
+                .unwrap_or_else(|e| panic!("{cmd}: {:?}: {e}", r.parts[0].rewritten));
             assert_eq!(cli.common.globs, globs, "{cmd}");
             assert_eq!(cli.common.types_not, types_not, "{cmd}");
             assert_eq!(cli.pattern.as_deref(), Some("bar"), "{cmd}");

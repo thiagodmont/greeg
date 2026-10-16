@@ -141,9 +141,9 @@ fn declined_commands_emit_no_reply_or_stats() {
             "rg needle\\\n file.rs",
             "rg -g*.rs needle",
             "rg needle | head",
-            "rg needle && touch sentinel",
-            "rg needle; touch sentinel",
-            "cd . && rg needle",
+            "rg needle & touch sentinel",
+            "rg needle; echo $(touch sentinel)",
+            "(cd . && rg needle)",
             "rg --pre cat needle",
             "rg --ignore-case=false needle",
         ] {
@@ -181,10 +181,7 @@ fn explain_reports_the_rewrite_or_the_decline_reason() {
     );
     assert_eq!(
         explain("rg needle | head", false),
-        (
-            Some(1),
-            "declined: pipeline, list or background job\n".into()
-        )
+        (Some(1), "declined: pipeline\n".into())
     );
     let (code, out) = explain("rg needle", true);
     assert_eq!(code, Some(1));
@@ -226,6 +223,38 @@ fn rewritten_queries_keep_exact_hits_and_misses_on_both_backends() {
         assert_eq!(v["original"][0], "rg");
         assert_eq!(v["rewritten"][1], "--matching");
         assert_eq!(v["rewritten"][2], "exact");
+    }
+}
+
+#[test]
+fn rewritten_lists_keep_their_control_flow() {
+    let f = Fixture::new();
+    let bin = f.0.join("bin");
+    fs::create_dir_all(&bin).unwrap();
+    std::os::unix::fs::symlink(BIN, bin.join("greeg")).unwrap();
+    let path = format!("{}:/usr/bin:/bin", bin.display());
+    for (command, expected) in [
+        (
+            "rg -l needle && echo found || echo none",
+            "file.rs\nfound\n",
+        ),
+        ("rg -l missing && echo found || echo none", "none\n"),
+        ("rg -c needle; rg -c missing; echo $?", "file.rs:1\n1\n"),
+        ("cd .. && cd tree && rg -l needle", "file.rs\n"),
+    ] {
+        let rewritten = f.rewrite("claude", command);
+        assert!(!rewritten.contains("rg -"), "{command}: {rewritten}");
+        let out = f
+            .command("/bin/sh")
+            .args(["-c", &rewritten])
+            .env("PATH", &path)
+            .output()
+            .unwrap();
+        assert_eq!(
+            String::from_utf8_lossy(&out.stdout),
+            expected,
+            "{command}: {out:?}"
+        );
     }
 }
 

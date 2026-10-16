@@ -371,25 +371,145 @@ fn rewrite_words(seg: &str) -> Result<(Vec<String>, Vec<String>), String> {
     Ok((words, out))
 }
 
-/// A rewritten Bash command and what changed in it (for the stats records).
-pub struct Rewrite {
-    pub command: String,
-    pub original: Vec<String>,
-    pub rewritten: Vec<String>,
+/// A command line split at its top-level `;`, `&&`, `||` and newlines: each
+/// segment's byte range. `Err` names shell syntax this does not model, so a
+/// split could be wrong: pipes, background jobs, subshells and groups,
+/// substitutions, here-documents, comments and line continuations.
+pub(crate) fn list_segments(s: &str) -> Result<Vec<std::ops::Range<usize>>, &'static str> {
+    let b = s.as_bytes();
+    let mut out = Vec::new();
+    let mut start = 0;
+    let (mut single, mut double, mut escaped) = (false, false, false);
+    let mut i = 0;
+    while i < b.len() {
+        let c = b[i];
+        let next = b.get(i + 1).copied();
+        if single {
+            single = c != b'\'';
+        } else if escaped {
+            if c == b'\n' {
+                return Err("line continuation");
+            }
+            escaped = false;
+        } else if c == b'\\' {
+            escaped = true;
+        } else if double {
+            match c {
+                b'"' => double = false,
+                b'`' => return Err("command substitution"),
+                b'$' if next == Some(b'(') => return Err("command substitution"),
+                _ => {}
+            }
+        } else {
+            let word_start = i == start || b[i - 1].is_ascii_whitespace();
+            let mut sep = 0;
+            match c {
+                b'\'' => single = true,
+                b'"' => double = true,
+                b'`' => return Err("command substitution"),
+                b'$' if matches!(next, Some(b'(' | b'{')) => return Err("command substitution"),
+                b'(' | b')' | b'{' | b'}' => return Err("subshell, group or brace expansion"),
+                b'<' if next == Some(b'<') => return Err("here-document"),
+                b'#' if word_start => return Err("shell comment"),
+                b';' if next == Some(b';') => return Err("case syntax"),
+                b';' | b'\n' => sep = 1,
+                b'&' if next == Some(b'&') => sep = 2,
+                b'|' if next == Some(b'|') => sep = 2,
+                b'|' => return Err("pipeline"),
+                // `2>&1`, `>&2` and `&>` redirect; any other `&` is a background job
+                b'&' if next == Some(b'>') || (i > 0 && matches!(b[i - 1], b'>' | b'<')) => {}
+                b'&' => return Err("background job"),
+                _ => {}
+            }
+            if sep > 0 {
+                out.push(start..i);
+                i += sep;
+                start = i;
+                continue;
+            }
+        }
+        i += 1;
+    }
+    if single || double || escaped {
+        return Err("unterminated quote or escape");
+    }
+    out.push(start..b.len());
+    Ok(out)
 }
 
-/// Only complete simple commands qualify; a shell tail may consume another
-/// output dialect or change permission and exit-status behavior.
-pub fn rewrite_full(cmd: &str) -> Result<Rewrite, String> {
-    let (original, rewritten) = rewrite_words(cmd)?;
+/// One rewritten command of a Bash command line: its words before and after
+/// (for the stats records).
+pub struct Part {
+    pub original: Vec<String>,
+    pub rewritten: Vec<String>,
+    /// The rewritten command as it appears in the line.
+    pub command: String,
+}
+
+/// A rewritten Bash command line.
+pub struct Rewrite {
+    pub command: String,
+    pub parts: Vec<Part>,
+}
+
+fn part(seg: &str) -> Result<Part, String> {
+    let (original, rewritten) = rewrite_words(seg)?;
     let command = rewritten
         .iter()
         .map(|w| quote(w))
         .collect::<Vec<_>>()
         .join(" ");
-    Ok(Rewrite {
-        command,
+    Ok(Part {
         original,
         rewritten,
+        command,
     })
+}
+
+/// A simple rg command, or each rg command of a `;`/`&&`/`||` list, becomes
+/// greeg; every other byte of the line is kept. Exit statuses agree (0 found,
+/// 1 not, 2 error), so the list's control flow is unchanged. Pipelines and
+/// other compound syntax are declined: a consumer may expect rg's output.
+pub fn rewrite_full(cmd: &str) -> Result<Rewrite, String> {
+    let segments = list_segments(cmd)?;
+    let blank = |r: &std::ops::Range<usize>| cmd[r.clone()].trim().is_empty();
+    if segments.iter().filter(|r| !blank(r)).count() <= 1 {
+        let p = part(cmd)?;
+        return Ok(Rewrite {
+            command: p.command.clone(),
+            parts: vec![p],
+        });
+    }
+    let mut command = String::with_capacity(cmd.len() + 64);
+    let mut parts = Vec::new();
+    let mut why = None;
+    let mut at = 0;
+    for r in segments {
+        let seg = &cmd[r.clone()];
+        let lead = seg.len() - seg.trim_start().len();
+        let body = seg.trim();
+        if body.is_empty() {
+            continue;
+        }
+        match part(body) {
+            Ok(p) => {
+                command.push_str(&cmd[at..r.start + lead]);
+                command.push_str(&p.command);
+                at = r.start + lead + body.len();
+                parts.push(p);
+            }
+            // left as it is; an rg command's reason says more than another's
+            Err(e) => {
+                let rg = shell_words(body).is_ok_and(|w| w.first().is_some_and(|f| f == "rg"));
+                if rg && !why.as_ref().is_some_and(|(was_rg, _)| *was_rg) || why.is_none() {
+                    why = Some((rg, e));
+                }
+            }
+        }
+    }
+    if parts.is_empty() {
+        return Err(why.map_or_else(|| "not an rg command".into(), |(_, e)| e));
+    }
+    command.push_str(&cmd[at..]);
+    Ok(Rewrite { command, parts })
 }

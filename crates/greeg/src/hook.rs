@@ -723,7 +723,9 @@ pub fn run(agent: Agent) -> Result<()> {
             .or_else(|| std::env::current_dir().ok())
             .unwrap_or_default();
         let session = v.get("session_id").and_then(|s| s.as_str());
-        crate::stats::record_hook(&cwd, session, &rw.original, &rw.rewritten);
+        for p in &rw.parts {
+            crate::stats::record_hook(&cwd, session, &p.original, &p.rewritten);
+        }
     }
     Ok(())
 }
@@ -741,9 +743,12 @@ mod tests {
             ("rg foo\\ \n", "foo "),
             ("rg foo\u{a0}\n", "foo\u{a0}"),
         ] {
-            assert_eq!(rewrite_full(command).unwrap().original, ["rg", pattern]);
+            assert_eq!(
+                rewrite_full(command).unwrap().parts[0].original,
+                ["rg", pattern]
+            );
         }
-        for command in ["rg foo\necho tail", "rg foo\\\n", "rg foo\\\n\n"] {
+        for command in ["rg foo\\\n", "rg foo\\\n\n"] {
             assert!(rewrite_full(command).is_err(), "{command:?}");
         }
     }
@@ -765,12 +770,7 @@ mod tests {
             "rg -g*.rs needle",
             "rg needle | head",
             "rg -l needle | xargs echo",
-            "rg needle && echo yes",
-            "rg needle || echo no",
-            "rg needle; echo done",
             "rg needle &",
-            "cd src && rg needle",
-            "rg needle\necho done",
             "rg -h needle",
             "rg --ignore-case=false needle",
             "rg --fixed-strings=no needle",
@@ -788,7 +788,9 @@ mod tests {
             ("git status", "not an rg command"),
             ("rg needle # comment", "shell comment"),
             ("rg needle | head", "pipeline"),
-            ("rg needle\necho done", "several commands"),
+            ("rg needle &", "background job"),
+            ("echo a; git status", "not an rg command"),
+            ("git status; rg --pre=x a", "unsupported flag `--pre`"),
             ("rg foo > out.txt", "redirection"),
             ("rg foo $DIR", "shell expansion"),
             ("rg foo src/*.rs", "unquoted glob"),
@@ -805,6 +807,44 @@ mod tests {
             ("rg", "no pattern"),
             ("rg foo -", "stdin search"),
             ("rg -uuu foo", "binary files"),
+        ] {
+            let got = rewrite_full(cmd).err().unwrap_or_default();
+            assert!(got.contains(why), "{cmd:?}: {got:?}");
+        }
+    }
+
+    #[test]
+    fn lists_rewrite_each_rg_command_and_keep_every_other_byte() {
+        let g = "greeg --matching exact --max-filesize 18446744073709551615";
+        for (cmd, want) in [
+            ("rg needle && echo yes", format!("{g} needle && echo yes")),
+            ("cd src && rg needle", format!("cd src && {g} needle")),
+            ("rg a; rg -l b src", format!("{g} a; {g} -l b src")),
+            ("rg needle\necho done", format!("{g} needle\necho done")),
+            ("rg --json a ; rg b", format!("rg --json a ; {g} b")),
+            (
+                "echo $HOME;  rg needle  ",
+                format!("echo $HOME;  {g} needle  "),
+            ),
+            ("rg 'a;b' || echo none", format!("{g} 'a;b' || echo none")),
+            ("rg x 2>&1; rg y", format!("rg x 2>&1; {g} y")),
+        ] {
+            let r = rewrite_full(cmd).unwrap_or_else(|e| panic!("{cmd:?}: {e}"));
+            assert_eq!(r.command, want, "{cmd:?}");
+            for p in &r.parts {
+                assert_eq!(shell_words(&p.command).unwrap(), p.rewritten, "{cmd:?}");
+            }
+        }
+        for (cmd, why) in [
+            ("rg a | head; rg b", "pipeline"),
+            ("rg a & rg b", "background job"),
+            ("(rg a); rg b", "subshell"),
+            ("rg a; echo $(date)", "command substitution"),
+            ("rg a; echo \"`date`\"", "command substitution"),
+            ("rg a # c; rg b", "shell comment"),
+            ("rg a; cat <<EOF", "here-document"),
+            ("rg a; echo 'open", "unterminated quote"),
+            ("rg x 2>/dev/null; echo done", "redirection"),
         ] {
             let got = rewrite_full(cmd).err().unwrap_or_default();
             assert!(got.contains(why), "{cmd:?}: {got:?}");
@@ -980,9 +1020,9 @@ mod tests {
             ("rg 'a'\\''b' src", "a'b"),
         ] {
             let r = rewrite_full(cmd).unwrap();
-            assert_eq!(r.original, ["rg", pattern, "src"]);
+            assert_eq!(r.parts[0].original, ["rg", pattern, "src"]);
             assert_eq!(
-                r.rewritten,
+                r.parts[0].rewritten,
                 [
                     "greeg",
                     "--matching",
@@ -993,7 +1033,7 @@ mod tests {
                     "src"
                 ]
             );
-            assert_eq!(shell_words(&r.command).unwrap(), r.rewritten);
+            assert_eq!(shell_words(&r.command).unwrap(), r.parts[0].rewritten);
         }
         same(
             "rg -g '*.rs' foo",

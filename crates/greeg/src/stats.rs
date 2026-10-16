@@ -2472,11 +2472,11 @@ fn admitted(h: &HookEvent) -> std::result::Result<(Vec<String>, Vec<String>), St
     if h.original.first().map(String::as_str) != Some("rg") {
         return Err("the recorded program is not rg".into());
     }
-    let rw = crate::rewrite::rewrite_full(&shell_join(&h.original))?;
-    if rw.original != h.original {
-        return Err("the recorded arguments do not round-trip".into());
+    let mut rw = crate::rewrite::rewrite_full(&shell_join(&h.original))?;
+    match rw.parts.pop() {
+        Some(p) if rw.parts.is_empty() && p.original == h.original => Ok((p.original, p.rewritten)),
+        _ => Err("the recorded arguments do not round-trip".into()),
     }
-    Ok((rw.original, rw.rewritten))
 }
 
 /// What a bounded child produced.

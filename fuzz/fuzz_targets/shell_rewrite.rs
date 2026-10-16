@@ -1,5 +1,6 @@
-//! A command the hook rewrites reads back as the words it was given: the
-//! rewritten command, split as a shell would, is the rewritten argv.
+//! A command the hook rewrites reads back as the words it was given: each
+//! rewritten command, split as a shell would, is its rewritten argv, and it
+//! appears in the rewritten line.
 #![no_main]
 
 #[allow(dead_code)]
@@ -13,10 +14,13 @@ fuzz_target!(|data: &[u8]| {
         return;
     };
     if let Ok(rw) = rewrite::rewrite_full(cmd) {
-        assert_eq!(
-            rewrite::shell_words(&rw.command).as_deref(),
-            Ok(&rw.rewritten[..]),
-            "{cmd:?}"
-        );
+        for p in &rw.parts {
+            assert_eq!(
+                rewrite::shell_words(&p.command).as_deref(),
+                Ok(&p.rewritten[..]),
+                "{cmd:?}"
+            );
+            assert!(rw.command.contains(&p.command), "{cmd:?}");
+        }
     }
 });
