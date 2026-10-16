@@ -5,6 +5,13 @@
 /// Split a simple command into words (quotes and backslashes honoured).
 /// `Err` names what the shell would expand or interpret that we do not model.
 pub(crate) fn shell_words(s: &str) -> Result<Vec<String>, &'static str> {
+    split_words(s).map(|(words, _)| words)
+}
+
+/// [`shell_words`], and whether a word is an unquoted glob after
+/// `--include=`, `--exclude=` or `--exclude-dir=`: the shell leaves it as it
+/// is unless a file in the working directory has a name it matches.
+fn split_words(s: &str) -> Result<(Vec<String>, bool), &'static str> {
     const UNTERMINATED: &str = "unterminated quote or escape";
     const CONTINUATION: &str = "line continuation";
     const EXPANSION: &str = "shell expansion";
@@ -14,6 +21,7 @@ pub(crate) fn shell_words(s: &str) -> Result<Vec<String>, &'static str> {
     let mut out = Vec::new();
     let mut cur = String::new();
     let mut in_word = false;
+    let mut glob = false;
     let mut chars = s.chars().peekable();
     while let Some(c) = chars.next() {
         match c {
@@ -76,6 +84,7 @@ pub(crate) fn shell_words(s: &str) -> Result<Vec<String>, &'static str> {
                     .iter()
                     .any(|f| cur.starts_with(f)) =>
             {
+                glob = true;
                 cur.push(c)
             }
             '*' | '?' | '[' => return Err("unquoted glob"),
@@ -90,7 +99,7 @@ pub(crate) fn shell_words(s: &str) -> Result<Vec<String>, &'static str> {
     if in_word {
         out.push(cur);
     }
-    Ok(out)
+    Ok((out, glob))
 }
 
 pub(crate) fn quote(w: &str) -> String {
@@ -325,7 +334,7 @@ fn other_program(first: &str) -> &'static str {
 /// Rewrite a simple rg or recursive grep command to argv: `(original words,
 /// greeg words)`; `Err` = leave it alone, and why.
 fn rewrite_words(seg: &str) -> Result<Part, String> {
-    let words = shell_words(seg)?;
+    let (words, unquoted_glob) = split_words(seg)?;
     let first = words.first().ok_or("empty command")?;
     let (rewritten, regex) = match first.as_str() {
         "rg" => (rewrite_rg(&words)?, None),
@@ -342,6 +351,7 @@ fn rewrite_words(seg: &str) -> Result<Part, String> {
         rewritten,
         command,
         after_other: false,
+        unquoted_glob,
         regex,
     })
 }
@@ -880,6 +890,9 @@ pub struct Part {
     /// Another command runs before it in the line (a `cd`, for one), so its
     /// stats record could not be replayed as it ran.
     pub after_other: bool,
+    /// An unquoted `--include=*.rs`-style word: the caller checks that no
+    /// file in the working directory is named so.
+    pub unquoted_glob: bool,
 }
 
 /// A rewritten Bash command line.
@@ -906,7 +919,14 @@ pub fn rewrite_full(cmd: &str) -> Result<Rewrite, String> {
         if body.is_empty() {
             continue;
         }
-        match rewrite_words(body) {
+        // a `cd` before it may change the directory its glob would match in
+        let rewritten = rewrite_words(body).and_then(|p| match why {
+            Some(_) if p.unquoted_glob => {
+                Err("an unquoted glob after another command, in a directory not known yet".into())
+            }
+            _ => Ok(p),
+        });
+        match rewritten {
             Ok(mut p) => {
                 p.after_other = why.is_some();
                 command.push_str(&cmd[at..r.start + lead]);

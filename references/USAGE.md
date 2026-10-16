@@ -222,16 +222,20 @@ operations; `--dry-run` previews both and writes neither.
 The hook preserves supported search arguments and requests exact matching; text
 results still use greeg's ranking and token budget. An explicit file-size flag
 preserves ripgrep's requested limit (unlimited by default), so files over 4 MiB
-are not silently omitted. A recursive `grep -r` is rewritten too: its pattern
-is translated from grep's syntax, and ignore rules apply as in rg (greeg says
-so on stderr; `-uu` searches ignored and hidden files). It leaves other grep
-forms, JSON/stats output, explicit executable paths, pipelines, subshells and
-groups, comments, redirections, command substitutions and other shell
-expansions with the original tool. In a list joined by `;`, `&&`, `||` or
-newlines, each eligible search is rewritten on its own; a list with a command
-that can change the environment (an assignment, `export`, `source`, `alias`,
-`set`, …) is left alone. An inherited `RIPGREP_CONFIG_PATH` also disables
-rewriting. `greeg hook explain 'rg -l foo src'`
+are not silently omitted. A recursive `grep -r` (or `egrep -r`, `fgrep -r`) is
+rewritten too: its pattern is translated from grep's syntax, and files are
+selected as rg selects them: ignored, hidden and binary files are skipped,
+where grep searches them (greeg says so on stderr; `-uu` searches ignored and
+hidden files). It leaves other grep forms, JSON/stats output, explicit
+executable paths, pipelines, subshells and groups, comments, redirections,
+command substitutions and other shell expansions with the original tool. In a
+list joined by `;`, `&&`, `||` or newlines, each eligible search is rewritten
+on its own; a list with a command that can change the environment (an
+assignment, `export`, `source`, `alias`, `set`, …) is left alone. For Codex,
+which runs a rewrite without asking, a list is rewritten only when every
+command in it is one the hook rewrites (`cd src && rg foo` runs unchanged). A
+nonempty inherited `RIPGREP_CONFIG_PATH` also disables rewriting.
+`greeg hook explain 'rg -l foo src'`
 shows the rewrite, or why a command is left alone. See the
 [hook capability matrix](ARCHITECTURE.md#agent-hook-contract) for the
 supported subset and validation limits.
