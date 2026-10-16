@@ -280,12 +280,17 @@ fn extract_raw(lang: Lang, tsx: bool, src: &[u8], depth: u8) -> Extract {
         }
         let t0 = Instant::now();
         let mut reports = 0u32;
-        parse_while(&mut p, src, || {
+        let tree = parse_while(&mut p, src, || {
             #[cfg(test)]
             tests::slow_down();
             reports += 1;
             reports <= PARSE_BUDGET && t0.elapsed() <= PARSE_WALL_LIMIT
-        })
+        });
+        if tree.is_none() {
+            // a stopped parse keeps its partial tree for a resume we never make
+            p.reset();
+        }
+        tree
     });
     let Some(tree) = tree else {
         return regex_extract(lang, src);

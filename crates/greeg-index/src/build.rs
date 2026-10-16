@@ -948,6 +948,18 @@ pub fn extract_symbols(
     recorded: &Stamp,
     buf: &mut Vec<u8>,
 ) -> (Option<FileExtract>, bool) {
+    extract_symbols_within(tree, rel, recorded, buf, None)
+}
+
+/// [`extract_symbols`], the parse charged to `budget` by the bytes it parses
+/// (read now and transcoded, not the size phase 1 recorded).
+fn extract_symbols_within(
+    tree: &Tree,
+    rel: &[u8],
+    recorded: &Stamp,
+    buf: &mut Vec<u8>,
+    budget: Option<&ParseBudget>,
+) -> (Option<FileExtract>, bool) {
     let Some(read) = read_file(tree, rel, recorded, buf) else {
         return (None, true);
     };
@@ -956,13 +968,65 @@ pub fn extract_symbols(
     if buf.len() as u64 > MAX_FILE || buf[..buf.len().min(8192)].contains(&0) {
         return (None, recheck);
     }
-    (Some(symbols_of_bytes(rel, buf)), recheck)
+    let parse = || symbols_of_bytes(rel, buf);
+    let ex = match budget {
+        Some(b) => b.run(buf.len() as u64, parse),
+        None => parse(),
+    };
+    (Some(ex), recheck)
 }
 
 fn symbols_of_bytes(rel: &[u8], src: &[u8]) -> FileExtract {
     let lang = Lang::from_path(crate::rel::as_path(rel));
     let ex = sym::extract(lang, sym::is_tsx(&crate::rel::display(rel)), src);
     FileExtract::from_extract(ex, src)
+}
+
+/// Source bytes parsed at once. A parse holds many times its file in syntax
+/// tree, so large files on every core would set the build's peak; one file
+/// of [`MAX_FILE`] parses alone.
+const PARSE_BYTES_IN_FLIGHT: u64 = MAX_FILE;
+/// Below this a file parses without asking: all cores' worth stays small.
+const PARSE_UNMETERED: u64 = 256 << 10;
+
+/// The share of a byte budget the parses running now hold.
+struct ParseBudget {
+    total: u64,
+    left: std::sync::Mutex<u64>,
+    freed: std::sync::Condvar,
+}
+
+impl ParseBudget {
+    fn new(total: u64) -> Self {
+        ParseBudget {
+            total,
+            left: std::sync::Mutex::new(total),
+            freed: std::sync::Condvar::new(),
+        }
+    }
+
+    /// Run `f` once `size` bytes of budget (at most all of it) are free.
+    fn run<T>(&self, size: u64, f: impl FnOnce() -> T) -> T {
+        if size < PARSE_UNMETERED {
+            return f();
+        }
+        struct Held<'a>(&'a ParseBudget, u64);
+        impl Drop for Held<'_> {
+            fn drop(&mut self) {
+                *self.0.left.lock().unwrap_or_else(|e| e.into_inner()) += self.1;
+                self.0.freed.notify_all();
+            }
+        }
+        let n = size.min(self.total);
+        let mut left = self.left.lock().unwrap_or_else(|e| e.into_inner());
+        while *left < n {
+            left = self.freed.wait(left).unwrap_or_else(|e| e.into_inner());
+        }
+        *left -= n;
+        drop(left);
+        let _held = Held(self, n);
+        f()
+    }
 }
 
 /// Phase 2 (ARCHITECTURE.md): parse every file with a grammar
@@ -986,6 +1050,7 @@ fn phase2(
         .filter(|&i| wants_symbols(&walked[i].rel, ft.files[i].flags))
         .map(|i| i as u32)
         .collect();
+    let budget = ParseBudget::new(PARSE_BYTES_IN_FLIGHT);
     let extracts: Vec<(u32, (Option<FileExtract>, bool))> = pool.install(|| {
         sym::warm();
         todo.par_iter()
@@ -994,11 +1059,14 @@ fn phase2(
                 |buf, &i| {
                     let w = &walked[i as usize];
                     let rec = ft.files[i as usize].stamp();
-                    (i, extract_symbols(&tree, &w.rel, &rec, buf))
+                    let ex = extract_symbols_within(&tree, &w.rel, &rec, buf, Some(&budget));
+                    (i, ex)
                 },
             )
             .collect()
     });
+    // its threads' parsers keep what their largest parse needed
+    drop(pool);
     let parse_ms = t0.elapsed().as_secs_f64() * 1e3;
     let mut by_file: Vec<Option<FileExtract>> = (0..ft.files.len()).map(|_| None).collect();
     let mut fallbacks = 0u32;
@@ -1507,6 +1575,47 @@ pub fn root_of(p: &Path) -> PathBuf {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn large_parses_share_the_byte_budget() {
+        use std::sync::atomic::{AtomicU64, Ordering::SeqCst};
+        let budget = super::ParseBudget::new(4 << 20);
+        let (held, most, alone) = (AtomicU64::new(0), AtomicU64::new(0), AtomicU64::new(0));
+        let sizes: Vec<u64> = (0..64u64)
+            .map(|i| [1 << 20, 3 << 20, 9 << 20, 4 << 10][i as usize % 4])
+            .collect();
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(8)
+            .build()
+            .unwrap();
+        pool.install(|| {
+            use rayon::prelude::*;
+            sizes.par_iter().for_each(|&size| {
+                let n = if size < super::PARSE_UNMETERED {
+                    0
+                } else {
+                    size.min(4 << 20)
+                };
+                budget.run(size, || {
+                    let now = held.fetch_add(n, SeqCst) + n;
+                    most.fetch_max(now, SeqCst);
+                    if size > 4 << 20 && now == n {
+                        alone.fetch_add(1, SeqCst);
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(2));
+                    held.fetch_sub(n, SeqCst);
+                });
+            });
+        });
+        assert!(
+            most.load(SeqCst) <= 4 << 20,
+            "{} bytes at once",
+            most.load(SeqCst)
+        );
+        // a file past the budget takes all of it
+        assert_eq!(alone.load(SeqCst), 16);
+        assert_eq!(held.load(SeqCst), 0);
+    }
+
     use super::*;
 
     /// A directory this test creates itself, never one left by another run.
