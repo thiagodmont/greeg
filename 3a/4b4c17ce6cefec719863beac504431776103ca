@@ -1,0 +1,39 @@
+references/STATS.md
+  s_eefb2647553a67::t_722ac9762ff2a4 23-25
+fuzz/fuzz_targets/shell_rewrite.rs
+  s_eefb2647553a67::t_722ac9762ff2a4 33,38
+crates/greeg/src/rewrite.rs
+  s_eefb2647553a67::t_d54b90d6f640d5 1023
+  s_eefb2647553a67::t_722ac9762ff2a4 8-14,24,87,102,337,355,974-976,1024-1029
+  s_eefb2647553a67::t_901f8882b5d261 1017-1020
+crates/greeg/src/main.rs
+  s_eefb2647553a67::t_722ac9762ff2a4 1231
+crates/greeg/src/hook.rs
+  s_eefb2647553a67::t_901f8882b5d261 85-86,101-102,1027-1028
+  s_eefb2647553a67::t_722ac9762ff2a4 10-12,83-84,87-90,99-100,103-107,685,701-705,717-732,737-738,766-773,1045-1065,1070-1073,1076-1086
+  s_eefb2647553a67::t_2616f0a6b2b78a 1044
+README.md
+  s_eefb2647553a67::t_722ac9762ff2a4 107-110
+references/USAGE.md
+  s_eefb2647553a67::t_722ac9762ff2a4 225-230,234-239,242-245
+  s_eefb2647553a67::t_d54b90d6f640d5 231-233,240-241
+references/ARCHITECTURE.md
+  s_eefb2647553a67::t_d54b90d6f640d5 333
+  s_eefb2647553a67::t_722ac9762ff2a4 325,335-336
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "3a4b4c17ce6cefec719863beac504431776103ca",
+  "prompts": {},
+  "sessions": {
+    "s_eefb2647553a67": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9fff36d3-3b5f-4343-be78-7893a6fe3965",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
