@@ -175,12 +175,18 @@ again (`--recheck`). The first checks rejected right answers that list files
 in a table (`` `actions.py` | 8 ``), cite `main.py:464` after naming
 `views/main.py`, or give bare lines after "all lines are in parser.ts". A
 citation may now separate the file and its line by a table cell or "line",
-and the single-file TypeScript task takes lines once the file is named. The
-one answer that still fails gives `safeDispatch` without its file:line.
+and the single-file TypeScript task takes lines once the file is named.
+Eight verdicts changed, all from fail to pass: the importers map 4 (two per
+arm), `get_queryset` 3 (A 2, B 1) and the TypeScript task 1 (B). Before the
+change, held out was A 8/8 and B 7/8, development A 3/8 and B 5/8. Every path
+the answers cite (176) exists in the pinned corpus. The one answer that still
+fails names `safeDispatch` without its file:line (`DispatchedContinuation.kt`
+:250–254), so the ordered path check fails too.
 
 - **Success:** held out 8/8 in both arms (Wilson 68–100 %). Development
   tasks: A 7/8, B 8/8. Every passing answer names the definition that runs
-  and each step after it; the failing one misses a step, not the definition.
+  and each step after it; the failing one names the right definition and
+  leaves out one step's file:line.
   The agents worked it out from the receiver's type, the class hierarchy or
   the method resolution order with `grep` and `Read`, in four to eleven turns.
 - **The hook:** it answered all 71 of B's search calls and rewrote 10 to
@@ -188,5 +194,7 @@ one answer that still fails gives `safeDispatch` without its file:line.
 - **Held out, search calls:** B made 2.0 fewer a run (3.9 → 1.9), interval
   −6.4…+0.4 over tasks. Cost, turns and output show no difference.
 
-These tasks give an ambiguity-aware `def` nothing to fix for this model:
-picking the definition a call site reaches is not where it fails.
+No wrong-definition failure was observed: none in the 24 ambiguous-name runs
+(a 95 % upper bound of about 14 %). Held out is at the ceiling in both arms,
+so these tasks cannot show a gain from an ambiguity-aware `def`; they show no
+headroom for one with this model.
