@@ -2,11 +2,13 @@
 
 Measures whether a coding agent does better with greeg than with ripgrep on
 real tasks. It is run by hand: it spends API credits and needs a Claude Code
-login, so it is not part of CI. Tasks live in `tasks.toml`, twenty across tokio,
-django, ktor, TypeScript 5.9 and kotlinx.coroutines (ten single lookups, ten
-that take several hops, five of those held out), each with a mechanical
-check on the agent's final answer: every item the prompt asks for, with its
-file:line. A check must pass the task's verified `answer`, and fail it without
+login, so it is not part of CI. Tasks live in `tasks.toml`, twenty-eight
+across tokio, django, ktor, TypeScript 5.9 and kotlinx.coroutines: ten single
+lookups, ten that take several hops (five held out), and eight that pick which
+of many same-named definitions a call site reaches or map the files around one
+anchor (four held out). Each has a mechanical check on the agent's final
+answer: every item the prompt asks for, with its file:line. An ambiguous-name
+task's `incomplete` answers include one that follows the wrong definition. A check must pass the task's verified `answer`, and fail it without
 its line numbers and each `incomplete` answer.
 
 ## Arms
