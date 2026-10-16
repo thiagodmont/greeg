@@ -129,6 +129,11 @@ output is incomplete (the index will be rebuilt)` and exits `2`. Otherwise
 you get a correct answer either way. Writers hold a lock and publish
 atomically; readers never lock.
 
+**When output can't be written**: an answer greeg could not deliver never
+exits `0`. A write error exits `2` with the reason on stderr. A reader that
+leaves (`greeg … | head`) ends the run by SIGPIPE without a message, as it
+ends grep.
+
 ## The index
 
 ```bash
