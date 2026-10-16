@@ -676,6 +676,16 @@ fn decide(cmd: &str, agent: Agent) -> Result<Rewrite, String> {
         return Err("RIPGREP_CONFIG_PATH is set (ripgrep configuration is not interpreted)".into());
     }
     let rw = rewrite_full(cmd)?;
+    if let Some(r) = rw
+        .parts
+        .iter()
+        .filter_map(|p| p.regex.as_deref())
+        .find(|r| !greeg_query::pattern_compiles(r))
+    {
+        return Err(format!(
+            "the grep pattern translates to `{r}`, which greeg's regex does not take"
+        ));
+    }
     // Codex runs an allowed rewrite without asking: it may hold only commands
     // the hook wrote
     if agent == Agent::Codex && !rw.whole {
@@ -765,7 +775,7 @@ mod tests {
     #[test]
     fn uncertain_commands_are_declined() {
         for cmd in [
-            "grep -rl needle .",
+            "grep -rc needle .",
             "grep needle src",
             "fgrep needle file.rs",
             "egrep needle file.rs",
@@ -791,14 +801,22 @@ mod tests {
     #[test]
     fn declined_commands_name_the_reason() {
         for (cmd, why) in [
-            ("grep -rl needle .", "grep traversal"),
+            ("grep needle src", "grep without -r"),
+            ("grep -rP 'a\\d' .", "unsupported grep flag `-P`"),
+            ("grep -r '\\(a\\)\\1' .", "back-reference"),
+            ("grep -R needle .", "follows symlinks"),
+            ("grep -rc needle .", "without a match"),
+            (
+                "grep -r --include='src/*.rs' needle .",
+                "no glob equivalent",
+            ),
             ("./rg needle", "explicit executable path"),
             ("FOO=1 rg foo", "environment assignment"),
-            ("git status", "not an rg command"),
+            ("git status", "not an rg or grep command"),
             ("rg needle # comment", "shell comment"),
             ("rg needle | head", "pipeline"),
             ("rg needle &", "background job"),
-            ("echo a; git status", "not an rg command"),
+            ("echo a; git status", "not an rg or grep command"),
             ("git status; rg --pre=x a", "unsupported flag `--pre`"),
             ("rg foo > out.txt", "redirection"),
             ("rg foo $DIR", "shell expansion"),

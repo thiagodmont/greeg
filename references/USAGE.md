@@ -222,8 +222,10 @@ operations; `--dry-run` previews both and writes neither.
 The hook preserves supported search arguments and requests exact matching; text
 results still use greeg's ranking and token budget. An explicit file-size flag
 preserves ripgrep's requested limit (unlimited by default), so files over 4 MiB
-are not silently omitted. It leaves grep variants,
-JSON/stats output, explicit executable paths, pipelines, subshells,
+are not silently omitted. A recursive `grep -r` is rewritten too: its pattern
+is translated from grep's syntax, and ignore rules apply as in rg (greeg says
+so on stderr; `-uu` searches ignored and hidden files). It leaves other grep
+forms, JSON/stats output, explicit executable paths, pipelines, subshells,
 comments, redirections and shell expansions with the original tool. In a
 `;`/`&&`/`||` list, each eligible `rg` command is rewritten on its own. An inherited
 `RIPGREP_CONFIG_PATH` also disables rewriting. `greeg hook explain 'rg -l foo src'`

@@ -101,11 +101,12 @@ greeg hook claude       # Claude Code   (--dry-run to preview, --uninstall to re
 greeg hook codex        # Codex 0.131+  (then run /hooks in Codex to trust it)
 ```
 
-This installs a hook and a skill file. The agent keeps writing `rg`; the hook
-sends simple `rg` searches to greeg, and the skill teaches the agent greeg's
-symbol commands. **You don't change how you prompt.** Commands the hook can't
-translate exactly (pipelines, `grep`, redirections, …) run with the original
-tool; `greeg hook explain 'rg -l foo src'` shows what it would do.
+This installs a hook and a skill file. The agent keeps writing `rg` or
+`grep -r`; the hook sends those searches to greeg (also inside `;`/`&&`
+lists), and the skill teaches the agent greeg's symbol commands. **You don't
+change how you prompt.** Commands the hook can't translate exactly (most
+pipelines, redirections, grep without `-r`, …) run with the original tool;
+`greeg hook explain 'grep -rn foo src'` shows what it would do.
 
 > If you use `Bash(rg:*)` allow rules, add `Bash(greeg:*)` next to them. If
 > another hook also rewrites `rg` (RTK, for example), only one can win; for
