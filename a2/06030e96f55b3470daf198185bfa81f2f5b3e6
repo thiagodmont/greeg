@@ -1,0 +1,25 @@
+crates/greeg/src/hook.rs
+  s_eefb2647553a67::t_5c66243803710a 1001,1010-1013,1031-1032,1036
+references/USAGE.md
+  s_eefb2647553a67::t_4d0f68f766c05e 231-233,241
+references/ARCHITECTURE.md
+  s_eefb2647553a67::t_4d0f68f766c05e 333
+crates/greeg/src/rewrite.rs
+  s_eefb2647553a67::t_014406c0b3afdf 899,903,916-925,1022-1027
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a206030e96f55b3470daf198185bfa81f2f5b3e6",
+  "prompts": {},
+  "sessions": {
+    "s_eefb2647553a67": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9fff36d3-3b5f-4343-be78-7893a6fe3965",
+        "model": "unknown"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
