@@ -724,7 +724,8 @@ pub fn run(agent: Agent) -> Result<()> {
         let mut w = std::io::stdout().lock();
         serde_json::to_writer(&mut w, &out)?;
         writeln!(w)?;
-        // Opt-in stats use the unchanged working directory.
+        // Opt-in stats use the unchanged working directory, which a command
+        // earlier in the line (a `cd`) may have left.
         let cwd = v
             .get("cwd")
             .and_then(|c| c.as_str())
@@ -732,7 +733,7 @@ pub fn run(agent: Agent) -> Result<()> {
             .or_else(|| std::env::current_dir().ok())
             .unwrap_or_default();
         let session = v.get("session_id").and_then(|s| s.as_str());
-        for p in &rw.parts {
+        for p in rw.parts.iter().filter(|p| !p.after_other) {
             crate::stats::record_hook(&cwd, session, &p.original, &p.rewritten);
         }
     }
@@ -856,10 +857,48 @@ mod tests {
             ("rg x 2>/dev/null; echo done", "redirection"),
             ("rg a; echo $'it\\'s'; rg b", "ANSI-C or locale quoting"),
             ("rg a; echo $\"x\"", "ANSI-C or locale quoting"),
+            ("[[ -d src && -f x ]] && rg a", "conditional expression"),
+            ("rg a; echo x \\\\ #; rg b", "shell comment"),
+            (
+                "export RIPGREP_CONFIG_PATH=x; rg a",
+                "change the environment",
+            ),
+            ("RIPGREP_CONFIG_PATH=x; rg a", "change the environment"),
+            ("rg a && source env.sh && rg b", "change the environment"),
+            ("alias rg='rg -i'; rg a", "change the environment"),
+            ("set -o noglob; rg a", "change the environment"),
         ] {
             let got = rewrite_full(cmd).err().unwrap_or_default();
             assert!(got.contains(why), "{cmd:?}: {got:?}");
         }
+    }
+
+    #[test]
+    fn a_list_keeps_what_the_shell_reads_as_one_word() {
+        let g = "greeg --matching exact --max-filesize 18446744073709551615";
+        // an escaped `#` and a `#` after an escaped blank are literal
+        same("rg a\\ #b; rg c", &format!("{g} 'a #b'; {g} c"));
+        same("echo x\\#; rg c", &format!("echo x\\#; {g} c"));
+        // an escaped trailing blank is part of the pattern
+        same("rg a\\ ; rg b", &format!("{g} 'a '; {g} b"));
+        same("rg a\\ ", &format!("{g} 'a '"));
+        // a trailing `;` or newline ends the only command
+        same("rg a;", &format!("{g} a;"));
+        same("rg a ;\n", &format!("{g} a ;\n"));
+        // the environment of a command alone is its own decline reason
+        let why = rewrite_full("RIPGREP_CONFIG_PATH=x rg a")
+            .err()
+            .unwrap_or_default();
+        assert!(why.contains("environment assignment"), "{why}");
+    }
+
+    #[test]
+    fn only_a_command_the_line_starts_with_is_replayed() {
+        let r = rewrite_full("rg a; cd src && rg b; rg c").unwrap();
+        let after: Vec<_> = r.parts.iter().map(|p| p.after_other).collect();
+        assert_eq!(after, [false, true, true]);
+        let r = rewrite_full("rg a && rg b").unwrap();
+        assert!(r.parts.iter().all(|p| !p.after_other));
     }
 
     #[test]

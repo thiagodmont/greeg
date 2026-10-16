@@ -342,7 +342,7 @@ arguments through `/bin/sh`; they do not certify every host version or live
 approval interaction. New host protocols require separate verification.
 
 A list is split only where the shell would split it: outside quotes, with no
-construct the splitter does not model. `tests/hooks.rs` runs rewritten lists
+construct the splitter does not model. `crates/greeg/tests/hooks.rs` runs rewritten lists
 through `/bin/sh` and checks their output and control flow.
 
 This narrows earlier hook eligibility, including grep and pipeline rewrites.

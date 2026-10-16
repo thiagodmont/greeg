@@ -380,10 +380,13 @@ pub(crate) fn list_segments(s: &str) -> Result<Vec<std::ops::Range<usize>>, &'st
     let mut out = Vec::new();
     let mut start = 0;
     let (mut single, mut double, mut escaped) = (false, false, false);
+    // the next byte starts a word: after a separator or an unescaped blank
+    let mut word_start = true;
     let mut i = 0;
     while i < b.len() {
         let c = b[i];
         let next = b.get(i + 1).copied();
+        let at_word = std::mem::replace(&mut word_start, false);
         if single {
             single = c != b'\'';
         } else if escaped {
@@ -401,9 +404,9 @@ pub(crate) fn list_segments(s: &str) -> Result<Vec<std::ops::Range<usize>>, &'st
                 _ => {}
             }
         } else {
-            let word_start = i == start || b[i - 1].is_ascii_whitespace();
             let mut sep = 0;
             match c {
+                b' ' | b'\t' => word_start = true,
                 b'\'' => single = true,
                 b'"' => double = true,
                 b'`' => return Err("command substitution"),
@@ -413,8 +416,10 @@ pub(crate) fn list_segments(s: &str) -> Result<Vec<std::ops::Range<usize>>, &'st
                     return Err("ANSI-C or locale quoting");
                 }
                 b'(' | b')' | b'{' | b'}' => return Err("subshell, group or brace expansion"),
+                // `[[ a && b ]]` holds operators that are not list separators
+                b'[' if at_word && next == Some(b'[') => return Err("conditional expression"),
                 b'<' if next == Some(b'<') => return Err("here-document"),
-                b'#' if word_start => return Err("shell comment"),
+                b'#' if at_word => return Err("shell comment"),
                 b';' if next == Some(b';') => return Err("case syntax"),
                 b';' | b'\n' => sep = 1,
                 b'&' if next == Some(b'&') => sep = 2,
@@ -429,6 +434,7 @@ pub(crate) fn list_segments(s: &str) -> Result<Vec<std::ops::Range<usize>>, &'st
                 out.push(start..i);
                 i += sep;
                 start = i;
+                word_start = true;
                 continue;
             }
         }
@@ -441,6 +447,56 @@ pub(crate) fn list_segments(s: &str) -> Result<Vec<std::ops::Range<usize>>, &'st
     Ok(out)
 }
 
+/// `seg` without the blanks around it (spaces and tabs, which the shell
+/// splits on; an escaped one belongs to the last word): (offset, body).
+pub(crate) fn trim_blanks(seg: &str) -> (usize, &str) {
+    let b = seg.as_bytes();
+    let lead = b.iter().take_while(|&&c| matches!(c, b' ' | b'\t')).count();
+    let mut end = b.len();
+    while end > lead && matches!(b[end - 1], b' ' | b'\t') {
+        let backslashes = b[lead..end - 1]
+            .iter()
+            .rev()
+            .take_while(|&&c| c == b'\\')
+            .count();
+        if backslashes % 2 == 1 {
+            break;
+        }
+        end -= 1;
+    }
+    (lead, &seg[lead..end])
+}
+
+/// A command that can change what a later command in its line sees: the
+/// environment (`RIPGREP_CONFIG_PATH`, for one), aliases or shell options.
+fn changes_environment(seg: &str) -> bool {
+    let first = seg.split([' ', '\t']).next().unwrap_or("");
+    let assignment = first.split_once('=').is_some_and(|(name, _)| {
+        !name.is_empty()
+            && name.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'_')
+            && !name.as_bytes()[0].is_ascii_digit()
+    });
+    assignment
+        || matches!(
+            first,
+            "export"
+                | "source"
+                | "."
+                | "eval"
+                | "set"
+                | "unset"
+                | "alias"
+                | "declare"
+                | "typeset"
+                | "local"
+                | "readonly"
+                | "env"
+                | "shopt"
+                | "enable"
+                | "hash"
+        )
+}
+
 /// One rewritten command of a Bash command line: its words before and after
 /// (for the stats records).
 pub struct Part {
@@ -448,6 +504,9 @@ pub struct Part {
     pub rewritten: Vec<String>,
     /// The rewritten command as it appears in the line.
     pub command: String,
+    /// Another command runs before it in the line (a `cd`, for one), so its
+    /// stats record could not be replayed as it ran.
+    pub after_other: bool,
 }
 
 /// A rewritten Bash command line.
@@ -469,6 +528,7 @@ fn part(seg: &str) -> Result<Part, String> {
         original,
         rewritten,
         command,
+        after_other: false,
     })
 }
 
@@ -478,28 +538,19 @@ fn part(seg: &str) -> Result<Part, String> {
 /// other compound syntax are declined: a consumer may expect rg's output.
 pub fn rewrite_full(cmd: &str) -> Result<Rewrite, String> {
     let segments = list_segments(cmd)?;
-    let blank = |r: &std::ops::Range<usize>| cmd[r.clone()].trim().is_empty();
-    if segments.iter().filter(|r| !blank(r)).count() <= 1 {
-        let p = part(cmd)?;
-        return Ok(Rewrite {
-            command: p.command.clone(),
-            parts: vec![p],
-            whole: true,
-        });
-    }
     let mut command = String::with_capacity(cmd.len() + 64);
-    let mut parts = Vec::new();
+    let mut parts: Vec<Part> = Vec::new();
     let mut why = None;
+    let mut env = false;
     let mut at = 0;
     for r in segments {
-        let seg = &cmd[r.clone()];
-        let lead = seg.len() - seg.trim_start().len();
-        let body = seg.trim();
+        let (lead, body) = trim_blanks(&cmd[r.clone()]);
         if body.is_empty() {
             continue;
         }
         match part(body) {
-            Ok(p) => {
+            Ok(mut p) => {
+                p.after_other = why.is_some();
                 command.push_str(&cmd[at..r.start + lead]);
                 command.push_str(&p.command);
                 at = r.start + lead + body.len();
@@ -507,6 +558,7 @@ pub fn rewrite_full(cmd: &str) -> Result<Rewrite, String> {
             }
             // left as it is; an rg command's reason says more than another's
             Err(e) => {
+                env |= changes_environment(body);
                 let rg = shell_words(body).is_ok_and(|w| w.first().is_some_and(|f| f == "rg"));
                 if rg && !why.as_ref().is_some_and(|(was_rg, _)| *was_rg) || why.is_none() {
                     why = Some((rg, e));
@@ -516,6 +568,9 @@ pub fn rewrite_full(cmd: &str) -> Result<Rewrite, String> {
     }
     if parts.is_empty() {
         return Err(why.map_or_else(|| "not an rg command".into(), |(_, e)| e));
+    }
+    if env {
+        return Err("another command in the line can change the environment".into());
     }
     command.push_str(&cmd[at..]);
     let whole = why.is_none();
