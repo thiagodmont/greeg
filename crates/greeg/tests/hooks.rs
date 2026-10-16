@@ -924,9 +924,16 @@ fn host_payloads_get_replies_their_host_accepts() {
                 "{name}: no auto-allow"
             );
         }
+        let mut other_event = payload("rg -n needle", "Bash");
+        other_event["hook_event_name"] = json!("PostToolUse");
+        let mut no_command = payload("rg -n needle", "Bash");
+        no_command["tool_input"].as_object_mut().unwrap().remove("command");
         for silent in [
             payload("rg needle | head", "Bash"),
             payload("rg -n needle", "Read"),
+            other_event,
+            no_command,
+            json!("rg -n needle"),
         ] {
             let out = reply(&silent);
             assert!(
