@@ -1,5 +1,7 @@
 import unittest
+from unittest import mock
 
+import qualify
 from qualify import glibc_floor, macos_floor
 
 # `objdump -p` of the 0.11.0 aarch64 archive: GLIBC_2.39 is needed by weak
@@ -48,6 +50,15 @@ class FloorTests(unittest.TestCase):
         self.assertEqual(macos_floor(build), "11.0")
         self.assertEqual(macos_floor(legacy), "10.12")
         self.assertIsNone(macos_floor("Load command 0\n      cmd LC_SEGMENT_64\n"))
+
+    def test_a_requested_floor_fails_when_it_cannot_be_read(self):
+        with mock.patch("platform.system", return_value="Linux"), \
+                mock.patch("shutil.which", return_value=None), \
+                mock.patch.object(qualify, "failures", []) as failures:
+            qualify.floor("/bin/true", None)
+            self.assertEqual(failures, [])
+            qualify.floor("/bin/true", (2, 35))
+            self.assertEqual(len(failures), 1)
 
 
 if __name__ == "__main__":

@@ -63,7 +63,12 @@ def floor(exe, glibc_max):
     if platform.system() == "Darwin" and shutil.which("otool"):
         out = subprocess.run(["otool", "-l", exe], capture_output=True, text=True).stdout
         print(f"  floor macOS {macos_floor(out) or '?'} (minimum the binary declares)")
-    elif platform.system() == "Linux" and shutil.which("objdump"):
+    elif platform.system() == "Linux":
+        if not shutil.which("objdump"):
+            print("  floor glibc ? (no objdump)")
+            if glibc_max:
+                check(False, "glibc floor checked (objdump is missing)")
+            return
         out = subprocess.run(["objdump", "-p", exe], capture_output=True, text=True).stdout
         need = glibc_floor(out)
         shown = ".".join(map(str, need)) if need else "?"
