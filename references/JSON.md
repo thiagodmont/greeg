@@ -47,7 +47,7 @@ Every line is one record, `{"type": …, "data": {…}}`. The first record names
 the schema and the command:
 
 ```json
-{"type":"greeg","data":{"schema":2,"dialect":"greeg","command":"search","version":"0.11.0"}}
+{"type":"greeg","data":{"schema":2,"dialect":"greeg","command":"search","version":"0.12.0"}}
 ```
 
 `command` is `search` (also for stdin) or the verb: `def`, `refs`, `callers`,
