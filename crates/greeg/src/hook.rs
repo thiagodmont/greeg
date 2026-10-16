@@ -90,7 +90,8 @@ redirections of stderr to `/dev/null` or stdout (`2>/dev/null`, `2>&1`, also
 `grep -r` skips ignored, hidden and binary files, as rg does (an `--include`
 glob brings back the files it names, as `-g` does), and says so on stderr
 (`-uu` searches ignored and hidden files), so one whose stderr goes to
-`/dev/null` or that passes `-s` runs unchanged. Other greps,
+`/dev/null` or that passes `-s` runs unchanged. While a nonempty
+`RIPGREP_CONFIG_PATH` is set, every search runs unchanged. Other greps,
 JSON, other pipes, subshells, comments, expansions and explicit executable
 paths stay unchanged. PreToolUse hooks run in parallel and the last `updatedInput`
 wins, so another Bash rewriter (for example RTK) can override or be overridden by
@@ -113,7 +114,8 @@ redirections of stderr to `/dev/null` or stdout (`2>/dev/null`, `2>&1`, also
 `grep -r` skips ignored, hidden and binary files, as rg does (an `--include`
 glob brings back the files it names, as `-g` does), and says so on stderr
 (`-uu` searches ignored and hidden files), so one whose stderr goes to
-`/dev/null` or that passes `-s` runs unchanged. Other greps, JSON, other
+`/dev/null` or that passes `-s` runs unchanged. While a nonempty
+`RIPGREP_CONFIG_PATH` is set, every search runs unchanged. Other greps, JSON, other
 pipes, subshells, comments, expansions and explicit executable paths
 stay unchanged. PreToolUse hooks run in parallel and the
 rewrite from the hook that finishes last wins, so another shell rewriter (for

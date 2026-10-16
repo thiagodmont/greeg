@@ -436,6 +436,7 @@ fn rewritten_greps_skip_what_rg_skips_and_say_so() {
             .stdin(Stdio::null())
             .output()
             .unwrap();
+        assert!(out.status.success(), "{command}: {out:?}");
         let mut files: Vec<String> = String::from_utf8_lossy(&out.stdout)
             .lines()
             .map(|l| l.strip_prefix("./").unwrap_or(l).to_string())
