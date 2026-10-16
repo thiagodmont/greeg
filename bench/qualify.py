@@ -4,7 +4,9 @@ small semantic suite run with the archive's own binary (scan, index build,
 indexed lookup, symbols, an edit picked up, byte-safe JSON, exit statuses).
 Prints the runtime floor the binary needs. Standard library only.
 
-Usage: qualify.py ARCHIVE_DIR VERSION    (ARCHIVE_DIR = the extracted greeg-VERSION-TARGET/)"""
+Usage: qualify.py ARCHIVE_DIR VERSION [--glibc-floor X.Y]
+(ARCHIVE_DIR = the extracted greeg-VERSION-TARGET/; with --glibc-floor, a Linux
+binary that needs a newer glibc fails)"""
 import base64, json, os, platform, re, shutil, subprocess, sys, tempfile, time
 
 failures = []
@@ -16,7 +18,7 @@ def check(ok, what):
         failures.append(what)
 
 
-def main(archive, version):
+def main(archive, version, glibc_max=None):
     # the suite runs greeg from a scratch directory
     archive = os.path.abspath(archive)
     exe = os.path.join(archive, "greeg")
@@ -29,7 +31,7 @@ def main(archive, version):
     check(f'.TH greeg 1  "greeg {version}"'.encode() in page, f"greeg.1 is the man page of greeg {version}")
     v = subprocess.run([exe, "--version"], capture_output=True, text=True)
     check(v.stdout.strip() == f"greeg {version}", f"--version is `greeg {version}` (got `{v.stdout.strip()}`)")
-    floor(exe)
+    floor(exe, glibc_max)
     # a detached refresh may still be writing the index when the suite ends
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as t:
         suite(exe, t)
@@ -39,16 +41,36 @@ def main(archive, version):
     print("qualified")
 
 
-def floor(exe):
-    """The oldest system the binary can load on, as far as its headers say."""
+def glibc_floor(objdump_p):
+    """Newest glibc version the loader requires, from `objdump -p` (entries
+    flagged weak, 0x02, do not stop the binary loading on an older glibc)."""
+    vs = [tuple(map(int, v.split(".")))
+          for flags, v in re.findall(r"0x[0-9a-f]+ (0x[0-9a-f]+) +\d+ GLIBC_([0-9.]+)", objdump_p)
+          if not int(flags, 16) & 2]
+    return max(vs) if vs else None
+
+
+def macos_floor(otool_l):
+    """Minimum macOS the binary declares, from `otool -l`."""
+    m = (re.search(r"cmd LC_BUILD_VERSION\n(?:.*\n)*?\s*minos (\S+)", otool_l)
+         or re.search(r"cmd LC_VERSION_MIN_MACOSX\n(?:.*\n)*?\s*version (\S+)", otool_l))
+    return m.group(1) if m else None
+
+
+def floor(exe, glibc_max):
+    """The oldest system the binary can load on, as far as its headers say;
+    with `glibc_max`, a Linux binary that needs a newer glibc fails."""
     if platform.system() == "Darwin" and shutil.which("otool"):
         out = subprocess.run(["otool", "-l", exe], capture_output=True, text=True).stdout
-        m = re.search(r"LC_BUILD_VERSION.*?minos (\S+)", out, re.S)
-        print(f"  floor macOS {m.group(1) if m else '?'} (minimum the binary declares)")
+        print(f"  floor macOS {macos_floor(out) or '?'} (minimum the binary declares)")
     elif platform.system() == "Linux" and shutil.which("objdump"):
-        out = subprocess.run(["objdump", "-T", exe], capture_output=True, text=True).stdout
-        vs = sorted({tuple(map(int, g.split("."))) for g in re.findall(r"GLIBC_([0-9.]+)", out)})
-        print(f"  floor glibc {'.'.join(map(str, vs[-1])) if vs else '?'} (newest symbol version it links)")
+        out = subprocess.run(["objdump", "-p", exe], capture_output=True, text=True).stdout
+        need = glibc_floor(out)
+        shown = ".".join(map(str, need)) if need else "?"
+        print(f"  floor glibc {shown} (newest version the loader requires)")
+        if glibc_max:
+            check(need is not None and need <= glibc_max,
+                  f"needs at most glibc {'.'.join(map(str, glibc_max))} (needs {shown})")
 
 
 def suite(exe, t):
@@ -126,6 +148,11 @@ def suite(exe, t):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 3:
+    args = sys.argv[1:]
+    glibc_max = None
+    if len(args) == 4 and args[2] == "--glibc-floor":
+        glibc_max = tuple(map(int, args[3].split(".")))
+        args = args[:2]
+    if len(args) != 2:
         sys.exit(__doc__)
-    main(sys.argv[1], sys.argv[2])
+    main(args[0], args[1], glibc_max)

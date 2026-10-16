@@ -237,9 +237,12 @@ breakdowns and build-to-build comparisons.
 
 Each archive is built and qualified on its own target's runner before
 publication: its version, files and a semantic suite (`bench/qualify.py`).
-The release log prints the minimum macOS each binary declares and the newest
-glibc symbol version each Linux binary needs; systems older than the
-runners (macOS 15, Ubuntu 24.04) are not verified. Archives from 0.11 on
+The release log prints the minimum macOS each binary declares (11.0 on arm64,
+10.12 on x86_64) and the newest glibc each Linux binary requires. Linux
+archives are built on Ubuntu 22.04 and need glibc 2.35 or newer (Ubuntu 22.04,
+Debian 12 and later); the release fails if one needs more. 0.11.0's aarch64
+Linux archive needs glibc 2.39. Systems older than the runners (macOS 15,
+Ubuntu 22.04) are not run. Archives from 0.11 on
 carry a build provenance attestation; to check one, download the archive and
 verify it with the GitHub CLI (2.49 or newer):
 

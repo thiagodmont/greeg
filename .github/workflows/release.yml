@@ -11,8 +11,9 @@ jobs:
         include:
           - { os: macos-latest, target: aarch64-apple-darwin }
           - { os: macos-15-intel, target: x86_64-apple-darwin }  # macos-13 images were retired; macos-15-intel is the last Intel runner
-          - { os: ubuntu-latest, target: x86_64-unknown-linux-gnu }
-          - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu }
+          # the oldest Ubuntu runners: the binary needs the glibc it was linked against
+          - { os: ubuntu-22.04, target: x86_64-unknown-linux-gnu, glibc: "2.35" }
+          - { os: ubuntu-22.04-arm, target: aarch64-unknown-linux-gnu, glibc: "2.35" }
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -42,7 +43,8 @@ jobs:
           name=greeg-$v-${{ matrix.target }}
           mkdir -p qualify
           tar -C qualify -xzf dist/$name.tar.gz
-          python3 bench/qualify.py "qualify/$name" "$v" | tee qualify.log
+          floor=${{ matrix.glibc && format('--glibc-floor {0}', matrix.glibc) || '' }}
+          python3 bench/qualify.py "qualify/$name" "$v" $floor | tee qualify.log
           echo "### ${{ matrix.target }}" >> "$GITHUB_STEP_SUMMARY"
           sed 's/^/    /' qualify.log >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

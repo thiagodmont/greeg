@@ -81,6 +81,26 @@ jobs:
           ./target/release/greeg --version
           ./target/release/greeg -F "fn main" crates --no-index --budget 400
           ./target/release/greeg doctor --root . || true
+  linux-floor:
+    # Release archives are built on these runners; the binary must load on the
+    # glibc it promises (references/USAGE.md), not only on the newest one.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, ubuntu-22.04-arm]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - run: cargo build --release --locked -p greeg
+      - name: qualify, glibc 2.35 at most
+        run: |
+          d=qualify-ci/greeg-ci
+          mkdir -p "$d"
+          cp target/release/greeg README.md LICENSE-MIT "$d"/
+          ./target/release/greeg man > "$d"/greeg.1
+          python3 bench/qualify.py "$d" "$(./target/release/greeg --version | cut -d' ' -f2)" --glibc-floor 2.35
   msrv:
     # rust-version in Cargo.toml; compiles every target without running tests.
     runs-on: ubuntu-latest
