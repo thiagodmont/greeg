@@ -128,3 +128,33 @@ predates the denied commands: its setup has no deny list, and `awk` and
 Next: harder tasks that need several hops, and a decision on whether the hook
 should rewrite the commands this model writes (a search piped into `head`, a
 list of searches).
+
+## Multi-hop run (2026-10-16)
+
+The ten multi-hop tasks × arms A and B × 2 repeats, with Claude Code 2.1.301 on
+Sonnet and greeg at a206030 (the hook stack up to `| head` and stderr
+redirections). `results/multihop-2026-10-16.json` holds the records, `.txt`
+the analysis, `-setup.json` the setup. 40 runs, all valid, cost $1.99.
+
+The checks were rebuilt after the run, and every saved answer was scored again
+(`--recheck`). The first checks rejected right answers that cite `base.py:275`
+after naming the directory once. Each cited item now has to appear by name and
+with a line within two of the verified one, under its file name (with the
+parent where two cited files share a name). The answers that still fail each
+miss a requested item: a definition given as a call site, a path step left
+out, a line not cited.
+
+- **Success:** development tasks 10/10 in both arms. Held out: A 7/10
+  (Wilson 40–89 %), B 8/10 (49–94 %), difference +0.10, interval −0.40…+0.60
+  over tasks. The arms are not separated; two tasks per corpus and two repeats
+  are too few, and the development tasks are still too easy for this model.
+- **The hook now takes part.** In B the hook answered all 74 search calls and
+  rewrote 9 to greeg. In the pilot it rewrote none. Most of the rest are greps
+  of named files (25 of 54 commands) and pipelines into other readers (12),
+  which stay unchanged by design.
+- **Search calls, held out:** B made 3.0 fewer a run (6.6 → 3.6), interval
+  −8.2…+0.2 over tasks: a hint, not a result. Cost, turns and tool output show
+  no difference.
+
+Next: more held-out tasks (and repeats) before any decision, and arm C to
+see whether naming greeg in the prompt changes the share of searches it runs.
