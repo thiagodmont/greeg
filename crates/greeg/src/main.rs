@@ -595,6 +595,9 @@ enum HookCmd {
     Explain {
         /// The Bash command, quoted as one argument: `greeg hook explain 'rg -l foo src'`
         command: String,
+        /// The agent the hook answers (Codex runs a rewrite without asking)
+        #[arg(long, value_enum, default_value_t = hook::Agent::Claude)]
+        agent: hook::Agent,
     },
     /// The hook itself: reads the tool call on stdin, prints a rewritten command (internal)
     Run {
@@ -1172,9 +1175,9 @@ fn run() -> Result<()> {
                 which: HookCmd::Codex { uninstall, dry_run },
             } => hook::install_codex(uninstall, dry_run),
             Cmd::Hook {
-                which: HookCmd::Explain { command },
+                which: HookCmd::Explain { command, agent },
             } => {
-                if !hook::explain(&command)? {
+                if !hook::explain(&command, agent)? {
                     std::process::exit(1);
                 }
                 Ok(())
@@ -3300,8 +3303,8 @@ mod tests {
             ("rg --type-not=-x bar", &[], &["-x"]),
         ] {
             let r = rewrite::rewrite_full(cmd).unwrap();
-            let cli = Cli::try_parse_from(&r.rewritten)
-                .unwrap_or_else(|e| panic!("{cmd}: {:?}: {e}", r.rewritten));
+            let cli = Cli::try_parse_from(&r.parts[0].rewritten)
+                .unwrap_or_else(|e| panic!("{cmd}: {:?}: {e}", r.parts[0].rewritten));
             assert_eq!(cli.common.globs, globs, "{cmd}");
             assert_eq!(cli.common.types_not, types_not, "{cmd}");
             assert_eq!(cli.pattern.as_deref(), Some("bar"), "{cmd}");

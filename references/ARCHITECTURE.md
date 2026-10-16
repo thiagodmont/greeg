@@ -324,7 +324,9 @@ Direct `greeg` calls retain the exact/discovery defaults described above.
 | `grep`, `egrep`, `fgrep`, including explicit-file searches | Decline: traversal, regex dialects and binary behavior differ |
 | `--json`, `--stats`, sorting, suppressed diagnostics, unknown/unsupported flags | Decline; retain the original output/error contract |
 | Paths such as `./rg` or `/usr/bin/rg`, wrappers, assignments | Decline; do not substitute another executable |
-| Pipelines, `cd ... &&`, lists, conditionals, background jobs, redirections | Decline the entire command |
+| `;`, `&&`, `\|\|` and newline lists (`cd src && rg …`) | Rewrite each eligible `rg` command on its own; keep every other byte. Exit statuses agree (0/1/2), so the list's control flow is unchanged. For Codex, only a list of rewritten commands: Codex runs an allowed rewrite without asking, so another command in it would skip its approval |
+| Pipelines, background jobs, subshells/groups, substitutions, here-documents, `$'…'`/`$"…"` quoting | Decline the entire command |
+| Redirections | Leave that command as it is |
 | Comments, continuations, expansions, unquoted globs (including option values), malformed quoting | Decline; quoted metacharacters remain literal |
 | Leading/trailing unquoted blank lines | Accept only at command boundaries; preserve escaped spaces and literal Unicode whitespace |
 | Nonempty inherited `RIPGREP_CONFIG_PATH`, even with `--no-config` | Decline conservatively; do not interpret configuration |
@@ -338,6 +340,10 @@ retain the required `permissionDecision: allow`, while Claude replies omit that
 decision. Automated tests exercise both response shapes and execute rewritten
 arguments through `/bin/sh`; they do not certify every host version or live
 approval interaction. New host protocols require separate verification.
+
+A list is split only where the shell would split it: outside quotes, with no
+construct the splitter does not model. `crates/greeg/tests/hooks.rs` runs rewritten lists
+through `/bin/sh` and checks their output and control flow.
 
 This narrows earlier hook eligibility, including grep and pipeline rewrites.
 It does not fix the remaining native search selection/index-coverage gaps or
