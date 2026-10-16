@@ -1,0 +1,22 @@
+bench/agent/tasks.toml
+  s_eefb2647553a67::t_13c98fc8519fb7 178,182-249
+  s_eefb2647553a67::t_1cb2c7212a8c07 179-181
+bench/agent/README.md
+  s_eefb2647553a67::t_afdedba2233d55 5-11
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "15b81adeece11da5e829e757167887a4b8d49070",
+  "prompts": {},
+  "sessions": {
+    "s_eefb2647553a67": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9fff36d3-3b5f-4343-be78-7893a6fe3965",
+        "model": "unknown"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
