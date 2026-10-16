@@ -226,13 +226,16 @@ are not silently omitted. A recursive `grep -r` is rewritten too: its pattern
 is translated from grep's syntax, and ignore rules apply as in rg (greeg says
 so on stderr; `-uu` searches ignored and hidden files). It leaves other grep
 forms, JSON/stats output, explicit executable paths, pipelines into anything
-but `head`, subshells and groups, comments, redirections, command substitutions and other shell
-expansions with the original tool. In a list joined by `;`, `&&`, `||` or
+but `head`, subshells and groups, comments, redirections other than
+`2>/dev/null`, `2>&1` and `</dev/null` at the end of a search, command
+substitutions and other shell expansions with the original tool. In a list joined by `;`, `&&`, `||` or
 newlines, each eligible search is rewritten on its own; a list with a command
 that can change the environment (an assignment, `export`, `source`, `alias`,
 `set`, …) is left alone. A search piped into `head` (`head`, `head -N`,
 `head -n N`) keeps the `head`, which then shows greeg's best lines instead of
-the first ones found, and may cut greeg's closing summary. An inherited `RIPGREP_CONFIG_PATH` also disables
+the first ones found, and may cut greeg's closing summary. A `grep -r` with
+`2>/dev/null` is left alone: it would hide greeg's note that ignored files
+were skipped. An inherited `RIPGREP_CONFIG_PATH` also disables
 rewriting. `greeg hook explain 'rg -l foo src'`
 shows the rewrite, or why a command is left alone. See the
 [hook capability matrix](ARCHITECTURE.md#agent-hook-contract) for the

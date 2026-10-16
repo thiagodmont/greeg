@@ -1,6 +1,7 @@
 //! A command the hook rewrites reads back as the words it was given: each
 //! rewritten command, split as a shell would, is its rewritten argv, and the
-//! rewritten line is the original with only those commands replaced, in order.
+//! rewritten line is the original with only those commands replaced, in order
+//! (their kept redirections after them).
 #![no_main]
 
 #[allow(dead_code)]
@@ -37,7 +38,9 @@ fuzz_target!(|data: &[u8]| {
         let (a_lead, a_body) = rewrite::trim_blanks(&rw.command[a.clone()]);
         if a_body != b_body {
             let p = parts.next().expect("a changed command is a part");
-            assert_eq!(a_body, p.command, "{cmd:?}");
+            // what follows it is a redirection kept as it was
+            let kept = a_body.strip_prefix(p.command.as_str()).expect("the part leads");
+            assert!(b_body.ends_with(kept), "{cmd:?}");
             rebuilt.push_str(&rw.command[at..a.start + a_lead]);
             rebuilt.push_str(b_body);
             at = a.start + a_lead + a_body.len();

@@ -858,7 +858,8 @@ mod tests {
                 format!("echo $HOME;  {g} needle  "),
             ),
             ("rg 'a;b' || echo none", format!("{g} 'a;b' || echo none")),
-            ("rg x 2>&1; rg y", format!("rg x 2>&1; {g} y")),
+            ("rg x 2>&1; rg y", format!("{g} x 2>&1; {g} y")),
+            ("rg x 2>err; rg y", format!("rg x 2>err; {g} y")),
             ("rg a | sort; rg b", format!("rg a | sort; {g} b")),
         ] {
             let r = rewrite_full(cmd).unwrap_or_else(|e| panic!("{cmd:?}: {e}"));
@@ -875,7 +876,7 @@ mod tests {
             ("rg a # c; rg b", "shell comment"),
             ("rg a; cat <<EOF", "here-document"),
             ("rg a; echo 'open", "unterminated quote"),
-            ("rg x 2>/dev/null; echo done", "redirection"),
+            ("rg x 2>err; echo done", "redirection"),
             ("rg a; echo $'it\\'s'; rg b", "ANSI-C or locale quoting"),
             ("rg a; echo $\"x\"", "ANSI-C or locale quoting"),
             ("[[ -d src && -f x ]] && rg a", "conditional expression"),
@@ -955,6 +956,53 @@ mod tests {
         // a pipeline into another reader is left as it is
         let r = rewrite_full("rg a | sort; rg b").unwrap();
         assert!(!r.whole && r.parts.len() == 1);
+    }
+
+    #[test]
+    fn redirections_that_leave_the_output_alone_are_kept() {
+        let g = "greeg --matching exact --max-filesize 18446744073709551615";
+        for kept in [
+            "2>/dev/null",
+            "2> /dev/null",
+            "2>>/dev/null",
+            "2>&1",
+            "</dev/null",
+            "< /dev/null",
+            "2>&1 </dev/null",
+            "2>&1  ",
+        ] {
+            same(&format!("rg a {kept}"), &format!("{g} a {kept}"));
+        }
+        same("rg a 2>&1 | head -3", &format!("{g} a 2>&1 | head -3"));
+        same("rg a\\  2>&1", &format!("{g} 'a ' 2>&1"));
+        same(
+            "rg a 2>/dev/null; rg b\t2>&1",
+            &format!("{g} a 2>/dev/null; {g} b\t2>&1"),
+        );
+        let r = rewrite_full("grep -rn a . 2>&1 | head").unwrap();
+        assert!(r.command.ends_with(" a . 2>&1 | head"), "{}", r.command);
+        for (cmd, why) in [
+            ("rg a >/dev/null", "redirection"),
+            ("rg a > out.txt", "redirection"),
+            ("rg a 2>err.txt", "redirection"),
+            ("rg a 2>&1 >/dev/null", "redirection"),
+            ("rg a &>/dev/null", "background job"),
+            ("rg 2>/dev/null a", "redirection"),
+            ("rg a\\ 2>&1", "redirection"),
+            ("rg a 12>&1", "redirection"),
+            ("2>&1", "redirection"),
+            (
+                "grep -rn a . 2>/dev/null",
+                "hide that greeg skips ignored files",
+            ),
+            (
+                "grep -rl a . 2> /dev/null | head",
+                "hide that greeg skips ignored files",
+            ),
+        ] {
+            let got = rewrite_full(cmd).err().unwrap_or_default();
+            assert!(got.contains(why), "{cmd:?}: {got:?}");
+        }
     }
 
     #[test]
@@ -1108,7 +1156,7 @@ mod tests {
             "xargs rg foo",
             "sudo rg foo",
             "nice rg foo",
-            "rg foo 2>/dev/null",
+            "rg foo 2>err.txt",
             "rg foo > out.txt",
             "rg foo >> out.txt",
             "rg foo < in.txt",

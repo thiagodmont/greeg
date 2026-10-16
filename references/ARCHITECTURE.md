@@ -330,7 +330,8 @@ Direct `greeg` calls retain the exact/discovery defaults described above.
 | A search piped into `head`, `head -N`, `head -n N`, `head -nN` or `head --lines=N` | Rewrite the search, keep the `head`: it shows greeg's best lines and may cut its closing summary. For Codex too: that `head` reads only its stdin. Not recorded for stats (a replay would compare rg's whole output) |
 | Other pipelines (`\| grep`, `\| wc`, `\| xargs`, `head -c`, a search reading stdin) | Leave that pipeline as it is: its reader may parse the original tool's lines |
 | `\|&`, a pipe continued on the next line, background jobs, subshells/groups, substitutions, here-documents, `$'…'`/`$"…"` quoting | Decline the entire command |
-| Redirections | Leave that command as it is |
+| `2>/dev/null`, `2> /dev/null`, `2>>/dev/null`, `2>&1`, `</dev/null` after a search's last word | Keep them byte for byte after the rewrite (stdout is unchanged). Not for `grep -r` with stderr to `/dev/null`: it would hide greeg's note that ignored files are skipped |
+| Other redirections (stdout, stderr to a file, `&>`, one before a word) | Leave that command as it is |
 | Comments, continuations, expansions, unquoted globs (including option values), malformed quoting | Decline; quoted metacharacters remain literal |
 | Leading/trailing unquoted blank lines | Accept only at command boundaries; preserve escaped spaces and literal Unicode whitespace |
 | Nonempty inherited `RIPGREP_CONFIG_PATH`, even with `--no-config` | Decline conservatively; do not interpret configuration |
