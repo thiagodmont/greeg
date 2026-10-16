@@ -2988,8 +2988,7 @@ fn bare_json_is_greeg_and_legacy_is_refused_with_its_replacement() {
             "{cmd}"
         );
     }
-    let refusal =
-        "greeg: --json=legacy was removed in 0.12.1; --json (greeg's records) replaces it\n";
+    let refusal = "--json=legacy was removed in 0.12.1; --json (greeg's records) replaces it";
     for args in [
         &["--json=legacy", "needle"][..],
         &["needle", "--json=legacy"][..],
@@ -2997,12 +2996,19 @@ fn bare_json_is_greeg_and_legacy_is_refused_with_its_replacement() {
         &["--json=legacy", "--no-messages", "needle"][..],
         &["--json=legacy", "stats"][..],
         &["--json=legacy", "index", "--status"][..],
+        // a later --json does not wash it out
+        &["--json=legacy", "--json=rg", "needle"][..],
+        &["--json=legacy", "--json", "def", "needle"][..],
     ] {
         let o = f.run(args);
         assert_eq!(o.status.code(), Some(2), "{args:?}");
         assert!(o.stdout.is_empty(), "{args:?}");
-        assert_eq!(String::from_utf8_lossy(&o.stderr), refusal, "{args:?}");
+        let err = String::from_utf8_lossy(&o.stderr);
+        assert_eq!(err.matches(refusal).count(), 1, "{args:?}: {err}");
     }
+    // the same text as a pattern is a pattern
+    let o = f.run(&["--budget", "0", "-e", "--json=legacy", "src"]);
+    assert_eq!(o.status.code(), Some(1), "{o:?}");
 }
 
 /// `--capabilities` is one JSON record whose commands and flags are the ones

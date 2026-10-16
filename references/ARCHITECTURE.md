@@ -810,9 +810,11 @@ bounds its own estimated tokens once its smallest answer fits (that answer is
 written regardless), `--budget 0` writes everything, and
 `outcome.truncated_by` says when the budget cut it. Serde structs in `json_native.rs` define it.
 
+Bare `--json` is `--json=greeg` for searches and the symbol verbs; commands
+with a JSON report of their own (`stats`, `index --status`) keep it.
 `--json=legacy`, what bare `--json` meant through 0.10, was removed in 0.12.1
-([migrating](JSON.md#migrating-from-bare---json)); it exits 2 before any
-work, naming `--json`.
+([migrating](JSON.md#migrating-from-bare---json)): each occurrence, even one
+a later `--json` would override, exits 2 before any work, naming `--json`.
 
 `--json=rg` is ripgrep's dialect, and nothing else:
 - `begin`, `match`, `context`, `end` and `summary` records with the fields

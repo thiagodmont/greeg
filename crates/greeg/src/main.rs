@@ -84,6 +84,17 @@ enum JsonDialect {
     Default,
 }
 
+/// Each `--json=legacy` is refused as it is parsed, so a later `--json` cannot
+/// override it.
+fn refuse_legacy(d: JsonDialect) -> Result<JsonDialect, &'static str> {
+    match d {
+        JsonDialect::Legacy => {
+            Err("--json=legacy was removed in 0.12.1; --json (greeg's records) replaces it")
+        }
+        d => Ok(d),
+    }
+}
+
 /// Flags shared by search and the verbs (accepted before or after a verb).
 #[derive(Args, Debug, Clone)]
 struct Common {
@@ -173,7 +184,7 @@ struct Common {
         long = "json",
         global = true,
         value_name = "DIALECT",
-        value_enum,
+        value_parser = clap::builder::TypedValueParser::try_map(clap::builder::EnumValueParser::<JsonDialect>::new(), refuse_legacy),
         num_args = 0..=1,
         require_equals = true,
         default_missing_value = "default"
@@ -1010,9 +1021,6 @@ fn run() -> Result<()> {
         eprintln!("greeg: args parsed at {:?} µs", stats::since_start_us());
     }
     let c = &cli.common;
-    if c.json_dialect == Some(JsonDialect::Legacy) {
-        anyhow::bail!("--json=legacy was removed in 0.12.1; --json (greeg's records) replaces it");
-    }
     if c.capabilities {
         if std::env::args_os().len() != 2 {
             anyhow::bail!("--capabilities takes no other arguments");
