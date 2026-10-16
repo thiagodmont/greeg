@@ -1,0 +1,27 @@
+bench/agent/results/multihop-2026-10-16.json
+  s_eefb2647553a67::t_910e7f202b2d59 1-1371
+bench/agent/tasks.toml
+  s_eefb2647553a67::t_1f434410a6376d 98,107,115,124,132,141,149,158,166,175
+bench/agent/results/multihop-2026-10-16-setup.json
+  s_eefb2647553a67::t_910e7f202b2d59 1-50
+bench/agent/results/multihop-2026-10-16.txt
+  s_eefb2647553a67::t_910e7f202b2d59 1-49
+bench/agent/README.md
+  s_eefb2647553a67::t_891fd6cc4b8599 131-160
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "7332ffecbc7417919e95abc89700395492b21203",
+  "prompts": {},
+  "sessions": {
+    "s_eefb2647553a67": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9fff36d3-3b5f-4343-be78-7893a6fe3965",
+        "model": "unknown"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
