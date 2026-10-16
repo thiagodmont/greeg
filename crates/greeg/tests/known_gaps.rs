@@ -178,7 +178,7 @@ fn indexed_implementors_and_map_honor_request_filters() {
         (vec!["--no-tests"], vec!["src/b.rs", "src/lib.rs"]),
         (vec!["-g", "!src/b.rs"], vec!["src/lib.rs", "tests/t.rs"]),
     ] {
-        let mut args = vec!["impls", "Shape", "--json=legacy"];
+        let mut args = vec!["impls", "Shape", "--json=greeg"];
         args.extend(&flags);
         let out = stdout(&f.run(&args));
         let mut got: Vec<&str> = want.iter().copied().filter(|w| out.contains(w)).collect();
@@ -190,7 +190,7 @@ fn indexed_implementors_and_map_honor_request_filters() {
             .unwrap();
         assert!(!out.contains(excluded), "impls {flags:?}: {out}");
 
-        let mut args = vec!["map", "--json=legacy"];
+        let mut args = vec!["map", "--json=greeg"];
         args.extend(&flags);
         let out = stdout(&f.run(&args));
         assert!(!out.contains(excluded), "map {flags:?}: {out}");
@@ -392,10 +392,10 @@ fn a_definition_after_many_uses_is_shown_by_both_backends() {
     let f = Fixture::new(&[("src/late.rs", &body)]);
     f.indexed();
     for o in [
-        f.run(&["marker", "--json=legacy"]),
-        f.scan(&["marker", "--json=legacy"]),
+        f.run(&["marker", "--json=greeg"]),
+        f.scan(&["marker", "--json=greeg"]),
     ] {
-        assert!(stdout(&o).contains(r#""line_number":71"#), "{o:?}");
+        assert!(stdout(&o).contains(r#"{"line":71,"#), "{o:?}");
     }
 }
 
@@ -727,12 +727,12 @@ fn json_footers_carry_one_outcome() {
     )]);
     f.indexed();
     for args in [
-        vec!["load_config", "--json=legacy"],
-        vec!["def", "load_config", "--json=legacy"],
-        vec!["refs", "load_config", "--json=legacy"],
-        vec!["callers", "load_config", "--json=legacy"],
-        vec!["impls", "Nothing", "--json=legacy"],
-        vec!["impact", "load_config", "--json=legacy"],
+        vec!["load_config", "--json=greeg"],
+        vec!["def", "load_config", "--json=greeg"],
+        vec!["refs", "load_config", "--json=greeg"],
+        vec!["callers", "load_config", "--json=greeg"],
+        vec!["impls", "Nothing", "--json=greeg"],
+        vec!["impact", "load_config", "--json=greeg"],
     ] {
         let o = f.run(&args);
         let footer: serde_json::Value = stdout(&o)
@@ -767,7 +767,7 @@ fn output_that_cannot_be_written_fails_in_every_format() {
     f.indexed();
     for args in [
         vec!["needle", "--budget", "0"],
-        vec!["needle", "--json=legacy"],
+        vec!["needle", "--json=greeg"],
         vec!["-n", "needle"],
         vec!["refs", "needle", "--budget", "0"],
     ] {
@@ -878,8 +878,8 @@ fn unlimited_definitions_are_complete() {
     let f = Fixture::new(&[("many.rs", &body)]);
     f.indexed();
     for o in [
-        f.run(&["def", "crowded", "--budget", "0", "--json=legacy"]),
-        f.scan(&["def", "crowded", "--budget", "0", "--json=legacy"]),
+        f.run(&["def", "crowded", "--budget", "0", "--json=greeg"]),
+        f.scan(&["def", "crowded", "--budget", "0", "--json=greeg"]),
     ] {
         let defs = stdout(&o).matches(r#""type":"def""#).count();
         assert_eq!(defs, 300, "{}", stdout(&o).lines().last().unwrap_or(""));
@@ -896,7 +896,7 @@ fn unlimited_implementations_are_complete_and_totals_are_eligible() {
         ("src/many.rs", &body),
     ]);
     f.indexed();
-    let json = stdout(&f.run(&["impls", "Crowd", "--budget", "0", "--json=legacy"]));
+    let json = stdout(&f.run(&["impls", "Crowd", "--budget", "0", "--json=greeg"]));
     assert_eq!(
         json.matches(r#""confidence":"high""#).count(),
         250,
@@ -908,7 +908,7 @@ fn unlimited_implementations_are_complete_and_totals_are_eligible() {
     assert!(text.contains("250 implementations"), "{text}");
 
     // the total counts what the kind selects, not every definition of the name
-    let def = stdout(&f.run(&["def", "S7", "--def-kind", "struct", "--json=legacy"]));
+    let def = stdout(&f.run(&["def", "S7", "--def-kind", "struct", "--json=greeg"]));
     assert!(def.contains(r#""total":1"#), "{def}");
 }
 
@@ -928,7 +928,7 @@ fn json_symbol_verbs_exit_1_without_results() {
     f.indexed();
     for verb in ["def", "refs", "callers", "impls", "impact"] {
         let text = f.run(&[verb, "zzz_nothing"]);
-        let json = f.run(&[verb, "zzz_nothing", "--json=legacy"]);
+        let json = f.run(&[verb, "zzz_nothing", "--json=greeg"]);
         assert_eq!(text.status.code(), Some(1), "{verb} text");
         assert_eq!(json.status.code(), Some(1), "{verb} --json");
     }
@@ -1061,7 +1061,7 @@ fn symbol_verbs_find_definitions_in_selected_skipped_files() {
         def.contains(".hidden.rs") && !def.contains("src/gen.rs"),
         "{def}"
     );
-    let map = stdout(&f.run(&["map", "-t", "rust", "--json=legacy"]));
+    let map = stdout(&f.run(&["map", "-t", "rust", "--json=greeg"]));
     assert!(
         map.contains(".hidden.rs") && !map.contains("src/gen.rs"),
         "{map}"
@@ -1306,13 +1306,13 @@ fn a_resolver_config_edit_is_not_answered_from_stale_edges() {
     f.indexed();
     w(&f.root.join("tsconfig.json"), tsconfig("new.ts"));
     std::thread::sleep(PAST_FRESHNESS_WINDOW);
-    let o = f.run(&["--fresh", "stat", "--json=legacy", "map", "."]);
+    let o = f.run(&["--fresh", "stat", "--json=greeg", "map", "."]);
     assert_eq!(o.status.code(), Some(0), "{o:?}");
     let imported_by = |file: &str| {
         stdout(&o)
             .lines()
             .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
-            .find(|v| v["type"] == "file" && v["data"]["path"] == file)
+            .find(|v| v["type"] == "file" && v["data"]["path"]["text"] == file)
             .map(|v| v["data"]["imported_by"].as_u64().unwrap())
     };
     assert_eq!(
@@ -1344,7 +1344,7 @@ fn imported_by(o: &Output, file: &str) -> Option<u64> {
     stdout(o)
         .lines()
         .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
-        .find(|v| v["type"] == "file" && v["data"]["path"] == file)
+        .find(|v| v["type"] == "file" && v["data"]["path"]["text"] == file)
         .map(|v| v["data"]["imported_by"].as_u64().unwrap())
 }
 
@@ -1367,7 +1367,7 @@ fn a_tsconfig_extends_target_outside_the_tree_invalidates_the_graph() {
         ("new.ts", "export const x = 2;\n"),
     ]);
     f.indexed();
-    let o = f.run(&["--fresh", "stat", "--json=legacy", "map", "."]);
+    let o = f.run(&["--fresh", "stat", "--json=greeg", "map", "."]);
     assert_eq!(
         (imported_by(&o, "old.ts"), imported_by(&o, "new.ts")),
         (Some(1), Some(0)),
@@ -1378,7 +1378,7 @@ fn a_tsconfig_extends_target_outside_the_tree_invalidates_the_graph() {
         base("new.ts"),
     );
     std::thread::sleep(PAST_FRESHNESS_WINDOW);
-    let o = f.run(&["--fresh", "stat", "--json=legacy", "map", "."]);
+    let o = f.run(&["--fresh", "stat", "--json=greeg", "map", "."]);
     assert_eq!(o.status.code(), Some(0), "{o:?}");
     assert_eq!(
         (imported_by(&o, "old.ts"), imported_by(&o, "new.ts")),
@@ -1439,15 +1439,15 @@ fn a_graph_discloses_files_added_since_it_was_built() {
             .find(|v| v["type"] == "footer")
             .map(|v| v["data"]["graph_changes"].clone())
     };
-    let o = f.run(&["--fresh", "stat", "--json=legacy", "map", "."]);
+    let o = f.run(&["--fresh", "stat", "--json=greeg", "map", "."]);
     assert_eq!(changes(&o), Some(serde_json::json!(0)), "{o:?}");
     w(&f.root.join("helpers.py"), "def help():\n    pass\n");
     std::thread::sleep(PAST_FRESHNESS_WINDOW);
-    let o = f.run(&["--fresh", "stat", "--json=legacy", "map", "."]);
+    let o = f.run(&["--fresh", "stat", "--json=greeg", "map", "."]);
     assert_eq!(changes(&o), Some(serde_json::json!(0)), "{o:?}");
     let helpers = map(&o)
         .into_iter()
-        .find(|v| v["type"] == "file" && v["data"]["path"] == "helpers.py")
+        .find(|v| v["type"] == "file" && v["data"]["path"]["text"] == "helpers.py")
         .map(|v| v["data"]["imported_by"].clone());
     assert_eq!(helpers, Some(serde_json::json!(1)), "{o:?}");
     w(
@@ -1455,7 +1455,7 @@ fn a_graph_discloses_files_added_since_it_was_built() {
         "package app\n\nfun extra() {}\n",
     );
     std::thread::sleep(PAST_FRESHNESS_WINDOW);
-    let o = f.run(&["--fresh", "stat", "--json=legacy", "map", "."]);
+    let o = f.run(&["--fresh", "stat", "--json=greeg", "map", "."]);
     assert_eq!(changes(&o), Some(serde_json::json!(1)), "{o:?}");
     let text = stdout(&f.run(&["--fresh", "stat", "map", "."]));
     assert!(
@@ -1581,10 +1581,15 @@ fn a_corrupted_graph_is_never_mapped() {
     // the trailer's last digest byte: the file keeps its shape
     bytes[last] ^= 0x01;
     fs::write(&graphs[0], bytes).unwrap();
-    let o = f.run(&["--json=legacy", "--fresh", "none", "map"]);
+    let o = f.run(&["--json=greeg", "--fresh", "none", "map"]);
     assert_eq!(o.status.code(), Some(2), "{o:?}");
     let out = stdout(&o);
-    assert_eq!(out.lines().count(), 1, "{out}");
+    // the header and the footer, no dir or file record
+    let types: Vec<String> = out
+        .lines()
+        .map(|l| serde_json::from_str::<serde_json::Value>(l).unwrap()["type"].to_string())
+        .collect();
+    assert_eq!(types, [r#""greeg""#, r#""footer""#], "{out}");
     assert!(out.contains(r#""reason":"corrupt""#), "{out}");
 }
 
@@ -1602,24 +1607,22 @@ fn a_backslash_in_a_file_name_is_preserved() {
     }
 }
 
-/// JSON keeps a line that is not UTF-8 as ripgrep does, as `{"bytes"}`,
-/// and a submatch that is UTF-8 as text (F12b).
+/// JSON keeps a line that is not UTF-8 as `{"bytes"}`, with its submatch
+/// offsets (F12b).
 #[test]
 fn json_output_preserves_invalid_utf8_content() {
     let f = Fixture::new(&[]);
     w(&f.root.join("bad.txt"), b"inv\xffneedle\n");
-    let o = f.scan(&["--json=legacy", "needle", "bad.txt"]);
+    let o = f.scan(&["--json=greeg", "needle", "bad.txt"]);
     assert_eq!(o.status.code(), Some(0));
     let out = stdout(&o);
     assert!(!out.contains('\u{FFFD}'), "{out}");
+    // the line without its terminator
     assert!(
-        out.contains(r#""lines":{"bytes":"aW52/25lZWRsZQo="}"#),
+        out.contains(r#""text":{"bytes":"aW52/25lZWRsZQ=="}"#),
         "{out}"
     );
-    assert!(
-        out.contains(r#""submatches":[{"match":{"text":"needle"},"start":4,"end":10}]"#),
-        "{out}"
-    );
+    assert!(out.contains(r#""submatches":[[4,10]]"#), "{out}");
 }
 
 /// Every output that reproduces file content keeps bytes that are not UTF-8:
@@ -1637,10 +1640,10 @@ fn file_content_that_is_not_utf8_survives_every_output() {
         assert!(!out.contains('\u{FFFD}'), "{args:?}: {out}");
         assert!(out.contains(r#"{"bytes":"#), "{args:?}: {out}");
     };
-    json(&["--json=legacy", "-A", "1", "fn needle", "bad.rs"]);
-    json(&["show", "bad.rs:2", "--json=legacy"]);
-    json(&["refs", "needle", "--json=legacy"]);
-    json(&["impact", "needle", "--json=legacy"]);
+    json(&["--json=greeg", "-A", "1", "fn needle", "bad.rs"]);
+    json(&["show", "bad.rs:2", "--json=greeg"]);
+    json(&["refs", "needle", "--json=greeg"]);
+    json(&["impact", "needle", "--json=greeg"]);
     let o = f.scan(&["--budget", "0", "inv", "bad.rs"]);
     assert!(
         o.stdout.windows(2).any(|w| w == b"v\xff"),
@@ -2087,7 +2090,7 @@ fn greeg_directories_inside_the_root_are_left_out() {
                 "{what} {mode:?}: {o:?}"
             );
         }
-        let o = run(&["--json=legacy", "-c", "needle"]);
+        let o = run(&["--json=greeg", "-c", "needle"]);
         assert!(stdout(&o).contains("\"a.rs\""), "{what}: {o:?}");
         // a directory no setting names is the tree's own
         let _ = fs::remove_dir_all(&chosen);

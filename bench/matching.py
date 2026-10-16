@@ -33,9 +33,9 @@ CASES = {
     "glob_files": ["-l", "load_config", "-g", "*.rs"],
     "hit_count": ["-c", "-i", "LOAD_CONFIG"],
     "hit_unlimited": ["--budget", "0", "load_config"],
-    # the records bare `--json` printed through 0.10; 0.10 and later accept the name
-    "case_miss_json": ["--json=legacy", "LOAD_CONFIG"],
-    "hit_json": ["--json=legacy", "load_config"],
+    # greeg's records, budgeted; 0.10 and later accept the name
+    "case_miss_json": ["--json=greeg", "LOAD_CONFIG"],
+    "hit_json": ["--json=greeg", "load_config"],
     "def_hit": ["def", "load_config", "--matching", "exact"],
     "def_case_hit": ["def", "LOAD_CONFIG", "-i", "--matching", "exact"],
     "def_case_miss": ["def", "load_confiq", "-i", "--matching", "exact"],
@@ -74,26 +74,24 @@ def stable_stdout(stdout, is_json):
     return json.dumps(records, sort_keys=True, separators=(",", ":")).encode()
 
 
-def json_exact_contract(output, oracle):
+def json_exact_contract(output, oracle, query):
+    """Budgeted `--json=greeg` shows ripgrep's matches, or some of them when the
+    budget cut it and says so, with ripgrep's status and total."""
     records = [json.loads(line) for line in output.stdout.splitlines()]
-    expected = [json.loads(line) for line in oracle.stdout.splitlines()]
-    def matches(rows):
-        keys = ("path", "lines", "line_number", "absolute_offset", "submatches")
-        return sorted(json.dumps({k: r["data"][k] for k in keys}, sort_keys=True)
-                      for r in rows if r["type"] == "match")
     footers = [r["data"] for r in records if r["type"] == "footer"]
-    summaries = [r["data"]["stats"] for r in expected if r["type"] == "summary"]
+    summaries = [json.loads(line)["data"]["stats"] for line in oracle.stdout.splitlines()
+                 if json.loads(line)["type"] == "summary"]
     if len(footers) != 1 or len(summaries) != 1:
         return False
-    shown, oracle_matches = matches(records), matches(expected)
-    # a budget cut shows some of ripgrep's matches and says so
-    if footers[0].get("outcome", {}).get("complete", True):
-        same_matches = shown == oracle_matches
+    outcome = footers[0]["outcome"]
+    shown = [repr(r) for r in native_matches(output.stdout)]
+    expected = [repr(r) for r in rg_matches(oracle.stdout, query)]
+    if outcome["complete"]:
+        same_matches = shown == expected
     else:
-        same_matches = len(shown) == len(set(shown)) and set(shown) < set(oracle_matches)
+        same_matches = len(shown) == len(set(shown)) and set(shown) < set(expected)
     return (output.returncode == oracle.returncode and same_matches
-            and footers[0]["rung"] == "exact"
-            and footers[0]["hits_total"] == summaries[0]["matched_lines"])
+            and outcome["rung"] == "exact" and outcome["total"] == summaries[0]["matched_lines"])
 
 
 ELAPSED = re.compile(rb'"(elapsed|elapsed_total)":\{[^}]*\}')
@@ -269,7 +267,7 @@ def main():
                         "stable_stdout_sha256": digest(first_stdout),
                         "tokens_both_streams": len(encoding.encode(stream.decode(), disallowed_special=())) if encoding else None,
                         "rg_stdout_and_status_equal": (first.stdout == oracle.stdout and first.returncode == oracle.returncode) if oracle and not is_json and not is_def else None,
-                        "json_exact_contract": json_exact_contract(first, oracle) if is_json else None,
+                        "json_exact_contract": json_exact_contract(first, oracle, query) if is_json else None,
                         "definition_contract": definition_contract(first, oracle) if is_def else None,
                     }
                 row["stdout_and_status_unchanged"] = (outputs["baseline"][0].returncode, stable_stdout(outputs["baseline"][0].stdout, is_json)) == (outputs["candidate"][0].returncode, stable_stdout(outputs["candidate"][0].stdout, is_json))

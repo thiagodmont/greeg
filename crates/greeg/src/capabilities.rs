@@ -44,7 +44,7 @@ fn record() -> Value {
             "version": stats::VERSION,
             "index_format": greeg_index::FORMAT_VERSION,
             "json": {
-                "dialects": ["greeg", "legacy", "rg"],
+                "dialects": ["greeg", "rg"],
                 "greeg_schema": json_native::SCHEMA,
                 "bare": "greeg",
             },

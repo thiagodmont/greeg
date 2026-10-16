@@ -71,7 +71,8 @@ struct Cli {
 
 #[derive(clap::ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
 enum JsonDialect {
-    /// ripgrep's records plus greeg's fields and records, shaped by the budget
+    /// Removed; refused with the flag that replaces it
+    #[value(hide = true)]
     Legacy,
     /// ripgrep's records and semantics only: every match, no budget
     Rg,
@@ -166,9 +167,8 @@ struct Common {
     #[arg(long = "max-filesize", default_value_t = 4 << 20, global = true)]
     max_filesize: u64,
     /// JSON Lines output. `--json=greeg`: greeg's own records, schema 2.
-    /// `--json=rg`: exactly ripgrep's records and semantics. `--json=legacy`:
-    /// ripgrep's schema plus kind/symbol/facets/footer, shaped by the budget,
-    /// removed in 0.12. Bare `--json` is `greeg`
+    /// `--json=rg`: exactly ripgrep's records and semantics. Bare `--json` is
+    /// `greeg`
     #[arg(
         long = "json",
         global = true,
@@ -327,13 +327,6 @@ impl Common {
     /// Any JSON output.
     fn json(&self) -> bool {
         self.json_dialect.is_some()
-    }
-
-    fn json_greeg(&self) -> bool {
-        matches!(
-            self.json_dialect,
-            Some(JsonDialect::Greeg | JsonDialect::Default)
-        )
     }
 
     fn json_rg(&self) -> bool {
@@ -849,19 +842,6 @@ fn main_inner() -> Result<()> {
     run()
 }
 
-/// `--json=legacy` goes in 0.12; say so to a person, not to a pipe, and once:
-/// not again in the run that recovers from a SIGBUS.
-fn json_notice(c: &Common) {
-    use std::io::IsTerminal;
-    if c.json_dialect == Some(JsonDialect::Legacy)
-        && !c.after_sigbus
-        && !c._no_messages
-        && std::io::stderr().is_terminal()
-    {
-        eprintln!("greeg: --json=legacy is removed in 0.12; --json (greeg's records) replaces it");
-    }
-}
-
 fn build_options(c: &Common, pattern: String, paths: Vec<PathBuf>) -> Result<Options> {
     if c.json_rg() && c.budget_arg.is_some() {
         anyhow::bail!("--json=rg returns every match, as ripgrep does; it takes no --budget");
@@ -1030,6 +1010,9 @@ fn run() -> Result<()> {
         eprintln!("greeg: args parsed at {:?} µs", stats::since_start_us());
     }
     let c = &cli.common;
+    if c.json_dialect == Some(JsonDialect::Legacy) {
+        anyhow::bail!("--json=legacy was removed in 0.12.1; --json (greeg's records) replaces it");
+    }
     if c.capabilities {
         if std::env::args_os().len() != 2 {
             anyhow::bail!("--capabilities takes no other arguments");
@@ -1087,9 +1070,6 @@ fn run() -> Result<()> {
             anyhow::bail!(
                 "--json=greeg covers searches and the symbol verbs; this command takes --json"
             );
-        }
-        if !verb.is_empty() {
-            json_notice(c);
         }
         let r = match cmd {
             Cmd::Index {
@@ -1202,7 +1182,6 @@ fn run() -> Result<()> {
     };
     let mut opts = build_options(c, pattern, paths)?;
     opts.fixed_strings = fixed;
-    json_notice(c);
     // before the answer: a `| head` may end the run before its end
     if c.from_grep && !c._no_messages {
         // a glob that names files brings back the ignored and hidden ones it names
@@ -1600,10 +1579,8 @@ fn write_search(
     if c.json() && !plain {
         if c.json_rg() {
             render_rg_json(out, result, report)?;
-        } else if c.json_greeg() {
-            json_native::search(out, result, report)?;
         } else {
-            render_json(out, result, report)?;
+            json_native::search(out, result, report)?;
         }
         return Ok(Vec::new());
     }
@@ -2689,15 +2666,6 @@ fn json_data(b: &[u8]) -> serde_json::Value {
     }
 }
 
-/// A path in greeg's own JSON fields (verbs, facets): the string when it is
-/// UTF-8, otherwise `{"bytes": <base64>}`, so every path can be reopened.
-pub(crate) fn json_rel(b: &[u8]) -> serde_json::Value {
-    match std::str::from_utf8(b) {
-        Ok(s) => serde_json::Value::from(s),
-        Err(_) => serde_json::json!({ "bytes": base64(b) }),
-    }
-}
-
 pub(crate) fn base64(b: &[u8]) -> String {
     const A: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::with_capacity(b.len().div_ceil(3) * 4);
@@ -2797,19 +2765,13 @@ pub(crate) fn file_lines(r: &ScanResult, sf: &ShownFile) -> Vec<FileLine> {
     out
 }
 
-/// One file's `match` and `context` records in ripgrep's shape. `rg` writes
-/// ripgrep's fields only, with offsets counted past a UTF-8 BOM, as ripgrep
-/// counts them.
-fn json_hit_records(
-    w: &mut dyn Write,
-    r: &ScanResult,
-    sf: &ShownFile,
-    rg: bool,
-) -> Result<JsonFile> {
+/// One file's `match` and `context` records as ripgrep writes them, offsets
+/// counted past a UTF-8 BOM.
+fn json_hit_records(w: &mut dyn Write, r: &ScanResult, sf: &ShownFile) -> Result<JsonFile> {
     use serde_json::json;
     let f = &r.files[sf.file];
     let mut out = JsonFile::default();
-    let bom = if rg { f.bom } else { 0 };
+    let bom = f.bom;
     for line in file_lines(r, sf) {
         let record = match line {
             FileLine::Match { hit, text } => {
@@ -2818,29 +2780,13 @@ fn json_hit_records(
                 out.matches += subs.len();
                 out.lines += 1;
                 out.text_bytes += text.len();
-                if rg {
-                    json!({"type":"match","data":{
-                        "path":json_data(&f.rel),
-                        "lines":json_data(&text),
-                        "line_number":h.line,
-                        "absolute_offset":h.line_start - bom,
-                        "submatches":subs
-                    }})
-                } else {
-                    let sym = h.chain.last().map(|(k, n)| json!({"name": n, "kind": k.name(), "container": chain_str(&h.chain[..h.chain.len()-1])}));
-                    json!({"type":"match","data":{
-                        "path":json_data(&f.rel),
-                        "lines":json_data(&text),
-                        "line_number":h.line,
-                        "absolute_offset":h.line_start,
-                        "submatches":subs,
-                        "kind":h.kind.name(),
-                        "symbol":sym,
-                        "file_flags":f.flags.names(),
-                        "score":h.score,
-                        "clipped":h.clipped(r.opts.max_columns)
-                    }})
-                }
+                json!({"type":"match","data":{
+                    "path":json_data(&f.rel),
+                    "lines":json_data(&text),
+                    "line_number":h.line,
+                    "absolute_offset":h.line_start - bom,
+                    "submatches":subs
+                }})
             }
             FileLine::Context { line, start, end } => {
                 let b = &f.src.as_ref().expect("context comes from the source").bytes;
@@ -2851,116 +2797,6 @@ fn json_hit_records(
         writeln!(w)?;
     }
     Ok(out)
-}
-
-fn render_json(w: &mut impl Write, r: &ScanResult, rep: &Report) -> Result<()> {
-    let t0 = std::time::Instant::now();
-    legacy_head(w, r, rep)?;
-    let mut acc = LegacyPrinted::default();
-    for sf in &rep.files {
-        legacy_file(w, r, sf, &mut acc)?;
-    }
-    legacy_tail(w, r, rep, &acc, t0)
-}
-
-/// What legacy `--json` has written so far, for its summary.
-#[derive(Default)]
-struct LegacyPrinted {
-    bytes: usize,
-    lines: usize,
-    matches: usize,
-    searched: u64,
-}
-
-/// The `facets` record of a broad answer.
-fn legacy_head(w: &mut impl Write, r: &ScanResult, rep: &Report) -> Result<()> {
-    use serde_json::json;
-    if let Some(fc) = &rep.facets {
-        serde_json::to_writer(
-            &mut *w,
-            &json!({"type":"facets","data":{
-                "total":r.stats.total_hits,"files":r.stats.files_matched,
-                "by_kind":fc.by_kind.iter().map(|(k,n)| json!([k.name(), n])).collect::<Vec<_>>(),
-                "by_dir":fc.by_dir,"by_lang":fc.by_lang,"by_flag":fc.by_flag,
-                "definitions_total":fc.defs_total,"demoted_definitions":fc.demoted_defs,
-                "imported_by":fc.import_files.iter().map(|&fi| json_rel(&r.files[fi].rel)).collect::<Vec<_>>()
-            }}),
-        )?;
-        writeln!(w)?;
-    }
-    Ok(())
-}
-
-/// One file's `begin`, `match`/`context` and `end` records.
-fn legacy_file(
-    w: &mut impl Write,
-    r: &ScanResult,
-    sf: &ShownFile,
-    acc: &mut LegacyPrinted,
-) -> Result<()> {
-    use serde_json::json;
-    let f = &r.files[sf.file];
-    serde_json::to_writer(
-        &mut *w,
-        &json!({"type":"begin","data":{"path":json_data(&f.rel)}}),
-    )?;
-    writeln!(w)?;
-    let n = json_hit_records(w, r, sf, false)?;
-    acc.bytes += n.text_bytes;
-    acc.lines += n.lines;
-    acc.matches += n.matches;
-    serde_json::to_writer(
-        &mut *w,
-        &json!({"type":"end","data":{"path":json_data(&f.rel),"binary_offset":f.binary_offset,"stats":{"elapsed":{"secs":0,"nanos":0,"human":"0s"},"searches":1,"searches_with_match":1,"bytes_searched":legacy_bytes_searched(f),"bytes_printed":0,"matched_lines":f.total,"matches":n.matches,"shown":n.lines}}}),
-    )?;
-    writeln!(w)?;
-    Ok(())
-}
-
-/// The `summary` and `footer` records; `t0` is when writing began.
-fn legacy_tail(
-    w: &mut impl Write,
-    r: &ScanResult,
-    rep: &Report,
-    acc: &LegacyPrinted,
-    t0: std::time::Instant,
-) -> Result<()> {
-    use serde_json::json;
-    let ft = &rep.footer;
-    let el = t0.elapsed() + std::time::Duration::from_secs_f64(r.stats.elapsed_ms / 1e3);
-    let elapsed = json!({"secs":el.as_secs(),"nanos":el.subsec_nanos(),"human":format!("{:.6}s", el.as_secs_f64())});
-    let searched = acc.searched + r.files.iter().map(legacy_bytes_searched).sum::<u64>();
-    serde_json::to_writer(
-        &mut *w,
-        &json!({"type":"summary","data":{"elapsed_total":elapsed,"stats":{"elapsed":elapsed,"searches":r.stats.files_searched,"searches_with_match":r.stats.files_matched,"bytes_searched":searched,"bytes_printed":acc.bytes,"matched_lines":r.stats.total_hits,"matches":acc.matches,"matched_lines_shown":acc.lines}}}),
-    )?;
-    writeln!(w)?;
-    let mut footer = json!({"type":"footer","data":{
-        "hits_shown":ft.hits_shown,"hits_total":ft.hits_total,"files_shown":ft.files_shown,"files_total":ft.files_total,
-        "demoted_files":ft.demoted_files,"demoted_hits":ft.demoted_hits,"skipped_binary":ft.skipped_binary,"skipped_huge":ft.skipped_huge,
-        "rung":ft.rung.name(),"rung_names":match &ft.rung { greeg_query::Rung::SplitTokens(v) | greeg_query::Rung::Fuzzy(v) => v.clone(), _ => vec![] },"ignored_only":ft.ignored_only,"est_tokens":ft.est_tokens,"elapsed_ms":ft.elapsed_ms,"hints":ft.hints,
-        "related":rep.related.iter().map(|(n,c)| json!([n, c])).collect::<Vec<_>>(),
-        "layout":format!("{:?}", rep.layout).to_lowercase(),
-        "outcome":verbs_out::outcome_json(&Outcome::of_answer(r, ft))
-    }});
-    if ft.binary_tails > 0 {
-        let data = footer["data"].as_object_mut().expect("footer data");
-        let at = data.keys().position(|k| k == "skipped_binary").unwrap_or(0) + 1;
-        data.shift_insert(at, "binary_tails".into(), ft.binary_tails.into());
-    }
-    serde_json::to_writer(&mut *w, &footer)?;
-    writeln!(w)?;
-    Ok(())
-}
-
-/// Bytes searched as legacy offsets count them, a UTF-8 BOM included: the
-/// whole file, or up to the line of the NUL that ended its search.
-fn legacy_bytes_searched(f: &greeg_query::FileResult) -> u64 {
-    if f.binary_offset.is_some() {
-        f.searched + u64::from(f.bom)
-    } else {
-        f.size
-    }
 }
 
 /// `--json=rg`: ripgrep's records only, for every match, in path order.
@@ -2998,7 +2834,7 @@ fn rg_json_file(
         &json!({"type":"begin","data":{"path":json_data(&f.rel)}}),
     )?;
     buf.push(b'\n');
-    let n = json_hit_records(&mut buf, r, sf, true)?;
+    let n = json_hit_records(&mut buf, r, sf)?;
     w.write_all(&buf)?;
     serde_json::to_writer(
         &mut *w,
@@ -3074,8 +2910,6 @@ mod tests {
             assert_eq!(base64(raw), b64);
         }
         assert_eq!(json_data(b"x\xfe"), serde_json::json!({"bytes": "eP4="}));
-        assert_eq!(json_rel(b"a\tb.rs"), serde_json::json!("a\tb.rs"));
-        assert_eq!(json_rel(b"x\xfe"), serde_json::json!({"bytes": "eP4="}));
     }
 
     #[test]
@@ -3208,37 +3042,35 @@ mod tests {
     /// the timings at a fixed width, as its bytes are.
     #[test]
     fn max_bytes_keeps_the_same_answer_whatever_the_clock() {
-        for dialect in ["--json=greeg", "--json=legacy"] {
-            let cli = Cli::try_parse_from(["greeg", dialect, "x"]).unwrap();
-            let c = &cli.common;
-            let opts = Options {
-                pattern: "x".into(),
-                budget: 0,
-                ..Default::default()
-            };
-            let mut result = greeg_query::stdin::scan(&opts, "x\n".repeat(2_000).into()).unwrap();
-            let report = greeg_query::shape::shape(&mut result);
-            let fmt = Fmt {
-                chain: false,
-                stats: false,
-                line_numbers: false,
-                stdin: true,
-                cols: 0,
-            };
-            let kept = |result: &mut ScanResult, ms: f64, cap: usize| {
-                result.stats.elapsed_ms = ms;
-                let r = keep_within(c, result, report.clone(), fmt, cap).ok()?;
-                // legacy JSON adds the render's own time
-                let out = render_search(c, result, &r, fmt).unwrap().0;
-                Some(greeg_query::tokens::timeless(&out).into_owned())
-            };
-            for cap in (300..3_000).step_by(7) {
-                assert_eq!(
-                    kept(&mut result, 0.0, cap),
-                    kept(&mut result, 1234.567890123, cap),
-                    "{dialect} --max-bytes {cap}"
-                );
-            }
+        let dialect = "--json=greeg";
+        let cli = Cli::try_parse_from(["greeg", dialect, "x"]).unwrap();
+        let c = &cli.common;
+        let opts = Options {
+            pattern: "x".into(),
+            budget: 0,
+            ..Default::default()
+        };
+        let mut result = greeg_query::stdin::scan(&opts, "x\n".repeat(2_000).into()).unwrap();
+        let report = greeg_query::shape::shape(&mut result);
+        let fmt = Fmt {
+            chain: false,
+            stats: false,
+            line_numbers: false,
+            stdin: true,
+            cols: 0,
+        };
+        let kept = |result: &mut ScanResult, ms: f64, cap: usize| {
+            result.stats.elapsed_ms = ms;
+            let r = keep_within(c, result, report.clone(), fmt, cap).ok()?;
+            let out = render_search(c, result, &r, fmt).unwrap().0;
+            Some(greeg_query::tokens::timeless(&out).into_owned())
+        };
+        for cap in (300..3_000).step_by(7) {
+            assert_eq!(
+                kept(&mut result, 0.0, cap),
+                kept(&mut result, 1234.567890123, cap),
+                "{dialect} --max-bytes {cap}"
+            );
         }
     }
 

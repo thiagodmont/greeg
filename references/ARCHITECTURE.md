@@ -784,8 +784,8 @@ one file can answer differently. Also:
 
 ### Unbudgeted answers stream
 
-A `--budget 0` content search (text, `--json=rg`, `--json=greeg` or
-`--json=legacy`, without `--max-bytes`, `--explain` or `--matching discover`)
+A `--budget 0` content search (text, `--json=rg` or `--json=greeg`, without
+`--max-bytes`, `--explain` or `--matching discover`)
 writes each matched file once the files before it in path order are written,
 so memory is bounded by the files in flight instead of the matches: a broad
 query on TypeScript keeps about 200 MB instead of 1.7 GB. Files are read by
@@ -810,17 +810,9 @@ bounds its own estimated tokens once its smallest answer fits (that answer is
 written regardless), `--budget 0` writes everything, and
 `outcome.truncated_by` says when the budget cut it. Serde structs in `json_native.rs` define it.
 
-`--json=legacy`, what bare `--json` meant through 0.10 and removed in 0.12
-([migrating](JSON.md#migrating-from-bare---json)), keeps ripgrep's JSON Lines
-schema, adding `kind`, `symbol`, `file_flags` and `score` to match records,
-plus `facets` and `footer` record types. `--budget` bounds its own size, as
-for `--json=greeg`: `footer.outcome.complete` is false and
-`footer.outcome.truncated_by` is `"budget"` when the budget left matches out.
-Its `show`, `outline` and `map` footers carry an `outcome` too. Its `absolute_offset` counts a UTF-8 BOM, as it
-always has. `end.bytes_searched` is the file's size, or the bytes before the
-line of a NUL that ended its search, a BOM included; the footer adds
-`binary_tails` when there are any. Every search and search-verb footer has the `outcome` object
-described under [When nothing matches](#when-nothing-matches).
+`--json=legacy`, what bare `--json` meant through 0.10, was removed in 0.12.1
+([migrating](JSON.md#migrating-from-bare---json)); it exits 2 before any
+work, naming `--json`.
 
 `--json=rg` is ripgrep's dialect, and nothing else:
 - `begin`, `match`, `context`, `end` and `summary` records with the fields
@@ -840,8 +832,7 @@ described under [When nothing matches](#when-nothing-matches).
   was given (`./a.txt` for `.`), as in every other format.
 - A NUL byte ends a file's search as described under
   [Binary files](#binary-files); `end.binary_offset` is its offset, in these
-  coordinates. In `--json=legacy` it counts a UTF-8 BOM, as
-  `absolute_offset` does.
+  coordinates.
 
 `bench/matching.py` checks every search case under `--json=rg` against
 `rg --json` byte for byte, timings aside, in both backends.
