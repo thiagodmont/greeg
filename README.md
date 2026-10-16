@@ -68,7 +68,8 @@ Protocols, raw data and caveats: [`references/BENCH.md`](references/BENCH.md).
 
 ## Install
 
-macOS (arm64, x86_64) or Linux (x86_64, aarch64). ripgrep is not required.
+macOS (arm64, x86_64) or Linux (x86_64, aarch64; glibc 2.35+). ripgrep is not
+required.
 
 ```bash
 brew install thiagodmont/greeg/greeg

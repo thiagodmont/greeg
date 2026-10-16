@@ -758,7 +758,11 @@ pub fn run(agent: Agent) -> Result<()> {
         Ok(v) => v,
         Err(_) => return Ok(()),
     };
-    if v.get("tool_name").and_then(|t| t.as_str()) != Some("Bash") {
+    // the reply is a PreToolUse one; another event gets none
+    if v.get("tool_name").and_then(|t| t.as_str()) != Some("Bash")
+        || v.get("hook_event_name")
+            .is_some_and(|e| e.as_str() != Some("PreToolUse"))
+    {
         return Ok(());
     }
     let Some(tool_input) = v.get("tool_input") else {
