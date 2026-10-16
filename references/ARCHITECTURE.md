@@ -306,7 +306,8 @@ remaining symbol-verb and selection inconsistencies.
 
 ### Agent hook contract
 
-The hook accepts one simple `rg` invocation and emits `greeg --matching exact`
+The hook accepts a simple `rg` or `grep -r` invocation (alone, in a list or
+piped into `head`) and emits `greeg --matching exact`
 with an explicit `--max-filesize`: the supplied byte limit, or `18446744073709551615`
 when no limit was requested. This prevents the native 4 MiB default from omitting
 large files. Explicit zero retains its zero-byte meaning. Reading larger files
@@ -326,7 +327,9 @@ Direct `greeg` calls retain the exact/discovery defaults described above.
 | `--json`, `--stats`, sorting, suppressed diagnostics, unknown/unsupported flags | Decline; retain the original output/error contract |
 | Paths such as `./rg` or `/usr/bin/rg`, wrappers, assignments | Decline; do not substitute another executable |
 | `;`, `&&`, `\|\|` and newline lists (`cd src && rg …`) | Rewrite each eligible `rg` command on its own; keep every other byte. Exit statuses agree (0/1/2), so the list's control flow is unchanged. For Codex, only a list of rewritten commands: Codex runs an allowed rewrite without asking, so another command in it would skip its approval |
-| Pipelines, background jobs, subshells/groups, substitutions, here-documents, `$'…'`/`$"…"` quoting | Decline the entire command |
+| A search piped into `head`, `head -N`, `head -n N`, `head -nN` or `head --lines=N` | Rewrite the search, keep the `head`: it shows greeg's best lines and may cut its closing summary. For Codex too: that `head` reads only its stdin. Not recorded for stats (a replay would compare rg's whole output) |
+| Other pipelines (`\| grep`, `\| wc`, `\| xargs`, `head -c`, a search reading stdin) | Leave that pipeline as it is: its reader may parse the original tool's lines |
+| `\|&`, a pipe continued on the next line, background jobs, subshells/groups, substitutions, here-documents, `$'…'`/`$"…"` quoting | Decline the entire command |
 | Redirections | Leave that command as it is |
 | An unquoted glob in `--include=`, `--exclude=` or `--exclude-dir=` | Rewrite when the command runs in the hook's working directory and no name there starts so (bash then passes the glob on; zsh stops the original with "no matches found"). Decline after another command (a `cd`) or when such a name exists |
 | Comments, continuations, expansions, other unquoted globs, malformed quoting | Decline; quoted metacharacters remain literal |
@@ -353,7 +356,9 @@ make limited ranked output complete. File/count differential tests cover the
 recorded fixture and flags, not all ripgrep inputs. Configure the host to disable
 the hook when original output or unverified behavior is required. No grep, JSON,
 or pipeline rewrite should be re-enabled without end-to-end equivalence tests.
-`grep -r` is rewritten with one: `rewritten_greps_find_the_lines_grep_finds`
+`| head` is kept with one: `head_shows_the_first_lines_of_a_rewritten_search_and_nothing_else`
+runs the rewrites through `/bin/sh` and checks the line count, status and
+stderr. `grep -r` is rewritten with one: `rewritten_greps_find_the_lines_grep_finds`
 runs each case through the system grep and the rewritten greeg on a tree
 without ignored files and compares exit status and matched lines (BSD grep on
 macOS, GNU grep in CI).

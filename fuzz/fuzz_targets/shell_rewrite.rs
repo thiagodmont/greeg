@@ -23,8 +23,11 @@ fuzz_target!(|data: &[u8]| {
             "{cmd:?}"
         );
     }
-    let before = rewrite::list_segments(cmd).expect("a rewritten line splits");
-    let after = rewrite::list_segments(&rw.command).expect("the rewrite splits");
+    let stages = |s: &str| -> Vec<std::ops::Range<usize>> {
+        let segments = rewrite::list_segments(s).expect("a rewritten line splits");
+        segments.into_iter().flat_map(|g| g.stages).collect()
+    };
+    let (before, after) = (stages(cmd), stages(&rw.command));
     assert_eq!(before.len(), after.len(), "{cmd:?}");
     // restore each original command: only the rewritten ones may have changed
     let mut parts = rw.parts.iter();

@@ -351,6 +351,7 @@ fn rewrite_words(seg: &str) -> Result<Part, String> {
         rewritten,
         command,
         after_other: false,
+        piped: false,
         unquoted_glob,
         regex,
     })
@@ -751,22 +752,33 @@ fn bracket(c: &[char], mut i: usize, out: &mut String) -> Result<usize, String> 
     }
 }
 
-/// A command line split at its top-level `;`, `&&`, `||` and newlines: each
-/// segment's byte range. `Err` names shell syntax this does not model, so a
-/// split could be wrong: pipes, background jobs, subshells and groups,
-/// substitutions, here-documents, comments and line continuations.
-pub(crate) fn list_segments(s: &str) -> Result<Vec<std::ops::Range<usize>>, &'static str> {
+/// A command of a list: the byte ranges of its pipeline stages.
+pub(crate) struct Segment {
+    pub stages: Vec<std::ops::Range<usize>>,
+}
+
+/// A command line split at its top-level `;`, `&&`, `||` and newlines, each
+/// command at its pipes. `Err` names shell syntax this does not model, so a
+/// split could be wrong: background jobs, subshells and groups, substitutions,
+/// here-documents, comments and line continuations.
+pub(crate) fn list_segments(s: &str) -> Result<Vec<Segment>, &'static str> {
     let b = s.as_bytes();
     let mut out = Vec::new();
-    let mut start = 0;
+    let mut stage = 0;
+    let mut stages = Vec::new();
     let (mut single, mut double, mut escaped) = (false, false, false);
     // the next byte starts a word: after a separator or an unescaped blank
     let mut word_start = true;
+    // a `|` with no command after it yet: a newline would continue the pipe
+    let mut piping = false;
     let mut i = 0;
     while i < b.len() {
         let c = b[i];
         let next = b.get(i + 1).copied();
         let at_word = std::mem::replace(&mut word_start, false);
+        if !matches!(c, b' ' | b'\t' | b'\n') {
+            piping = false;
+        }
         if single {
             single = c != b'\'';
         } else if escaped {
@@ -801,19 +813,29 @@ pub(crate) fn list_segments(s: &str) -> Result<Vec<std::ops::Range<usize>>, &'st
                 b'<' if next == Some(b'<') => return Err("here-document"),
                 b'#' if at_word => return Err("shell comment"),
                 b';' if next == Some(b';') => return Err("case syntax"),
+                b'\n' if piping => return Err("pipeline across lines"),
                 b';' | b'\n' => sep = 1,
                 b'&' if next == Some(b'&') => sep = 2,
                 b'|' if next == Some(b'|') => sep = 2,
-                b'|' => return Err("pipeline"),
+                b'|' if next == Some(b'&') => return Err("pipeline of stderr"),
+                b'|' => {
+                    stages.push(stage..i);
+                    stage = i + 1;
+                    word_start = true;
+                    piping = true;
+                }
                 // `2>&1`, `>&2` and `&>` redirect; any other `&` is a background job
                 b'&' if next == Some(b'>') || (i > 0 && matches!(b[i - 1], b'>' | b'<')) => {}
                 b'&' => return Err("background job"),
                 _ => {}
             }
             if sep > 0 {
-                out.push(start..i);
+                stages.push(stage..i);
+                out.push(Segment {
+                    stages: std::mem::take(&mut stages),
+                });
                 i += sep;
-                start = i;
+                stage = i;
                 word_start = true;
                 continue;
             }
@@ -823,8 +845,31 @@ pub(crate) fn list_segments(s: &str) -> Result<Vec<std::ops::Range<usize>>, &'st
     if single || double || escaped {
         return Err("unterminated quote or escape");
     }
-    out.push(start..b.len());
+    stages.push(stage..b.len());
+    out.push(Segment { stages });
     Ok(out)
+}
+
+/// `head`, `head -N`, `head -n N`, `head -nN` or `head --lines=N`: it prints
+/// the first lines it reads and touches nothing else.
+fn is_head(stage: &str) -> bool {
+    let Ok(w) = shell_words(stage) else {
+        return false;
+    };
+    let count = |n: &str| !n.is_empty() && n.bytes().all(|c| c.is_ascii_digit());
+    match w.iter().map(String::as_str).collect::<Vec<_>>()[..] {
+        ["head"] => true,
+        ["head", "-n", n] => count(n),
+        ["head", f] => [
+            f.strip_prefix("--lines="),
+            f.strip_prefix("-n"),
+            f.strip_prefix('-'),
+        ]
+        .into_iter()
+        .flatten()
+        .any(count),
+        _ => false,
+    }
 }
 
 /// `seg` without the blanks around it (spaces and tabs, which the shell
@@ -890,6 +935,8 @@ pub struct Part {
     /// Another command runs before it in the line (a `cd`, for one), so its
     /// stats record could not be replayed as it ran.
     pub after_other: bool,
+    /// Its output goes to `head`, which the stats record would not replay.
+    pub piped: bool,
     /// An unquoted `--include=*.rs`-style word: the caller checks that no
     /// file in the working directory is named so.
     pub unquoted_glob: bool,
@@ -903,10 +950,12 @@ pub struct Rewrite {
     pub whole: bool,
 }
 
-/// A simple rg command, or each rg command of a `;`/`&&`/`||` list, becomes
-/// greeg; every other byte of the line is kept. Exit statuses agree (0 found,
-/// 1 not, 2 error), so the list's control flow is unchanged. Pipelines and
-/// other compound syntax are declined: a consumer may expect rg's output.
+/// A simple rg or recursive grep command, or each one of a `;`/`&&`/`||`
+/// list, becomes greeg; every other byte of the line is kept. Exit statuses
+/// agree (0 found, 1 not, 2 error), so the list's control flow is unchanged.
+/// A search piped into `head` keeps it (head shows greeg's best lines);
+/// other pipelines and compound syntax are declined: a consumer may expect
+/// the original tool's output.
 pub fn rewrite_full(cmd: &str) -> Result<Rewrite, String> {
     let segments = list_segments(cmd)?;
     let mut command = String::with_capacity(cmd.len() + 64);
@@ -914,13 +963,21 @@ pub fn rewrite_full(cmd: &str) -> Result<Rewrite, String> {
     let mut why = None;
     let mut env = false;
     let mut at = 0;
-    for r in segments {
-        let (lead, body) = trim_blanks(&cmd[r.clone()]);
-        if body.is_empty() {
+    for seg in segments {
+        let (lead, body) = trim_blanks(&cmd[seg.stages[0].clone()]);
+        if body.is_empty() && seg.stages.len() == 1 {
             continue;
         }
+        let rewritten = match &seg.stages[..] {
+            [_] => rewrite_words(body),
+            [_, then] if is_head(&cmd[then.clone()]) => rewrite_words(body).map(|mut p| {
+                p.piped = true;
+                p
+            }),
+            _ => Err("pipeline (only `| head [-n N]` is kept)".into()),
+        }
         // a `cd` before it may change the directory its glob would match in
-        let rewritten = rewrite_words(body).and_then(|p| match why {
+        .and_then(|p| match why {
             Some(_) if p.unquoted_glob => {
                 Err("an unquoted glob after another command, in a directory not known yet".into())
             }
@@ -929,20 +986,24 @@ pub fn rewrite_full(cmd: &str) -> Result<Rewrite, String> {
         match rewritten {
             Ok(mut p) => {
                 p.after_other = why.is_some();
-                command.push_str(&cmd[at..r.start + lead]);
+                let from = seg.stages[0].start + lead;
+                command.push_str(&cmd[at..from]);
                 command.push_str(&p.command);
-                at = r.start + lead + body.len();
+                at = from + body.len();
                 parts.push(p);
             }
-            // left as it is; an rg command's reason says more than another's
+            // left as it is; a search's reason says more than another's
             Err(e) => {
-                env |= changes_environment(body);
-                let rg = shell_words(body).is_ok_and(|w| {
+                env |= seg
+                    .stages
+                    .iter()
+                    .any(|r| changes_environment(trim_blanks(&cmd[r.clone()]).1));
+                let search = shell_words(body).is_ok_and(|w| {
                     w.first()
                         .is_some_and(|f| matches!(f.as_str(), "rg" | "grep" | "egrep" | "fgrep"))
                 });
-                if rg && !why.as_ref().is_some_and(|(was_rg, _)| *was_rg) || why.is_none() {
-                    why = Some((rg, e));
+                if search && !why.as_ref().is_some_and(|(was, _)| *was) || why.is_none() {
+                    why = Some((search, e));
                 }
             }
         }
