@@ -7,8 +7,9 @@
 //! only in that Codex applies a rewrite solely when it comes with
 //! `permissionDecision: allow`, which Claude Code would read as an auto-allow.
 //!
-//! Only simple `rg` commands qualify. Grep dialects, compound commands,
-//! explicit executable paths and shell expansion stay with the original tool.
+//! `rg` and recursive `grep` commands qualify, alone, in a `;`/`&&`/`||`
+//! list or piped into `head`. Other greps, pipelines, subshells, explicit executable paths and
+//! shell expansion stay with the original tool.
 
 use anyhow::{Context, Result, bail};
 use serde_json::{Value, json};
@@ -79,9 +80,14 @@ or a path starts with `-`, put `--` before it: `greeg -- -x src`, `greeg foo -- 
 
 const CLAUDE_HOOK_NOTES: &str = "## Hook notes
 
-The installed PreToolUse hook (`greeg hook run`) rewrites simple `rg` Bash
-calls into `greeg --matching exact`. Grep, JSON, pipes, compound commands,
-comments, expansions and explicit executable paths stay unchanged. PreToolUse hooks run in parallel and the last `updatedInput`
+The installed PreToolUse hook (`greeg hook run`) rewrites `rg` and `grep -r`
+Bash calls into `greeg --matching exact`, also each one in a `;`/`&&`/`||`
+list or piped into `head -N` (head then shows greeg's best lines), with a
+trailing `2>/dev/null`, `2>&1` or `</dev/null` kept. A
+rewritten `grep -r` skips ignored, hidden and binary files, as rg does, and
+says so on stderr (`-uu` searches ignored and hidden files). Other greps,
+JSON, other pipes, subshells, comments, expansions and explicit executable
+paths stay unchanged. PreToolUse hooks run in parallel and the last `updatedInput`
 wins, so another Bash rewriter (for example RTK) can override or be overridden by
 this one; position in `settings.json` does not order them. Permission allow rules
 such as `Bash(rg:*)` no longer match the rewritten command: pair them with
@@ -90,9 +96,15 @@ such as `Bash(rg:*)` no longer match the rewritten command: pair them with
 
 const CODEX_HOOK_NOTES: &str = "## Hook notes
 
-The installed PreToolUse hook (`greeg hook run --agent codex`) rewrites plain
-`rg` shell calls into `greeg --matching exact`. Grep, JSON, pipes, compound
-commands, comments, expansions and explicit executable paths stay unchanged. PreToolUse hooks run in parallel and the
+The installed PreToolUse hook (`greeg hook run --agent codex`) rewrites `rg`
+and `grep -r` shell calls into `greeg --matching exact`, also one piped into
+`head -N` (head then shows greeg's best lines), with a trailing
+`2>/dev/null`, `2>&1` or `</dev/null` kept, and a `;`/`&&`/`||` list of
+them only (a list with any other command stays unchanged). A rewritten
+`grep -r` skips ignored, hidden and binary files, as rg does, and says so on
+stderr (`-uu` searches ignored and hidden files). Other greps, JSON, other
+pipes, subshells, comments, expansions and explicit executable paths
+stay unchanged. PreToolUse hooks run in parallel and the
 rewrite from the hook that finishes last wins, so another shell rewriter (for
 example RTK) can override or be overridden by this one; position in `config.toml`
 does not order them.
@@ -670,7 +682,7 @@ fn hook_reply(agent: Agent, tool_input: &Value, command: &str) -> Value {
 
 /// What the hook does with `cmd` in this environment: the rewrite, or why
 /// the original command runs unchanged.
-fn decide(cmd: &str, agent: Agent) -> Result<Rewrite, String> {
+fn decide(cmd: &str, agent: Agent, cwd: &Path) -> Result<Rewrite, String> {
     // A configured ripgrep can select another file set or run a preprocessor.
     if std::env::var_os("RIPGREP_CONFIG_PATH").is_some_and(|p| !p.is_empty()) {
         return Err("RIPGREP_CONFIG_PATH is set (ripgrep configuration is not interpreted)".into());
@@ -686,6 +698,11 @@ fn decide(cmd: &str, agent: Agent) -> Result<Rewrite, String> {
             "the grep pattern translates to `{r}`, which greeg's regex does not take"
         ));
     }
+    if rw.parts.iter().any(|p| p.unquoted_glob) && !globs_stay_literal(cwd) {
+        return Err(
+            "the shell would expand an unquoted `--include=`/`--exclude=` glob here".into(),
+        );
+    }
     // Codex runs an allowed rewrite without asking: it may hold only commands
     // the hook wrote
     if agent == Agent::Codex && !rw.whole {
@@ -697,11 +714,28 @@ fn decide(cmd: &str, agent: Agent) -> Result<Rewrite, String> {
     Ok(rw)
 }
 
+/// No name in `dir` starts as an unquoted `--include=`-style glob does, so
+/// the shell passes the glob on as it is (bash; zsh stops at the unmatched
+/// glob, so the original command would fail).
+fn globs_stay_literal(dir: &Path) -> bool {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return false;
+    };
+    entries.flatten().all(|e| {
+        let name = e.file_name();
+        let name = name.as_encoded_bytes();
+        !(name.starts_with(b"--include=")
+            || name.starts_with(b"--exclude=")
+            || name.starts_with(b"--exclude-dir="))
+    })
+}
+
 /// `greeg hook explain COMMAND`: the command the hook would run instead
 /// (exit 0), or `declined: REASON` (exit 1).
 pub fn explain(cmd: &str, agent: Agent) -> Result<bool> {
     let mut w = std::io::stdout().lock();
-    match decide(cmd, agent) {
+    let cwd = std::env::current_dir().unwrap_or_default();
+    match decide(cmd, agent, &cwd) {
         Ok(rw) => {
             writeln!(w, "{}", rw.command)?;
             Ok(true)
@@ -729,19 +763,18 @@ pub fn run(agent: Agent) -> Result<()> {
     let Some(cmd) = tool_input.get("command").and_then(|c| c.as_str()) else {
         return Ok(());
     };
-    if let Ok(rw) = decide(cmd, agent) {
+    // the directory the command starts in; a `cd` in the line may leave it
+    let cwd = v
+        .get("cwd")
+        .and_then(|c| c.as_str())
+        .map(PathBuf::from)
+        .or_else(|| std::env::current_dir().ok())
+        .unwrap_or_default();
+    if let Ok(rw) = decide(cmd, agent, &cwd) {
         let out = hook_reply(agent, tool_input, &rw.command);
         let mut w = std::io::stdout().lock();
         serde_json::to_writer(&mut w, &out)?;
         writeln!(w)?;
-        // Opt-in stats use the unchanged working directory, which a command
-        // earlier in the line (a `cd`) may have left.
-        let cwd = v
-            .get("cwd")
-            .and_then(|c| c.as_str())
-            .map(PathBuf::from)
-            .or_else(|| std::env::current_dir().ok())
-            .unwrap_or_default();
         let session = v.get("session_id").and_then(|s| s.as_str());
         for p in rw.parts.iter().filter(|p| !p.after_other && !p.piped) {
             crate::stats::record_hook(&cwd, session, &p.original, &p.rewritten);
@@ -991,14 +1024,8 @@ mod tests {
             ("rg a\\ 2>&1", "redirection"),
             ("rg a 12>&1", "redirection"),
             ("2>&1", "redirection"),
-            (
-                "grep -rn a . 2>/dev/null",
-                "hide that greeg skips ignored files",
-            ),
-            (
-                "grep -rl a . 2> /dev/null | head",
-                "hide that greeg skips ignored files",
-            ),
+            ("grep -rn a . 2>/dev/null", "hide that greeg skips"),
+            ("grep -rl a . 2> /dev/null | head", "hide that greeg skips"),
         ] {
             let got = rewrite_full(cmd).err().unwrap_or_default();
             assert!(got.contains(why), "{cmd:?}: {got:?}");
@@ -1015,15 +1042,48 @@ mod tests {
     }
 
     #[test]
+    fn an_unquoted_include_glob_is_taken_only_where_the_shell_keeps_it() {
+        let dir = std::env::temp_dir().join(format!("greeg-glob-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let cmd = "grep -rn needle --include=*.rs .";
+        let rw = decide(cmd, Agent::Claude, &dir).unwrap();
+        assert!(rw.command.contains("-g '*.rs'"), "{}", rw.command);
+        // bash would expand the glob to this name
+        std::fs::write(dir.join("--include=x.rs"), "").unwrap();
+        let why = decide(cmd, Agent::Claude, &dir).err().unwrap_or_default();
+        assert!(why.contains("would expand"), "{why}");
+        assert!(decide("grep -rn needle '--include=*.rs' .", Agent::Claude, &dir).is_ok());
+        std::fs::remove_dir_all(&dir).unwrap();
+        // after a `cd` the directory is not known
+        let why = rewrite_full("cd src && grep -rn a --include=*.rs .")
+            .err()
+            .unwrap_or_default();
+        assert!(why.contains("directory not known"), "{why}");
+        assert!(rewrite_full("cd src && grep -rn a --include='*.rs' .").is_ok());
+        assert!(rewrite_full("rg x; grep -rn a --include=*.rs .").is_ok());
+    }
+
+    #[test]
     fn codex_gets_a_list_only_when_the_hook_wrote_every_command_in_it() {
         // Codex runs an allowed rewrite without asking
         for cmd in ["rg a; rm -rf build", "cd src && rg a", "rg a || curl x"] {
-            assert!(decide(cmd, Agent::Claude).is_ok(), "{cmd}");
-            let why = decide(cmd, Agent::Codex).err().unwrap_or_default();
+            assert!(decide(cmd, Agent::Claude, Path::new(".")).is_ok(), "{cmd}");
+            let why = decide(cmd, Agent::Codex, Path::new("."))
+                .err()
+                .unwrap_or_default();
             assert!(why.contains("Codex approves"), "{cmd}: {why}");
         }
-        for cmd in ["rg a", "rg a; rg -l b src", "rg a && rg b"] {
-            let rw = decide(cmd, Agent::Codex).unwrap();
+        // `head -N` reads only its stdin: a line of rewrites and such heads is whole
+        for cmd in ["rg a | sort", "cd src && rg a | head", "rg a | head; rm x"] {
+            assert!(decide(cmd, Agent::Codex, Path::new(".")).is_err(), "{cmd}");
+        }
+        for cmd in [
+            "rg a",
+            "rg a; rg -l b src",
+            "rg a && rg b",
+            "rg a | head -5; rg b",
+        ] {
+            let rw = decide(cmd, Agent::Codex, Path::new(".")).unwrap();
             assert!(rw.whole && !rw.command.contains("rg "), "{cmd}");
         }
     }

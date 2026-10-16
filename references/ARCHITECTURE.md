@@ -322,7 +322,7 @@ Direct `greeg` calls retain the exact/discovery defaults described above.
 | `-i -S -s -w -x -F -U`, context, type/glob, thread and numeric size limits | Forward supported flags; `-u`/`-uu` map to ignore/hidden flags |
 | Standalone `-l` / `-c` | Exact matching with paths/counts on stdout; greeg diagnostics/footer on stderr |
 | Line/heading/column/color presentation flags | Use greeg's ranked presentation; validate `--color` values |
-| `grep -r` (and `egrep`/`fgrep -r`) with `-n -i -w -x -l -E -F -e -A -B -C`, `--include`, `--exclude`, `--exclude-dir` and GNU's long names | Rewrite: the POSIX basic/extended pattern becomes the Rust regex matching the same lines (GNU's `\|`, `\+`, `\?`, `\<`, `\>`, `\b`, `\w`, `\s` kept); the file globs become `-g`. Ignore rules apply, as in rg (grep searches ignored and hidden files): greeg says so on stderr before the answer |
+| `grep -r` (and `egrep`/`fgrep -r`) with `-n -i -w -x -l -E -F -e -A -B -C`, `--include`, `--exclude`, `--exclude-dir` and GNU's long names | Rewrite: the POSIX basic/extended pattern becomes the Rust regex matching the same lines (GNU's `\|`, `\+`, `\?`, `\<`, `\>`, `\b`, `\w`, `\s` kept); the file globs become `-g`. Files are picked as rg picks them: ignored, hidden and binary files are skipped (grep searches them, and reports a binary match), and greeg says so on stderr before the answer |
 | `grep` without `-r`, `-R`, `-c`, `-h`, `-o`, `-v`, `-L`, `-q`, `-m`, `-P`, back-references, `\d` and other escapes, brace or path globs | Decline: no exact greeg equivalent |
 | `--json`, `--stats`, sorting, suppressed diagnostics, unknown/unsupported flags | Decline; retain the original output/error contract |
 | Paths such as `./rg` or `/usr/bin/rg`, wrappers, assignments | Decline; do not substitute another executable |
@@ -330,9 +330,10 @@ Direct `greeg` calls retain the exact/discovery defaults described above.
 | A search piped into `head`, `head -N`, `head -n N`, `head -nN` or `head --lines=N` | Rewrite the search, keep the `head`: it shows greeg's best lines and may cut its closing summary. For Codex too: that `head` reads only its stdin. Not recorded for stats (a replay would compare rg's whole output) |
 | Other pipelines (`\| grep`, `\| wc`, `\| xargs`, `head -c`, a search reading stdin) | Leave that pipeline as it is: its reader may parse the original tool's lines |
 | `\|&`, a pipe continued on the next line, background jobs, subshells/groups, substitutions, here-documents, `$'…'`/`$"…"` quoting | Decline the entire command |
-| `2>/dev/null`, `2> /dev/null`, `2>>/dev/null`, `2>&1`, `</dev/null` after a search's last word | Keep them byte for byte after the rewrite (stdout is unchanged). Not for `grep -r` with stderr to `/dev/null`: it would hide greeg's note that ignored files are skipped |
+| `2>/dev/null`, `2> /dev/null`, `2>>/dev/null`, `2>&1`, `</dev/null` after a search's last word | Keep them byte for byte after the rewrite (stdout is unchanged). Not for `grep -r` with stderr to `/dev/null`: it would hide greeg's note that ignored, hidden and binary files are skipped |
 | Other redirections (stdout, stderr to a file, `&>`, one before a word) | Leave that command as it is |
-| Comments, continuations, expansions, unquoted globs (including option values), malformed quoting | Decline; quoted metacharacters remain literal |
+| An unquoted glob in `--include=`, `--exclude=` or `--exclude-dir=` | Rewrite when the command runs in the hook's working directory and no name there starts so (bash then passes the glob on; zsh stops the original with "no matches found"). Decline after another command (a `cd`) or when such a name exists |
+| Comments, continuations, expansions, other unquoted globs, malformed quoting | Decline; quoted metacharacters remain literal |
 | Leading/trailing unquoted blank lines | Accept only at command boundaries; preserve escaped spaces and literal Unicode whitespace |
 | Nonempty inherited `RIPGREP_CONFIG_PATH`, even with `--no-config` | Decline conservatively; do not interpret configuration |
 

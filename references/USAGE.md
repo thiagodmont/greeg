@@ -222,21 +222,27 @@ operations; `--dry-run` previews both and writes neither.
 The hook preserves supported search arguments and requests exact matching; text
 results still use greeg's ranking and token budget. An explicit file-size flag
 preserves ripgrep's requested limit (unlimited by default), so files over 4 MiB
-are not silently omitted. A recursive `grep -r` is rewritten too: its pattern
-is translated from grep's syntax, and ignore rules apply as in rg (greeg says
-so on stderr; `-uu` searches ignored and hidden files). It leaves other grep
-forms, JSON/stats output, explicit executable paths, pipelines into anything
-but `head`, subshells and groups, comments, redirections other than
-`2>/dev/null`, `2>&1` and `</dev/null` at the end of a search, command
-substitutions and other shell expansions with the original tool. In a list joined by `;`, `&&`, `||` or
-newlines, each eligible search is rewritten on its own; a list with a command
-that can change the environment (an assignment, `export`, `source`, `alias`,
-`set`, …) is left alone. A search piped into `head` (`head`, `head -N`,
-`head -n N`) keeps the `head`, which then shows greeg's best lines instead of
-the first ones found, and may cut greeg's closing summary. A `grep -r` with
-`2>/dev/null` is left alone: it would hide greeg's note that ignored files
-were skipped. An inherited `RIPGREP_CONFIG_PATH` also disables
-rewriting. `greeg hook explain 'rg -l foo src'`
+are not silently omitted. A recursive `grep -r` (or `egrep -r`, `fgrep -r`) is
+rewritten too: its pattern is translated from grep's syntax, and files are
+selected as rg selects them: ignored, hidden and binary files are skipped,
+where grep searches them (greeg says so on stderr; `-uu` searches ignored and
+hidden files). It leaves other grep forms, JSON/stats output, explicit
+executable paths, other pipelines, subshells and groups, comments,
+redirections other than `2>/dev/null`, `2>&1` and `</dev/null` at the end of
+a search, command substitutions and other shell expansions with the original
+tool. In a list joined by `;`, `&&`, `||` or newlines, each eligible
+search is rewritten on its own; a list with a command that can change the
+environment (an assignment, `export`, `source`, `alias`, `set`, …) is left
+alone. A search piped into `head`, `head -N`, `head -n N`, `head -nN` or
+`head --lines=N` keeps the `head`, which then shows greeg's best lines instead
+of the first ones found, and may cut greeg's closing summary; other `head`
+options (`-c`, a negative count, a file) and any other reader leave the
+pipeline as it is. A `grep -r` with `2>/dev/null` is left alone: it would
+hide greeg's note on the files it skips. For Codex, which runs a rewrite without asking, a line is
+rewritten only when every command in it is one the hook rewrites, a search
+piped into such a `head` included (`cd src && rg foo` runs unchanged). A
+nonempty inherited `RIPGREP_CONFIG_PATH` also disables rewriting.
+`greeg hook explain 'rg -l foo src'`
 shows the rewrite, or why a command is left alone. See the
 [hook capability matrix](ARCHITECTURE.md#agent-hook-contract) for the
 supported subset and validation limits.
