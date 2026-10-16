@@ -7,8 +7,9 @@
 //! only in that Codex applies a rewrite solely when it comes with
 //! `permissionDecision: allow`, which Claude Code would read as an auto-allow.
 //!
-//! Only simple `rg` commands qualify. Grep dialects, compound commands,
-//! explicit executable paths and shell expansion stay with the original tool.
+//! `rg` and recursive `grep` commands qualify, alone, in a `;`/`&&`/`||`
+//! list or piped into `head`. Other greps, pipelines, subshells, explicit executable paths and
+//! shell expansion stay with the original tool.
 
 use anyhow::{Context, Result, bail};
 use serde_json::{Value, json};
@@ -79,9 +80,20 @@ or a path starts with `-`, put `--` before it: `greeg -- -x src`, `greeg foo -- 
 
 const CLAUDE_HOOK_NOTES: &str = "## Hook notes
 
-The installed PreToolUse hook (`greeg hook run`) rewrites simple `rg` Bash
-calls into `greeg --matching exact`. Grep, JSON, pipes, compound commands,
-comments, expansions and explicit executable paths stay unchanged. PreToolUse hooks run in parallel and the last `updatedInput`
+The installed PreToolUse hook (`greeg hook run`) rewrites `rg` and `grep -r`
+Bash calls into `greeg --matching exact`, also each one in a `;`/`&&`/`||`
+list or piped into `head`, `head -N`, `head -n N`, `head -nN` or
+`head --lines=N` (head then shows greeg's best lines; other `head` options and
+other readers stay unchanged). `egrep -r` and `fgrep -r` count as `grep -r`. Trailing
+redirections of stderr to `/dev/null` or stdout (`2>/dev/null`, `2>&1`, also
+`2>>` and with a space) and of stdin from `/dev/null` are kept. A rewritten
+`grep -r` skips ignored, hidden and binary files, as rg does (an `--include`
+glob brings back the files it names, as `-g` does), and says so on stderr
+(`-uu` searches ignored and hidden files), so one whose stderr goes to
+`/dev/null` or that passes `-s` runs unchanged. While a nonempty
+`RIPGREP_CONFIG_PATH` is set, every search runs unchanged. Other greps,
+JSON, other pipes, subshells, comments, expansions and explicit executable
+paths stay unchanged. PreToolUse hooks run in parallel and the last `updatedInput`
 wins, so another Bash rewriter (for example RTK) can override or be overridden by
 this one; position in `settings.json` does not order them. Permission allow rules
 such as `Bash(rg:*)` no longer match the rewritten command: pair them with
@@ -90,9 +102,22 @@ such as `Bash(rg:*)` no longer match the rewritten command: pair them with
 
 const CODEX_HOOK_NOTES: &str = "## Hook notes
 
-The installed PreToolUse hook (`greeg hook run --agent codex`) rewrites plain
-`rg` shell calls into `greeg --matching exact`. Grep, JSON, pipes, compound
-commands, comments, expansions and explicit executable paths stay unchanged. PreToolUse hooks run in parallel and the
+The installed PreToolUse hook (`greeg hook run --agent codex`) rewrites `rg`
+and `grep -r` shell calls into `greeg --matching exact`, also one piped into
+`head`, `head -N`, `head -n N`, `head -nN` or `head --lines=N` (head then
+shows greeg's best lines; other `head` options and other readers stay
+unchanged) and a `;`/`&&`/`||` list of
+them only (a list with any other command stays unchanged). `egrep -r` and
+`fgrep -r` count as `grep -r`. Trailing
+redirections of stderr to `/dev/null` or stdout (`2>/dev/null`, `2>&1`, also
+`2>>` and with a space) and of stdin from `/dev/null` are kept. A rewritten
+`grep -r` skips ignored, hidden and binary files, as rg does (an `--include`
+glob brings back the files it names, as `-g` does), and says so on stderr
+(`-uu` searches ignored and hidden files), so one whose stderr goes to
+`/dev/null` or that passes `-s` runs unchanged. While a nonempty
+`RIPGREP_CONFIG_PATH` is set, every search runs unchanged. Other greps, JSON, other
+pipes, subshells, comments, expansions and explicit executable paths
+stay unchanged. PreToolUse hooks run in parallel and the
 rewrite from the hook that finishes last wins, so another shell rewriter (for
 example RTK) can override or be overridden by this one; position in `config.toml`
 does not order them.
@@ -670,19 +695,60 @@ fn hook_reply(agent: Agent, tool_input: &Value, command: &str) -> Value {
 
 /// What the hook does with `cmd` in this environment: the rewrite, or why
 /// the original command runs unchanged.
-fn decide(cmd: &str) -> Result<Rewrite, String> {
+fn decide(cmd: &str, agent: Agent, cwd: &Path) -> Result<Rewrite, String> {
     // A configured ripgrep can select another file set or run a preprocessor.
     if std::env::var_os("RIPGREP_CONFIG_PATH").is_some_and(|p| !p.is_empty()) {
         return Err("RIPGREP_CONFIG_PATH is set (ripgrep configuration is not interpreted)".into());
     }
-    rewrite_full(cmd)
+    let rw = rewrite_full(cmd)?;
+    if let Some(r) = rw
+        .parts
+        .iter()
+        .filter_map(|p| p.regex.as_deref())
+        .find(|r| !greeg_query::pattern_compiles(r))
+    {
+        return Err(format!(
+            "the grep pattern translates to `{r}`, which greeg's regex does not take"
+        ));
+    }
+    if rw.parts.iter().any(|p| p.unquoted_glob) && !globs_stay_literal(cwd) {
+        return Err(
+            "the shell would expand an unquoted `--include=`/`--exclude=` glob here".into(),
+        );
+    }
+    // Codex runs an allowed rewrite without asking: it may hold only commands
+    // the hook wrote
+    if agent == Agent::Codex && !rw.whole {
+        return Err(
+            "Codex approves a rewrite without asking; a list with other commands runs unchanged"
+                .into(),
+        );
+    }
+    Ok(rw)
+}
+
+/// No name in `dir` starts as an unquoted `--include=`-style glob does, so
+/// the shell passes the glob on as it is (bash; zsh stops at the unmatched
+/// glob, so the original command would fail).
+fn globs_stay_literal(dir: &Path) -> bool {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return false;
+    };
+    entries.flatten().all(|e| {
+        let name = e.file_name();
+        let name = name.as_encoded_bytes();
+        !(name.starts_with(b"--include=")
+            || name.starts_with(b"--exclude=")
+            || name.starts_with(b"--exclude-dir="))
+    })
 }
 
 /// `greeg hook explain COMMAND`: the command the hook would run instead
 /// (exit 0), or `declined: REASON` (exit 1).
-pub fn explain(cmd: &str) -> Result<bool> {
+pub fn explain(cmd: &str, agent: Agent) -> Result<bool> {
     let mut w = std::io::stdout().lock();
-    match decide(cmd) {
+    let cwd = std::env::current_dir().unwrap_or_default();
+    match decide(cmd, agent, &cwd) {
         Ok(rw) => {
             writeln!(w, "{}", rw.command)?;
             Ok(true)
@@ -714,20 +780,22 @@ pub fn run(agent: Agent) -> Result<()> {
     let Some(cmd) = tool_input.get("command").and_then(|c| c.as_str()) else {
         return Ok(());
     };
-    if let Ok(rw) = decide(cmd) {
+    // the directory the command starts in; a `cd` in the line may leave it
+    let cwd = v
+        .get("cwd")
+        .and_then(|c| c.as_str())
+        .map(PathBuf::from)
+        .or_else(|| std::env::current_dir().ok())
+        .unwrap_or_default();
+    if let Ok(rw) = decide(cmd, agent, &cwd) {
         let out = hook_reply(agent, tool_input, &rw.command);
         let mut w = std::io::stdout().lock();
         serde_json::to_writer(&mut w, &out)?;
         writeln!(w)?;
-        // Opt-in stats use the unchanged working directory.
-        let cwd = v
-            .get("cwd")
-            .and_then(|c| c.as_str())
-            .map(PathBuf::from)
-            .or_else(|| std::env::current_dir().ok())
-            .unwrap_or_default();
         let session = v.get("session_id").and_then(|s| s.as_str());
-        crate::stats::record_hook(&cwd, session, &rw.original, &rw.rewritten);
+        for p in rw.parts.iter().filter(|p| !p.after_other && !p.piped) {
+            crate::stats::record_hook(&cwd, session, &p.original, &p.rewritten);
+        }
     }
     Ok(())
 }
@@ -745,9 +813,12 @@ mod tests {
             ("rg foo\\ \n", "foo "),
             ("rg foo\u{a0}\n", "foo\u{a0}"),
         ] {
-            assert_eq!(rewrite_full(command).unwrap().original, ["rg", pattern]);
+            assert_eq!(
+                rewrite_full(command).unwrap().parts[0].original,
+                ["rg", pattern]
+            );
         }
-        for command in ["rg foo\necho tail", "rg foo\\\n", "rg foo\\\n\n"] {
+        for command in ["rg foo\\\n", "rg foo\\\n\n"] {
             assert!(rewrite_full(command).is_err(), "{command:?}");
         }
     }
@@ -755,7 +826,7 @@ mod tests {
     #[test]
     fn uncertain_commands_are_declined() {
         for cmd in [
-            "grep -rl needle .",
+            "grep -rc needle .",
             "grep needle src",
             "fgrep needle file.rs",
             "egrep needle file.rs",
@@ -767,14 +838,9 @@ mod tests {
             "rg needle\\\n src",
             "rg \"nee\\\ndle\" src",
             "rg -g*.rs needle",
-            "rg needle | head",
+            "rg needle | head -c 5",
             "rg -l needle | xargs echo",
-            "rg needle && echo yes",
-            "rg needle || echo no",
-            "rg needle; echo done",
             "rg needle &",
-            "cd src && rg needle",
-            "rg needle\necho done",
             "rg -h needle",
             "rg --ignore-case=false needle",
             "rg --fixed-strings=no needle",
@@ -786,13 +852,26 @@ mod tests {
     #[test]
     fn declined_commands_name_the_reason() {
         for (cmd, why) in [
-            ("grep -rl needle .", "grep traversal"),
+            ("grep needle src", "grep without -r"),
+            ("grep -rP 'a\\d' .", "unsupported grep flag `-P`"),
+            ("grep -r '\\(a\\)\\1' .", "back-reference"),
+            ("grep -R needle .", "follows symlinks"),
+            ("grep -rc needle .", "without a match"),
+            (
+                "grep -r --include='src/*.rs' needle .",
+                "no glob equivalent",
+            ),
             ("./rg needle", "explicit executable path"),
             ("FOO=1 rg foo", "environment assignment"),
-            ("git status", "not an rg command"),
+            ("git status", "not an rg or grep command"),
             ("rg needle # comment", "shell comment"),
-            ("rg needle | head", "pipeline"),
-            ("rg needle\necho done", "several commands"),
+            (
+                "rg needle | sort",
+                "pipeline (only `| head [-n N]` is kept)",
+            ),
+            ("rg needle &", "background job"),
+            ("echo a; git status", "not an rg or grep command"),
+            ("git status; rg --pre=x a", "unsupported flag `--pre`"),
             ("rg foo > out.txt", "redirection"),
             ("rg foo $DIR", "shell expansion"),
             ("rg foo src/*.rs", "unquoted glob"),
@@ -812,6 +891,225 @@ mod tests {
         ] {
             let got = rewrite_full(cmd).err().unwrap_or_default();
             assert!(got.contains(why), "{cmd:?}: {got:?}");
+        }
+    }
+
+    #[test]
+    fn lists_rewrite_each_rg_command_and_keep_every_other_byte() {
+        let g = "greeg --matching exact --max-filesize 18446744073709551615";
+        for (cmd, want) in [
+            ("rg needle && echo yes", format!("{g} needle && echo yes")),
+            ("cd src && rg needle", format!("cd src && {g} needle")),
+            ("rg a; rg -l b src", format!("{g} a; {g} -l b src")),
+            ("rg needle\necho done", format!("{g} needle\necho done")),
+            ("rg --json a ; rg b", format!("rg --json a ; {g} b")),
+            (
+                "echo $HOME;  rg needle  ",
+                format!("echo $HOME;  {g} needle  "),
+            ),
+            ("rg 'a;b' || echo none", format!("{g} 'a;b' || echo none")),
+            ("rg x 2>&1; rg y", format!("{g} x 2>&1; {g} y")),
+            ("rg x 2>err; rg y", format!("rg x 2>err; {g} y")),
+            ("rg a | sort; rg b", format!("rg a | sort; {g} b")),
+        ] {
+            let r = rewrite_full(cmd).unwrap_or_else(|e| panic!("{cmd:?}: {e}"));
+            assert_eq!(r.command, want, "{cmd:?}");
+            for p in &r.parts {
+                assert_eq!(shell_words(&p.command).unwrap(), p.rewritten, "{cmd:?}");
+            }
+        }
+        for (cmd, why) in [
+            ("rg a & rg b", "background job"),
+            ("(rg a); rg b", "subshell"),
+            ("rg a; echo $(date)", "command substitution"),
+            ("rg a; echo \"`date`\"", "command substitution"),
+            ("rg a # c; rg b", "shell comment"),
+            ("rg a; cat <<EOF", "here-document"),
+            ("rg a; echo 'open", "unterminated quote"),
+            ("rg x 2>err; echo done", "redirection"),
+            ("rg a; echo $'it\\'s'; rg b", "ANSI-C or locale quoting"),
+            ("rg a; echo $\"x\"", "ANSI-C or locale quoting"),
+            ("[[ -d src && -f x ]] && rg a", "conditional expression"),
+            ("rg a; echo x \\\\ #; rg b", "shell comment"),
+            (
+                "export RIPGREP_CONFIG_PATH=x; rg a",
+                "change the environment",
+            ),
+            ("RIPGREP_CONFIG_PATH=x; rg a", "change the environment"),
+            ("rg a && source env.sh && rg b", "change the environment"),
+            ("alias rg='rg -i'; rg a", "change the environment"),
+            ("set -o noglob; rg a", "change the environment"),
+        ] {
+            let got = rewrite_full(cmd).err().unwrap_or_default();
+            assert!(got.contains(why), "{cmd:?}: {got:?}");
+        }
+    }
+
+    #[test]
+    fn a_list_keeps_what_the_shell_reads_as_one_word() {
+        let g = "greeg --matching exact --max-filesize 18446744073709551615";
+        // an escaped `#` and a `#` after an escaped blank are literal
+        same("rg a\\ #b; rg c", &format!("{g} 'a #b'; {g} c"));
+        same("echo x\\#; rg c", &format!("echo x\\#; {g} c"));
+        // an escaped trailing blank is part of the pattern
+        same("rg a\\ ; rg b", &format!("{g} 'a '; {g} b"));
+        same("rg a\\ ", &format!("{g} 'a '"));
+        // a trailing `;` or newline ends the only command
+        same("rg a;", &format!("{g} a;"));
+        same("rg a ;\n", &format!("{g} a ;\n"));
+        // the environment of a command alone is its own decline reason
+        let why = rewrite_full("RIPGREP_CONFIG_PATH=x rg a")
+            .err()
+            .unwrap_or_default();
+        assert!(why.contains("environment assignment"), "{why}");
+    }
+
+    #[test]
+    fn a_search_piped_into_head_keeps_the_head() {
+        let g = "greeg --matching exact --max-filesize 18446744073709551615";
+        for head in [
+            "head",
+            "head -5",
+            "head -n 5",
+            "head -n5",
+            "head --lines=5",
+            "'head' -20",
+        ] {
+            same(&format!("rg a | {head}"), &format!("{g} a | {head}"));
+            same(
+                &format!("rg a |{head}; rg b"),
+                &format!("{g} a |{head}; {g} b"),
+            );
+        }
+        let r = rewrite_full("grep -rn a src | head -20").unwrap();
+        assert!(r.command.starts_with("greeg ") && r.command.ends_with(" a src | head -20"));
+        assert!(r.whole && r.parts[0].piped);
+        assert!(!rewrite_full("rg a").unwrap().parts[0].piped);
+        for (cmd, why) in [
+            ("rg a | head -c 5", "pipeline"),
+            ("rg a | head -n -5", "pipeline"),
+            ("rg a | head -5 out.txt", "pipeline"),
+            ("rg a | head -5K", "pipeline"),
+            ("rg a | head -5 | cat", "pipeline"),
+            ("rg a | grep b | head", "pipeline"),
+            ("cat f | rg a", "pipeline"),
+            ("echo a | rg a | head", "pipeline"),
+            ("rg a |& head", "pipeline of stderr"),
+            ("rg a |\n head", "pipeline across lines"),
+            ("rg a | \n rg b", "pipeline across lines"),
+            ("rg a | head; export X=1", "change the environment"),
+            ("rg a; X=1 cmd | head", "change the environment"),
+        ] {
+            let got = rewrite_full(cmd).err().unwrap_or_default();
+            assert!(got.contains(why), "{cmd:?}: {got:?}");
+        }
+        // a pipeline into another reader is left as it is
+        let r = rewrite_full("rg a | sort; rg b").unwrap();
+        assert!(!r.whole && r.parts.len() == 1);
+    }
+
+    #[test]
+    fn redirections_that_leave_the_output_alone_are_kept() {
+        let g = "greeg --matching exact --max-filesize 18446744073709551615";
+        for kept in [
+            "2>/dev/null",
+            "2> /dev/null",
+            "2>>/dev/null",
+            "2>> /dev/null",
+            "2>&1",
+            "</dev/null",
+            "< /dev/null",
+            "2>&1 </dev/null",
+            "2>&1  ",
+        ] {
+            same(&format!("rg a {kept}"), &format!("{g} a {kept}"));
+        }
+        // stdin's `<` needs no blank before it
+        same("rg a</dev/null", &format!("{g} a</dev/null"));
+        same("rg a 2>&1</dev/null", &format!("{g} a 2>&1</dev/null"));
+        same("rg a\\</dev/null", &format!("{g} 'a</dev/null'"));
+        same("rg a 2>&1 | head -3", &format!("{g} a 2>&1 | head -3"));
+        same("rg a\\  2>&1", &format!("{g} 'a ' 2>&1"));
+        same(
+            "rg a 2>/dev/null; rg b\t2>&1",
+            &format!("{g} a 2>/dev/null; {g} b\t2>&1"),
+        );
+        let r = rewrite_full("grep -rn a . 2>&1 | head").unwrap();
+        assert!(r.command.ends_with(" a . 2>&1 | head"), "{}", r.command);
+        for (cmd, why) in [
+            ("rg a >/dev/null", "redirection"),
+            ("rg a > out.txt", "redirection"),
+            ("rg a 2>err.txt", "redirection"),
+            ("rg a 2>&1 >/dev/null", "redirection"),
+            ("rg a &>/dev/null", "background job"),
+            ("rg 2>/dev/null a", "redirection"),
+            ("rg a\\ 2>&1", "redirection"),
+            ("rg a 12>&1", "redirection"),
+            ("rg a2>&1", "redirection"),
+            ("rg 'a'2>/dev/null", "redirection"),
+            ("2>&1", "redirection"),
+            ("grep -rn a . 2>/dev/null", "hide that greeg skips"),
+            ("grep -rl a . 2> /dev/null | head", "hide that greeg skips"),
+            ("grep -rl a . 2>> /dev/null", "hide that greeg skips"),
+        ] {
+            let got = rewrite_full(cmd).err().unwrap_or_default();
+            assert!(got.contains(why), "{cmd:?}: {got:?}");
+        }
+    }
+
+    #[test]
+    fn only_a_command_the_line_starts_with_is_replayed() {
+        let r = rewrite_full("rg a; cd src && rg b; rg c").unwrap();
+        let after: Vec<_> = r.parts.iter().map(|p| p.after_other).collect();
+        assert_eq!(after, [false, true, true]);
+        let r = rewrite_full("rg a && rg b").unwrap();
+        assert!(r.parts.iter().all(|p| !p.after_other));
+    }
+
+    #[test]
+    fn an_unquoted_include_glob_is_taken_only_where_the_shell_keeps_it() {
+        let dir = std::env::temp_dir().join(format!("greeg-glob-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let cmd = "grep -rn needle --include=*.rs .";
+        let rw = decide(cmd, Agent::Claude, &dir).unwrap();
+        assert!(rw.command.contains("-g '*.rs'"), "{}", rw.command);
+        // bash would expand the glob to this name
+        std::fs::write(dir.join("--include=x.rs"), "").unwrap();
+        let why = decide(cmd, Agent::Claude, &dir).err().unwrap_or_default();
+        assert!(why.contains("would expand"), "{why}");
+        assert!(decide("grep -rn needle '--include=*.rs' .", Agent::Claude, &dir).is_ok());
+        std::fs::remove_dir_all(&dir).unwrap();
+        // after a `cd` the directory is not known
+        let why = rewrite_full("cd src && grep -rn a --include=*.rs .")
+            .err()
+            .unwrap_or_default();
+        assert!(why.contains("directory not known"), "{why}");
+        assert!(rewrite_full("cd src && grep -rn a --include='*.rs' .").is_ok());
+        assert!(rewrite_full("rg x; grep -rn a --include=*.rs .").is_ok());
+    }
+
+    #[test]
+    fn codex_gets_a_list_only_when_the_hook_wrote_every_command_in_it() {
+        // Codex runs an allowed rewrite without asking
+        for cmd in ["rg a; rm -rf build", "cd src && rg a", "rg a || curl x"] {
+            assert!(decide(cmd, Agent::Claude, Path::new(".")).is_ok(), "{cmd}");
+            let why = decide(cmd, Agent::Codex, Path::new("."))
+                .err()
+                .unwrap_or_default();
+            assert!(why.contains("Codex approves"), "{cmd}: {why}");
+        }
+        // `head -N` reads only its stdin: a line of rewrites and such heads is whole
+        for cmd in ["rg a | sort", "cd src && rg a | head", "rg a | head; rm x"] {
+            assert!(decide(cmd, Agent::Codex, Path::new(".")).is_err(), "{cmd}");
+        }
+        for cmd in [
+            "rg a",
+            "rg a; rg -l b src",
+            "rg a && rg b",
+            "rg a | head -5; rg b",
+        ] {
+            let rw = decide(cmd, Agent::Codex, Path::new(".")).unwrap();
+            assert!(rw.whole && !rw.command.contains("rg "), "{cmd}");
         }
     }
 
@@ -943,7 +1241,7 @@ mod tests {
             "xargs rg foo",
             "sudo rg foo",
             "nice rg foo",
-            "rg foo 2>/dev/null",
+            "rg foo 2>err.txt",
             "rg foo > out.txt",
             "rg foo >> out.txt",
             "rg foo < in.txt",
@@ -984,9 +1282,9 @@ mod tests {
             ("rg 'a'\\''b' src", "a'b"),
         ] {
             let r = rewrite_full(cmd).unwrap();
-            assert_eq!(r.original, ["rg", pattern, "src"]);
+            assert_eq!(r.parts[0].original, ["rg", pattern, "src"]);
             assert_eq!(
-                r.rewritten,
+                r.parts[0].rewritten,
                 [
                     "greeg",
                     "--matching",
@@ -997,7 +1295,7 @@ mod tests {
                     "src"
                 ]
             );
-            assert_eq!(shell_words(&r.command).unwrap(), r.rewritten);
+            assert_eq!(shell_words(&r.command).unwrap(), r.parts[0].rewritten);
         }
         same(
             "rg -g '*.rs' foo",

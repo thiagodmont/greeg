@@ -624,6 +624,13 @@ pub(crate) fn default_threads() -> usize {
     }
 }
 
+/// Whether `pattern` is a regex greeg's matcher accepts.
+pub fn pattern_compiles(pattern: &str) -> bool {
+    let mut b = RegexMatcherBuilder::new();
+    b.multi_line(true).line_terminator(Some(b'\n'));
+    b.build(pattern).is_ok()
+}
+
 pub(crate) fn build_matcher(o: &Options) -> Result<RegexMatcher> {
     let mut b = RegexMatcherBuilder::new();
     b.case_insensitive(o.case_insensitive)

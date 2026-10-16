@@ -305,6 +305,9 @@ struct Common {
     /// Internal: re-executed after a SIGBUS on an index file
     #[arg(long = "after-sigbus", hide = true, global = true)]
     after_sigbus: bool,
+    /// Internal: the hook rewrote a `grep -r`; say on stderr that ignore rules applied
+    #[arg(long = "from-grep", hide = true)]
+    from_grep: bool,
 }
 
 impl Common {
@@ -595,6 +598,9 @@ enum HookCmd {
     Explain {
         /// The Bash command, quoted as one argument: `greeg hook explain 'rg -l foo src'`
         command: String,
+        /// The agent the hook answers (Codex runs a rewrite without asking)
+        #[arg(long, value_enum, default_value_t = hook::Agent::Claude)]
+        agent: hook::Agent,
     },
     /// The hook itself: reads the tool call on stdin, prints a rewritten command (internal)
     Run {
@@ -796,9 +802,31 @@ fn main() {
     let r = main_inner();
     greeg_query::indexed::flush_pending_build();
     if let Err(e) = r {
+        if reader_left(&e) {
+            die_of_sigpipe();
+        }
         eprintln!("greeg: {e:#}");
         std::process::exit(2);
     }
+}
+
+/// Stdout's reader went away (`greeg … | head`).
+fn reader_left(e: &anyhow::Error) -> bool {
+    e.chain().any(|c| {
+        c.downcast_ref::<std::io::Error>()
+            .is_some_and(|io| io.kind() == std::io::ErrorKind::BrokenPipe)
+    })
+}
+
+/// End as grep does when its reader leaves: killed by SIGPIPE, without a
+/// message. The answer was not delivered, so the status is not a success.
+fn die_of_sigpipe() -> ! {
+    // SAFETY: restores the default action, then raises it on this thread
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+        libc::raise(libc::SIGPIPE);
+    }
+    std::process::exit(2)
 }
 
 fn main_inner() -> Result<()> {
@@ -1128,9 +1156,9 @@ fn run() -> Result<()> {
                 which: HookCmd::Codex { uninstall, dry_run },
             } => hook::install_codex(uninstall, dry_run),
             Cmd::Hook {
-                which: HookCmd::Explain { command },
+                which: HookCmd::Explain { command, agent },
             } => {
-                if !hook::explain(&command)? {
+                if !hook::explain(&command, agent)? {
                     std::process::exit(1);
                 }
                 Ok(())
@@ -1175,6 +1203,19 @@ fn run() -> Result<()> {
     let mut opts = build_options(c, pattern, paths)?;
     opts.fixed_strings = fixed;
     json_notice(c);
+    // before the answer: a `| head` may end the run before its end
+    if c.from_grep && !c._no_messages {
+        // a glob that names files brings back the ignored and hidden ones it names
+        let include = c.globs.iter().any(|g| !g.starts_with('!'));
+        eprintln!(
+            "greeg: grep -r ran as greeg: {}",
+            if include {
+                "ignored and hidden directories and binary files are skipped, as rg skips them with -g (-uu searches the directories)"
+            } else {
+                "ignored, hidden and binary files are skipped, as rg skips them (-uu searches ignored and hidden ones)"
+            }
+        );
+    }
     let fmt = Fmt {
         chain: c.chain,
         stats: c.stats,
@@ -3256,8 +3297,8 @@ mod tests {
             ("rg --type-not=-x bar", &[], &["-x"]),
         ] {
             let r = rewrite::rewrite_full(cmd).unwrap();
-            let cli = Cli::try_parse_from(&r.rewritten)
-                .unwrap_or_else(|e| panic!("{cmd}: {:?}: {e}", r.rewritten));
+            let cli = Cli::try_parse_from(&r.parts[0].rewritten)
+                .unwrap_or_else(|e| panic!("{cmd}: {:?}: {e}", r.parts[0].rewritten));
             assert_eq!(cli.common.globs, globs, "{cmd}");
             assert_eq!(cli.common.types_not, types_not, "{cmd}");
             assert_eq!(cli.pattern.as_deref(), Some("bar"), "{cmd}");

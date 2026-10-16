@@ -758,6 +758,7 @@ fn json_footers_carry_one_outcome() {
 fn output_that_cannot_be_written_fails_in_every_format() {
     use std::os::fd::OwnedFd;
     use std::os::unix::net::UnixStream;
+    use std::os::unix::process::ExitStatusExt;
 
     let body: String = (0..5000)
         .map(|i| format!("fn f{i}() {{ needle(); }}\n"))
@@ -770,23 +771,60 @@ fn output_that_cannot_be_written_fails_in_every_format() {
         vec!["-n", "needle"],
         vec!["refs", "needle", "--budget", "0"],
     ] {
-        // shut for writing rather than closing a pipe's reader, which a
-        // concurrently spawned test process can inherit (see cli.rs)
-        let (writer, _reader) = UnixStream::pair().unwrap();
-        writer.shutdown(std::net::Shutdown::Write).unwrap();
-        let o = f
-            .command()
-            .args(&args)
+        let run = |stdout: std::process::Stdio| {
+            f.command()
+                .args(&args)
+                .args(["--no-session", "--index-dir"])
+                .arg(&f.index)
+                .stdin(std::process::Stdio::null())
+                .stdout(stdout)
+                .stderr(std::process::Stdio::piped())
+                .output()
+                .unwrap()
+        };
+        // a write error: exit 2 and why
+        let mut c = f.command();
+        c.args(&args)
             .args(["--no-session", "--index-dir"])
             .arg(&f.index)
             .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::from(OwnedFd::from(writer)))
-            .stderr(std::process::Stdio::piped())
-            .output()
-            .unwrap();
-        // an answer that was not delivered is never reported as success
+            .stderr(std::process::Stdio::piped());
+        stdout_fails_to_write(&mut c, &f.base.join("out"));
+        let o = c.output().unwrap();
         assert_eq!(o.status.code(), Some(2), "{args:?}: {o:?}");
         assert!(!o.stderr.is_empty(), "{args:?}: {o:?}");
+        // the reader went away: SIGPIPE, quietly. Shut for writing rather
+        // than closing a pipe's reader, which a concurrently spawned test
+        // process can inherit (see cli.rs)
+        let (writer, _reader) = UnixStream::pair().unwrap();
+        writer.shutdown(std::net::Shutdown::Write).unwrap();
+        let o = run(OwnedFd::from(writer).into());
+        // an answer that was not delivered is never reported as success
+        assert_eq!(o.status.signal(), Some(libc::SIGPIPE), "{args:?}: {o:?}");
+        assert!(o.stderr.is_empty(), "{args:?}: {o:?}");
+    }
+}
+
+/// Writes to stdout fail past its first byte (EFBIG): stdout is a regular
+/// file and the run may write files of one byte at most.
+#[cfg(unix)]
+fn stdout_fails_to_write(c: &mut Command, file: &Path) {
+    use std::os::unix::process::CommandExt;
+    c.stdout(fs::File::create(file).unwrap());
+    // SAFETY: only async-signal-safe calls between fork and exec
+    unsafe {
+        c.pre_exec(|| {
+            libc::signal(libc::SIGXFSZ, libc::SIG_IGN);
+            // a finite inherited hard limit cannot be raised: lower both
+            let one = libc::rlimit {
+                rlim_cur: 1,
+                rlim_max: 1,
+            };
+            if libc::setrlimit(libc::RLIMIT_FSIZE, &one) != 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
     }
 }
 

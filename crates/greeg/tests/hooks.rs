@@ -133,17 +133,17 @@ fn declined_commands_emit_no_reply_or_stats() {
     let f = Fixture::new();
     for agent in ["claude", "codex"] {
         for command in [
-            "grep -rl needle .",
+            "grep -rlv needle .",
             "grep needle file.rs",
             "rg --json needle",
             "./rg needle",
             "rg needle # comment",
             "rg needle\\\n file.rs",
             "rg -g*.rs needle",
-            "rg needle | head",
-            "rg needle && touch sentinel",
-            "rg needle; touch sentinel",
-            "cd . && rg needle",
+            "rg needle | sort",
+            "rg needle & touch sentinel",
+            "rg needle; echo $(touch sentinel)",
+            "(cd . && rg needle)",
             "rg --pre cat needle",
             "rg --ignore-case=false needle",
         ] {
@@ -180,10 +180,10 @@ fn explain_reports_the_rewrite_or_the_decline_reason() {
         "{out}"
     );
     assert_eq!(
-        explain("rg needle | head", false),
+        explain("rg needle | sort", false),
         (
             Some(1),
-            "declined: pipeline, list or background job\n".into()
+            "declined: pipeline (only `| head [-n N]` is kept)\n".into()
         )
     );
     let (code, out) = explain("rg needle", true);
@@ -227,6 +227,237 @@ fn rewritten_queries_keep_exact_hits_and_misses_on_both_backends() {
         assert_eq!(v["rewritten"][1], "--matching");
         assert_eq!(v["rewritten"][2], "exact");
     }
+}
+
+#[test]
+fn rewritten_lists_keep_their_control_flow() {
+    let f = Fixture::new();
+    let bin = f.0.join("bin");
+    fs::create_dir_all(&bin).unwrap();
+    std::os::unix::fs::symlink(BIN, bin.join("greeg")).unwrap();
+    let path = format!("{}:/usr/bin:/bin", bin.display());
+    for (command, expected) in [
+        (
+            "rg -l needle && echo found || echo none",
+            "file.rs\nfound\n",
+        ),
+        ("rg -l missing && echo found || echo none", "none\n"),
+        ("rg -c needle; rg -c missing; echo $?", "file.rs:1\n1\n"),
+        ("cd .. && cd tree && rg -l needle", "file.rs\n"),
+    ] {
+        let rewritten = f.rewrite("claude", command);
+        assert!(!rewritten.contains("rg -"), "{command}: {rewritten}");
+        let out = f
+            .command("/bin/sh")
+            .args(["-c", &rewritten])
+            .env("PATH", &path)
+            .output()
+            .unwrap();
+        assert_eq!(
+            String::from_utf8_lossy(&out.stdout),
+            expected,
+            "{command}: {out:?}"
+        );
+    }
+}
+
+#[test]
+fn head_shows_the_first_lines_of_a_rewritten_search_and_nothing_else() {
+    let f = Fixture::new();
+    let lines: String = (0..200)
+        .map(|i| format!("let needle_{i} = {i};\n"))
+        .collect();
+    fs::write(f.0.join("tree/many.rs"), lines).unwrap();
+    let bin = f.0.join("bin");
+    fs::create_dir_all(&bin).unwrap();
+    std::os::unix::fs::symlink(BIN, bin.join("greeg")).unwrap();
+    let path = format!("{}:/usr/bin:/bin", bin.display());
+    for agent in ["claude", "codex"] {
+        for (command, lines) in [
+            ("rg -n needle | head -3", 3),
+            ("rg -n needle | head -n 1", 1),
+            ("grep -rn needle . | head -5", 5),
+            ("rg -l needle | head -n1", 1),
+        ] {
+            let rewritten = f.rewrite(agent, command);
+            assert!(rewritten.starts_with("greeg "), "{command}: {rewritten}");
+            let out = f
+                .command("/bin/sh")
+                .args(["-c", &rewritten])
+                .env("PATH", &path)
+                .output()
+                .unwrap();
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            assert_eq!(stdout.lines().count(), lines, "{command}: {out:?}");
+            assert!(out.status.success(), "{command}: {out:?}");
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            assert!(!stderr.contains("Broken pipe"), "{command}: {stderr}");
+        }
+    }
+    // the record would replay rg's whole output, not what head printed
+    assert!(!f.0.join("stats/events.jsonl").exists());
+}
+
+#[test]
+fn kept_redirections_reach_the_rewritten_search() {
+    let f = Fixture::new();
+    let bin = f.0.join("bin");
+    fs::create_dir_all(&bin).unwrap();
+    std::os::unix::fs::symlink(BIN, bin.join("greeg")).unwrap();
+    let path = format!("{}:/usr/bin:/bin", bin.display());
+    let run = |command: &str| {
+        let rewritten = f.rewrite("claude", command);
+        assert!(rewritten.starts_with("greeg "), "{command}: {rewritten}");
+        let out = f
+            .command("/bin/sh")
+            .args(["-c", &rewritten])
+            .env("PATH", &path)
+            .output()
+            .unwrap();
+        let text = |b: &[u8]| String::from_utf8_lossy(b).into_owned();
+        (out.status.code(), text(&out.stdout), text(&out.stderr))
+    };
+    // the note grep's rewrite prints on stderr comes first on stdout
+    let (code, stdout, stderr) = run("grep -rl needle . 2>&1 | head -5");
+    assert_eq!(code, Some(0));
+    assert!(stderr.is_empty(), "{stderr}");
+    let lines: Vec<_> = stdout.lines().collect();
+    assert!(
+        lines[0].starts_with("greeg: grep -r ran as greeg"),
+        "{stdout}"
+    );
+    assert!(
+        lines.contains(&"./file.rs") || lines.contains(&"file.rs"),
+        "{stdout}"
+    );
+    // greeg's -l footer goes to stderr, which the agent asked to drop
+    let (code, stdout, stderr) = run("rg -l needle 2>/dev/null </dev/null");
+    assert_eq!(
+        (code, stdout.as_str(), stderr.as_str()),
+        (Some(0), "file.rs\n", "")
+    );
+    let (code, stdout, _) = run("rg -l missing 2>/dev/null || echo none");
+    assert_eq!((code, stdout.as_str()), (Some(0), "none\n"));
+}
+
+/// On a tree with no ignored or hidden files, a rewritten `grep -r` finds the
+/// lines grep finds.
+#[test]
+fn rewritten_greps_find_the_lines_grep_finds() {
+    let f = Fixture::new();
+    let tree = f.0.join("tree");
+    fs::write(
+        tree.join("a.rs"),
+        "fn main() {}\nstruct Foo;\nlet x = a+b;\nfoofoo bar\n  indented(1)\nend$\n^caret\nTAB\there\n",
+    )
+    .unwrap();
+    fs::create_dir_all(tree.join("py")).unwrap();
+    fs::write(
+        tree.join("py/b.py"),
+        "def foo():\n    return 42\nclass Bar:\n",
+    )
+    .unwrap();
+    // every `path:line:text` record, duplicates kept; greeg ranks, grep walks
+    let lines = |out: &[u8]| -> Vec<String> {
+        let mut v: Vec<String> = String::from_utf8_lossy(out)
+            .lines()
+            .map(|l| l.strip_prefix("./").unwrap_or(l).to_string())
+            .collect();
+        v.sort();
+        v
+    };
+    for command in [
+        "grep -rn 'fn \\|struct ' .",
+        "grep -rn 'a+b' .",
+        "grep -rn '\\<foo\\>' .",
+        "grep -rn 'fo\\{2\\}' .",
+        "grep -rn '^  ' .",
+        "grep -rn 'end\\$' .",
+        "grep -rn '\\^caret' .",
+        "grep -rn '[[:upper:]]\\{3\\}' .",
+        "grep -rn '(1)' .",
+        "grep -rni 'FOO' .",
+        "grep -rnw foo .",
+        "grep -rnE 'fo+' .",
+        "grep -rnE '(foo){2}' .",
+        "grep -rnE 'a|class' .",
+        "grep -rnE 'return [0-9]+' .",
+        "grep -rnF 'a+b' .",
+        "grep -rn --include=*.py foo .",
+        "grep -rn --exclude-dir=py foo .",
+        "grep -rn foo py",
+        "grep -rn foo",
+    ] {
+        let grep = f
+            .command("/bin/sh")
+            .args(["-c", command])
+            .env("PATH", "/usr/bin:/bin")
+            .output()
+            .unwrap();
+        let rewritten = f.rewrite("claude", command);
+        let args = rewritten.strip_prefix("greeg ").unwrap();
+        let greeg = f
+            .command("/bin/sh")
+            .args(["-c", &format!("'{BIN}' --no-session --budget 0 {args}")])
+            .output()
+            .unwrap();
+        assert_eq!(
+            greeg.status.code(),
+            grep.status.code(),
+            "{command}: {greeg:?}"
+        );
+        assert_eq!(
+            lines(&greeg.stdout),
+            lines(&grep.stdout),
+            "{command} → {rewritten}"
+        );
+    }
+}
+
+/// A rewritten `grep -r` picks files as rg does, and says so: ignored,
+/// hidden and binary files are skipped; a glob that names files brings back
+/// the ignored and hidden ones it names, not those under such directories.
+#[test]
+fn rewritten_greps_skip_what_rg_skips_and_say_so() {
+    let f = Fixture::new();
+    let tree = f.0.join("tree");
+    fs::write(tree.join(".gitignore"), "gen.rs\ntarget/\n").unwrap();
+    for name in ["gen.rs", ".h.rs", "target/t.rs", ".hid/d.rs"] {
+        fs::create_dir_all(tree.join(name).parent().unwrap()).unwrap();
+        fs::write(tree.join(name), "needle\n").unwrap();
+    }
+    fs::write(tree.join("bin.rs"), b"needle\0rest\n").unwrap();
+    let run = |command: &str| {
+        let rewritten = f.rewrite("claude", command);
+        let args = rewritten.strip_prefix("greeg ").unwrap();
+        let out = f
+            .command("/bin/sh")
+            .args(["-c", &format!("'{BIN}' --no-session --budget 0 {args}")])
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{command}: {out:?}");
+        let mut files: Vec<String> = String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .map(|l| l.strip_prefix("./").unwrap_or(l).to_string())
+            .collect();
+        files.sort();
+        (files, String::from_utf8_lossy(&out.stderr).into_owned())
+    };
+    let (files, stderr) = run("grep -rl needle .");
+    assert_eq!(files, ["file.rs"], "{stderr}");
+    assert!(
+        stderr.starts_with(
+            "greeg: grep -r ran as greeg: ignored, hidden and binary files are skipped"
+        ),
+        "{stderr}"
+    );
+    let (files, stderr) = run("grep -rl --include='*.rs' needle .");
+    assert_eq!(files, [".h.rs", "file.rs", "gen.rs"], "{stderr}");
+    assert!(
+        stderr.starts_with("greeg: grep -r ran as greeg: ignored and hidden directories and binary files are skipped"),
+        "{stderr}"
+    );
 }
 
 #[test]
@@ -924,6 +1155,14 @@ fn host_payloads_get_replies_their_host_accepts() {
                 "{name}: no auto-allow"
             );
         }
+        // Codex would run it without asking: a list with another command stays as it is
+        if agent == "codex" {
+            let out = reply(&payload("rg -n needle; touch sentinel", "Bash"));
+            assert!(
+                out.status.success() && out.stdout.is_empty(),
+                "{name}: {out:?}"
+            );
+        }
         // a payload without the event name is still answered
         let mut no_event = payload("rg -n needle", "Bash");
         no_event.as_object_mut().unwrap().remove("hook_event_name");
@@ -940,7 +1179,7 @@ fn host_payloads_get_replies_their_host_accepts() {
             .unwrap()
             .remove("command");
         for silent in [
-            payload("rg needle | head", "Bash"),
+            payload("rg needle | sort", "Bash"),
             payload("rg -n needle", "Read"),
             other_event,
             no_command,

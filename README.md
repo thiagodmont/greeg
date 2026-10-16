@@ -102,11 +102,15 @@ greeg hook claude       # Claude Code   (--dry-run to preview, --uninstall to re
 greeg hook codex        # Codex 0.131+  (then run /hooks in Codex to trust it)
 ```
 
-This installs a hook and a skill file. The agent keeps writing `rg`; the hook
-sends simple `rg` searches to greeg, and the skill teaches the agent greeg's
-symbol commands. **You don't change how you prompt.** Commands the hook can't
-translate exactly (pipelines, `grep`, redirections, …) run with the original
-tool; `greeg hook explain 'rg -l foo src'` shows what it would do.
+This installs a hook and a skill file. The agent keeps writing `rg` or
+`grep -r`; the hook sends those searches to greeg (also inside `;`/`&&`
+lists and before `| head`), and the skill teaches the agent greeg's symbol commands. **You don't
+change how you prompt.** A rewritten `grep -r` picks files as rg does: it
+skips ignored, hidden and binary files, which grep searches, and says so on
+stderr. Commands the hook can't translate exactly (most pipelines,
+redirections, grep without `-r`, …) run with the original tool, and so does
+every search while a nonempty `RIPGREP_CONFIG_PATH` is set;
+`greeg hook explain 'grep -rn foo src'` shows what it would do.
 
 > If you use `Bash(rg:*)` allow rules, add `Bash(greeg:*)` next to them. If
 > another hook also rewrites `rg` (RTK, for example), only one can win; for
@@ -114,7 +118,8 @@ tool; `greeg hook explain 'rg -l foo src'` shows what it would do.
 
 Any other agent can call `greeg` directly: it prints to stdout and exits `0` on
 exact hits, `1` when there are none (it may still print relaxed, discovery-only
-results), `2` on error.
+results), `2` on error. When the reader of its output leaves (`| head`), it ends
+quietly by SIGPIPE, as grep does (shell status 141).
 
 ## Use it
 
