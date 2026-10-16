@@ -141,7 +141,7 @@ fn declined_commands_emit_no_reply_or_stats() {
             "rg needle # comment",
             "rg needle\\\n file.rs",
             "rg -g*.rs needle",
-            "rg needle | head",
+            "rg needle | sort",
             "rg needle & touch sentinel",
             "rg needle; echo $(touch sentinel)",
             "(cd . && rg needle)",
@@ -181,8 +181,11 @@ fn explain_reports_the_rewrite_or_the_decline_reason() {
         "{out}"
     );
     assert_eq!(
-        explain("rg needle | head", false),
-        (Some(1), "declined: pipeline\n".into())
+        explain("rg needle | sort", false),
+        (
+            Some(1),
+            "declined: pipeline (only `| head [-n N]` is kept)\n".into()
+        )
     );
     let (code, out) = explain("rg needle", true);
     assert_eq!(code, Some(1));
@@ -257,6 +260,43 @@ fn rewritten_lists_keep_their_control_flow() {
             "{command}: {out:?}"
         );
     }
+}
+
+#[test]
+fn head_shows_the_first_lines_of_a_rewritten_search_and_nothing_else() {
+    let f = Fixture::new();
+    let lines: String = (0..200)
+        .map(|i| format!("let needle_{i} = {i};\n"))
+        .collect();
+    fs::write(f.0.join("tree/many.rs"), lines).unwrap();
+    let bin = f.0.join("bin");
+    fs::create_dir_all(&bin).unwrap();
+    std::os::unix::fs::symlink(BIN, bin.join("greeg")).unwrap();
+    let path = format!("{}:/usr/bin:/bin", bin.display());
+    for agent in ["claude", "codex"] {
+        for (command, lines) in [
+            ("rg -n needle | head -3", 3),
+            ("rg -n needle | head -n 1", 1),
+            ("grep -rn needle . | head -5", 5),
+            ("rg -l needle | head -n1", 1),
+        ] {
+            let rewritten = f.rewrite(agent, command);
+            assert!(rewritten.starts_with("greeg "), "{command}: {rewritten}");
+            let out = f
+                .command("/bin/sh")
+                .args(["-c", &rewritten])
+                .env("PATH", &path)
+                .output()
+                .unwrap();
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            assert_eq!(stdout.lines().count(), lines, "{command}: {out:?}");
+            assert!(out.status.success(), "{command}: {out:?}");
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            assert!(!stderr.contains("Broken pipe"), "{command}: {stderr}");
+        }
+    }
+    // the record would replay rg's whole output, not what head printed
+    assert!(!f.0.join("stats/events.jsonl").exists());
 }
 
 /// On a tree with no ignored or hidden files, a rewritten `grep -r` finds the
@@ -1037,7 +1077,7 @@ fn host_payloads_get_replies_their_host_accepts() {
             );
         }
         for silent in [
-            payload("rg needle | head", "Bash"),
+            payload("rg needle | sort", "Bash"),
             payload("rg -n needle", "Read"),
         ] {
             let out = reply(&silent);

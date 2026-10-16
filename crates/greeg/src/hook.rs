@@ -743,7 +743,7 @@ pub fn run(agent: Agent) -> Result<()> {
             .or_else(|| std::env::current_dir().ok())
             .unwrap_or_default();
         let session = v.get("session_id").and_then(|s| s.as_str());
-        for p in rw.parts.iter().filter(|p| !p.after_other) {
+        for p in rw.parts.iter().filter(|p| !p.after_other && !p.piped) {
             crate::stats::record_hook(&cwd, session, &p.original, &p.rewritten);
         }
     }
@@ -788,7 +788,7 @@ mod tests {
             "rg needle\\\n src",
             "rg \"nee\\\ndle\" src",
             "rg -g*.rs needle",
-            "rg needle | head",
+            "rg needle | head -c 5",
             "rg -l needle | xargs echo",
             "rg needle &",
             "rg -h needle",
@@ -815,7 +815,10 @@ mod tests {
             ("FOO=1 rg foo", "environment assignment"),
             ("git status", "not an rg or grep command"),
             ("rg needle # comment", "shell comment"),
-            ("rg needle | head", "pipeline"),
+            (
+                "rg needle | sort",
+                "pipeline (only `| head [-n N]` is kept)",
+            ),
             ("rg needle &", "background job"),
             ("echo a; git status", "not an rg or grep command"),
             ("git status; rg --pre=x a", "unsupported flag `--pre`"),
@@ -856,6 +859,7 @@ mod tests {
             ),
             ("rg 'a;b' || echo none", format!("{g} 'a;b' || echo none")),
             ("rg x 2>&1; rg y", format!("rg x 2>&1; {g} y")),
+            ("rg a | sort; rg b", format!("rg a | sort; {g} b")),
         ] {
             let r = rewrite_full(cmd).unwrap_or_else(|e| panic!("{cmd:?}: {e}"));
             assert_eq!(r.command, want, "{cmd:?}");
@@ -864,7 +868,6 @@ mod tests {
             }
         }
         for (cmd, why) in [
-            ("rg a | head; rg b", "pipeline"),
             ("rg a & rg b", "background job"),
             ("(rg a); rg b", "subshell"),
             ("rg a; echo $(date)", "command substitution"),
@@ -908,6 +911,50 @@ mod tests {
             .err()
             .unwrap_or_default();
         assert!(why.contains("environment assignment"), "{why}");
+    }
+
+    #[test]
+    fn a_search_piped_into_head_keeps_the_head() {
+        let g = "greeg --matching exact --max-filesize 18446744073709551615";
+        for head in [
+            "head",
+            "head -5",
+            "head -n 5",
+            "head -n5",
+            "head --lines=5",
+            "'head' -20",
+        ] {
+            same(&format!("rg a | {head}"), &format!("{g} a | {head}"));
+            same(
+                &format!("rg a |{head}; rg b"),
+                &format!("{g} a |{head}; {g} b"),
+            );
+        }
+        let r = rewrite_full("grep -rn a src | head -20").unwrap();
+        assert!(r.command.starts_with("greeg ") && r.command.ends_with(" a src | head -20"));
+        assert!(r.whole && r.parts[0].piped);
+        assert!(!rewrite_full("rg a").unwrap().parts[0].piped);
+        for (cmd, why) in [
+            ("rg a | head -c 5", "pipeline"),
+            ("rg a | head -n -5", "pipeline"),
+            ("rg a | head -5 out.txt", "pipeline"),
+            ("rg a | head -5K", "pipeline"),
+            ("rg a | head -5 | cat", "pipeline"),
+            ("rg a | grep b | head", "pipeline"),
+            ("cat f | rg a", "pipeline"),
+            ("echo a | rg a | head", "pipeline"),
+            ("rg a |& head", "pipeline of stderr"),
+            ("rg a |\n head", "pipeline across lines"),
+            ("rg a | \n rg b", "pipeline across lines"),
+            ("rg a | head; export X=1", "change the environment"),
+            ("rg a; X=1 cmd | head", "change the environment"),
+        ] {
+            let got = rewrite_full(cmd).err().unwrap_or_default();
+            assert!(got.contains(why), "{cmd:?}: {got:?}");
+        }
+        // a pipeline into another reader is left as it is
+        let r = rewrite_full("rg a | sort; rg b").unwrap();
+        assert!(!r.whole && r.parts.len() == 1);
     }
 
     #[test]

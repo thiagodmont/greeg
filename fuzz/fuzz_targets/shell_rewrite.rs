@@ -1,7 +1,6 @@
 //! A command the hook rewrites reads back as the words it was given: each
 //! rewritten command, split as a shell would, is its rewritten argv, and the
-//! rewritten line has the same commands in the same order, the others byte
-//! for byte.
+//! rewritten line is the original with only those commands replaced, in order.
 #![no_main]
 
 #[allow(dead_code)]
@@ -24,22 +23,27 @@ fuzz_target!(|data: &[u8]| {
             "{cmd:?}"
         );
     }
-    let before = rewrite::list_segments(cmd).expect("a rewritten line splits");
-    let after = rewrite::list_segments(&rw.command).expect("the rewrite splits");
+    let stages = |s: &str| -> Vec<std::ops::Range<usize>> {
+        let segments = rewrite::list_segments(s).expect("a rewritten line splits");
+        segments.into_iter().flat_map(|g| g.stages).collect()
+    };
+    let (before, after) = (stages(cmd), stages(&rw.command));
     assert_eq!(before.len(), after.len(), "{cmd:?}");
     let mut parts = rw.parts.iter();
+    let mut rebuilt = String::new();
+    let mut at = 0;
     for (b, a) in before.into_iter().zip(after) {
-        let (b_lead, b_body) = rewrite::trim_blanks(&cmd[b.clone()]);
+        let (_, b_body) = rewrite::trim_blanks(&cmd[b.clone()]);
         let (a_lead, a_body) = rewrite::trim_blanks(&rw.command[a.clone()]);
-        assert_eq!(cmd[b.start..b.start + b_lead], rw.command[a.start..a.start + a_lead]);
-        assert_eq!(
-            cmd[b.start + b_lead + b_body.len()..b.end],
-            rw.command[a.start + a_lead + a_body.len()..a.end]
-        );
         if a_body != b_body {
             let p = parts.next().expect("a changed command is a part");
             assert_eq!(a_body, p.command, "{cmd:?}");
+            rebuilt.push_str(&rw.command[at..a.start + a_lead]);
+            rebuilt.push_str(b_body);
+            at = a.start + a_lead + a_body.len();
         }
     }
+    rebuilt.push_str(&rw.command[at..]);
+    assert_eq!(rebuilt, cmd, "only the rewritten commands change");
     assert!(parts.next().is_none(), "{cmd:?}: a part is not in the line");
 });
