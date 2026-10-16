@@ -656,8 +656,12 @@ fn json_footers_carry_one_outcome() {
     }
 }
 
+#[cfg(unix)]
 #[test]
 fn output_that_cannot_be_written_fails_in_every_format() {
+    use std::os::fd::OwnedFd;
+    use std::os::unix::net::UnixStream;
+
     let body: String = (0..5000)
         .map(|i| format!("fn f{i}() {{ needle(); }}\n"))
         .collect();
@@ -669,16 +673,20 @@ fn output_that_cannot_be_written_fails_in_every_format() {
         vec!["-n", "needle"],
         vec!["refs", "needle", "--budget", "0"],
     ] {
-        let mut c = f.command();
-        c.args(&args)
+        // shut for writing rather than closing a pipe's reader, which a
+        // concurrently spawned test process can inherit (see cli.rs)
+        let (writer, _reader) = UnixStream::pair().unwrap();
+        writer.shutdown(std::net::Shutdown::Write).unwrap();
+        let o = f
+            .command()
+            .args(&args)
             .args(["--no-session", "--index-dir"])
             .arg(&f.index)
             .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped());
-        let mut child = c.spawn().unwrap();
-        drop(child.stdout.take());
-        let o = child.wait_with_output().unwrap();
+            .stdout(std::process::Stdio::from(OwnedFd::from(writer)))
+            .stderr(std::process::Stdio::piped())
+            .output()
+            .unwrap();
         // an answer that was not delivered is never reported as success
         assert_eq!(o.status.code(), Some(2), "{args:?}: {o:?}");
         assert!(!o.stderr.is_empty(), "{args:?}: {o:?}");
