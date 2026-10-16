@@ -1,0 +1,27 @@
+.github/workflows/dependencies.yml
+  s_eefb2647553a67::t_369a083071e64f 1-34
+deny.toml
+  s_eefb2647553a67::t_5051058713bc69 1-2,12
+  s_eefb2647553a67::t_fcb49f12bc7762 3-11,14-17
+  s_eefb2647553a67::t_ef0d5348a540bc 13
+references/DEVELOPMENT.md
+  s_eefb2647553a67::t_55ef77e84b06d1 19-24
+fuzz/Cargo.lock
+  s_eefb2647553a67::t_70cb1f43c446c0 195,215,237
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a5aba24a14651e34a01a05587375516b3b7ecb89",
+  "prompts": {},
+  "sessions": {
+    "s_eefb2647553a67": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9fff36d3-3b5f-4343-be78-7893a6fe3965",
+        "model": "unknown"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
