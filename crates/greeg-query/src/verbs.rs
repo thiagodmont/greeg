@@ -599,13 +599,14 @@ pub fn def(
         } else {
             (o.budget / 40).clamp(3, 40)
         };
-        let mut cache: BTreeMap<Vec<u8>, Vec<u8>> = BTreeMap::new();
+        let mut cache: BTreeMap<Vec<u8>, (Vec<u8>, bool)> = BTreeMap::new();
         let tree = Tree::open(&o.root).ok();
-        for e in entries.iter_mut().take(show) {
-            let src = cache
+        let mut gone = vec![false; entries.len()];
+        for (i, e) in entries.iter_mut().take(show).enumerate() {
+            let (src, current) = cache
                 .entry(e.rel.clone())
-                .or_insert_with(|| indexed_text(tree.as_ref(), &e.rel));
-            if src.is_empty() || e.start as usize >= src.len() {
+                .or_insert_with(|| indexed_text(tree.as_ref(), idx, e.file_id, &e.rel));
+            if src.is_empty() {
                 continue;
             }
             if e.file_module {
@@ -615,8 +616,23 @@ pub fn def(
                 e.doc = doc;
                 continue;
             }
+            // changed since the index described it: find the definition again
+            let mut spans = e.file_id.map(|id| (idx, id));
+            if !*current {
+                match relocate(src, &e.rel, &e.name, e.kind, e.line) {
+                    Some((start, end, line)) => (e.start, e.end, e.line) = (start, end, line),
+                    None => {
+                        gone[i] = true;
+                        continue;
+                    }
+                }
+                spans = None;
+            }
+            if e.start as usize >= src.len() {
+                continue;
+            }
             let (sig, doc) = signature_and_doc(
-                e.file_id.map(|id| (idx, id)),
+                spans,
                 src,
                 e.start,
                 e.flags,
@@ -626,6 +642,14 @@ pub fn def(
             e.doc = doc;
         }
         entries.truncate(show.max(1));
+        let mut i = 0;
+        entries.retain(|_| {
+            i += 1;
+            !gone[i - 1]
+        });
+        res.total = res
+            .total
+            .saturating_sub(gone.iter().filter(|&&g| g).count());
         res.entries = entries;
         res.elapsed_ms = t0.elapsed().as_secs_f64() * 1e3;
         return Ok(res);
@@ -1049,7 +1073,7 @@ pub fn impls(o: &Options, name: &str) -> Result<ImplsResult> {
         let idx = &op.idx;
         source = "index";
         fresh = op.fresh_method;
-        let mut cache: BTreeMap<Vec<u8>, Vec<u8>> = BTreeMap::new();
+        let mut cache: BTreeMap<Vec<u8>, (Vec<u8>, bool)> = BTreeMap::new();
         let tree = Tree::open(&o.root).ok();
         // rank every eligible implementation before reading any source
         let mut found: Vec<(f32, SymId)> = idx
@@ -1095,17 +1119,22 @@ pub fn impls(o: &Options, name: &str) -> Result<ImplsResult> {
                 .map(|(k, n)| (kind_from_code(k), n.to_string()))
                 .collect();
             let chain = chain[..chain.len().saturating_sub(1)].to_vec();
-            let src = cache
+            let name = idx.sym_name(s).to_string();
+            let kind = kind_from_code(r.kind);
+            let (src, current) = cache
                 .entry(rel.clone())
-                .or_insert_with(|| indexed_text(tree.as_ref(), &rel));
-            let (sig, doc) = if (r.start as usize) < src.len() {
-                signature_and_doc(
-                    Some((idx, fid)),
-                    src,
-                    r.start,
-                    r.flags,
-                    Lang::from_path(as_path(&rel)),
-                )
+                .or_insert_with(|| indexed_text(tree.as_ref(), idx, Some(fid), &rel));
+            // changed since the index described it: find the definition again
+            let (start, end, line, spans) = if *current || src.is_empty() {
+                (r.start, r.end, r.line, Some((idx, fid)))
+            } else if let Some((start, end, line)) = relocate(src, &rel, &name, kind, r.line) {
+                (start, end, line, None)
+            } else {
+                direct_total = direct_total.saturating_sub(1);
+                continue;
+            };
+            let (sig, doc) = if (start as usize) < src.len() {
+                signature_and_doc(spans, src, start, r.flags, Lang::from_path(as_path(&rel)))
             } else {
                 (String::new(), None)
             };
@@ -1114,9 +1143,9 @@ pub fn impls(o: &Options, name: &str) -> Result<ImplsResult> {
             direct.push(DefEntry {
                 file_module: false,
                 rel,
-                line: r.line,
-                kind: kind_from_code(r.kind),
-                name: idx.sym_name(s).to_string(),
+                line,
+                kind,
+                name,
                 chain,
                 signature: sig,
                 doc,
@@ -1126,8 +1155,8 @@ pub fn impls(o: &Options, name: &str) -> Result<ImplsResult> {
                 score,
                 reach: 0.6,
                 terms: None,
-                start: r.start,
-                end: r.end,
+                start,
+                end,
                 file_id: Some(fid),
             });
         }
@@ -1349,10 +1378,42 @@ pub const WINDOW: u32 = 20;
 
 /// An indexed file's text, read below the root without following a
 /// symlink; empty when it cannot be.
-fn indexed_text(tree: Option<&Tree>, rel: &[u8]) -> Vec<u8> {
-    let mut v = tree.and_then(|t| t.read(rel).ok()).unwrap_or_default();
+/// An indexed file's text now, and whether the index's spans still describe
+/// it: its stamp is the recorded one (no file id: found by a scan, current).
+fn indexed_text(
+    tree: Option<&Tree>,
+    idx: &Index,
+    file_id: Option<u32>,
+    rel: &[u8],
+) -> (Vec<u8>, bool) {
+    let Some((mut v, stamp)) = tree.and_then(|t| t.read_stamped(rel).ok()) else {
+        return (Vec::new(), true);
+    };
+    let current = file_id.is_none_or(|id| {
+        idx.rec(id).is_some_and(|r| {
+            r.stamp_flags & greeg_index::format::STAMP_RECHECK == 0 && r.stamp() == stamp
+        })
+    });
     greeg_lang::transcode_utf16(&mut v);
-    v
+    (v, current)
+}
+
+/// Where `src` defines `name` as `kind` now, nearest to `line`: its
+/// `(start, end, line)`, or `None` when it no longer does.
+fn relocate(
+    src: &[u8],
+    rel: &[u8],
+    name: &str,
+    kind: DefKind,
+    line: u32,
+) -> Option<(u32, u32, u32)> {
+    let tsx = greeg_lang::sym::is_tsx(&String::from_utf8_lossy(rel));
+    let ex = greeg_lang::sym::extract(Lang::from_path(as_path(rel)), tsx, src);
+    ex.symbols
+        .iter()
+        .filter(|s| s.kind == kind && ex.name(s, src) == name)
+        .min_by_key(|s| s.line.abs_diff(line))
+        .map(|s| (s.start, s.end, s.line))
 }
 
 /// Read one indexed file for bodies, below the root without following a

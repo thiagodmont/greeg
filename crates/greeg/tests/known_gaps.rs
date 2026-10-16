@@ -228,6 +228,30 @@ fn a_call_after_a_same_line_comment_is_found() {
 }
 
 #[test]
+fn spans_are_never_cut_from_bytes_they_do_not_describe() {
+    let f = Fixture::new(&[(
+        "a.rs",
+        "fn other() {}\n\n/// Doc.\npub fn target(a: u32) -> u32 {\n    a + 1\n}\npub trait Shape {}\nstruct S;\nimpl Shape for S {}\n",
+    )]);
+    f.indexed();
+    // the index is not told: `--fresh none` answers from its spans
+    w(
+        &f.root.join("a.rs"),
+        "// two new\n// lines\nfn other() {}\n\n/// Doc.\npub fn target(a: u32) -> u32 {\n    a + 2\n}\npub trait Shape {}\nstruct S;\nimpl Shape for S {}\n",
+    );
+    let def = f.run(&["def", "target", "--mode", "block", "--fresh", "none"]);
+    let out = stdout(&def);
+    assert!(
+        out.contains("  6 fn  pub fn target(a: u32) -> u32 {"),
+        "{out}"
+    );
+    assert!(out.contains("  7      a + 2"), "{out}");
+    let impls = stdout(&f.run(&["impls", "Shape", "--fresh", "none"]));
+    assert!(impls.contains("11"), "the impl is on line 11 now: {impls}");
+    assert!(!impls.contains("pub trait Shape"), "{impls}");
+}
+
+#[test]
 fn multiline_comment_text_is_not_a_call_in_scan_mode() {
     let f = Fixture::new(&[("a.rs", "/*\nneedle();\n*/\nfn f() {}\n")]);
     let call = f.scan(&["needle", "--kind", "call", "--budget", "0"]);
