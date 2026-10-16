@@ -29,7 +29,7 @@ fuzz_target!(|data: &[u8]| {
     };
     let (before, after) = (stages(cmd), stages(&rw.command));
     assert_eq!(before.len(), after.len(), "{cmd:?}");
-    // put each original command back in place of its rewrite: the line again
+    // restore each original command: only the rewritten ones may have changed
     let mut parts = rw.parts.iter();
     let mut rebuilt = String::new();
     let mut at = 0;
