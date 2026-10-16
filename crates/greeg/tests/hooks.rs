@@ -927,7 +927,10 @@ fn host_payloads_get_replies_their_host_accepts() {
         let mut other_event = payload("rg -n needle", "Bash");
         other_event["hook_event_name"] = json!("PostToolUse");
         let mut no_command = payload("rg -n needle", "Bash");
-        no_command["tool_input"].as_object_mut().unwrap().remove("command");
+        no_command["tool_input"]
+            .as_object_mut()
+            .unwrap()
+            .remove("command");
         for silent in [
             payload("rg needle | head", "Bash"),
             payload("rg -n needle", "Read"),
