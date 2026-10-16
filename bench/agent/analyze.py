@@ -103,8 +103,9 @@ def held_out(path):
     try:
         with open(path, "rb") as fh:
             return {t["id"] for t in tomllib.load(fh)["task"] if t.get("held_out")}
-    except FileNotFoundError:
-        return set()
+    except OSError as e:
+        # without it, held-out runs would read as development ones
+        sys.exit(f"{path}: {e.strerror}")
 
 
 def report(runs, pairs, title):
@@ -153,14 +154,14 @@ def main():
     if "A" not in {r["arm"] for r in runs}:
         sys.exit("no valid arm A runs: nothing to compare against")
     kept = held_out(tasks)
-    dev = [r for r in runs if r["task"] not in kept]
-    test = [r for r in runs if r["task"] in kept]
-    if dev and test:
-        report(dev, pairs, "development tasks")
-        print()
-        report(test, pairs, "held-out tasks")
-    else:
-        report(runs, pairs, None)
+    if not kept:
+        return report(runs, pairs, None)
+    parts = [("development tasks", [r for r in runs if r["task"] not in kept]),
+             ("held-out tasks", [r for r in runs if r["task"] in kept])]
+    for i, (title, rs) in enumerate((t, rs) for t, rs in parts if rs):
+        if i:
+            print()
+        report(rs, pairs, title)
 
 
 if __name__ == "__main__":

@@ -102,6 +102,35 @@ class AgentAnalyzeTests(unittest.TestCase):
         self.assertIn("success A: 1/1", dev)
         self.assertIn("success A: 0/1", test)
 
+    def test_held_out_runs_alone_keep_their_label(self):
+        out = self.with_tasks('[[task]]\nid = "h"\nheld_out = true\n',
+                              [record("h", "A", "1"), record("h", "B", "1")])
+        self.assertIn("== held-out tasks: 1 tasks", out)
+        self.assertNotIn("development", out)
+
+    def test_a_missing_tasks_file_stops_the_report(self):
+        with self.assertRaises(SystemExit) as e:
+            self.with_tasks(None, [record("t", "A", "1"), record("t", "B", "1")])
+        self.assertIn("No such file", str(e.exception))
+
+    def with_tasks(self, toml, runs):
+        with tempfile.TemporaryDirectory() as d:
+            tasks = os.path.join(d, "tasks.toml")
+            if toml is not None:
+                with open(tasks, "w") as fh:
+                    fh.write(toml)
+            data = os.path.join(d, "runs.json")
+            with open(data, "w") as fh:
+                json.dump(runs, fh)
+            argv, sys.argv = sys.argv, ["analyze.py", data, "--pairs", "100", "--tasks", tasks]
+            out = io.StringIO()
+            try:
+                with redirect_stdout(out):
+                    analyze.main()
+            finally:
+                sys.argv = argv
+        return out.getvalue()
+
     def test_without_a_valid_baseline_it_says_so(self):
         bad = record("t", "A", "1")
         bad["invalid"] = ["no result record"]
