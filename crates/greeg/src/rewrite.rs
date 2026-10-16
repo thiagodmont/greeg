@@ -896,10 +896,11 @@ pub(crate) fn trim_blanks(seg: &str) -> (usize, &str) {
 /// stderr to `/dev/null` or stdout (`2>/dev/null`, `2>&1`) and stdin from
 /// `/dev/null`. The redirections are kept as they are.
 fn split_redirections(seg: &str) -> (&str, &str) {
-    const KEPT: [&str; 6] = [
+    const KEPT: [&str; 7] = [
         "2>/dev/null",
         "2> /dev/null",
         "2>>/dev/null",
+        "2>> /dev/null",
         "2>&1",
         "</dev/null",
         "< /dev/null",
@@ -911,11 +912,17 @@ fn split_redirections(seg: &str) -> (&str, &str) {
             let Some(before) = rest.strip_suffix(r) else {
                 continue;
             };
-            // after a blank, unless an escape joins it to the word before it
             let b = before.as_bytes();
-            let blank = b.last().is_some_and(|c| matches!(c, b' ' | b'\t'));
-            let backslashes = b.iter().rev().skip(1).take_while(|&&c| c == b'\\').count();
-            if blank && backslashes % 2 == 0 {
+            let escaped =
+                |n: usize| b[..n].iter().rev().take_while(|&&c| c == b'\\').count() % 2 == 1;
+            let redirects = if r.starts_with('<') {
+                // `a</dev/null` redirects too, unless the `<` is escaped
+                !escaped(b.len())
+            } else {
+                // the `2` starts a word: after an unescaped blank
+                b.last().is_some_and(|c| matches!(c, b' ' | b'\t')) && !escaped(b.len() - 1)
+            };
+            if redirects {
                 end = before.len();
                 continue 'strip;
             }
@@ -1012,7 +1019,12 @@ pub fn rewrite_full(cmd: &str) -> Result<Rewrite, String> {
             _ => Err("pipeline (only `| head [-n N]` is kept)".into()),
         }
         .and_then(|p| {
-            let quiet = ["2>/dev/null", "2> /dev/null", "2>>/dev/null"];
+            let quiet = [
+                "2>/dev/null",
+                "2> /dev/null",
+                "2>>/dev/null",
+                "2>> /dev/null",
+            ];
             if p.original[0] != "rg" && quiet.iter().any(|r| redirections.contains(r)) {
                 return Err(
                     "`2>/dev/null` would hide that greeg skips ignored, hidden and binary files"

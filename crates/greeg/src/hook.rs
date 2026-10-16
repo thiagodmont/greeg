@@ -998,6 +998,7 @@ mod tests {
             "2>/dev/null",
             "2> /dev/null",
             "2>>/dev/null",
+            "2>> /dev/null",
             "2>&1",
             "</dev/null",
             "< /dev/null",
@@ -1006,6 +1007,10 @@ mod tests {
         ] {
             same(&format!("rg a {kept}"), &format!("{g} a {kept}"));
         }
+        // stdin's `<` needs no blank before it
+        same("rg a</dev/null", &format!("{g} a</dev/null"));
+        same("rg a 2>&1</dev/null", &format!("{g} a 2>&1</dev/null"));
+        same("rg a\\</dev/null", &format!("{g} 'a</dev/null'"));
         same("rg a 2>&1 | head -3", &format!("{g} a 2>&1 | head -3"));
         same("rg a\\  2>&1", &format!("{g} 'a ' 2>&1"));
         same(
@@ -1023,9 +1028,12 @@ mod tests {
             ("rg 2>/dev/null a", "redirection"),
             ("rg a\\ 2>&1", "redirection"),
             ("rg a 12>&1", "redirection"),
+            ("rg a2>&1", "redirection"),
+            ("rg 'a'2>/dev/null", "redirection"),
             ("2>&1", "redirection"),
             ("grep -rn a . 2>/dev/null", "hide that greeg skips"),
             ("grep -rl a . 2> /dev/null | head", "hide that greeg skips"),
+            ("grep -rl a . 2>> /dev/null", "hide that greeg skips"),
         ] {
             let got = rewrite_full(cmd).err().unwrap_or_default();
             assert!(got.contains(why), "{cmd:?}: {got:?}");
