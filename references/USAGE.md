@@ -228,7 +228,10 @@ comments, redirections, command substitutions and other shell expansions with
 the original tool. In a list joined by `;`, `&&`, `||` or newlines, each
 eligible `rg` command is rewritten on its own; a list with a command that can
 change the environment (an assignment, `export`, `source`, `alias`, `set`, …)
-is left alone. An inherited `RIPGREP_CONFIG_PATH` also disables rewriting. `greeg hook explain 'rg -l foo src'`
+is left alone. For Codex, which runs a rewrite without asking, a list is
+rewritten only when every command in it is one the hook rewrites
+(`cd src && rg foo` runs unchanged). A nonempty inherited
+`RIPGREP_CONFIG_PATH` also disables rewriting. `greeg hook explain 'rg -l foo src'`
 shows the rewrite, or why a command is left alone. See the
 [hook capability matrix](ARCHITECTURE.md#agent-hook-contract) for the
 supported subset and validation limits.
