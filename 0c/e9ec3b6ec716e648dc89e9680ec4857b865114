@@ -1,0 +1,20 @@
+crates/greeg/tests/cli.rs
+  s_eefb2647553a67::t_f79ff4925a3483 912
+  s_eefb2647553a67::t_6a026a2b24a1df 909-911,913
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "0ce9ec3b6ec716e648dc89e9680ec4857b865114",
+  "prompts": {},
+  "sessions": {
+    "s_eefb2647553a67": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9fff36d3-3b5f-4343-be78-7893a6fe3965",
+        "model": "unknown"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
