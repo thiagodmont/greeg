@@ -694,37 +694,15 @@ fn run_index(
         w.flush()?;
         return applied;
     }
-    greeg_index::create_private_dir(&dir)?;
-    let marker = dir.join("BUILDING");
-    match greeg_index::private_file()
-        .write(true)
-        .create_new(true)
-        .open(&marker)
-    {
-        Ok(mut f) => {
-            use std::io::Write as _;
-            let _ = greeg_index::owner_only(&f);
-            let _ = writeln!(f, "{}", std::process::id());
+    let Some(marker) = greeg_index::lock::take_marker(&dir, greeg_index::lock::Work::Build)? else {
+        if !quiet {
+            eprintln!(
+                "greeg index: another build is running ({})",
+                dir.join("BUILDING").display()
+            );
         }
-        Err(_) => {
-            // stale marker (older than 10 min) is taken over
-            let stale = std::fs::metadata(&marker)
-                .ok()
-                .and_then(|m| m.modified().ok())
-                .and_then(|m| m.elapsed().ok())
-                .map(|e| e.as_secs() > 600)
-                .unwrap_or(true);
-            if !stale {
-                if !quiet {
-                    eprintln!(
-                        "greeg index: another build is running ({})",
-                        marker.display()
-                    );
-                }
-                return Ok(());
-            }
-        }
-    }
+        return Ok(());
+    };
     let mut opts = greeg_index::build::BuildOpts {
         quiet,
         phase1_only: phase1,
@@ -734,7 +712,7 @@ fn run_index(
         opts.reader_threads = threads;
     }
     let r = greeg_index::build::build(&root, &dir, &opts);
-    let _ = std::fs::remove_file(&marker);
+    drop(marker);
     let m = r?;
     if !quiet {
         eprintln!(

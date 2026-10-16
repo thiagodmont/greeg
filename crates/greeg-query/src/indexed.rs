@@ -65,38 +65,17 @@ pub fn flush_pending_build() {
     }
 }
 
-fn marker_younger_than(marker: &Path, secs: u64) -> bool {
-    fs::metadata(marker)
-        .ok()
-        .map(|md| {
-            md.modified()
-                .ok()
-                .and_then(|m| m.elapsed().ok())
-                .map(|e| e.as_secs() < secs)
-                .unwrap_or(true)
-        })
-        .unwrap_or(false)
-}
-
 /// Spawn `greeg index --root ROOT [--refresh]` detached, unless the same work
-/// is already running: a `BUILDING` marker younger than ten minutes, or for a
-/// refresh a `REFRESHING` marker younger than thirty seconds (a running full
-/// build also makes a refresh pointless).
+/// is already running: a held `BUILDING` marker, or for a refresh a held
+/// `REFRESHING` one (a running full build also makes a refresh pointless).
 pub fn spawn_build_now(root: &Path, dir: &Path, refresh: bool) {
+    use greeg_index::lock::{Work, marker_held};
     if !persist::allowed() {
         return;
     }
     let _ = greeg_index::create_private_dir(dir);
-    let building = dir.join("BUILDING");
-    if marker_younger_than(&building, 600) {
+    if marker_held(dir, Work::Build) || refresh && marker_held(dir, Work::Refresh) {
         return;
-    }
-    if refresh {
-        if marker_younger_than(&dir.join("REFRESHING"), 30) {
-            return;
-        }
-    } else if building.exists() {
-        let _ = fs::remove_file(&building);
     }
     let Ok(exe) = std::env::current_exe() else {
         return;
@@ -133,31 +112,13 @@ pub fn spawn_build_now(root: &Path, dir: &Path, refresh: bool) {
 /// The detached step of an answer-first query (`greeg index --refresh`): run
 /// the freshness check without the TTL and publish the delta, or queue a full
 /// build when the change set is past the inline threshold. One refresher at
-/// a time per index; a marker older than thirty seconds is taken over.
+/// a time per index: the one that holds the `REFRESHING` marker.
 pub fn refresh_now(root: &Path, dir: &Path, threads: usize) -> Result<()> {
-    let marker = dir.join("REFRESHING");
-    match greeg_index::private_file()
-        .write(true)
-        .create_new(true)
-        .open(&marker)
-    {
-        Ok(mut f) => {
-            use std::io::Write as _;
-            let _ = greeg_index::owner_only(&f);
-            let _ = writeln!(f, "{}", std::process::id());
-        }
-        Err(_) => {
-            if marker_younger_than(&marker, 30) {
-                return Ok(());
-            }
-            // a stale marker (its refresher died): take it over, and renew it so
-            // the next spawn sees a live refresher instead of joining in
-            let _ = fs::write(&marker, format!("{}\n", std::process::id()));
-        }
-    }
-    let r = refresh_inner(root, dir, threads);
-    let _ = fs::remove_file(&marker);
-    r
+    let Some(_marker) = greeg_index::lock::take_marker(dir, greeg_index::lock::Work::Refresh)?
+    else {
+        return Ok(());
+    };
+    refresh_inner(root, dir, threads)
 }
 
 fn refresh_inner(root: &Path, dir: &Path, threads: usize) -> Result<()> {
@@ -1636,8 +1597,9 @@ mod tests {
         let _ = fs::remove_dir_all(&base);
     }
 
-    /// One refresher per index: a live `REFRESHING` marker makes `refresh_now`
-    /// a no-op, a stale one (its refresher died) is taken over and removed.
+    /// One refresher per index: a `REFRESHING` marker its refresher holds
+    /// locked makes `refresh_now` a no-op however old it is; one whose
+    /// refresher died is taken over at once and removed.
     #[test]
     fn refresh_marker_serializes_refreshers() {
         use greeg_index::build::{BuildOpts, build};
@@ -1669,22 +1631,20 @@ mod tests {
         std::thread::sleep(std::time::Duration::from_millis(20));
         fs::write(root.join("src/f0.rs"), "pub fn filler_changed() {}\n").unwrap();
         let marker = dir.join("REFRESHING");
-        fs::write(&marker, "1\n").unwrap();
+        let owner = fs::File::create(&marker).unwrap();
+        owner.lock().unwrap();
+        let old = std::time::SystemTime::now() - std::time::Duration::from_secs(3600);
+        owner.set_modified(old).unwrap();
         refresh_now(&root, &dir, 1).unwrap();
         assert_eq!(
             read_manifest(&dir).unwrap().deltas,
             0,
-            "another refresher owns it"
+            "a refresher that holds its marker owns the work"
         );
         assert!(marker.exists());
-        // the owner died: a marker older than thirty seconds is taken over
-        let old = std::time::SystemTime::now() - std::time::Duration::from_secs(120);
-        fs::OpenOptions::new()
-            .write(true)
-            .open(&marker)
-            .unwrap()
-            .set_modified(old)
-            .unwrap();
+        // the owner died: its marker stays, young, but nobody holds it
+        drop(owner);
+        fs::write(&marker, "flock 1\n").unwrap();
         refresh_now(&root, &dir, 1).unwrap();
         assert_eq!(read_manifest(&dir).unwrap().deltas, 1);
         assert!(!marker.exists(), "released after the publish");

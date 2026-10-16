@@ -2127,3 +2127,66 @@ fn a_nul_past_64_kib_ends_the_search() {
         assert!(out.starts_with("far.txt:1:needle\n"), "{out}");
     }
 }
+
+/// The `BUILDING` marker of a build that died, however young, does not hold
+/// up the next build.
+#[test]
+fn a_dead_builds_marker_does_not_hold_up_the_next_build() {
+    use std::os::unix::fs::DirBuilderExt;
+    let f = Fixture::new(&[("a.rs", "fn needle() {}\n")]);
+    let dir = f.layout();
+    fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(&dir)
+        .unwrap();
+    fs::write(dir.join("BUILDING"), "flock 99999\n").unwrap();
+    let o = f
+        .command()
+        .args(["index", "--index-dir"])
+        .arg(&f.index)
+        .output()
+        .unwrap();
+    assert!(o.status.success(), "{o:?}");
+    assert!(
+        !String::from_utf8_lossy(&o.stderr).contains("another build is running"),
+        "{o:?}"
+    );
+    assert!(greeg_index::read_manifest(&dir).is_some(), "built");
+    assert!(!dir.join("BUILDING").exists(), "released");
+}
+
+/// A build that still runs holds its marker, however long it has run: a
+/// second one does not start.
+#[test]
+fn a_running_build_is_not_joined_however_long_it_runs() {
+    use std::os::unix::fs::DirBuilderExt;
+    let f = Fixture::new(&[("a.rs", "fn needle() {}\n")]);
+    let dir = f.layout();
+    fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(&dir)
+        .unwrap();
+    let owner = fs::File::create(dir.join("BUILDING")).unwrap();
+    owner.lock().unwrap();
+    owner
+        .set_modified(std::time::SystemTime::now() - Duration::from_secs(3600))
+        .unwrap();
+    let o = f
+        .command()
+        .args(["index", "--index-dir"])
+        .arg(&f.index)
+        .output()
+        .unwrap();
+    assert!(o.status.success(), "{o:?}");
+    assert!(
+        String::from_utf8_lossy(&o.stderr).contains("another build is running"),
+        "{o:?}"
+    );
+    assert!(
+        greeg_index::read_manifest(&dir).is_none(),
+        "not built twice"
+    );
+    drop(owner);
+}
