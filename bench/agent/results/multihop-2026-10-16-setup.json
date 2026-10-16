@@ -1,0 +1,50 @@
+{
+ "claude": "2.1.301 (Claude Code)",
+ "greeg": "greeg 0.11.0+a206030e9",
+ "model": "sonnet",
+ "max_turns": 25,
+ "max_budget_usd": 1.0,
+ "seed": 7,
+ "allowed": [
+  "Read",
+  "Bash(rg:*)",
+  "Bash(greeg:*)",
+  "Bash(grep:*)",
+  "Bash(find:*)",
+  "Bash(ls:*)",
+  "Bash(cat:*)",
+  "Bash(head:*)",
+  "Bash(tail:*)",
+  "Bash(sed:*)",
+  "Bash(wc:*)",
+  "Bash(sort:*)",
+  "Bash(uniq:*)",
+  "Bash(cut:*)",
+  "Bash(tr:*)"
+ ],
+ "denied": [
+  "Bash(sed -i:*)",
+  "Bash(sed --in-place:*)",
+  "Bash(sort -o:*)",
+  "Bash(sort --output:*)"
+ ],
+ "tasks": [
+  "tokio-rwlock-guard-release",
+  "tokio-sleep-reset-path",
+  "coroutines-io-limited-parallelism",
+  "coroutines-uncaught-exception-path",
+  "django-cache-incr-overrides",
+  "django-authenticate-password-path",
+  "ktor-client-default-plugins",
+  "ktor-client-expect-success",
+  "typescript-emit-js-path",
+  "typescript-server-references"
+ ],
+ "corpora": {
+  "TypeScript-5.9": "5be33469d",
+  "django": "5babd2e21a",
+  "kotlinx-coroutines": "f63a04bac",
+  "ktor": "f92fad043",
+  "tokio": "ea91b33c"
+ }
+}

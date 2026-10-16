@@ -1,0 +1,49 @@
+arm A search calls decided by: hook 0, output 0, intent 100
+arm B search calls decided by: hook 74, output 0, intent 0
+== development tasks: 5 tasks
+
+task                                 A ok     A $  A turns   B ok     B $  B turns
+coroutines-io-limited-parallelism    2/2    0.040      4.0   2/2    0.068      6.5
+django-cache-incr-overrides          2/2    0.014      2.0   2/2    0.012      2.0
+ktor-client-default-plugins          2/2    0.037      4.5   2/2    0.032      4.5
+tokio-rwlock-guard-release           2/2    0.021      3.0   2/2    0.029      3.0
+typescript-emit-js-path              2/2    0.070      7.5   2/2    0.057      5.5
+
+success A: 10/10 (100 %, 95 % Wilson [72, 100])
+success B: 10/10 (100 %, 95 % Wilson [72, 100])
+
+metric                  A          B   paired difference vs A (95 % bootstrap: over pairs | over tasks)
+success rate         1.00       1.00   B: +0.00 [+0.00, +0.00] | [+0.00, +0.00] n=10 tasks=5
+turns                4.20       4.30   B: +0.10 [-1.00, +1.30] | [-1.20, +1.50] n=10 tasks=5
+search calls         3.40       3.80   B: +0.40 [-1.30, +1.90] | [-0.40, +1.20] n=10 tasks=5
+tool output ch    7375.30    8020.00   B: +644.70 [-3642.40, +5406.90] | [-4399.20, +5860.90] n=10 tasks=5
+output tokens      461.30     680.80   B: +219.50 [+29.50, +458.00] | [+59.00, +394.10] n=10 tasks=5
+input tokens        11.20      11.40   B: +0.20 [-3.60, +4.20] | [-4.20, +5.20] n=10 tasks=5
+cache writes      6629.90    8672.60   B: +2042.70 [-1360.20, +7035.60] | [-1672.70, +7782.90] n=10 tasks=5
+cache reads      44001.10   39907.80   B: -4093.30 [-26089.90, +15701.60] | [-33563.00, +21546.90] n=10 tasks=5
+cost USD             0.04       0.04   B: +0.00 [-0.01, +0.02] | [-0.01, +0.02] n=10 tasks=5
+wall time s         18.57      19.73   B: +1.16 [-2.35, +4.95] | [-1.95, +4.20] n=10 tasks=5
+
+== held-out tasks: 5 tasks
+
+task                                 A ok     A $  A turns   B ok     B $  B turns
+coroutines-uncaught-exception-path   2/2    0.073      9.0   2/2    0.089      9.0
+django-authenticate-password-path    2/2    0.047      4.0   1/2    0.049      6.0
+ktor-client-expect-success           1/2    0.034      4.5   2/2    0.042      4.5
+tokio-sleep-reset-path               0/2    0.097      7.0   2/2    0.102     10.0
+typescript-server-references         2/2    0.042      5.0   1/2    0.038      3.5
+
+success A: 7/10 (70 %, 95 % Wilson [40, 89])
+success B: 8/10 (80 %, 95 % Wilson [49, 94])
+
+metric                  A          B   paired difference vs A (95 % bootstrap: over pairs | over tasks)
+success rate         0.70       0.80   B: +0.10 [-0.30, +0.50] | [-0.40, +0.60] n=10 tasks=5
+turns                5.90       6.60   B: +0.70 [-0.50, +2.00] | [-0.60, +2.20] n=10 tasks=5
+search calls         6.60       3.60   B: -3.00 [-7.70, +0.20] | [-8.20, +0.20] n=10 tasks=5
+tool output ch   15876.40   16153.70   B: +277.30 [-9076.50, +8688.30] | [-2599.60, +3756.10] n=10 tasks=5
+output tokens      567.20     530.40   B: -36.80 [-446.60, +378.10] | [-285.80, +214.00] n=10 tasks=5
+input tokens        15.80      18.80   B: +3.00 [-0.40, +7.00] | [-1.20, +7.40] n=10 tasks=5
+cache writes     15077.60   16648.50   B: +1570.90 [-10341.10, +10727.90] | [-3507.20, +5882.90] n=10 tasks=5
+cache reads      70239.80   85211.00   B: +14971.20 [-5014.70, +41743.40] | [-5508.10, +36629.80] n=10 tasks=5
+cost USD             0.06       0.06   B: +0.01 [-0.01, +0.02] | [-0.00, +0.01] n=10 tasks=5
+wall time s         27.90      29.80   B: +1.90 [-2.44, +6.23] | [-2.22, +6.02] n=10 tasks=5
