@@ -82,10 +82,12 @@ const CLAUDE_HOOK_NOTES: &str = "## Hook notes
 
 The installed PreToolUse hook (`greeg hook run`) rewrites `rg` and `grep -r`
 Bash calls into `greeg --matching exact`, also each one in a `;`/`&&`/`||`
-list or piped into `head -N` (head then shows greeg's best lines), with a
-trailing `2>/dev/null`, `2>&1` or `</dev/null` kept. A
-rewritten `grep -r` skips ignored, hidden and binary files, as rg does, and
-says so on stderr (`-uu` searches ignored and hidden files). Other greps,
+list or piped into `head -N` (head then shows greeg's best lines). Trailing
+redirections of stderr to `/dev/null` or stdout (`2>/dev/null`, `2>&1`, also
+`2>>` and with a space) and of stdin from `/dev/null` are kept. A rewritten
+`grep -r` skips ignored, hidden and binary files, as rg does, and says so on
+stderr (`-uu` searches ignored and hidden files), so one whose stderr goes to
+`/dev/null` runs unchanged. Other greps,
 JSON, other pipes, subshells, comments, expansions and explicit executable
 paths stay unchanged. PreToolUse hooks run in parallel and the last `updatedInput`
 wins, so another Bash rewriter (for example RTK) can override or be overridden by
@@ -98,11 +100,13 @@ const CODEX_HOOK_NOTES: &str = "## Hook notes
 
 The installed PreToolUse hook (`greeg hook run --agent codex`) rewrites `rg`
 and `grep -r` shell calls into `greeg --matching exact`, also one piped into
-`head -N` (head then shows greeg's best lines), with a trailing
-`2>/dev/null`, `2>&1` or `</dev/null` kept, and a `;`/`&&`/`||` list of
-them only (a list with any other command stays unchanged). A rewritten
+`head -N` (head then shows greeg's best lines) and a `;`/`&&`/`||` list of
+them only (a list with any other command stays unchanged). Trailing
+redirections of stderr to `/dev/null` or stdout (`2>/dev/null`, `2>&1`, also
+`2>>` and with a space) and of stdin from `/dev/null` are kept. A rewritten
 `grep -r` skips ignored, hidden and binary files, as rg does, and says so on
-stderr (`-uu` searches ignored and hidden files). Other greps, JSON, other
+stderr (`-uu` searches ignored and hidden files), so one whose stderr goes to
+`/dev/null` runs unchanged. Other greps, JSON, other
 pipes, subshells, comments, expansions and explicit executable paths
 stay unchanged. PreToolUse hooks run in parallel and the
 rewrite from the hook that finishes last wins, so another shell rewriter (for

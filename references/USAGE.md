@@ -238,7 +238,7 @@ alone. A search piped into `head`, `head -N`, `head -n N`, `head -nN` or
 `head --lines=N` keeps the `head`, which then shows greeg's best lines instead
 of the first ones found, and may cut greeg's closing summary; other `head`
 options (`-c`, a negative count, a file) and any other reader leave the
-pipeline as it is. A `grep -r` with stderr sent to `/dev/null` is left alone: it would
+pipeline as it is. A `grep -r`, `egrep -r` or `fgrep -r` with stderr sent to `/dev/null` is left alone: it would
 hide greeg's note on the files it skips. For Codex, which runs a rewrite without asking, a line is
 rewritten only when every command in it is one the hook rewrites, a search
 piped into such a `head` included (`cd src && rg foo` runs unchanged). A
