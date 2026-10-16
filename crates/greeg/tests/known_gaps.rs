@@ -2035,7 +2035,7 @@ fn a_dead_builds_marker_does_not_hold_up_the_next_build() {
         .mode(0o700)
         .create(&dir)
         .unwrap();
-    fs::write(dir.join("BUILDING"), "99999\n").unwrap();
+    fs::write(dir.join("BUILDING"), "flock 99999\n").unwrap();
     let o = f
         .command()
         .args(["index", "--index-dir"])

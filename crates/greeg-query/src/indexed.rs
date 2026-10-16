@@ -69,12 +69,12 @@ pub fn flush_pending_build() {
 /// is already running: a held `BUILDING` marker, or for a refresh a held
 /// `REFRESHING` one (a running full build also makes a refresh pointless).
 pub fn spawn_build_now(root: &Path, dir: &Path, refresh: bool) {
-    use greeg_index::lock::marker_held;
+    use greeg_index::lock::{Work, marker_held};
     if !persist::allowed() {
         return;
     }
     let _ = greeg_index::create_private_dir(dir);
-    if marker_held(dir, "BUILDING") || refresh && marker_held(dir, "REFRESHING") {
+    if marker_held(dir, Work::Build) || refresh && marker_held(dir, Work::Refresh) {
         return;
     }
     let Ok(exe) = std::env::current_exe() else {
@@ -114,7 +114,8 @@ pub fn spawn_build_now(root: &Path, dir: &Path, refresh: bool) {
 /// build when the change set is past the inline threshold. One refresher at
 /// a time per index: the one that holds the `REFRESHING` marker.
 pub fn refresh_now(root: &Path, dir: &Path, threads: usize) -> Result<()> {
-    let Some(_marker) = greeg_index::lock::take_marker(dir, "REFRESHING")? else {
+    let Some(_marker) = greeg_index::lock::take_marker(dir, greeg_index::lock::Work::Refresh)?
+    else {
         return Ok(());
     };
     refresh_inner(root, dir, threads)
@@ -1643,7 +1644,7 @@ mod tests {
         assert!(marker.exists());
         // the owner died: its marker stays, young, but nobody holds it
         drop(owner);
-        fs::write(&marker, "1\n").unwrap();
+        fs::write(&marker, "flock 1\n").unwrap();
         refresh_now(&root, &dir, 1).unwrap();
         assert_eq!(read_manifest(&dir).unwrap().deltas, 1);
         assert!(!marker.exists(), "released after the publish");

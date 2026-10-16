@@ -694,7 +694,7 @@ fn run_index(
         w.flush()?;
         return applied;
     }
-    let Some(marker) = greeg_index::lock::take_marker(&dir, "BUILDING")? else {
+    let Some(marker) = greeg_index::lock::take_marker(&dir, greeg_index::lock::Work::Build)? else {
         if !quiet {
             eprintln!(
                 "greeg index: another build is running ({})",

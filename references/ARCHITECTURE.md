@@ -154,7 +154,7 @@ One build and one refresher run per index: each holds an exclusive `flock`
 on its marker (`BUILDING`, `REFRESHING`) while it works, and another process
 that finds the marker locked leaves the work to it. A marker left by a process
 that died is not locked, so the next one takes it over at once; a build that
-runs long keeps its lock however old the file is.
+runs long keeps its lock however old the file is. The marker opens through the private-storage checks (no symlink, one link, owned), and an older greeg's unlocked marker (a bare pid) counts as live for its old window (10 min for a build, 30 s for a refresh).
 
 The build runs in two phases so queries get useful answers early:
 
