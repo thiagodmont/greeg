@@ -1,0 +1,17 @@
+# `cargo deny check advisories licenses sources` (CI and nightly)
+
+[graph]
+all-features = true
+
+[advisories]
+version = 2
+yanked = "deny"
+
+[licenses]
+version = 2
+# permissive licenses compatible with distributing greeg under MIT
+allow = ["MIT", "Apache-2.0", "BSD-3-Clause", "BSL-1.0", "Unicode-3.0", "Zlib"]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"

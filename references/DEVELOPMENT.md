@@ -16,6 +16,12 @@ small-corpus speed protocol. The nightly workflow adds the large-corpus
 benchmarks, the accuracy oracle and a randomized soak
 (`bench/soak.py MINUTES GREEG CORPUS… --seed SEED`).
 
+The dependencies workflow (pull requests, `main`, weekly) runs
+`cargo deny --locked check advisories licenses sources` against `deny.toml` and
+fails when `Cargo.lock` or `fuzz/Cargo.lock` no longer matches its manifests.
+A version bump changes both: run `cargo metadata --format-version 1
+--manifest-path fuzz/Cargo.toml > /dev/null` to update the fuzz lock.
+
 `bench/index_costs.py BASELINE CANDIDATE --corpora tokio,django --output costs.json`
 compares two binaries' index build time, disk size, peak memory, open,
 freshness and post-edit refresh costs, in paired randomized runs.
