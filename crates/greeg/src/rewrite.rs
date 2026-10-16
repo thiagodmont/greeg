@@ -5,6 +5,13 @@
 /// Split a simple command into words (quotes and backslashes honoured).
 /// `Err` names what the shell would expand or interpret that we do not model.
 pub(crate) fn shell_words(s: &str) -> Result<Vec<String>, &'static str> {
+    split_words(s).map(|(words, _)| words)
+}
+
+/// [`shell_words`], and whether a word is an unquoted glob after
+/// `--include=`, `--exclude=` or `--exclude-dir=`: the shell leaves it as it
+/// is unless a file in the working directory has a name it matches.
+fn split_words(s: &str) -> Result<(Vec<String>, bool), &'static str> {
     const UNTERMINATED: &str = "unterminated quote or escape";
     const CONTINUATION: &str = "line continuation";
     const EXPANSION: &str = "shell expansion";
@@ -14,6 +21,7 @@ pub(crate) fn shell_words(s: &str) -> Result<Vec<String>, &'static str> {
     let mut out = Vec::new();
     let mut cur = String::new();
     let mut in_word = false;
+    let mut glob = false;
     let mut chars = s.chars().peekable();
     while let Some(c) = chars.next() {
         match c {
@@ -69,6 +77,16 @@ pub(crate) fn shell_words(s: &str) -> Result<Vec<String>, &'static str> {
             ';' | '&' | '|' => return Err("pipeline, list or background job"),
             '\n' => return Err("several commands"),
             '(' | ')' | '{' | '}' => return Err("subshell, group or brace expansion"),
+            // a word starting `--include=` only matches a file named so: none,
+            // so the shell passes grep's glob on as it is
+            '*' | '?' | '['
+                if ["--include=", "--exclude=", "--exclude-dir="]
+                    .iter()
+                    .any(|f| cur.starts_with(f)) =>
+            {
+                glob = true;
+                cur.push(c)
+            }
             '*' | '?' | '[' => return Err("unquoted glob"),
             '#' if !in_word => return Err("shell comment"),
             '~' if !in_word => return Err("tilde expansion"),
@@ -81,7 +99,7 @@ pub(crate) fn shell_words(s: &str) -> Result<Vec<String>, &'static str> {
     if in_word {
         out.push(cur);
     }
-    Ok(out)
+    Ok((out, glob))
 }
 
 pub(crate) fn quote(w: &str) -> String {
@@ -302,60 +320,62 @@ fn parse(words: &[String]) -> Result<Parsed, String> {
     Ok(p)
 }
 
-/// Why a program other than `rg` is left alone.
+/// Why a program other than `rg` or `grep` is left alone.
 fn other_program(first: &str) -> &'static str {
     match first {
-        "grep" | "egrep" | "fgrep" => {
-            "grep traversal, regex dialect and binary handling differ from greeg"
+        _ if first.ends_with("/rg") || first.ends_with("grep") && first.contains('/') => {
+            "explicit executable path (only `rg` and `grep` are rewritten)"
         }
-        _ if first.ends_with("/rg") => "explicit executable path (only `rg` is rewritten)",
         _ if first.contains('=') => "environment assignment",
-        _ => "not an rg command",
+        _ => "not an rg or grep command",
     }
 }
 
-/// Rewrite a simple rg command to argv: `(original words, greeg words)`;
-/// `Err` = leave it alone, and why.
-fn rewrite_words(seg: &str) -> Result<(Vec<String>, Vec<String>), String> {
-    let words = shell_words(seg)?;
+/// Rewrite a simple rg or recursive grep command to argv: `(original words,
+/// greeg words)`; `Err` = leave it alone, and why.
+fn rewrite_words(seg: &str) -> Result<Part, String> {
+    let (words, unquoted_glob) = split_words(seg)?;
     let first = words.first().ok_or("empty command")?;
-    if first != "rg" {
-        return Err(other_program(first).into());
-    }
-    let mut p = parse(&words)?;
-    if p.patterns.len() > 1 {
-        return Err("several -e patterns (greeg takes one)".into());
-    }
-    let (pattern, pattern_dd) = match p.patterns.pop() {
-        Some(e) => (e, false),
-        None => {
-            if p.positional.is_empty() {
-                return Err("no pattern".into());
-            }
-            p.positional.remove(0)
-        }
+    let (rewritten, regex) = match first.as_str() {
+        "rg" => (rewrite_rg(&words)?, None),
+        "grep" | "egrep" | "fgrep" => rewrite_grep(&words)?,
+        _ => return Err(other_program(first).into()),
     };
-    let paths = std::mem::take(&mut p.positional);
+    let command = rewritten
+        .iter()
+        .map(|w| quote(w))
+        .collect::<Vec<_>>()
+        .join(" ");
+    Ok(Part {
+        original: words,
+        rewritten,
+        command,
+        after_other: false,
+        unquoted_glob,
+        regex,
+    })
+}
+
+/// `greeg --matching exact` with no file-size limit, the given flags, then the
+/// pattern and paths (`-e` before a pattern spelled like a subcommand, `--`
+/// before words that must not read as flags).
+fn greeg_words(
+    flags: Vec<String>,
+    pattern: (String, bool),
+    paths: Vec<(String, bool)>,
+    max_filesize: Option<String>,
+) -> Result<Vec<String>, String> {
     // stdin readers become tree searches: leave them alone
     if paths.iter().any(|(w, _)| w == "-") {
         return Err("stdin search".into());
     }
-
     let mut out: Vec<String> = vec!["greeg".into(), "--matching".into(), "exact".into()];
     out.extend([
         "--max-filesize".into(),
-        p.max_filesize.unwrap_or_else(|| u64::MAX.to_string()),
+        max_filesize.unwrap_or_else(|| u64::MAX.to_string()),
     ]);
-    out.extend(p.flags.clone());
-    match p.unrestricted {
-        0 => {}
-        1 => out.push("--no-ignore".into()),
-        2 => out.extend(["--no-ignore".to_string(), "--hidden".to_string()]),
-        _ => return Err("-uuu also searches binary files".into()),
-    }
-    if p.fixed {
-        out.push("-F".into());
-    }
+    out.extend(flags);
+    let (pattern, pattern_dd) = pattern;
     let pattern_dd = pattern_dd || pattern.starts_with('-');
     if !pattern_dd && VERBS.contains(&pattern.as_str()) {
         out.push("-e".into());
@@ -368,7 +388,367 @@ fn rewrite_words(seg: &str) -> Result<(Vec<String>, Vec<String>), String> {
         }
         out.push(w);
     }
-    Ok((words, out))
+    Ok(out)
+}
+
+fn rewrite_rg(words: &[String]) -> Result<Vec<String>, String> {
+    let mut p = parse(words)?;
+    if p.patterns.len() > 1 {
+        return Err("several -e patterns (greeg takes one)".into());
+    }
+    let pattern = match p.patterns.pop() {
+        Some(e) => (e, false),
+        None => {
+            if p.positional.is_empty() {
+                return Err("no pattern".into());
+            }
+            p.positional.remove(0)
+        }
+    };
+    let mut flags = std::mem::take(&mut p.flags);
+    match p.unrestricted {
+        0 => {}
+        1 => flags.push("--no-ignore".into()),
+        2 => flags.extend(["--no-ignore".to_string(), "--hidden".to_string()]),
+        _ => return Err("-uuu also searches binary files".into()),
+    }
+    if p.fixed {
+        flags.push("-F".into());
+    }
+    greeg_words(
+        flags,
+        pattern,
+        std::mem::take(&mut p.positional),
+        p.max_filesize,
+    )
+}
+
+/// A recursive grep (`grep -r`, with GNU's long flags) as greeg: the pattern
+/// translated from POSIX syntax, `--include`/`--exclude`/`--exclude-dir` as
+/// globs. Ignore rules apply, as in rg; greeg says so on stderr
+/// (`--from-grep`). Flags with no exact greeg meaning decline.
+fn rewrite_grep(words: &[String]) -> Result<(Vec<String>, Option<String>), String> {
+    let mut extended = words[0] == "egrep";
+    let mut fixed = words[0] == "fgrep";
+    let mut recursive = false;
+    let mut flags: Vec<String> = Vec::new();
+    let (mut include, mut exclude) = (Vec::new(), Vec::new());
+    let mut patterns = Vec::new();
+    let mut positional = Vec::new();
+    let mut after_dd = false;
+    let number = |name: &str, v: &str| match v.parse::<u64>() {
+        Ok(_) => Ok(()),
+        Err(_) => Err(format!("`{name}` needs a whole number")),
+    };
+    let file_glob = |name: &str, g: &str| {
+        // grep matches these against file names only; braces are literal there
+        if g.is_empty() || g.contains(['/', '{', '}']) {
+            Err(format!("`{name}={g}` has no glob equivalent"))
+        } else {
+            Ok(g.to_string())
+        }
+    };
+    let mut i = 1;
+    while i < words.len() {
+        let w = &words[i];
+        i += 1;
+        if after_dd || !w.starts_with('-') || w == "-" {
+            positional.push((w.clone(), after_dd));
+            continue;
+        }
+        if w == "--" {
+            after_dd = true;
+            continue;
+        }
+        if let Some(rest) = w.strip_prefix("--") {
+            let (name, inline) = match rest.split_once('=') {
+                Some((n, v)) => (n, Some(v.to_string())),
+                None => (rest, None),
+            };
+            let flag = format!("--{name}");
+            let takes_value = matches!(
+                name,
+                "regexp"
+                    | "include"
+                    | "exclude"
+                    | "exclude-dir"
+                    | "after-context"
+                    | "before-context"
+                    | "context"
+                    | "binary-files"
+            );
+            let value = if takes_value {
+                Some(match inline {
+                    Some(v) => v,
+                    None => {
+                        i += 1;
+                        missing_value(words, i, &flag)?
+                    }
+                })
+            } else {
+                if inline.is_some() && !matches!(name, "color" | "colour") {
+                    return Err(format!("`{flag}` does not take a value"));
+                }
+                None
+            };
+            let v = value.unwrap_or_default();
+            match name {
+                "recursive" => recursive = true,
+                "dereference-recursive" => return Err("grep -R follows symlinks".into()),
+                "line-number" | "with-filename" | "no-messages" | "color" | "colour" => {}
+                "binary-files" if v == "without-match" => {}
+                "ignore-case" => flags.push("-i".into()),
+                "word-regexp" => flags.push("-w".into()),
+                "line-regexp" => flags.push("-x".into()),
+                "files-with-matches" => flags.push("-l".into()),
+                "extended-regexp" => extended = true,
+                "basic-regexp" => extended = false,
+                "fixed-strings" => fixed = true,
+                "regexp" => patterns.push(v),
+                "include" => include.push(file_glob(&flag, &v)?),
+                "exclude" => exclude.push(format!("!{}", file_glob(&flag, &v)?)),
+                "exclude-dir" => exclude.push(format!("!{}/", file_glob(&flag, &v)?)),
+                "after-context" | "before-context" | "context" => {
+                    number(&flag, &v)?;
+                    flags.extend([flag, v]);
+                }
+                _ => return Err(format!("unsupported grep flag `{flag}`")),
+            }
+            continue;
+        }
+        let body = &w[1..];
+        for (k, c) in body.char_indices() {
+            match c {
+                'r' => recursive = true,
+                'R' => return Err("grep -R follows symlinks".into()),
+                'n' | 'H' | 's' | 'I' => {}
+                'i' | 'w' | 'x' | 'l' => flags.push(format!("-{c}")),
+                'E' => extended = true,
+                'G' => extended = false,
+                'F' => fixed = true,
+                'c' => return Err("grep -c also counts files without a match".into()),
+                'h' => return Err("grep -h leaves out file names".into()),
+                'e' | 'A' | 'B' | 'C' => {
+                    let rest = &body[k + 1..];
+                    let v = if rest.is_empty() {
+                        i += 1;
+                        missing_value(words, i, &format!("-{c}"))?
+                    } else {
+                        rest.to_string()
+                    };
+                    if c == 'e' {
+                        patterns.push(v);
+                    } else {
+                        number(&format!("-{c}"), &v)?;
+                        flags.extend([format!("-{c}"), v]);
+                    }
+                    break;
+                }
+                _ => return Err(format!("unsupported grep flag `-{c}`")),
+            }
+        }
+    }
+    if !recursive {
+        return Err("grep without -r searches the files it names".into());
+    }
+    if patterns.len() > 1 {
+        return Err("several -e patterns (greeg takes one)".into());
+    }
+    let (pattern, dd) = match patterns.pop() {
+        Some(e) => (e, false),
+        None => {
+            if positional.is_empty() {
+                return Err("no pattern".into());
+            }
+            positional.remove(0)
+        }
+    };
+    let regex = (!fixed)
+        .then(|| posix_regex(&pattern, extended))
+        .transpose()?;
+    let pattern = match &regex {
+        Some(r) => r.clone(),
+        None => {
+            flags.push("-F".into());
+            pattern
+        }
+    };
+    let mut all = vec!["--from-grep".to_string()];
+    all.extend(flags);
+    // grep's exclusions win whatever their order; a later glob wins in greeg
+    for g in include.into_iter().chain(exclude) {
+        all.extend(["-g".to_string(), g]);
+    }
+    Ok((greeg_words(all, (pattern, dd), positional, None)?, regex))
+}
+
+/// A POSIX basic (grep's default) or extended (`-E`) regular expression as
+/// the Rust regex that matches the same lines. GNU's extensions are kept
+/// (`\|`, `\+`, `\?` in basic; `\<`, `\>`, `\b`, `\w`, `\s`). `Err` for what
+/// has no exact equivalent: back-references and other escapes.
+pub(crate) fn posix_regex(p: &str, extended: bool) -> Result<String, String> {
+    let c: Vec<char> = p.chars().collect();
+    let mut out = String::with_capacity(p.len() + 8);
+    // where `*` is literal: the start of the expression, a group or an alternative
+    let mut at_start = true;
+    let mut depth = 0usize;
+    let mut i = 0;
+    let interval = |c: &[char], from: usize, close: &str| -> Option<(String, usize)> {
+        // `m`, `m,`, `m,n` or `,n`, then `close`
+        let mut j = from;
+        let mut body = String::new();
+        while j < c.len() && (c[j].is_ascii_digit() || c[j] == ',') {
+            body.push(c[j]);
+            j += 1;
+        }
+        let rest: String = c[j..].iter().take(close.chars().count()).collect();
+        let ok = !body.is_empty() && body.matches(',').count() <= 1 && body != "," && rest == close;
+        ok.then(|| (body, j + close.chars().count()))
+    };
+    while i < c.len() {
+        let ch = c[i];
+        let start = std::mem::replace(&mut at_start, false);
+        i += 1;
+        match ch {
+            '[' => i = bracket(&c, i, &mut out)?,
+            '\\' => {
+                let e = *c.get(i).ok_or("a trailing backslash")?;
+                i += 1;
+                match e {
+                    '(' if !extended => {
+                        out.push('(');
+                        depth += 1;
+                        at_start = true;
+                    }
+                    ')' if !extended => {
+                        depth = depth.checked_sub(1).ok_or("an unmatched \\)")?;
+                        out.push(')');
+                    }
+                    '|' if !extended => {
+                        out.push('|');
+                        at_start = true;
+                    }
+                    '+' | '?' if !extended && !start => out.push(e),
+                    '{' if !extended => {
+                        let (body, next) =
+                            interval(&c, i, "\\}").ok_or("a malformed \\{interval\\}")?;
+                        if start {
+                            return Err("an interval with nothing to repeat".into());
+                        }
+                        out.push('{');
+                        out.push_str(if body.starts_with(',') { "0" } else { "" });
+                        out.push_str(&body);
+                        out.push('}');
+                        i = next;
+                    }
+                    '<' | '>' | 'b' | 'B' | 'w' | 'W' | 's' | 'S' => {
+                        out.push('\\');
+                        out.push(e);
+                    }
+                    '1'..='9' => return Err("a back-reference".into()),
+                    _ if e.is_ascii_punctuation() => {
+                        out.push('\\');
+                        out.push(e);
+                    }
+                    _ => return Err(format!("`\\{e}` is not grep syntax")),
+                }
+            }
+            '*' if start => out.push_str("\\*"),
+            '*' | '.' => out.push(ch),
+            '^' if extended || start => {
+                out.push('^');
+                at_start = true;
+            }
+            '^' => out.push_str("\\^"),
+            '$' => {
+                let ends = extended
+                    || i == c.len()
+                    || (c[i] == '\\' && matches!(c.get(i + 1), Some(')' | '|')));
+                out.push_str(if ends { "$" } else { "\\$" });
+            }
+            '+' | '?' if extended && !start => out.push(ch),
+            '{' if extended && !start => match interval(&c, i, "}") {
+                Some((body, next)) => {
+                    out.push('{');
+                    out.push_str(if body.starts_with(',') { "0" } else { "" });
+                    out.push_str(&body);
+                    out.push('}');
+                    i = next;
+                }
+                None => out.push_str("\\{"),
+            },
+            '(' if extended => {
+                out.push('(');
+                depth += 1;
+                at_start = true;
+            }
+            ')' if extended && depth > 0 => {
+                out.push(')');
+                depth -= 1;
+            }
+            '|' if extended => {
+                out.push('|');
+                at_start = true;
+            }
+            '+' | '?' | '{' | '}' | '(' | ')' | '|' => {
+                out.push('\\');
+                out.push(ch);
+            }
+            _ => out.push(ch),
+        }
+    }
+    if depth > 0 {
+        return Err("an unmatched (".into());
+    }
+    Ok(out)
+}
+
+/// The bracket expression after `[` at `c[i..]`, written to `out` as a Rust
+/// class; returns the index after its `]`.
+fn bracket(c: &[char], mut i: usize, out: &mut String) -> Result<usize, String> {
+    const CLASSES: &[&str] = &[
+        "alnum", "alpha", "blank", "cntrl", "digit", "graph", "lower", "print", "punct", "space",
+        "upper", "xdigit",
+    ];
+    out.push('[');
+    if c.get(i) == Some(&'^') {
+        out.push('^');
+        i += 1;
+    }
+    // a `]` first is a member
+    if c.get(i) == Some(&']') {
+        out.push_str("\\]");
+        i += 1;
+    }
+    loop {
+        let ch = *c.get(i).ok_or("an unterminated bracket expression")?;
+        i += 1;
+        match ch {
+            ']' => {
+                out.push(']');
+                return Ok(i);
+            }
+            '[' if c.get(i) == Some(&':') => {
+                let name: String = c[i + 1..].iter().take_while(|&&x| x != ':').collect();
+                let close = i + 1 + name.chars().count();
+                if !CLASSES.contains(&name.as_str()) || c.get(close + 1) != Some(&']') {
+                    return Err(format!("`[:{name}` is not a character class"));
+                }
+                out.push_str(&format!("[:{name}:]"));
+                i = close + 2;
+            }
+            '[' if matches!(c.get(i), Some('=' | '.')) => {
+                return Err("a collating element in a bracket expression".into());
+            }
+            // literal in POSIX, syntax in a Rust class
+            '[' | '\\' | '&' | '~' => {
+                out.push('\\');
+                out.push(ch);
+            }
+            '-' if c.get(i) == Some(&'-') => return Err("`--` in a bracket expression".into()),
+            _ => out.push(ch),
+        }
+    }
 }
 
 /// A command line split at its top-level `;`, `&&`, `||` and newlines: each
@@ -504,9 +884,15 @@ pub struct Part {
     pub rewritten: Vec<String>,
     /// The rewritten command as it appears in the line.
     pub command: String,
+    /// The regex translated from a grep pattern, for the caller to check
+    /// that greeg's matcher takes it.
+    pub regex: Option<String>,
     /// Another command runs before it in the line (a `cd`, for one), so its
     /// stats record could not be replayed as it ran.
     pub after_other: bool,
+    /// An unquoted `--include=*.rs`-style word: the caller checks that no
+    /// file in the working directory is named so.
+    pub unquoted_glob: bool,
 }
 
 /// A rewritten Bash command line.
@@ -515,21 +901,6 @@ pub struct Rewrite {
     pub parts: Vec<Part>,
     /// Every command in the line is one the hook rewrote.
     pub whole: bool,
-}
-
-fn part(seg: &str) -> Result<Part, String> {
-    let (original, rewritten) = rewrite_words(seg)?;
-    let command = rewritten
-        .iter()
-        .map(|w| quote(w))
-        .collect::<Vec<_>>()
-        .join(" ");
-    Ok(Part {
-        original,
-        rewritten,
-        command,
-        after_other: false,
-    })
 }
 
 /// A simple rg command, or each rg command of a `;`/`&&`/`||` list, becomes
@@ -548,7 +919,14 @@ pub fn rewrite_full(cmd: &str) -> Result<Rewrite, String> {
         if body.is_empty() {
             continue;
         }
-        match part(body) {
+        // a `cd` before it may change the directory its glob would match in
+        let rewritten = rewrite_words(body).and_then(|p| match why {
+            Some(_) if p.unquoted_glob => {
+                Err("an unquoted glob after another command, in a directory not known yet".into())
+            }
+            _ => Ok(p),
+        });
+        match rewritten {
             Ok(mut p) => {
                 p.after_other = why.is_some();
                 command.push_str(&cmd[at..r.start + lead]);
@@ -559,7 +937,10 @@ pub fn rewrite_full(cmd: &str) -> Result<Rewrite, String> {
             // left as it is; an rg command's reason says more than another's
             Err(e) => {
                 env |= changes_environment(body);
-                let rg = shell_words(body).is_ok_and(|w| w.first().is_some_and(|f| f == "rg"));
+                let rg = shell_words(body).is_ok_and(|w| {
+                    w.first()
+                        .is_some_and(|f| matches!(f.as_str(), "rg" | "grep" | "egrep" | "fgrep"))
+                });
                 if rg && !why.as_ref().is_some_and(|(was_rg, _)| *was_rg) || why.is_none() {
                     why = Some((rg, e));
                 }
@@ -567,7 +948,7 @@ pub fn rewrite_full(cmd: &str) -> Result<Rewrite, String> {
         }
     }
     if parts.is_empty() {
-        return Err(why.map_or_else(|| "not an rg command".into(), |(_, e)| e));
+        return Err(why.map_or_else(|| "not an rg or grep command".into(), |(_, e)| e));
     }
     if env {
         return Err("another command in the line can change the environment".into());
@@ -579,4 +960,132 @@ pub fn rewrite_full(cmd: &str) -> Result<Rewrite, String> {
         parts,
         whole,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn posix_expressions_become_the_rust_regex_that_matches_the_same_lines() {
+        for (posix, extended, rust) in [
+            // basic: operators are escaped, literals are not
+            ("fn \\|#\\[ignore", false, "fn |#\\[ignore"),
+            ("a\\(b\\)*c", false, "a(b)*c"),
+            ("a+b?c|d(e){f}", false, "a\\+b\\?c\\|d\\(e\\)\\{f\\}"),
+            ("ab\\+c\\?", false, "ab+c?"),
+            ("x\\{2,3\\}", false, "x{2,3}"),
+            ("x\\{,3\\}", false, "x{0,3}"),
+            ("*star", false, "\\*star"),
+            ("^*", false, "^\\*"),
+            ("a^b$c", false, "a\\^b\\$c"),
+            ("^a$", false, "^a$"),
+            ("\\(^a\\|b$\\)", false, "(^a|b$)"),
+            ("\\<word\\>", false, "\\<word\\>"),
+            ("\\.\\*\\/", false, "\\.\\*\\/"),
+            // extended: the operators are plain
+            ("a+|b?(c){2}", true, "a+|b?(c){2}"),
+            ("+x", true, "\\+x"),
+            ("a{", true, "a\\{"),
+            ("a{x}", true, "a\\{x\\}"),
+            ("a)", true, "a\\)"),
+            ("(a|)", true, "(a|)"),
+            ("\\(lit\\)", true, "\\(lit\\)"),
+            ("\\bx\\s+\\w", true, "\\bx\\s+\\w"),
+            // bracket expressions
+            ("[]a]", false, "[\\]a]"),
+            ("[^]a]", false, "[^\\]a]"),
+            ("[[:alpha:]_]", true, "[[:alpha:]_]"),
+            ("[a\\b]", false, "[a\\\\b]"),
+            ("[a[b]", false, "[a\\[b]"),
+            ("[&~]", true, "[\\&\\~]"),
+            ("[a-z0-9]", false, "[a-z0-9]"),
+            ("é+", true, "é+"),
+        ] {
+            assert_eq!(
+                posix_regex(posix, extended).as_deref(),
+                Ok(rust),
+                "{posix:?} {extended}"
+            );
+        }
+        for (posix, extended, why) in [
+            ("\\(a\\)\\1", false, "back-reference"),
+            ("(a)\\1", true, "back-reference"),
+            ("\\d+", true, "not grep syntax"),
+            ("a\\", false, "trailing backslash"),
+            ("[abc", false, "unterminated"),
+            ("[[:word:]]", false, "not a character class"),
+            ("[[=a=]]", false, "collating"),
+            ("[a--b]", false, "`--`"),
+            ("\\(a", false, "unmatched ("),
+            ("a\\)", false, "unmatched"),
+            ("(a", true, "unmatched ("),
+            ("a\\{x\\}", false, "malformed"),
+        ] {
+            let got = posix_regex(posix, extended).err().unwrap_or_default();
+            assert!(got.contains(why), "{posix:?}: {got:?}");
+        }
+    }
+
+    #[test]
+    fn recursive_greps_become_greeg_searches() {
+        let g = "greeg --matching exact --max-filesize 18446744073709551615 --from-grep";
+        for (cmd, want) in [
+            ("grep -rn needle .", format!("{g} needle .")),
+            (
+                "grep -rn 'fn \\|struct ' src",
+                format!("{g} 'fn |struct ' src"),
+            ),
+            ("grep -rniw Foo", format!("{g} -i -w Foo")),
+            ("grep -rl needle src lib", format!("{g} -l needle src lib")),
+            ("grep -rnE 'a+b' .", format!("{g} a+b .")),
+            ("egrep -r 'a|b' .", format!("{g} 'a|b' .")),
+            ("grep -rF 'a.b(' .", format!("{g} -F 'a.b(' .")),
+            ("fgrep -r x .", format!("{g} -F x .")),
+            ("grep -rn -A 3 -B2 x .", format!("{g} -A 3 -B 2 x .")),
+            (
+                "grep -r --include=*.rs --exclude-dir=target x .",
+                format!("{g} -g '*.rs' -g '!target/' x ."),
+            ),
+            (
+                "grep -r --exclude='*.lock' --include '*.ts' x",
+                format!("{g} -g '*.ts' -g '!*.lock' x"),
+            ),
+            ("grep -rn -e -dash .", format!("{g} -- -dash .")),
+            ("grep -rn def .", format!("{g} -e def .")),
+            ("grep -rIsH --color=never x .", format!("{g} x .")),
+            (
+                "grep --recursive --ignore-case --files-with-matches x .",
+                format!("{g} -i -l x ."),
+            ),
+        ] {
+            let r = rewrite_full(cmd).unwrap_or_else(|e| panic!("{cmd:?}: {e}"));
+            assert_eq!(r.command, want, "{cmd:?}");
+            assert_eq!(
+                shell_words(&r.command).unwrap(),
+                r.parts[0].rewritten,
+                "{cmd:?}"
+            );
+        }
+        for (cmd, why) in [
+            ("grep needle file.rs", "without -r"),
+            ("grep -rv x .", "`-v`"),
+            ("grep -rq x .", "`-q`"),
+            ("grep -ro x .", "`-o`"),
+            ("grep -rL x .", "`-L`"),
+            ("grep -rm1 x .", "`-m`"),
+            ("grep -rh x .", "file names"),
+            ("grep -r --null x .", "`--null`"),
+            ("grep -r -e a -e b .", "several -e"),
+            ("grep -r --binary-files=text x .", "`--binary-files`"),
+            ("grep -r --include='*.{ts,tsx}' x .", "no glob equivalent"),
+            ("grep -r --include=*.{ts,tsx} x .", "brace"),
+            ("grep -r x -", "stdin"),
+            ("grep -rA x y .", "whole number"),
+            ("/usr/bin/grep -r x .", "explicit executable path"),
+        ] {
+            let got = rewrite_full(cmd).err().unwrap_or_default();
+            assert!(got.contains(why), "{cmd:?}: {got:?}");
+        }
+    }
 }

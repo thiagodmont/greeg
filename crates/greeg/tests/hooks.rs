@@ -1,5 +1,6 @@
 //! Hook protocol and shell argument tests on disposable local fixtures.
 use serde_json::{Value, json};
+use std::collections::BTreeSet;
 use std::fs;
 use std::io::Read;
 use std::io::Write;
@@ -133,7 +134,7 @@ fn declined_commands_emit_no_reply_or_stats() {
     let f = Fixture::new();
     for agent in ["claude", "codex"] {
         for command in [
-            "grep -rl needle .",
+            "grep -rlv needle .",
             "grep needle file.rs",
             "rg --json needle",
             "./rg needle",
@@ -254,6 +255,80 @@ fn rewritten_lists_keep_their_control_flow() {
             String::from_utf8_lossy(&out.stdout),
             expected,
             "{command}: {out:?}"
+        );
+    }
+}
+
+/// On a tree with no ignored or hidden files, a rewritten `grep -r` finds the
+/// lines grep finds.
+#[test]
+fn rewritten_greps_find_the_lines_grep_finds() {
+    let f = Fixture::new();
+    let tree = f.0.join("tree");
+    fs::write(
+        tree.join("a.rs"),
+        "fn main() {}\nstruct Foo;\nlet x = a+b;\nfoofoo bar\n  indented(1)\nend$\n^caret\nTAB\there\n",
+    )
+    .unwrap();
+    fs::create_dir_all(tree.join("py")).unwrap();
+    fs::write(
+        tree.join("py/b.py"),
+        "def foo():\n    return 42\nclass Bar:\n",
+    )
+    .unwrap();
+    let lines = |out: &[u8]| -> BTreeSet<String> {
+        String::from_utf8_lossy(out)
+            .lines()
+            .map(|l| {
+                let l = l.strip_prefix("./").unwrap_or(l);
+                let mut it = l.splitn(3, ':');
+                format!("{}:{}", it.next().unwrap(), it.next().unwrap_or(""))
+            })
+            .collect()
+    };
+    for command in [
+        "grep -rn 'fn \\|struct ' .",
+        "grep -rn 'a+b' .",
+        "grep -rn '\\<foo\\>' .",
+        "grep -rn 'fo\\{2\\}' .",
+        "grep -rn '^  ' .",
+        "grep -rn 'end\\$' .",
+        "grep -rn '\\^caret' .",
+        "grep -rn '[[:upper:]]\\{3\\}' .",
+        "grep -rn '(1)' .",
+        "grep -rni 'FOO' .",
+        "grep -rnw foo .",
+        "grep -rnE 'fo+' .",
+        "grep -rnE '(foo){2}' .",
+        "grep -rnE 'a|class' .",
+        "grep -rnE 'return [0-9]+' .",
+        "grep -rnF 'a+b' .",
+        "grep -rn --include=*.py foo .",
+        "grep -rn --exclude-dir=py foo .",
+        "grep -rn foo py",
+    ] {
+        let grep = f
+            .command("/bin/sh")
+            .args(["-c", command])
+            .env("PATH", "/usr/bin:/bin")
+            .output()
+            .unwrap();
+        let rewritten = f.rewrite("claude", command);
+        let args = rewritten.strip_prefix("greeg ").unwrap();
+        let greeg = f
+            .command("/bin/sh")
+            .args(["-c", &format!("'{BIN}' --no-session --budget 0 {args}")])
+            .output()
+            .unwrap();
+        assert_eq!(
+            greeg.status.code(),
+            grep.status.code(),
+            "{command}: {greeg:?}"
+        );
+        assert_eq!(
+            lines(&greeg.stdout),
+            lines(&grep.stdout),
+            "{command} → {rewritten}"
         );
     }
 }

@@ -321,13 +321,15 @@ Direct `greeg` calls retain the exact/discovery defaults described above.
 | `-i -S -s -w -x -F -U`, context, type/glob, thread and numeric size limits | Forward supported flags; `-u`/`-uu` map to ignore/hidden flags |
 | Standalone `-l` / `-c` | Exact matching with paths/counts on stdout; greeg diagnostics/footer on stderr |
 | Line/heading/column/color presentation flags | Use greeg's ranked presentation; validate `--color` values |
-| `grep`, `egrep`, `fgrep`, including explicit-file searches | Decline: traversal, regex dialects and binary behavior differ |
+| `grep -r` (and `egrep`/`fgrep -r`) with `-n -i -w -x -l -E -F -e -A -B -C`, `--include`, `--exclude`, `--exclude-dir` and GNU's long names | Rewrite: the POSIX basic/extended pattern becomes the Rust regex matching the same lines (GNU's `\|`, `\+`, `\?`, `\<`, `\>`, `\b`, `\w`, `\s` kept); the file globs become `-g`. Files are picked as rg picks them: ignored, hidden and binary files are skipped (grep searches them, and reports a binary match), and greeg says so on stderr before the answer |
+| `grep` without `-r`, `-R`, `-c`, `-h`, `-o`, `-v`, `-L`, `-q`, `-m`, `-P`, back-references, `\d` and other escapes, brace or path globs | Decline: no exact greeg equivalent |
 | `--json`, `--stats`, sorting, suppressed diagnostics, unknown/unsupported flags | Decline; retain the original output/error contract |
 | Paths such as `./rg` or `/usr/bin/rg`, wrappers, assignments | Decline; do not substitute another executable |
 | `;`, `&&`, `\|\|` and newline lists (`cd src && rg …`) | Rewrite each eligible `rg` command on its own; keep every other byte. Exit statuses agree (0/1/2), so the list's control flow is unchanged. For Codex, only a list of rewritten commands: Codex runs an allowed rewrite without asking, so another command in it would skip its approval |
 | Pipelines, background jobs, subshells/groups, substitutions, here-documents, `$'…'`/`$"…"` quoting | Decline the entire command |
 | Redirections | Leave that command as it is |
-| Comments, continuations, expansions, unquoted globs (including option values), malformed quoting | Decline; quoted metacharacters remain literal |
+| An unquoted glob in `--include=`, `--exclude=` or `--exclude-dir=` | Rewrite when the command runs in the hook's working directory and no name there starts so (bash then passes the glob on; zsh stops the original with "no matches found"). Decline after another command (a `cd`) or when such a name exists |
+| Comments, continuations, expansions, other unquoted globs, malformed quoting | Decline; quoted metacharacters remain literal |
 | Leading/trailing unquoted blank lines | Accept only at command boundaries; preserve escaped spaces and literal Unicode whitespace |
 | Nonempty inherited `RIPGREP_CONFIG_PATH`, even with `--no-config` | Decline conservatively; do not interpret configuration |
 
@@ -351,6 +353,10 @@ make limited ranked output complete. File/count differential tests cover the
 recorded fixture and flags, not all ripgrep inputs. Configure the host to disable
 the hook when original output or unverified behavior is required. No grep, JSON,
 or pipeline rewrite should be re-enabled without end-to-end equivalence tests.
+`grep -r` is rewritten with one: `rewritten_greps_find_the_lines_grep_finds`
+runs each case through the system grep and the rewritten greeg on a tree
+without ignored files and compares exit status and matched lines (BSD grep on
+macOS, GNU grep in CI).
 
 ### Hook configuration updates
 

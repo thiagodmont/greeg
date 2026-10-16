@@ -305,6 +305,9 @@ struct Common {
     /// Internal: re-executed after a SIGBUS on an index file
     #[arg(long = "after-sigbus", hide = true, global = true)]
     after_sigbus: bool,
+    /// Internal: the hook rewrote a `grep -r`; say on stderr that ignore rules applied
+    #[arg(long = "from-grep", hide = true)]
+    from_grep: bool,
 }
 
 impl Common {
@@ -1222,6 +1225,12 @@ fn run() -> Result<()> {
     let mut opts = build_options(c, pattern, paths)?;
     opts.fixed_strings = fixed;
     json_notice(c);
+    // before the answer: a `| head` may end the run before its end
+    if c.from_grep && !c._no_messages {
+        eprintln!(
+            "greeg: grep -r ran as greeg: ignored, hidden and binary files are skipped, as rg skips them (-uu searches ignored and hidden ones)"
+        );
+    }
     let fmt = Fmt {
         chain: c.chain,
         stats: c.stats,
