@@ -1,0 +1,21 @@
+crates/greeg/src/hook.rs
+  s_eefb2647553a67::t_395a8b78a91e38 93-94,117-118
+crates/greeg/tests/hooks.rs
+  s_eefb2647553a67::t_160d21a93b12e8 439
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "69eeb0a239d0affad28d1424d51126dd6bd9f5d4",
+  "prompts": {},
+  "sessions": {
+    "s_eefb2647553a67": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9fff36d3-3b5f-4343-be78-7893a6fe3965",
+        "model": "unknown"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
