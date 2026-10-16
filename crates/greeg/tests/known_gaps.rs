@@ -264,6 +264,12 @@ fn definitions_a_changed_file_no_longer_has_are_left_out() {
         ("c.rs", "pub fn target() {}\n"),
     ]);
     f.indexed();
+    let impls = f.run(&["impls", "Shape", "--fresh", "none", "--json=greeg"]);
+    let out = stdout(&impls);
+    assert!(
+        out.contains("\"a.rs\"") && out.contains("\"direct\":1"),
+        "{out}"
+    );
     // S implements Other now, and b.rs is gone; the index is not told
     w(
         &f.root.join("a.rs"),
@@ -271,7 +277,12 @@ fn definitions_a_changed_file_no_longer_has_are_left_out() {
     );
     fs::remove_file(f.root.join("b.rs")).unwrap();
     let impls = f.run(&["impls", "Shape", "--fresh", "none", "--json=greeg"]);
-    assert!(!stdout(&impls).contains("\"a.rs\""), "{impls:?}");
+    let out = stdout(&impls);
+    assert_eq!(impls.status.code(), Some(1), "{impls:?}");
+    assert!(
+        !out.contains("\"a.rs\"") && out.contains("\"direct\":0"),
+        "{out}"
+    );
     let def = f.run(&["def", "target", "--fresh", "none", "--json=greeg"]);
     let out = stdout(&def);
     assert!(!out.contains("b.rs") && out.contains("c.rs"), "{out}");
