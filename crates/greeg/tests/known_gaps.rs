@@ -249,6 +249,33 @@ fn spans_are_never_cut_from_bytes_they_do_not_describe() {
     let impls = stdout(&f.run(&["impls", "Shape", "--fresh", "none"]));
     assert!(impls.contains("11"), "the impl is on line 11 now: {impls}");
     assert!(!impls.contains("pub trait Shape"), "{impls}");
+    // its doc comes from the index's comment spans: none, rather than another line
+    assert!(!out.contains("\"Doc"), "{out}");
+}
+
+#[test]
+fn definitions_a_changed_file_no_longer_has_are_left_out() {
+    let f = Fixture::new(&[
+        (
+            "a.rs",
+            "pub trait Shape {}\npub trait Other {}\nstruct S;\nimpl Shape for S {}\n",
+        ),
+        ("b.rs", "pub fn target() {}\n"),
+        ("c.rs", "pub fn target() {}\n"),
+    ]);
+    f.indexed();
+    // S implements Other now, and b.rs is gone; the index is not told
+    w(
+        &f.root.join("a.rs"),
+        "pub trait Shape {}\npub trait Other {}\nstruct S;\nimpl Other for S {}\n",
+    );
+    fs::remove_file(f.root.join("b.rs")).unwrap();
+    let impls = f.run(&["impls", "Shape", "--fresh", "none", "--json=greeg"]);
+    assert!(!stdout(&impls).contains("\"a.rs\""), "{impls:?}");
+    let def = f.run(&["def", "target", "--fresh", "none", "--json=greeg"]);
+    let out = stdout(&def);
+    assert!(!out.contains("b.rs") && out.contains("c.rs"), "{out}");
+    assert!(out.contains("\"total\":1"), "{out}");
 }
 
 #[test]

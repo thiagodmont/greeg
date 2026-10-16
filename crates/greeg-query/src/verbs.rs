@@ -606,7 +606,12 @@ pub fn def(
             let (src, current) = cache
                 .entry(e.rel.clone())
                 .or_insert_with(|| indexed_text(tree.as_ref(), idx, e.file_id, &e.rel));
-            if src.is_empty() {
+            if src.is_empty() && *current {
+                continue;
+            }
+            // a module file that is gone or unreadable now
+            if e.file_module && src.is_empty() {
+                gone[i] = true;
                 continue;
             }
             if e.file_module {
@@ -619,7 +624,7 @@ pub fn def(
             // changed since the index described it: find the definition again
             let mut spans = e.file_id.map(|id| (idx, id));
             if !*current {
-                match relocate(src, &e.rel, &e.name, e.kind, e.line) {
+                match relocate(src, &e.rel, &e.name, e.kind, None, e.line) {
                     Some((start, end, line)) => (e.start, e.end, e.line) = (start, end, line),
                     None => {
                         gone[i] = true;
@@ -1108,6 +1113,7 @@ pub fn impls(o: &Options, name: &str) -> Result<ImplsResult> {
         if o.budget != 0 {
             found.truncate(DESCRIBED_IMPLS);
         }
+        let query = name;
         for (_, s) in found {
             let Some(r) = idx.sym(s) else { continue };
             let fid = idx.sym_file(s);
@@ -1125,9 +1131,13 @@ pub fn impls(o: &Options, name: &str) -> Result<ImplsResult> {
                 .entry(rel.clone())
                 .or_insert_with(|| indexed_text(tree.as_ref(), idx, Some(fid), &rel));
             // changed since the index described it: find the definition again
-            let (start, end, line, spans) = if *current || src.is_empty() {
+            let (start, end, line, spans) = if *current {
                 (r.start, r.end, r.line, Some((idx, fid)))
-            } else if let Some((start, end, line)) = relocate(src, &rel, &name, kind, r.line) {
+            } else if let Some((start, end, line)) =
+                relocate(src, &rel, &name, kind, Some(query), r.line)
+            {
+                // the scan's extras below are told apart by line
+                have.insert((rel.clone(), line));
                 (start, end, line, None)
             } else {
                 direct_total = direct_total.saturating_sub(1);
@@ -1376,10 +1386,10 @@ pub const BODY_CAP: u32 = 200;
 /// Lines each way when no definition encloses the asked line.
 pub const WINDOW: u32 = 20;
 
-/// An indexed file's text, read below the root without following a
-/// symlink; empty when it cannot be.
-/// An indexed file's text now, and whether the index's spans still describe
-/// it: its stamp is the recorded one (no file id: found by a scan, current).
+/// An indexed file's text now, read below the root without following a
+/// symlink, and whether the index's spans still describe it: its stamp is the
+/// recorded one (no file id: found by a scan, current). An indexed file that
+/// cannot be read is empty and not current.
 fn indexed_text(
     tree: Option<&Tree>,
     idx: &Index,
@@ -1387,7 +1397,7 @@ fn indexed_text(
     rel: &[u8],
 ) -> (Vec<u8>, bool) {
     let Some((mut v, stamp)) = tree.and_then(|t| t.read_stamped(rel).ok()) else {
-        return (Vec::new(), true);
+        return (Vec::new(), file_id.is_none());
     };
     let current = file_id.is_none_or(|id| {
         idx.rec(id).is_some_and(|r| {
@@ -1398,13 +1408,15 @@ fn indexed_text(
     (v, current)
 }
 
-/// Where `src` defines `name` as `kind` now, nearest to `line`: its
-/// `(start, end, line)`, or `None` when it no longer does.
+/// Where `src` defines `name` as `kind` now (one of whose supertypes is
+/// `supertype`, when given), nearest to `line`: its `(start, end, line)`, or
+/// `None` when it no longer does.
 fn relocate(
     src: &[u8],
     rel: &[u8],
     name: &str,
     kind: DefKind,
+    supertype: Option<&str>,
     line: u32,
 ) -> Option<(u32, u32, u32)> {
     let tsx = greeg_lang::sym::is_tsx(&String::from_utf8_lossy(rel));
@@ -1412,6 +1424,13 @@ fn relocate(
     ex.symbols
         .iter()
         .filter(|s| s.kind == kind && ex.name(s, src) == name)
+        .filter(|s| {
+            supertype.is_none_or(|t| {
+                s.supers
+                    .iter()
+                    .any(|&(a, b)| src.get(a as usize..b as usize) == Some(t.as_bytes()))
+            })
+        })
         .min_by_key(|s| s.line.abs_diff(line))
         .map(|s| (s.start, s.end, s.line))
 }
