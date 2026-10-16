@@ -1,0 +1,20 @@
+crates/greeg/tests/known_gaps.rs
+  s_eefb2647553a67::t_e8a1c4add69dfc 659,662-664
+  s_eefb2647553a67::t_6474909cbe98dd 676-682,686-689
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "1812c838d5d6fd1378c932e3e5a576753a779930",
+  "prompts": {},
+  "sessions": {
+    "s_eefb2647553a67": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9fff36d3-3b5f-4343-be78-7893a6fe3965",
+        "model": "unknown"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
