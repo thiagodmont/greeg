@@ -228,6 +228,15 @@ impl Tree {
         Ok(v)
     }
 
+    /// [`Tree::read`], with the stamp of the file read (taken after the read,
+    /// so a write during it shows).
+    pub fn read_stamped(&self, rel: &[u8]) -> io::Result<(Vec<u8>, crate::build::Stamp)> {
+        let mut f = self.open_file(rel)?;
+        let mut v = Vec::new();
+        f.read_to_end(&mut v)?;
+        Ok((v, crate::build::Stamp::of(&f.metadata()?)))
+    }
+
     /// `lstat` of `rel` (the tree itself when empty), refusing a symlink in
     /// any directory on the way. `dirs` keeps the directories of the
     /// previous call, so stats in path order open each directory once.

@@ -228,6 +228,68 @@ fn a_call_after_a_same_line_comment_is_found() {
 }
 
 #[test]
+fn spans_are_never_cut_from_bytes_they_do_not_describe() {
+    let f = Fixture::new(&[(
+        "a.rs",
+        "fn other() {}\n\n/// Doc.\npub fn target(a: u32) -> u32 {\n    a + 1\n}\npub trait Shape {}\nstruct S;\nimpl Shape for S {}\n",
+    )]);
+    f.indexed();
+    // the index is not told: `--fresh none` answers from its spans
+    w(
+        &f.root.join("a.rs"),
+        "// two new\n// lines\nfn other() {}\n\n/// Doc.\npub fn target(a: u32) -> u32 {\n    a + 2\n}\npub trait Shape {}\nstruct S;\nimpl Shape for S {}\n",
+    );
+    let def = f.run(&["def", "target", "--mode", "block", "--fresh", "none"]);
+    let out = stdout(&def);
+    assert!(
+        out.contains("  6 fn  pub fn target(a: u32) -> u32 {"),
+        "{out}"
+    );
+    assert!(out.contains("  7      a + 2"), "{out}");
+    let impls = stdout(&f.run(&["impls", "Shape", "--fresh", "none"]));
+    assert!(impls.contains("11"), "the impl is on line 11 now: {impls}");
+    assert!(!impls.contains("pub trait Shape"), "{impls}");
+    // its doc comes from the index's comment spans: none, rather than another line
+    assert!(!out.contains("\"Doc"), "{out}");
+}
+
+#[test]
+fn definitions_a_changed_file_no_longer_has_are_left_out() {
+    let f = Fixture::new(&[
+        (
+            "a.rs",
+            "pub trait Shape {}\npub trait Other {}\nstruct S;\nimpl Shape for S {}\n",
+        ),
+        ("b.rs", "pub fn target() {}\n"),
+        ("c.rs", "pub fn target() {}\n"),
+    ]);
+    f.indexed();
+    let impls = f.run(&["impls", "Shape", "--fresh", "none", "--json=greeg"]);
+    let out = stdout(&impls);
+    assert!(
+        out.contains("\"a.rs\"") && out.contains("\"direct\":1"),
+        "{out}"
+    );
+    // S implements Other now, and b.rs is gone; the index is not told
+    w(
+        &f.root.join("a.rs"),
+        "pub trait Shape {}\npub trait Other {}\nstruct S;\nimpl Other for S {}\n",
+    );
+    fs::remove_file(f.root.join("b.rs")).unwrap();
+    let impls = f.run(&["impls", "Shape", "--fresh", "none", "--json=greeg"]);
+    let out = stdout(&impls);
+    assert_eq!(impls.status.code(), Some(1), "{impls:?}");
+    assert!(
+        !out.contains("\"a.rs\"") && out.contains("\"direct\":0"),
+        "{out}"
+    );
+    let def = f.run(&["def", "target", "--fresh", "none", "--json=greeg"]);
+    let out = stdout(&def);
+    assert!(!out.contains("b.rs") && out.contains("c.rs"), "{out}");
+    assert!(out.contains("\"total\":1"), "{out}");
+}
+
+#[test]
 fn a_line_that_defines_and_calls_a_name_counts_as_both() {
     let f = Fixture::new(&[("a.rs", "fn x() { x(); }\nfn main() {\n    x();\n}\n")]);
     f.indexed();
