@@ -60,6 +60,9 @@ TEXT = {
         "verb": b"rg def",
         "pipe": b"rg foo | head",
         "grep": b"grep -r foo .",
+        "head-list": b"rg -n a | head -5; rg b",
+        "grep-head": b"grep -rn a . | head -n 3",
+        "redirections": b"rg -n a 2>/dev/null | head -5; grep -rl b . 2>&1 </dev/null",
     },
     "lang_extract": {
         "python": b"\x00" + SOURCES["src/util.py"].encode(),

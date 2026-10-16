@@ -1227,8 +1227,15 @@ fn run() -> Result<()> {
     json_notice(c);
     // before the answer: a `| head` may end the run before its end
     if c.from_grep && !c._no_messages {
+        // a glob that names files brings back the ignored and hidden ones it names
+        let include = c.globs.iter().any(|g| !g.starts_with('!'));
         eprintln!(
-            "greeg: grep -r ran as greeg: ignored, hidden and binary files are skipped, as rg skips them (-uu searches ignored and hidden ones)"
+            "greeg: grep -r ran as greeg: {}",
+            if include {
+                "ignored and hidden directories and binary files are skipped, as rg skips them with -g (-uu searches the directories)"
+            } else {
+                "ignored, hidden and binary files are skipped, as rg skips them (-uu searches ignored and hidden ones)"
+            }
         );
     }
     let fmt = Fmt {

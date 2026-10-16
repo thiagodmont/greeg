@@ -1,6 +1,5 @@
 //! Hook protocol and shell argument tests on disposable local fixtures.
 use serde_json::{Value, json};
-use std::collections::BTreeSet;
 use std::fs;
 use std::io::Read;
 use std::io::Write;
@@ -358,15 +357,14 @@ fn rewritten_greps_find_the_lines_grep_finds() {
         "def foo():\n    return 42\nclass Bar:\n",
     )
     .unwrap();
-    let lines = |out: &[u8]| -> BTreeSet<String> {
-        String::from_utf8_lossy(out)
+    // every `path:line:text` record, duplicates kept; greeg ranks, grep walks
+    let lines = |out: &[u8]| -> Vec<String> {
+        let mut v: Vec<String> = String::from_utf8_lossy(out)
             .lines()
-            .map(|l| {
-                let l = l.strip_prefix("./").unwrap_or(l);
-                let mut it = l.splitn(3, ':');
-                format!("{}:{}", it.next().unwrap(), it.next().unwrap_or(""))
-            })
-            .collect()
+            .map(|l| l.strip_prefix("./").unwrap_or(l).to_string())
+            .collect();
+        v.sort();
+        v
     };
     for command in [
         "grep -rn 'fn \\|struct ' .",
@@ -388,6 +386,7 @@ fn rewritten_greps_find_the_lines_grep_finds() {
         "grep -rn --include=*.py foo .",
         "grep -rn --exclude-dir=py foo .",
         "grep -rn foo py",
+        "grep -rn foo",
     ] {
         let grep = f
             .command("/bin/sh")
@@ -413,6 +412,51 @@ fn rewritten_greps_find_the_lines_grep_finds() {
             "{command} → {rewritten}"
         );
     }
+}
+
+/// A rewritten `grep -r` picks files as rg does, and says so: ignored,
+/// hidden and binary files are skipped; a glob that names files brings back
+/// the ignored and hidden ones it names, not those under such directories.
+#[test]
+fn rewritten_greps_skip_what_rg_skips_and_say_so() {
+    let f = Fixture::new();
+    let tree = f.0.join("tree");
+    fs::write(tree.join(".gitignore"), "gen.rs\ntarget/\n").unwrap();
+    for name in ["gen.rs", ".h.rs", "target/t.rs", ".hid/d.rs"] {
+        fs::create_dir_all(tree.join(name).parent().unwrap()).unwrap();
+        fs::write(tree.join(name), "needle\n").unwrap();
+    }
+    fs::write(tree.join("bin.rs"), b"needle\0rest\n").unwrap();
+    let run = |command: &str| {
+        let rewritten = f.rewrite("claude", command);
+        let args = rewritten.strip_prefix("greeg ").unwrap();
+        let out = f
+            .command("/bin/sh")
+            .args(["-c", &format!("'{BIN}' --no-session --budget 0 {args}")])
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        let mut files: Vec<String> = String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .map(|l| l.strip_prefix("./").unwrap_or(l).to_string())
+            .collect();
+        files.sort();
+        (files, String::from_utf8_lossy(&out.stderr).into_owned())
+    };
+    let (files, stderr) = run("grep -rl needle .");
+    assert_eq!(files, ["file.rs"], "{stderr}");
+    assert!(
+        stderr.starts_with(
+            "greeg: grep -r ran as greeg: ignored, hidden and binary files are skipped"
+        ),
+        "{stderr}"
+    );
+    let (files, stderr) = run("grep -rl --include='*.rs' needle .");
+    assert_eq!(files, [".h.rs", "file.rs", "gen.rs"], "{stderr}");
+    assert!(
+        stderr.starts_with("greeg: grep -r ran as greeg: ignored and hidden directories and binary files are skipped"),
+        "{stderr}"
+    );
 }
 
 #[test]

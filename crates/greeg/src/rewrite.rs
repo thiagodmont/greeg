@@ -429,8 +429,19 @@ fn rewrite_rg(words: &[String]) -> Result<Vec<String>, String> {
 /// globs. Ignore rules apply, as in rg; greeg says so on stderr
 /// (`--from-grep`). Flags with no exact greeg meaning decline.
 fn rewrite_grep(words: &[String]) -> Result<(Vec<String>, Option<String>), String> {
-    let mut extended = words[0] == "egrep";
-    let mut fixed = words[0] == "fgrep";
+    // grep refuses two different matchers (`-E -F`, `egrep -F`)
+    let mut matcher = match words[0].as_str() {
+        "egrep" => Some('E'),
+        "fgrep" => Some('F'),
+        _ => None,
+    };
+    let mut set_matcher = |m: char| match matcher {
+        Some(was) if was != m => Err("conflicting matchers (-E, -F, -G)".to_string()),
+        _ => {
+            matcher = Some(m);
+            Ok(())
+        }
+    };
     let mut recursive = false;
     let mut flags: Vec<String> = Vec::new();
     let (mut include, mut exclude) = (Vec::new(), Vec::new());
@@ -490,21 +501,26 @@ fn rewrite_grep(words: &[String]) -> Result<(Vec<String>, Option<String>), Strin
                 if inline.is_some() && !matches!(name, "color" | "colour") {
                     return Err(format!("`{flag}` does not take a value"));
                 }
-                None
+                inline
             };
             let v = value.unwrap_or_default();
             match name {
                 "recursive" => recursive = true,
                 "dereference-recursive" => return Err("grep -R follows symlinks".into()),
-                "line-number" | "with-filename" | "no-messages" | "color" | "colour" => {}
+                "line-number" | "with-filename" => {}
+                "color" | "colour" if matches!(v.as_str(), "" | "auto" | "always" | "never") => {}
+                "color" | "colour" => return Err(format!("`{flag}={v}` is not a color mode")),
+                "no-messages" => {
+                    return Err("grep -s would hide greeg's note on the files it skips".into());
+                }
                 "binary-files" if v == "without-match" => {}
                 "ignore-case" => flags.push("-i".into()),
                 "word-regexp" => flags.push("-w".into()),
                 "line-regexp" => flags.push("-x".into()),
                 "files-with-matches" => flags.push("-l".into()),
-                "extended-regexp" => extended = true,
-                "basic-regexp" => extended = false,
-                "fixed-strings" => fixed = true,
+                "extended-regexp" => set_matcher('E')?,
+                "basic-regexp" => set_matcher('G')?,
+                "fixed-strings" => set_matcher('F')?,
                 "regexp" => patterns.push(v),
                 "include" => include.push(file_glob(&flag, &v)?),
                 "exclude" => exclude.push(format!("!{}", file_glob(&flag, &v)?)),
@@ -522,11 +538,10 @@ fn rewrite_grep(words: &[String]) -> Result<(Vec<String>, Option<String>), Strin
             match c {
                 'r' => recursive = true,
                 'R' => return Err("grep -R follows symlinks".into()),
-                'n' | 'H' | 's' | 'I' => {}
+                'n' | 'H' | 'I' => {}
+                's' => return Err("grep -s would hide greeg's note on the files it skips".into()),
                 'i' | 'w' | 'x' | 'l' => flags.push(format!("-{c}")),
-                'E' => extended = true,
-                'G' => extended = false,
-                'F' => fixed = true,
+                'E' | 'G' | 'F' => set_matcher(c)?,
                 'c' => return Err("grep -c also counts files without a match".into()),
                 'h' => return Err("grep -h leaves out file names".into()),
                 'e' | 'A' | 'B' | 'C' => {
@@ -564,9 +579,14 @@ fn rewrite_grep(words: &[String]) -> Result<(Vec<String>, Option<String>), Strin
             positional.remove(0)
         }
     };
+    let (extended, fixed) = (matcher == Some('E'), matcher == Some('F'));
     let regex = (!fixed)
         .then(|| posix_regex(&pattern, extended))
         .transpose()?;
+    // with no file operand grep -r searches the working directory
+    if positional.is_empty() {
+        positional.push((".".to_string(), false));
+    }
     let pattern = match &regex {
         Some(r) => r.clone(),
         None => {
@@ -1154,7 +1174,8 @@ mod tests {
                 "grep -rn 'fn \\|struct ' src",
                 format!("{g} 'fn |struct ' src"),
             ),
-            ("grep -rniw Foo", format!("{g} -i -w Foo")),
+            // with no file operand grep -r searches the working directory
+            ("grep -rniw Foo", format!("{g} -i -w Foo .")),
             ("grep -rl needle src lib", format!("{g} -l needle src lib")),
             ("grep -rnE 'a+b' .", format!("{g} a+b .")),
             ("egrep -r 'a|b' .", format!("{g} 'a|b' .")),
@@ -1167,11 +1188,13 @@ mod tests {
             ),
             (
                 "grep -r --exclude='*.lock' --include '*.ts' x",
-                format!("{g} -g '*.ts' -g '!*.lock' x"),
+                format!("{g} -g '*.ts' -g '!*.lock' x ."),
             ),
             ("grep -rn -e -dash .", format!("{g} -- -dash .")),
             ("grep -rn def .", format!("{g} -e def .")),
-            ("grep -rIsH --color=never x .", format!("{g} x .")),
+            ("grep -rIH --color=never x .", format!("{g} x .")),
+            ("grep -r --colour x .", format!("{g} x .")),
+            ("grep -rE -E x .", format!("{g} x .")),
             (
                 "grep --recursive --ignore-case --files-with-matches x .",
                 format!("{g} -i -l x ."),
@@ -1201,6 +1224,13 @@ mod tests {
             ("grep -r x -", "stdin"),
             ("grep -rA x y .", "whole number"),
             ("/usr/bin/grep -r x .", "explicit executable path"),
+            ("grep -rE -F x .", "conflicting matchers"),
+            ("grep -rF -G x .", "conflicting matchers"),
+            ("egrep -rF x .", "conflicting matchers"),
+            ("fgrep -rE x .", "conflicting matchers"),
+            ("grep -r --color=bogus x .", "not a color mode"),
+            ("grep -rs x .", "would hide greeg's note"),
+            ("grep -r --no-messages x .", "would hide greeg's note"),
         ] {
             let got = rewrite_full(cmd).err().unwrap_or_default();
             assert!(got.contains(why), "{cmd:?}: {got:?}");

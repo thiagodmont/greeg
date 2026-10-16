@@ -753,9 +753,10 @@ fn stdout_fails_to_write(c: &mut Command, file: &Path) {
     unsafe {
         c.pre_exec(|| {
             libc::signal(libc::SIGXFSZ, libc::SIG_IGN);
+            // a finite inherited hard limit cannot be raised: lower both
             let one = libc::rlimit {
                 rlim_cur: 1,
-                rlim_max: libc::RLIM_INFINITY,
+                rlim_max: 1,
             };
             if libc::setrlimit(libc::RLIMIT_FSIZE, &one) != 0 {
                 return Err(std::io::Error::last_os_error());

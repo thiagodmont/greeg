@@ -108,7 +108,8 @@ lists and before `| head`), and the skill teaches the agent greeg's symbol comma
 change how you prompt.** A rewritten `grep -r` picks files as rg does: it
 skips ignored, hidden and binary files, which grep searches, and says so on
 stderr. Commands the hook can't translate exactly (most pipelines,
-redirections, grep without `-r`, …) run with the original tool;
+redirections, grep without `-r`, …) run with the original tool, and so does
+every search while a nonempty `RIPGREP_CONFIG_PATH` is set;
 `greeg hook explain 'grep -rn foo src'` shows what it would do.
 
 > If you use `Bash(rg:*)` allow rules, add `Bash(greeg:*)` next to them. If

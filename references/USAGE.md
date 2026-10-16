@@ -226,7 +226,8 @@ are not silently omitted. A recursive `grep -r` (or `egrep -r`, `fgrep -r`) is
 rewritten too: its pattern is translated from grep's syntax, and files are
 selected as rg selects them: ignored, hidden and binary files are skipped,
 where grep searches them (greeg says so on stderr; `-uu` searches ignored and
-hidden files). It leaves other grep forms, JSON/stats output, explicit
+hidden files). As with rg's `-g`, an `--include` glob brings back the ignored
+and hidden files it names, not those under ignored or hidden directories. It leaves other grep forms, JSON/stats output, explicit
 executable paths, other pipelines, subshells and groups, comments,
 redirections other than those that end a search and leave its output alone
 (`2>/dev/null`, `2> /dev/null`, `2>>/dev/null`, `2>> /dev/null`, `2>&1`,
