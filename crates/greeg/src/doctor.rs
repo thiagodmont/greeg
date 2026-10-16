@@ -48,7 +48,7 @@ pub fn run(c: &Common) -> Result<()> {
     writeln!(w, "root      {}", canon.display())?;
     let dir = greeg_index::index_dir(&root, c.index_dir.as_deref())?;
     let mut advice: Vec<String> = Vec::new();
-    let building = dir.join("BUILDING").exists();
+    let building = greeg_index::lock::marker_held(&dir, "BUILDING");
     let manifest = greeg_index::read_manifest(&dir);
     match &manifest {
         None => {

@@ -150,6 +150,11 @@ instead of writing.
 
 The first query in a new repository is answered by a ripgrep-speed scan while
 the build runs detached behind it. There is no setup step and no daemon.
+One build and one refresher run per index: each holds an exclusive `flock`
+on its marker (`BUILDING`, `REFRESHING`) while it works, and another process
+that finds the marker locked leaves the work to it. A marker left by a process
+that died is not locked, so the next one takes it over at once; a build that
+runs long keeps its lock however old the file is.
 
 The build runs in two phases so queries get useful answers early:
 
