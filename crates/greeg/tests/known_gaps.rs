@@ -290,6 +290,41 @@ fn definitions_a_changed_file_no_longer_has_are_left_out() {
 }
 
 #[test]
+fn a_line_that_defines_and_calls_a_name_counts_as_both() {
+    let f = Fixture::new(&[("a.rs", "fn x() { x(); }\nfn main() {\n    x();\n}\n")]);
+    f.indexed();
+    for (kind, lines) in [("def", "a.rs:1\n"), ("call", "a.rs:2\n")] {
+        let args = ["-c", "x", "--kind", kind];
+        for o in [f.run(&args), f.scan(&args)] {
+            assert_eq!(stdout(&o), lines, "{kind}: {o:?}");
+        }
+    }
+}
+
+#[test]
+fn a_filtered_first_request_does_not_narrow_the_index() {
+    let f = Fixture::new(&[
+        ("a.rs", "fn needle() {}\n"),
+        ("b.py", "def needle():\n    pass\n"),
+    ]);
+    // no index yet: this request answers from a scan and queues the build
+    assert_eq!(stdout(&f.run(&["-t", "py", "-l", "needle"])), "b.py\n");
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while !f.layout().join("manifest").exists() || f.layout().join("BUILDING").exists() {
+        assert!(Instant::now() < deadline, "the queued build did not finish");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    std::thread::sleep(PAST_FRESHNESS_WINDOW);
+    let args = ["-l", "needle", "--budget", "0", "--sort", "path", "--stats"];
+    let later = f.run(&args);
+    assert_eq!(stdout(&later), "a.rs\nb.py\n", "{later:?}");
+    assert!(
+        String::from_utf8_lossy(&later.stderr).contains("greeg: index"),
+        "answered from the index: {later:?}"
+    );
+}
+
+#[test]
 fn multiline_comment_text_is_not_a_call_in_scan_mode() {
     let f = Fixture::new(&[("a.rs", "/*\nneedle();\n*/\nfn f() {}\n")]);
     let call = f.scan(&["needle", "--kind", "call", "--budget", "0"]);
@@ -718,8 +753,12 @@ fn json_footers_carry_one_outcome() {
     }
 }
 
+#[cfg(unix)]
 #[test]
 fn output_that_cannot_be_written_fails_in_every_format() {
+    use std::os::fd::OwnedFd;
+    use std::os::unix::net::UnixStream;
+
     let body: String = (0..5000)
         .map(|i| format!("fn f{i}() {{ needle(); }}\n"))
         .collect();
@@ -731,16 +770,20 @@ fn output_that_cannot_be_written_fails_in_every_format() {
         vec!["-n", "needle"],
         vec!["refs", "needle", "--budget", "0"],
     ] {
-        let mut c = f.command();
-        c.args(&args)
+        // shut for writing rather than closing a pipe's reader, which a
+        // concurrently spawned test process can inherit (see cli.rs)
+        let (writer, _reader) = UnixStream::pair().unwrap();
+        writer.shutdown(std::net::Shutdown::Write).unwrap();
+        let o = f
+            .command()
+            .args(&args)
             .args(["--no-session", "--index-dir"])
             .arg(&f.index)
             .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped());
-        let mut child = c.spawn().unwrap();
-        drop(child.stdout.take());
-        let o = child.wait_with_output().unwrap();
+            .stdout(std::process::Stdio::from(OwnedFd::from(writer)))
+            .stderr(std::process::Stdio::piped())
+            .output()
+            .unwrap();
         // an answer that was not delivered is never reported as success
         assert_eq!(o.status.code(), Some(2), "{args:?}: {o:?}");
         assert!(!o.stderr.is_empty(), "{args:?}: {o:?}");

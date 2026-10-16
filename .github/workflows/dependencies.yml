@@ -1,0 +1,37 @@
+name: dependencies
+# Security advisories, licenses and sources of every crate in Cargo.lock
+# (policy in deny.toml), and lock files that match their manifests. Weekly too,
+# so an advisory published between pull requests is reported.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+      - name: cargo-deny 0.20.2
+        run: |
+          f=cargo-deny-0.20.2-x86_64-unknown-linux-musl
+          curl -fsSLO "https://github.com/EmbarkStudios/cargo-deny/releases/download/0.20.2/$f.tar.gz"
+          echo "9f12ed4c49936e09b48bf862b595cde2fe64fcbd9d74dfacac6131ca824c8d5f  $f.tar.gz" | sha256sum -c -
+          tar xzf "$f.tar.gz"
+          mkdir -p "$HOME/.local/bin"
+          mv "$f/cargo-deny" "$HOME/.local/bin/"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - run: cargo deny --locked check advisories licenses sources
+      - name: the same for the fuzz workspace
+        working-directory: fuzz
+        run: cargo deny --locked check advisories licenses sources
+      - name: lock files are current
+        run: |
+          cargo metadata --locked --format-version 1 > /dev/null
+          cargo metadata --locked --format-version 1 --manifest-path fuzz/Cargo.toml > /dev/null

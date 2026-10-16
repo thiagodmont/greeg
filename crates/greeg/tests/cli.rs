@@ -906,9 +906,11 @@ fn output_failure_overrides_an_exact_match() {
     use std::process::Stdio;
 
     let f = fixture();
-    // Close the reader before launching, so the broken pipe is deterministic.
-    let (writer, reader) = UnixStream::pair().unwrap();
-    drop(reader);
+    // Shut the socket for writing instead of closing the reader: on macOS
+    // `pair()` sets close-on-exec after creating the descriptors, so a test
+    // spawning concurrently can inherit the reader and keep the pipe whole.
+    let (writer, _reader) = UnixStream::pair().unwrap();
+    writer.shutdown(std::net::Shutdown::Write).unwrap();
     let output = greeg()
         .args(["--no-session", "--no-index", "-l", "load_config", "."])
         .current_dir(&f.root)
