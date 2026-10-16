@@ -166,7 +166,11 @@ budget and never spill.
 **Phase 2** re-reads the files that have a grammar (now warm in the page
 cache), parses them with tree-sitter on all cores, extracts definitions,
 comment/string spans and imports, resolves the imports into graph edges, runs
-PageRank, and republishes the file table with ranks.
+PageRank, and republishes the file table with ranks. A parse holds many times
+its file in syntax tree, so files of 256 KiB and more share a budget of 4 MiB
+of source parsed at once (a 4 MiB file parses alone); a parse stopped by its
+budget releases its partial tree at once. The extracts of every file are still
+held until the imports resolve, so phase 2 grows with the repository's symbols.
 
 Between the two phases, queries already prune candidates with the grams, and
 fall back to a regex definition extractor for kinds.
