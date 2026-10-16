@@ -1,0 +1,28 @@
+bench/agent/tasks.toml
+  s_eefb2647553a67::t_485cbffc0fc484 187,195,204,212,221,238,247
+  s_eefb2647553a67::t_1d8460918a6bb7 230
+bench/agent/README.md
+  s_eefb2647553a67::t_492546fa500c0d 163-191
+bench/agent/results/ambiguous-2026-10-16-setup.json
+  s_eefb2647553a67::t_bb6fbeb89d29ba 1-48
+bench/agent/results/ambiguous-2026-10-16.json
+  s_eefb2647553a67::t_f8184f5646d12e 1-1105
+bench/agent/results/ambiguous-2026-10-16.txt
+  s_eefb2647553a67::t_f30714ad1d86a9 1-47
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a3db31c0cef4cf53ff4905bd6c48cb6326fcb717",
+  "prompts": {},
+  "sessions": {
+    "s_eefb2647553a67": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9fff36d3-3b5f-4343-be78-7893a6fe3965",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
