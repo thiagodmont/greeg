@@ -1,0 +1,21 @@
+crates/greeg/tests/known_gaps.rs
+  s_eefb2647553a67::t_475e700bd089e9 252-278
+crates/greeg-query/src/verbs.rs
+  s_eefb2647553a67::t_099ddf80666c8f 609-614,627,1116,1134,1136-1140,1389-1392,1400,1411-1413,1419,1427-1433
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "d3bb85f670c0fe67d1f32484697bb53ff9e305ac",
+  "prompts": {},
+  "sessions": {
+    "s_eefb2647553a67": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9fff36d3-3b5f-4343-be78-7893a6fe3965",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
