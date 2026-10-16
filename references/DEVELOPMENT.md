@@ -17,7 +17,8 @@ benchmarks, the accuracy oracle and a randomized soak
 (`bench/soak.py MINUTES GREEG CORPUS… --seed SEED`).
 
 The dependencies workflow (pull requests, `main`, weekly) runs
-`cargo deny --locked check advisories licenses sources` against `deny.toml` and
+`cargo deny --locked check advisories licenses sources` against `deny.toml`, in
+the root and `fuzz/` workspaces, and
 fails when `Cargo.lock` or `fuzz/Cargo.lock` no longer matches its manifests.
 A version bump changes both: run `cargo metadata --format-version 1
 --manifest-path fuzz/Cargo.toml > /dev/null` to update the fuzz lock.

@@ -10,7 +10,10 @@ yanked = "deny"
 [licenses]
 version = 2
 # permissive licenses compatible with distributing greeg under MIT
-allow = ["MIT", "Apache-2.0", "BSD-3-Clause", "BSL-1.0", "Unicode-3.0", "Zlib"]
+# (NCSA: libFuzzer, in the fuzz workspace only)
+allow = ["MIT", "Apache-2.0", "BSD-3-Clause", "BSL-1.0", "NCSA", "Unicode-3.0", "Zlib"]
+# crates that are not published (the fuzz targets)
+private = { ignore = true }
 
 [sources]
 unknown-registry = "deny"
