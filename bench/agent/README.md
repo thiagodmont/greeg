@@ -179,9 +179,10 @@ and the single-file TypeScript task takes lines once the file is named. The
 one answer that still fails gives `safeDispatch` without its file:line.
 
 - **Success:** held out 8/8 in both arms (Wilson 68–100 %). Development
-  tasks: A 7/8, B 8/8. No answer followed a wrong same-named definition: the
-  agents read the receiver's type, the class hierarchy or the method
-  resolution order with `grep` and `Read`, in four to eleven turns.
+  tasks: A 7/8, B 8/8. Every passing answer names the definition that runs
+  and each step after it; the failing one misses a step, not the definition.
+  The agents worked it out from the receiver's type, the class hierarchy or
+  the method resolution order with `grep` and `Read`, in four to eleven turns.
 - **The hook:** it answered all 71 of B's search calls and rewrote 10 to
   greeg; the other 61 are greps of named files and pipelines.
 - **Held out, search calls:** B made 2.0 fewer a run (3.9 → 1.9), interval
