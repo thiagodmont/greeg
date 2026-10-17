@@ -2,11 +2,13 @@
 
 Measures whether a coding agent does better with greeg than with ripgrep on
 real tasks. It is run by hand: it spends API credits and needs a Claude Code
-login, so it is not part of CI. Tasks live in `tasks.toml`, twenty across tokio,
-django, ktor, TypeScript 5.9 and kotlinx.coroutines (ten single lookups, ten
-that take several hops, five of those held out), each with a mechanical
-check on the agent's final answer: every item the prompt asks for, with its
-file:line. A check must pass the task's verified `answer`, and fail it without
+login, so it is not part of CI. Tasks live in `tasks.toml`, twenty-eight
+across tokio, django, ktor, TypeScript 5.9 and kotlinx.coroutines: ten single
+lookups, ten that take several hops (five held out), and eight that pick which
+of many same-named definitions a call site reaches or map the files around one
+anchor (four held out). Each has a mechanical check on the agent's final
+answer: every item the prompt asks for, with its file:line. An ambiguous-name
+task's `incomplete` answers include one that follows the wrong definition. A check must pass the task's verified `answer`, and fail it without
 its line numbers and each `incomplete` answer.
 
 ## Arms
@@ -158,3 +160,41 @@ out, a line not cited.
 
 Next: more held-out tasks (and repeats) before any decision, and arm C to
 see whether naming greeg in the prompt changes the share of searches it runs.
+
+## Ambiguous-definition run (2026-10-16)
+
+The eight ambiguous-definition and focused-map tasks × arms A and B × 2
+repeats, with Claude Code 2.1.302 on Sonnet and greeg at the 0.12.0 release
+commit. `results/ambiguous-2026-10-16.json` holds the records, `.txt` the
+analysis, `-setup.json` the setup. 32 runs, all valid, cost $1.58. It asks
+whether agents pick the wrong one of many same-named definitions today, which
+an ambiguity-aware `def` would fix.
+
+The checks were loosened after the run, and every saved answer was scored
+again (`--recheck`). The first checks rejected right answers that list files
+in a table (`` `actions.py` | 8 ``), cite `main.py:464` after naming
+`views/main.py`, or give bare lines after "all lines are in parser.ts". A
+citation may now separate the file and its line by a table cell or "line",
+and the single-file TypeScript task takes lines once the file is named.
+Eight verdicts changed, all from fail to pass: the importers map 4 (two per
+arm), `get_queryset` 3 (A 2, B 1) and the TypeScript task 1 (B). Before the
+change, held out was A 8/8 and B 7/8, development A 3/8 and B 5/8. Every path
+the answers cite (176) exists in the pinned corpus. The one answer that still
+fails names `safeDispatch` without its file:line (`DispatchedContinuation.kt`
+:250–254), so the ordered path check fails too.
+
+- **Success:** held out 8/8 in both arms (Wilson 68–100 %). Development
+  tasks: A 7/8, B 8/8. Every passing answer names the definition that runs
+  and each step after it; the failing one names the right definition and
+  leaves out one step's file:line.
+  The agents worked it out from the receiver's type, the class hierarchy or
+  the method resolution order with `grep` and `Read`, in four to eleven turns.
+- **The hook:** it answered all 71 of B's search calls and rewrote 10 to
+  greeg; the other 61 are greps of named files and pipelines.
+- **Held out, search calls:** B made 2.0 fewer a run (3.9 → 1.9), interval
+  −6.4…+0.4 over tasks. Cost, turns and output show no difference.
+
+No wrong-definition failure was observed: none in the 24 ambiguous-name runs
+(a 95 % upper bound of about 14 %). Held out is at the ceiling in both arms,
+so these tasks cannot show a gain from an ambiguity-aware `def`; they show no
+headroom for one with this model.
