@@ -11,8 +11,11 @@ from matching import (definition_contract, rg_oracle_query, json_exact_contract,
 
 
 class JsonContractTests(unittest.TestCase):
+    query = ["--json=greeg", "load_config"]
+
     def setUp(self):
-        self.match = {"type": "match", "data": {
+        # ripgrep's records, the oracle
+        self.rg_match = {"type": "match", "data": {
             "path": {"text": "src/a.rs"}, "lines": {"text": "fn load_config() {}\n"},
             "line_number": 1, "absolute_offset": 0,
             "submatches": [{"match": {"text": "load_config"}, "start": 3, "end": 14}],
@@ -20,59 +23,63 @@ class JsonContractTests(unittest.TestCase):
         self.summary = {"type": "summary", "data": {
             "elapsed_total": {"secs": 1}, "stats": {"elapsed": {"secs": 1}, "matched_lines": 1},
         }}
-        self.footer = {"type": "footer", "data": {"elapsed_ms": 1, "rung": "exact", "hits_total": 1}}
+        # greeg's records, the answer
+        self.begin = {"type": "begin", "data": {"path": {"text": "src/a.rs"}}}
+        self.match = {"type": "match", "data": {"line": 1, "text": {"text": "fn load_config() {}"},
+                                                "submatches": [[3, 14]]}}
+        self.footer = {"type": "footer", "data": {"elapsed_ms": 1, "est_tokens": 10, "outcome": {
+            "rung": "exact", "total": 1, "complete": True}}}
 
     def output(self, rows, status=0):
         return subprocess.CompletedProcess([], status, b"\n".join(json.dumps(r).encode() for r in rows), b"")
 
     def test_normalization_ignores_only_timing(self):
-        rows = [self.match, self.summary, self.footer]
+        rows = [self.begin, self.match, self.footer]
         before = stable_stdout(self.output(rows).stdout, True)
-        self.summary["data"]["elapsed_total"] = {"secs": 99}
-        self.summary["data"]["stats"]["elapsed"] = {"secs": 99}
         self.footer["data"]["elapsed_ms"] = 99
         # a JSON search's estimate counts its elapsed digits
         self.footer["data"]["est_tokens"] = 99
         self.assertEqual(before, stable_stdout(self.output(rows).stdout, True))
-        self.footer["data"]["hits_total"] = 99
+        self.footer["data"]["outcome"]["total"] = 99
         self.assertNotEqual(before, stable_stdout(self.output(rows).stdout, True))
 
     def test_contract_detects_wrong_matches_status_rung_and_counts(self):
-        oracle = self.output([self.match, self.summary])
-        rows = [self.match, self.summary, self.footer]
-        self.assertTrue(json_exact_contract(self.output(rows), oracle))
-        for field, value in [("rung", "case-insensitive"), ("hits_total", 0)]:
+        oracle = self.output([self.rg_match, self.summary])
+        rows = [self.begin, self.match, self.footer]
+        self.assertTrue(json_exact_contract(self.output(rows), oracle, self.query))
+        for field, value in [("rung", "case-insensitive"), ("total", 0)]:
             altered = copy.deepcopy(rows)
-            altered[-1]["data"][field] = value
-            self.assertFalse(json_exact_contract(self.output(altered), oracle))
+            altered[-1]["data"]["outcome"][field] = value
+            self.assertFalse(json_exact_contract(self.output(altered), oracle, self.query))
         altered = copy.deepcopy(rows)
-        altered[0]["data"]["submatches"][0]["start"] = 4
-        self.assertFalse(json_exact_contract(self.output(altered), oracle))
-        self.assertFalse(json_exact_contract(self.output(rows, 1), oracle))
-        self.assertFalse(json_exact_contract(self.output(rows[1:]), oracle))
+        altered[1]["data"]["submatches"][0][0] = 4
+        self.assertFalse(json_exact_contract(self.output(altered), oracle, self.query))
+        self.assertFalse(json_exact_contract(self.output(rows, 1), oracle, self.query))
+        self.assertFalse(json_exact_contract(self.output(rows[:2]), oracle, self.query))
 
     def test_budget_cut_json_holds_a_subset_of_the_matches(self):
-        other = copy.deepcopy(self.match)
+        other = copy.deepcopy(self.rg_match)
         other["data"]["line_number"] = 2
         self.summary["data"]["stats"]["matched_lines"] = 2
-        self.footer["data"]["hits_total"] = 2
-        oracle = self.output([self.match, other, self.summary])
-        self.footer["data"]["outcome"] = {"complete": False}
-        self.assertTrue(json_exact_contract(self.output([self.match, self.summary, self.footer]), oracle))
+        self.footer["data"]["outcome"]["total"] = 2
+        oracle = self.output([self.rg_match, other, self.summary])
+        self.footer["data"]["outcome"]["complete"] = False
+        self.assertTrue(json_exact_contract(self.output([self.begin, self.match, self.footer]), oracle, self.query))
         stranger = copy.deepcopy(self.match)
-        stranger["data"]["line_number"] = 3
-        self.assertFalse(json_exact_contract(self.output([stranger, self.summary, self.footer]), oracle))
+        stranger["data"]["line"] = 3
+        self.assertFalse(json_exact_contract(self.output([self.begin, stranger, self.footer]), oracle, self.query))
         # a repeated match does not stand in for one left out
-        self.assertFalse(json_exact_contract(self.output([self.match, self.match, self.summary, self.footer]), oracle))
-        self.footer["data"]["outcome"] = {"complete": True}
-        self.assertFalse(json_exact_contract(self.output([self.match, self.summary, self.footer]), oracle))
+        self.assertFalse(json_exact_contract(self.output([self.begin, self.match, self.match, self.footer]),
+                                             oracle, self.query))
+        self.footer["data"]["outcome"]["complete"] = True
+        self.assertFalse(json_exact_contract(self.output([self.begin, self.match, self.footer]), oracle, self.query))
 
     def test_empty_json_contract_requires_exact_footer(self):
         self.summary["data"]["stats"]["matched_lines"] = 0
-        self.footer["data"]["hits_total"] = 0
+        self.footer["data"]["outcome"]["total"] = 0
         oracle = self.output([self.summary], 1)
-        self.assertTrue(json_exact_contract(self.output([self.summary, self.footer], 1), oracle))
-        self.assertFalse(json_exact_contract(self.output([self.summary], 1), oracle))
+        self.assertTrue(json_exact_contract(self.output([self.footer], 1), oracle, self.query))
+        self.assertFalse(json_exact_contract(self.output([], 1), oracle, self.query))
 
     def test_definition_contract_rejects_missing_or_relaxed_paths(self):
         oracle = subprocess.CompletedProcess([], 0, b"src/unit_000.rs\n", b"")
@@ -151,14 +158,14 @@ class RgDialectTests(unittest.TestCase):
                 rg_dialect_checks(broken, "rg", d, dict(os.environ), [], [])
 
     def test_oracle_query_asks_ripgrep_for_its_own_json(self):
-        self.assertEqual(rg_oracle_query(["--json=legacy", "x"]), ["--json", "x"])
+        self.assertEqual(rg_oracle_query(["--json=greeg", "x"]), ["--json", "x"])
         self.assertEqual(rg_oracle_query(["--budget", "0", "x"]), ["-n", "--with-filename", "x"])
         self.assertEqual(rg_oracle_query(["-l", "x"]), ["-l", "x"])
 
     def test_query_drops_budget_and_the_json_flag(self):
         self.assertEqual(rg_dialect_query(["--budget", "0", "x"]), ["x"])
         self.assertEqual(rg_dialect_query(["--json", "x"]), ["x"])
-        self.assertEqual(rg_dialect_query(["--json=legacy", "x"]), ["x"])
+        self.assertEqual(rg_dialect_query(["--json=greeg", "x"]), ["x"])
         self.assertEqual(rg_dialect_query(["-c", "-w", "x"]), ["-c", "-w", "x"])
 
 

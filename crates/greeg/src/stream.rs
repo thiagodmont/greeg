@@ -3,9 +3,8 @@
 //! flight, not by the matches.
 
 use crate::{
-    Common, Fmt, LegacyPrinted, RgPrinted, json_native, legacy_bytes_searched, legacy_file,
-    legacy_tail, render_footer, render_parity_file, rg_json_file, rg_json_summary, stats,
-    verbs_out,
+    Common, Fmt, RgPrinted, json_native, render_footer, render_parity_file, rg_json_file,
+    rg_json_summary, stats, verbs_out,
 };
 use anyhow::Result;
 use greeg_query::outcome::Outcome;
@@ -30,7 +29,6 @@ pub(crate) fn applies(c: &Common, o: &Options) -> bool {
 enum Format {
     Text,
     Rg,
-    Legacy,
     Native,
 }
 
@@ -44,7 +42,6 @@ struct Written {
     shaped: usize,
     first_file: bool,
     rg: RgPrinted,
-    legacy: LegacyPrinted,
     /// For the session: the first files shown, context ranges, new files.
     keys: Vec<String>,
     ranges: Vec<(String, u32, u32, u64)>,
@@ -63,10 +60,8 @@ pub(crate) fn run(
         Format::Text
     } else if c.json_rg() {
         Format::Rg
-    } else if c.json_greeg() {
-        Format::Native
     } else {
-        Format::Legacy
+        Format::Native
     };
     let repeats = session.map_or(0, |s| s.repeats(o));
     let seen: Option<HashSet<&str>> = session.filter(|_| repeats >= 2).map(|s| s.seen_files());
@@ -105,10 +100,6 @@ pub(crate) fn run(
             match format {
                 Format::Text => render_parity_file(&mut w, f, sf, fmt, &mut done.first_file)?,
                 Format::Rg => rg_json_file(&mut w, &one, sf, &mut done.rg)?,
-                Format::Legacy => {
-                    done.legacy.searched += legacy_bytes_searched(f);
-                    legacy_file(&mut w, &one, sf, &mut done.legacy)?;
-                }
                 Format::Native => json_native::search_file(&mut w, &one, rep.layout, sf)?,
             }
             if session.is_some() {
@@ -153,7 +144,6 @@ pub(crate) fn run(
             false,
         )?,
         Format::Rg => rg_json_summary(&mut w, &result.stats, &done.rg)?,
-        Format::Legacy => legacy_tail(&mut w, &result, &report, &done.legacy, Instant::now())?,
         Format::Native => json_native::search_footer(&mut w, &result, &report)?,
     }
     w.flush()?;

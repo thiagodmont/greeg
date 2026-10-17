@@ -483,7 +483,7 @@ fn machine_modes_do_not_emit_relaxed_matches() {
         }
         for query in ["LOAD_CONFIG", "LoadConfig", "load_confiq"] {
             let mut args = backend.clone();
-            args.extend(["--json=legacy", query]);
+            args.extend(["--json=greeg", query]);
             let out = f.run(&args);
             assert_eq!(out.status.code(), Some(1), "{args:?}");
             let records: Vec<serde_json::Value> = String::from_utf8(out.stdout)
@@ -493,8 +493,8 @@ fn machine_modes_do_not_emit_relaxed_matches() {
                 .collect();
             assert!(!records.iter().any(|r| r["type"] == "match"), "{args:?}");
             let footer = records.iter().find(|r| r["type"] == "footer").unwrap();
-            assert_eq!(footer["data"]["hits_total"], 0);
-            assert_eq!(footer["data"]["rung"], "exact");
+            assert_eq!(footer["data"]["outcome"]["total"], 0);
+            assert_eq!(footer["data"]["outcome"]["rung"], "exact");
         }
     }
 }
@@ -518,7 +518,7 @@ fn matching_policy_is_explicit_and_keeps_the_legacy_opt_out() {
             vec!["-l"],
             vec!["-c"],
             vec!["--budget", "0"],
-            vec!["--json=legacy"],
+            vec!["--json=greeg"],
         ] {
             let mut args = backend.clone();
             args.extend(mode);
@@ -719,7 +719,7 @@ fn def_exact_honors_case_flags_on_both_backends() {
                 "{args:?}"
             );
             assert!(out.stderr.is_empty(), "{args:?}: {:?}", out.stderr);
-            args.push("--json=legacy");
+            args.push("--json=greeg");
             let out = f.run(&args);
             let records: Vec<serde_json::Value> = String::from_utf8(out.stdout)
                 .unwrap()
@@ -732,10 +732,10 @@ fn def_exact_honors_case_flags_on_both_backends() {
                 "{args:?}: {records:?}"
             );
             let footer = &records.last().unwrap()["data"];
-            assert_eq!(footer["rung"], "exact", "{args:?}");
+            assert_eq!(footer["outcome"]["rung"], "exact", "{args:?}");
             assert_eq!(footer["suggestions"], serde_json::json!([]));
             assert_eq!(
-                footer["source"],
+                footer["outcome"]["source"],
                 if backend[0] == "--no-index" || !name.is_ascii() {
                     "scan"
                 } else {
@@ -744,7 +744,7 @@ fn def_exact_honors_case_flags_on_both_backends() {
             );
         }
     }
-    let module = f.run(&["def", "módulo", "--matching", "exact", "--json=legacy"]);
+    let module = f.run(&["def", "módulo", "--matching", "exact", "--json=greeg"]);
     assert!(String::from_utf8_lossy(&module.stdout).contains("src/módulo.rs"));
 }
 
@@ -1165,7 +1165,7 @@ fn file_lists_name_every_path_byte_for_byte() {
             parity,
             "{backend:?}"
         );
-        let json = run(&["--json=legacy", "pathneedle"]);
+        let json = run(&["--json=greeg", "pathneedle"]);
         let want: Vec<serde_json::Value> = names
             .iter()
             .map(|n| serde_json::json!({"text": std::str::from_utf8(n).unwrap()}))
@@ -1205,7 +1205,7 @@ fn a_non_utf8_file_name_round_trips_through_the_index() {
             run(&["-l", "--sort", "path", "needle"]),
             b"caf\xff.txt\nd\xfe/x.txt\n"
         );
-        let json = run(&["--json=legacy", "needle"]);
+        let json = run(&["--json=greeg", "needle"]);
         assert_eq!(
             json_paths(&json, "begin"),
             [
@@ -1230,7 +1230,7 @@ fn a_non_utf8_file_name_round_trips_through_the_index() {
         );
         std::thread::sleep(std::time::Duration::from_millis(500));
     }
-    let json = f.run(&["--json=legacy", "freshterm"]).stdout;
+    let json = f.run(&["--json=greeg", "freshterm"]).stdout;
     assert_eq!(source(&json), "index");
     assert_eq!(
         json_paths(&json, "begin"),
@@ -1244,7 +1244,7 @@ fn skipped_entries_with_non_utf8_names_keep_coverage_known() {
     let f = empty_fixture();
     byte_tree(&f.root, &[b".h\xff.txt", b"seen.txt"], "needle\n");
     f.indexed();
-    let args = ["--json=legacy", "-g", "*.txt", "needle"];
+    let args = ["--json=greeg", "-g", "*.txt", "needle"];
     let json = f.run(&args).stdout;
     assert_eq!(source(&json), "index", "the skipped record lists the name");
     assert_eq!(
@@ -1261,7 +1261,7 @@ fn skipped_entries_with_non_utf8_names_keep_coverage_known() {
 fn verb_json_paths_name_the_file_exactly() {
     let f = empty_fixture();
     let names: Vec<(&[u8], serde_json::Value)> = vec![
-        (b"tab\tdefs.rs", serde_json::json!("tab\tdefs.rs")),
+        (b"tab\tdefs.rs", serde_json::json!({"text": "tab\tdefs.rs"})),
         // APFS refuses names that are not UTF-8
         #[cfg(target_os = "linux")]
         (b"caf\xff.rs", serde_json::json!({"bytes": "Y2Fm/y5ycw=="})),
@@ -1271,17 +1271,16 @@ fn verb_json_paths_name_the_file_exactly() {
     }
     f.indexed();
     for backend in [&[][..], &["--no-index"][..]] {
-        let o = f.run(&[&["def", "exact_path_fn", "--json=legacy"][..], backend].concat());
+        let o = f.run(&[&["def", "exact_path_fn", "--json=greeg"][..], backend].concat());
         assert_eq!(o.status.code(), Some(0), "{o:?}");
         let mut want: Vec<_> = names.iter().map(|(_, p)| p.clone()).collect();
         want.sort_by_key(|p| p.to_string());
-        // `def` lines carry the path at the top level
         let mut got: Vec<serde_json::Value> = String::from_utf8(o.stdout)
             .unwrap()
             .lines()
             .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
             .filter(|v| v["type"] == "def")
-            .map(|v| v["path"].clone())
+            .map(|v| v["data"]["path"].clone())
             .collect();
         got.sort_by_key(|p| p.to_string());
         assert_eq!(got, want, "{backend:?}");
@@ -1551,20 +1550,8 @@ fn a_late_nul_ends_the_search_and_says_where() {
                 ("same.txt".into(), same, far)
             ]
         );
-        // legacy offsets and searched bytes count a UTF-8 BOM
-        assert_eq!(
-            ends("--json=legacy"),
-            [
-                ("bom.txt".into(), far + 3, far + 3),
-                ("far.txt".into(), far, far),
-                ("same.txt".into(), same, far)
-            ]
-        );
-        let records = json_lines(&run(&["--json=legacy", "needle"]));
-        let of = |t: &str| records.iter().find(|r| r["type"] == t).unwrap()["data"].clone();
-        assert_eq!(of("summary")["stats"]["bytes_searched"], 3 * far + 3);
-        assert_eq!(of("footer")["binary_tails"], 3);
-        let legacy = [
+        // greeg's offsets count a UTF-8 BOM
+        let want = [
             ("bom.txt".to_string(), far + 3),
             ("far.txt".into(), far),
             ("same.txt".into(), same),
@@ -1582,7 +1569,7 @@ fn a_late_nul_ends_the_search_and_says_where() {
                 )
             })
             .collect();
-        assert_eq!(begins, legacy);
+        assert_eq!(begins, want);
         let footer = &native.last().unwrap()["data"];
         assert_eq!(
             (&footer["skipped_binary"], &footer["binary_tails"]),
@@ -1613,11 +1600,9 @@ fn a_late_nul_ends_the_search_and_says_where() {
 fn a_text_file_has_no_binary_offset() {
     let f = empty_fixture();
     fs::write(f.root.join("a.txt"), "needle\n").unwrap();
-    for dialect in ["--json=rg", "--json=legacy"] {
-        let out = f.out(&[dialect, "--no-index", "needle"]);
-        assert!(out.contains(r#""binary_offset":null"#), "{out}");
-        assert!(!out.contains("binary_tails"), "{out}");
-    }
+    let out = f.out(&["--json=rg", "--no-index", "needle"]);
+    assert!(out.contains(r#""binary_offset":null"#), "{out}");
+    assert!(!out.contains("binary_tails"), "{out}");
     let out = f.out(&["--json=greeg", "--no-index", "needle"]);
     assert!(!out.contains("binary_offset"), "{out}");
     assert!(!out.contains("binary_tails"), "{out}");
@@ -1678,11 +1663,6 @@ fn impact_counts_the_callers_it_leaves_out() {
             "{backend:?} {oc}"
         );
 
-        let legacy = json_lines(&run(&["--json=legacy", "--budget", "600"]));
-        let footer = &legacy.last().unwrap()["data"];
-        assert_eq!(footer["callers_total"], 5, "{footer}");
-        assert_eq!(footer["outcome"]["complete"], false, "{footer}");
-
         let text = run(&["--budget", "300"]);
         assert!(text.contains("\n  +2 more\n"), "{text}");
         assert!(text.ends_with("\n3/5 callers · raise --budget\n"), "{text}");
@@ -1702,13 +1682,11 @@ fn refs_and_impact_count_every_definition() {
     f.indexed();
     for backend in [&["--no-index"][..], &["--fresh", "stat"][..]] {
         for verb in ["refs", "impact"] {
-            for dialect in ["--json=greeg", "--json=legacy"] {
-                let mut a = vec![verb, "target", dialect];
-                a.extend_from_slice(backend);
-                let records = json_lines(&f.out(&a));
-                let footer = &records.last().unwrap()["data"];
-                assert_eq!(footer["definitions_total"], 40, "{a:?} {footer}");
-            }
+            let mut a = vec![verb, "target", "--json=greeg"];
+            a.extend_from_slice(backend);
+            let records = json_lines(&f.out(&a));
+            let footer = &records.last().unwrap()["data"];
+            assert_eq!(footer["definitions_total"], 40, "{a:?} {footer}");
         }
         let mut a = vec!["impact", "target"];
         a.extend_from_slice(backend);
@@ -1870,7 +1848,7 @@ fn stable_records(out: &[u8]) -> Vec<serde_json::Value> {
         .collect()
 }
 
-/// JSON fits its budget by its own size, in both dialects, and its footer
+/// JSON fits its budget by its own size, and its footer
 /// says when the budget cut it.
 #[test]
 fn json_fits_its_budget() {
@@ -1887,60 +1865,59 @@ fn json_fits_its_budget() {
         &["show", "src/lib.rs:12", "src/lib.rs:20"],
         &["map", "src"],
     ];
-    for dialect in ["--json=greeg", "--json=legacy"] {
-        for backend in [&["--fresh", "stat"][..], &["--no-index"][..]] {
-            for q in queries {
-                if backend == ["--no-index"] && q[0] == "map" {
-                    continue;
-                }
-                let run = |budget: usize| {
-                    let mut a: Vec<String> = q.iter().map(|s| s.to_string()).collect();
-                    a.extend(backend.iter().map(|s| s.to_string()));
-                    a.extend([dialect.to_string(), "--budget".into(), budget.to_string()]);
-                    let a: Vec<&str> = a.iter().map(|s| s.as_str()).collect();
-                    f.run(&a).stdout
-                };
-                let floor_out = run(1);
-                let floor = est(&floor_out);
-                for budget in [40, 80, 160, 320, 640, 1000, 2000, 4000] {
-                    let out = run(budget);
-                    let ctx = || format!("{q:?} {backend:?} {dialect} budget {budget}");
-                    // elapsed times move the floor's size by a few tokens
-                    let is_floor = stable_records(&out) == stable_records(&floor_out);
-                    if budget < floor {
-                        assert!(is_floor, "{}", ctx());
-                    } else if !is_floor {
-                        assert!(
-                            est(&out) <= budget,
-                            "{}: ~{} tokens\n{}",
-                            ctx(),
-                            est(&out),
-                            String::from_utf8_lossy(&out)
-                        );
-                    }
-                    let last = out.split(|&b| b == b'\n').rfind(|l| !l.is_empty()).unwrap();
-                    let footer: serde_json::Value = serde_json::from_slice(last).unwrap();
-                    let oc = &footer["data"]["outcome"];
-                    // `show` is also incomplete when it clips a body
-                    let cut = oc["complete"] == false;
-                    if oc["shown"].as_u64() < oc["total"].as_u64() {
-                        assert!(cut, "{}", ctx());
-                    }
-                    // every answer grows past its floor when the budget allows
-                    if budget == 4000 {
-                        assert!(!is_floor && est(&out) > floor, "{}", ctx());
-                    }
-                    assert_eq!(
-                        oc["truncated_by"],
-                        if cut {
-                            serde_json::json!("budget")
-                        } else {
-                            serde_json::Value::Null
-                        },
-                        "{}",
-                        ctx()
+    let dialect = "--json=greeg";
+    for backend in [&["--fresh", "stat"][..], &["--no-index"][..]] {
+        for q in queries {
+            if backend == ["--no-index"] && q[0] == "map" {
+                continue;
+            }
+            let run = |budget: usize| {
+                let mut a: Vec<String> = q.iter().map(|s| s.to_string()).collect();
+                a.extend(backend.iter().map(|s| s.to_string()));
+                a.extend([dialect.to_string(), "--budget".into(), budget.to_string()]);
+                let a: Vec<&str> = a.iter().map(|s| s.as_str()).collect();
+                f.run(&a).stdout
+            };
+            let floor_out = run(1);
+            let floor = est(&floor_out);
+            for budget in [40, 80, 160, 320, 640, 1000, 2000, 4000] {
+                let out = run(budget);
+                let ctx = || format!("{q:?} {backend:?} {dialect} budget {budget}");
+                // elapsed times move the floor's size by a few tokens
+                let is_floor = stable_records(&out) == stable_records(&floor_out);
+                if budget < floor {
+                    assert!(is_floor, "{}", ctx());
+                } else if !is_floor {
+                    assert!(
+                        est(&out) <= budget,
+                        "{}: ~{} tokens\n{}",
+                        ctx(),
+                        est(&out),
+                        String::from_utf8_lossy(&out)
                     );
                 }
+                let last = out.split(|&b| b == b'\n').rfind(|l| !l.is_empty()).unwrap();
+                let footer: serde_json::Value = serde_json::from_slice(last).unwrap();
+                let oc = &footer["data"]["outcome"];
+                // `show` is also incomplete when it clips a body
+                let cut = oc["complete"] == false;
+                if oc["shown"].as_u64() < oc["total"].as_u64() {
+                    assert!(cut, "{}", ctx());
+                }
+                // every answer grows past its floor when the budget allows
+                if budget == 4000 {
+                    assert!(!is_floor && est(&out) > floor, "{}", ctx());
+                }
+                assert_eq!(
+                    oc["truncated_by"],
+                    if cut {
+                        serde_json::json!("budget")
+                    } else {
+                        serde_json::Value::Null
+                    },
+                    "{}",
+                    ctx()
+                );
             }
         }
     }
@@ -2005,7 +1982,7 @@ fn max_bytes_bounds_stdout() {
         .collect();
     ceilings.sort_unstable();
     let mut byte_cuts = 0;
-    for format in ["--json=greeg", "--json=legacy", "--color=never"] {
+    for format in ["--json=greeg", "--color=never"] {
         let json = format.starts_with("--json");
         for q in queries {
             let run = |cap: Option<usize>| {
@@ -2073,10 +2050,10 @@ fn max_bytes_bounds_stdout() {
     assert!(byte_cuts > 30, "{byte_cuts} byte cuts");
 }
 
-/// A ceiling a little above the whole answer keeps it whole: the constant
-/// zero timing of every file's legacy `end` record is measured as written.
+/// A ceiling a little above the whole answer keeps it whole: its timings
+/// are measured at their widest, not at the width they happen to print.
 #[test]
-fn max_bytes_measures_per_file_timings_as_written() {
+fn max_bytes_a_little_above_the_answer_keeps_it_whole() {
     let f = empty_fixture();
     for i in 0..40 {
         w(&f.root.join(format!("f{i:02}.txt")), "needle\n");
@@ -2089,7 +2066,7 @@ fn max_bytes_measures_per_file_timings_as_written() {
                 "needle",
                 "--fresh",
                 "stat",
-                "--json=legacy",
+                "--json=greeg",
                 "--budget",
                 budget,
             ];
@@ -2101,7 +2078,7 @@ fn max_bytes_measures_per_file_timings_as_written() {
         let whole = run(None);
         assert!(whole.status.success(), "--budget {budget}");
         // the slack covers the answer's own timings at their widest (their
-        // printed width varies by run), not 40 files' zeros (about 1 KB)
+        // printed width varies by run)
         let out = run(Some((whole.stdout.len() + 400).to_string()));
         assert!(out.status.success(), "--budget {budget}");
         assert_eq!(
@@ -2585,12 +2562,6 @@ fn impact_grades_files_by_evidence() {
     assert_eq!(possible.len(), 5, "{possible:?}");
     assert_eq!(graph, false);
 
-    // legacy keeps its field names, holding the new groups
-    let legacy = json_lines(&f.out(&["impact", "target", "--json=legacy", "--fresh", "stat"]));
-    let d = &legacy[0]["data"];
-    assert_eq!(d["will_break"].as_array().unwrap().len(), 3, "{d}");
-    assert_eq!(d["may_break"].as_array().unwrap().len(), 2, "{d}");
-
     let text = f.out(&["impact", "target", "--fresh", "stat"]);
     assert!(text.contains("\nLIKELY AFFECTED (3 files"), "{text}");
     assert!(text.contains("\nPOSSIBLE (2 files"), "{text}");
@@ -2706,16 +2677,15 @@ fn impact_folds_case_for_module_definitions() {
 fn a_context_line_after_a_bom_holds_only_its_text() {
     let f = empty_fixture();
     fs::write(f.root.join("bom.txt"), b"\xef\xbb\xbfx\nneedle\n").unwrap();
-    let out = f.out(&[
-        "--json=legacy",
-        "--no-index",
-        "-B",
-        "1",
-        "needle",
-        "bom.txt",
-    ]);
+    let run = |dialect: &str| f.out(&[dialect, "--no-index", "-B", "1", "needle", "bom.txt"]);
+    let out = run("--json=greeg");
     assert!(
-        out.contains(r#""lines":{"text":"x\n"},"line_number":1,"absolute_offset":3"#),
+        out.contains(r#"{"line":1,"byte_offset":3,"text":{"text":"x"}}"#),
+        "{out}"
+    );
+    let out = run("--json=rg");
+    assert!(
+        out.contains(r#""lines":{"text":"x\n"},"line_number":1,"absolute_offset":0"#),
         "{out}"
     );
 }
@@ -2956,64 +2926,11 @@ fn json_greeg_covers_stdin_and_refuses_other_commands() {
     }
 }
 
-/// Run greeg with stderr on a terminal (a pty); returns stdout, stderr and
-/// the exit status.
-fn run_on_terminal(
-    f: &Fixture,
-    args: &[&str],
-    env: &[(&str, &str)],
-) -> (String, String, Option<i32>) {
-    use std::io::Read;
-    use std::os::fd::{FromRawFd, OwnedFd};
-    use std::process::Stdio;
-    let (mut master, mut slave) = (0, 0);
-    let r = unsafe {
-        libc::openpty(
-            &mut master,
-            &mut slave,
-            std::ptr::null_mut(),
-            std::ptr::null_mut(),
-            std::ptr::null_mut(),
-        )
-    };
-    assert_eq!(r, 0, "openpty");
-    let master = unsafe { OwnedFd::from_raw_fd(master) };
-    let slave = unsafe { OwnedFd::from_raw_fd(slave) };
-    let mut cmd = greeg();
-    cmd.args(args)
-        .args(["--no-session", "--index-dir"])
-        .arg(&f.index)
-        .current_dir(&f.root)
-        .env("GREEG_STATS", "0")
-        .env("GREEG_INDEX_DIR", &f.index)
-        .envs(env.iter().copied())
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::from(slave));
-    let child = cmd.spawn().expect("run greeg");
-    drop(cmd);
-    // read while greeg runs: a terminal may drop what nobody read once it closes
-    let reader = std::thread::spawn(move || {
-        let mut err = Vec::new();
-        // ends with an error once greeg, the last writer, exits
-        let _ = std::fs::File::from(master).read_to_end(&mut err);
-        err
-    });
-    let o = child.wait_with_output().unwrap();
-    let err = reader.join().unwrap();
-    (
-        String::from_utf8_lossy(&o.stdout).into_owned(),
-        String::from_utf8_lossy(&err).into_owned(),
-        o.status.code(),
-    )
-}
-
 /// Bare `--json` is `greeg` for searches and the verbs, and other commands
-/// keep their own JSON. `--json=legacy` says, once and only on a terminal,
-/// that it goes in 0.12; a pipe, `--no-messages` and the other dialects hear
-/// nothing.
+/// keep their own JSON. `--json=legacy` is refused before any work, naming
+/// its replacement.
 #[test]
-fn bare_json_is_greeg_and_legacy_names_its_removal_only_to_a_person() {
+fn bare_json_is_greeg_and_legacy_is_refused_with_its_replacement() {
     let f = empty_fixture();
     w(
         &f.root.join("src/lib.rs"),
@@ -3045,15 +2962,11 @@ fn bare_json_is_greeg_and_legacy_names_its_removal_only_to_a_person() {
             elapsed(&String::from_utf8_lossy(&greeg.stdout)),
             "{args:?}"
         );
-        let legacy = f.run(&[&["--json=legacy"][..], args].concat());
-        assert_eq!(legacy.status.code(), Some(0), "{args:?}");
-        for o in [&bare, &legacy] {
-            assert!(
-                o.stderr.is_empty(),
-                "{args:?}: {}",
-                String::from_utf8_lossy(&o.stderr)
-            );
-        }
+        assert!(
+            bare.stderr.is_empty(),
+            "{args:?}: {}",
+            String::from_utf8_lossy(&bare.stderr)
+        );
     }
     // commands with a report of their own keep it; stats prints a notice
     // instead when collection is off, never greeg's records
@@ -3075,36 +2988,27 @@ fn bare_json_is_greeg_and_legacy_names_its_removal_only_to_a_person() {
             "{cmd}"
         );
     }
-    let notice = "greeg: --json=legacy is removed in 0.12; --json (greeg's records) replaces it";
+    let refusal = "--json=legacy was removed in 0.12.1; --json (greeg's records) replaces it";
     for args in [
         &["--json=legacy", "needle"][..],
+        &["needle", "--json=legacy"][..],
         &["--json=legacy", "def", "needle"][..],
-    ] {
-        let (out, err, code) = run_on_terminal(&f, args, &[]);
-        assert_eq!(code, Some(0), "{args:?}: {err}");
-        assert!(!json_lines(&out).is_empty(), "{args:?}: {out}");
-        assert_eq!(err.matches(notice).count(), 1, "{args:?}: {err}");
-    }
-    for args in [
-        &["--json", "needle"][..],
-        &["--json=greeg", "needle"][..],
-        &["--json=rg", "needle"][..],
         &["--json=legacy", "--no-messages", "needle"][..],
-        &["--json", "stats"][..],
+        &["--json=legacy", "stats"][..],
+        &["--json=legacy", "index", "--status"][..],
+        // a later --json does not wash it out
+        &["--json=legacy", "--json=rg", "needle"][..],
+        &["--json=legacy", "--json", "def", "needle"][..],
     ] {
-        let (_, err, _) = run_on_terminal(&f, args, &[]);
-        assert!(!err.contains("--json=legacy is removed"), "{args:?}: {err}");
+        let o = f.run(args);
+        assert_eq!(o.status.code(), Some(2), "{args:?}");
+        assert!(o.stdout.is_empty(), "{args:?}");
+        let err = String::from_utf8_lossy(&o.stderr);
+        assert_eq!(err.matches(refusal).count(), 1, "{args:?}: {err}");
     }
-    // a truncated index file re-runs greeg once; the notice is not repeated
-    let (out, err, code) = run_on_terminal(
-        &f,
-        &["--json=legacy", "needle"],
-        &[("GREEG_DEBUG_SIGBUS", "index")],
-    );
-    assert_eq!(code, Some(0), "{err}");
-    assert!(err.contains("answering from a scan"), "{err}");
-    assert!(!json_lines(&out).is_empty(), "{out}");
-    assert_eq!(err.matches(notice).count(), 1, "{err}");
+    // the same text as a pattern is a pattern
+    let o = f.run(&["--budget", "0", "-e", "--json=legacy", "src"]);
+    assert_eq!(o.status.code(), Some(1), "{o:?}");
 }
 
 /// `--capabilities` is one JSON record whose commands and flags are the ones
@@ -3226,54 +3130,53 @@ fn explain_text_is_safe_to_print() {
 #[test]
 fn explain_says_what_a_search_was_built_from() {
     let f = outcome_fixture();
-    for dialect in ["--json=greeg", "--json=legacy"] {
-        for backend in [&["--fresh", "stat"][..], &["--no-index"][..]] {
-            let mut args = vec!["target", dialect];
-            args.extend_from_slice(backend);
-            let plain = f.run(&args);
-            args.push("--explain");
-            let o = f.run(&args);
-            assert_eq!(o.status.code(), plain.status.code());
-            let records: Vec<serde_json::Value> = String::from_utf8(o.stdout.clone())
-                .unwrap()
-                .lines()
-                .map(|l| serde_json::from_str(l).unwrap())
-                .collect();
-            let n = records.len();
-            assert_eq!(records[n - 2]["type"], "explain", "{args:?}");
-            let without: Vec<u8> = o
-                .stdout
-                .split_inclusive(|&b| b == b'\n')
-                .filter(|l| !l.starts_with(br#"{"type":"explain""#))
-                .flatten()
-                .copied()
-                .collect();
-            assert_eq!(
-                stable_records(&without),
-                stable_records(&plain.stdout),
-                "{args:?}"
-            );
-            let e = &records[n - 2]["data"];
-            let oc = &records[n - 1]["data"]["outcome"];
-            assert_eq!(e["source"], oc["source"], "{args:?}");
-            assert_eq!(e["candidates"]["hits"], oc["total"], "{args:?}");
-            if backend == ["--no-index"] {
-                assert_eq!(e["index_skipped"], "not used");
-                assert!(e["plan"].is_null() && e["fresh"].is_null());
-            } else {
-                assert!(e["index_skipped"].is_null());
-                assert_eq!(e["fresh"]["method"], "stat");
-            }
-            let hits = e["ranking"]["hits"].as_array().unwrap();
-            assert!(!hits.is_empty() && hits.len() <= 10);
-            for h in hits {
-                let product: f64 = ["kind_weight", "exact_boost", "prior"]
-                    .iter()
-                    .map(|k| h[*k].as_f64().unwrap())
-                    .product();
-                let score = h["score"].as_f64().unwrap();
-                assert!((product - score).abs() < 0.01, "{h}");
-            }
+    let dialect = "--json=greeg";
+    for backend in [&["--fresh", "stat"][..], &["--no-index"][..]] {
+        let mut args = vec!["target", dialect];
+        args.extend_from_slice(backend);
+        let plain = f.run(&args);
+        args.push("--explain");
+        let o = f.run(&args);
+        assert_eq!(o.status.code(), plain.status.code());
+        let records: Vec<serde_json::Value> = String::from_utf8(o.stdout.clone())
+            .unwrap()
+            .lines()
+            .map(|l| serde_json::from_str(l).unwrap())
+            .collect();
+        let n = records.len();
+        assert_eq!(records[n - 2]["type"], "explain", "{args:?}");
+        let without: Vec<u8> = o
+            .stdout
+            .split_inclusive(|&b| b == b'\n')
+            .filter(|l| !l.starts_with(br#"{"type":"explain""#))
+            .flatten()
+            .copied()
+            .collect();
+        assert_eq!(
+            stable_records(&without),
+            stable_records(&plain.stdout),
+            "{args:?}"
+        );
+        let e = &records[n - 2]["data"];
+        let oc = &records[n - 1]["data"]["outcome"];
+        assert_eq!(e["source"], oc["source"], "{args:?}");
+        assert_eq!(e["candidates"]["hits"], oc["total"], "{args:?}");
+        if backend == ["--no-index"] {
+            assert_eq!(e["index_skipped"], "not used");
+            assert!(e["plan"].is_null() && e["fresh"].is_null());
+        } else {
+            assert!(e["index_skipped"].is_null());
+            assert_eq!(e["fresh"]["method"], "stat");
+        }
+        let hits = e["ranking"]["hits"].as_array().unwrap();
+        assert!(!hits.is_empty() && hits.len() <= 10);
+        for h in hits {
+            let product: f64 = ["kind_weight", "exact_boost", "prior"]
+                .iter()
+                .map(|k| h[*k].as_f64().unwrap())
+                .product();
+            let score = h["score"].as_f64().unwrap();
+            assert!((product - score).abs() < 0.01, "{h}");
         }
     }
     // a byte ceiling holds: the record goes to stderr
@@ -3359,54 +3262,53 @@ fn explain_says_how_a_verb_answer_was_built() {
         );
         assert!(err.contains("explain: considered: "), "{q:?}\n{err}");
 
-        for dialect in ["--json=greeg", "--json=legacy"] {
-            let plain = with(q, &[dialect]);
-            let o = with(q, &[dialect, "--explain"]);
-            assert_eq!(o.status.code(), plain.status.code(), "{q:?} {dialect}");
-            let records: Vec<serde_json::Value> = String::from_utf8(o.stdout.clone())
-                .unwrap()
-                .lines()
-                .map(|l| serde_json::from_str(l).unwrap())
-                .collect();
-            let n = records.len();
-            assert_eq!(records[n - 2]["type"], "explain", "{q:?} {dialect}");
-            let e = &records[n - 2]["data"];
-            assert_eq!(e["verb"], verb, "{q:?} {dialect}");
-            let oc = &records[n - 1]["data"]["outcome"];
-            for k in ["total", "shown", "source"] {
-                assert_eq!(e[k], oc[k], "{q:?} {dialect} {k}");
-            }
-            for (k, n) in counts.as_object().unwrap() {
-                assert_eq!(e["considered"][k], *n, "{q:?} {dialect} {k}");
-            }
-            if verb == "def" {
-                assert_eq!(e["considered"]["definitions"], e["total"], "{e}");
-            }
-            let without: Vec<u8> = o
-                .stdout
-                .split_inclusive(|&b| b == b'\n')
-                .filter(|l| !l.starts_with(br#"{"type":"explain""#))
-                .flatten()
-                .copied()
-                .collect();
-            assert_eq!(
-                stable_records(&without),
-                stable_records(&plain.stdout),
-                "{q:?} {dialect}"
-            );
-            if verb == "def" {
-                let defs = e["ranking"]["definitions"].as_array().unwrap();
-                assert!(!defs.is_empty() && defs.len() <= 10, "{e}");
-                for d in defs {
-                    let product: f64 = d["terms"]
-                        .as_object()
-                        .unwrap()
-                        .values()
-                        .map(|v| v.as_f64().unwrap())
-                        .product();
-                    let score = d["score"].as_f64().unwrap();
-                    assert!((product - score).abs() < 0.01, "{d}");
-                }
+        let dialect = "--json=greeg";
+        let plain = with(q, &[dialect]);
+        let o = with(q, &[dialect, "--explain"]);
+        assert_eq!(o.status.code(), plain.status.code(), "{q:?} {dialect}");
+        let records: Vec<serde_json::Value> = String::from_utf8(o.stdout.clone())
+            .unwrap()
+            .lines()
+            .map(|l| serde_json::from_str(l).unwrap())
+            .collect();
+        let n = records.len();
+        assert_eq!(records[n - 2]["type"], "explain", "{q:?} {dialect}");
+        let e = &records[n - 2]["data"];
+        assert_eq!(e["verb"], verb, "{q:?} {dialect}");
+        let oc = &records[n - 1]["data"]["outcome"];
+        for k in ["total", "shown", "source"] {
+            assert_eq!(e[k], oc[k], "{q:?} {dialect} {k}");
+        }
+        for (k, n) in counts.as_object().unwrap() {
+            assert_eq!(e["considered"][k], *n, "{q:?} {dialect} {k}");
+        }
+        if verb == "def" {
+            assert_eq!(e["considered"]["definitions"], e["total"], "{e}");
+        }
+        let without: Vec<u8> = o
+            .stdout
+            .split_inclusive(|&b| b == b'\n')
+            .filter(|l| !l.starts_with(br#"{"type":"explain""#))
+            .flatten()
+            .copied()
+            .collect();
+        assert_eq!(
+            stable_records(&without),
+            stable_records(&plain.stdout),
+            "{q:?} {dialect}"
+        );
+        if verb == "def" {
+            let defs = e["ranking"]["definitions"].as_array().unwrap();
+            assert!(!defs.is_empty() && defs.len() <= 10, "{e}");
+            for d in defs {
+                let product: f64 = d["terms"]
+                    .as_object()
+                    .unwrap()
+                    .values()
+                    .map(|v| v.as_f64().unwrap())
+                    .product();
+                let score = d["score"].as_f64().unwrap();
+                assert!((product - score).abs() < 0.01, "{d}");
             }
         }
 

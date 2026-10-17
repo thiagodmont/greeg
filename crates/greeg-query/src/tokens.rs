@@ -55,10 +55,6 @@ const TIMINGS: [(&[u8], &[u8]); 4] = [
     (b"\"human\":", b"\"99999.999999999s\""),
 ];
 
-/// The zero timing each file's legacy `end` record writes: no clock moves it,
-/// so it is measured as written.
-const ZERO: &[u8] = br#"{"secs":0,"nanos":0,"human":"0s"}"#;
-
 /// `b` with each JSON timing value replaced by a stand-in at least as wide,
 /// so a fit measured on it gives the same answer on every run and never
 /// measures less than the real output. Only a key after `{` or `,` is one: a
@@ -74,11 +70,6 @@ pub fn timeless(b: &[u8]) -> std::borrow::Cow<'_, [u8]> {
     let mut out = Vec::with_capacity(b.len() + 64);
     let mut i = 0;
     'bytes: while i < b.len() {
-        if b[i] == b'{' && b[i..].starts_with(ZERO) {
-            out.extend_from_slice(ZERO);
-            i += ZERO.len();
-            continue;
-        }
         if b[i] == b'"' && i > 0 && matches!(b[i - 1], b'{' | b',') {
             for (key, stand_in) in TIMINGS {
                 if b[i..].starts_with(key) {
@@ -240,9 +231,9 @@ mod tests {
     }
 
     /// Any `elapsed_ms` an f64 prints, sub-millisecond ones included, is
-    /// measured as one stand-in; constant zero timings are measured as written.
+    /// measured as one stand-in.
     #[test]
-    fn timeless_covers_every_f64_and_keeps_constant_zeros() {
+    fn timeless_covers_every_f64() {
         let footer = |ms: &str| format!(r#"{{"type":"footer","data":{{"elapsed_ms":{ms}}}}}"#);
         let fixed = timeless(footer("1.864").as_bytes()).into_owned();
         let mut seed = 0x9e37_79b9_7f4a_7c15u64;
@@ -258,8 +249,6 @@ mod tests {
                 assert!(estimate(&t) >= estimate(s.as_bytes()), "{s}");
             }
         }
-        let end = br#"{"type":"end","data":{"stats":{"elapsed":{"secs":0,"nanos":0,"human":"0s"},"searches":1}}}"#;
-        assert_eq!(&*timeless(end), end);
     }
 
     /// A JSON fit renders `est_tokens` once with a stand-in of the same width.

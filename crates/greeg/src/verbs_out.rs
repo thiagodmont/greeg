@@ -26,13 +26,6 @@ fn ms(c: &Common, elapsed: f64) -> String {
     }
 }
 
-/// The `outcome` object of a JSON footer.
-pub(crate) fn outcome_json(o: &Outcome) -> serde_json::Value {
-    json!({"exit":o.exit_code(),"exact":o.exact(),"rung":o.rung.name(),"total":o.total,"shown":o.shown,
-        "complete":o.complete(),"source":o.source,"fresh":o.fresh,"deferred":o.deferred,
-        "truncated_by":o.truncated_by()})
-}
-
 /// End an answer in any format: flush it, record the run, and exit with the
 /// outcome's status.
 pub(crate) fn finish(mut w: impl Write, verb: &'static str, o: &Outcome) -> Result<()> {
@@ -406,14 +399,6 @@ fn file_flag_suffix(rel: &[u8], flags: FileFlags) -> String {
     }
 }
 
-fn def_json(e: &DefEntry) -> serde_json::Value {
-    json!({
-        "path":crate::json_rel(&e.rel), "line": e.line, "kind": e.kind.name(), "name": e.name, "container": chain_str(&e.chain),
-        "signature": e.signature, "doc": e.doc, "flags": sym_flags(e.flags, e.file_flags), "supertypes": e.supers,
-        "score": e.score, "reach": e.reach, "start": e.start, "end": e.end
-    })
-}
-
 /// The first `n` items, or all of them.
 fn head<T>(v: &[T], n: usize) -> &[T] {
     &v[..v.len().min(n)]
@@ -610,21 +595,7 @@ pub fn run_def(
                 shown,
                 ..oc.clone()
             });
-            if c.json_greeg() {
-                crate::json_native::defs(&mut w, &r, shown, suggestions, &oc)?;
-                return Ok((w, oc));
-            }
-            for e in &r.entries[..shown] {
-                let mut v = def_json(e);
-                v["type"] = json!("def");
-                serde_json::to_writer(&mut w, &v)?;
-                writeln!(w)?;
-            }
-            serde_json::to_writer(
-                &mut w,
-                &json!({"type":"footer","data":{"verb":"def","name":r.name,"shown":shown,"total":r.total,"source":r.source,"rung":r.rung.name(),"suggestions":r.suggestions[..suggestions],"suggestions_total":r.suggestions.len(),"elapsed_ms":r.elapsed_ms,"outcome":outcome_json(&oc)}}),
-            )?;
-            writeln!(w)?;
+            crate::json_native::defs(&mut w, &r, shown, suggestions, &oc)?;
             Ok((w, oc))
         };
         let max = if near {
@@ -769,29 +740,7 @@ pub fn run_show(c: &Common, o: &Options, locs: &[(String, u32)]) -> Result<()> {
             let mut w = Vec::new();
             let bodies = bodies(limit);
             let oc = cut.mark(oc.clone());
-            if c.json_greeg() {
-                crate::json_native::show(&mut w, &r, &bodies, &oc)?;
-                return Ok((w, oc));
-            }
-            for (it, body) in r.items.iter().zip(&bodies) {
-                let shown_to = body.first + body.lines.len().saturating_sub(1) as u32;
-                let text = crate::json_rel(&body.lines.join(&b'\n'));
-                let symbol = it.def.as_ref().map(|d| {
-                    json!({"name":d.name,"kind":d.kind.name(),"container":chain_str(&d.chain[..d.chain.len().saturating_sub(1)])})
-                });
-                serde_json::to_writer(
-                    &mut w,
-                    &json!({"type":"show","data":{"path":crate::json_rel(&it.rel),"line":it.asked,"symbol":symbol,"start_line":body.first,"end_line":body.last,"shown_to":shown_to,"clipped":body.clipped,"text":text}}),
-                )?;
-                writeln!(w)?;
-            }
-            let complete = !bodies.iter().any(|b| b.clipped);
-            serde_json::to_writer(
-                &mut w,
-                &json!({"type":"footer","data":{"verb":"show","items":n,"source":r.source,"elapsed_ms":r.elapsed_ms,
-                    "outcome":crate::json_native::OutcomeRec::answered(&oc, complete)}}),
-            )?;
-            writeln!(w)?;
+            crate::json_native::show(&mut w, &r, &bodies, &oc)?;
             Ok((w, oc))
         };
         let fitted = fit(c.json(), o, max, render)?;
@@ -906,31 +855,8 @@ pub fn run_refs(c: &Common, o: &Options, name: &str) -> Result<()> {
                 })
                 .collect();
             let oc = cut.mark(Outcome::of_search(s, shown.len()));
-            if c.json_greeg() {
-                let counts = nonempty.iter().map(|(k, v)| (k.name(), v.len())).collect();
-                crate::json_native::refs(&mut w, name, &r, defs, &shown, counts, &oc)?;
-                return Ok((w, oc));
-            }
-            for e in &r.defs[..defs] {
-                let mut v = def_json(e);
-                v["type"] = json!("def");
-                serde_json::to_writer(&mut w, &v)?;
-                writeln!(w)?;
-            }
-            for &(k, fi, hi) in &shown {
-                let f = &s.files[fi];
-                let h = &f.hits[hi];
-                serde_json::to_writer(
-                    &mut w,
-                    &json!({"type":"ref","data":{"kind":k.name(),"path":crate::json_rel(&f.rel),"line":h.line,"text":crate::json_rel(&h.display(s.opts.max_columns).0),"symbol":chain_str(&h.chain),"file_flags":f.flags.names(),"score":h.score}}),
-                )?;
-                writeln!(w)?;
-            }
-            serde_json::to_writer(
-                &mut w,
-                &json!({"type":"footer","data":{"verb":"refs","name":name,"definitions_total":r.defs_total,"hits_total":s.stats.total_hits,"files_total":s.stats.files_matched,"by_kind":nonempty.iter().map(|(k,v)| json!([k.name(), v.len()])).collect::<Vec<_>>(),"resolved":r.resolved,"classified":r.classified,"rung":s.rung.name(),"source":s.stats.source,"elapsed_ms":s.stats.elapsed_ms,"outcome":outcome_json(&oc)}}),
-            )?;
-            writeln!(w)?;
+            let counts = nonempty.iter().map(|(k, v)| (k.name(), v.len())).collect();
+            crate::json_native::refs(&mut w, name, &r, defs, &shown, counts, &oc)?;
             Ok((w, oc))
         };
         let fitted = fit(c.json(), o, total_lines, render)?;
@@ -1075,22 +1001,7 @@ pub fn run_callers(c: &Common, o: &Options, name: &str, depth: usize) -> Result<
                 shown: r.callers.len().min(limit),
                 ..oc.clone()
             });
-            if c.json_greeg() {
-                crate::json_native::callers(&mut w, &r, limit, &oc)?;
-                return Ok((w, oc));
-            }
-            for cl in r.callers.iter().take(limit) {
-                serde_json::to_writer(
-                    &mut w,
-                    &json!({"type":"caller","data":{"path":crate::json_rel(&cl.rel),"symbol":chain_str(&cl.chain),"kind":cl.chain.last().map(|(k,_)| k.name()),"def_line":cl.def_line,"count":cl.count,"lines":cl.lines,"file_flags":cl.file_flags.names(),"called_by":cl.called_by}}),
-                )?;
-                writeln!(w)?;
-            }
-            serde_json::to_writer(
-                &mut w,
-                &json!({"type":"footer","data":{"verb":"callers","name":r.name,"callers":r.callers.len(),"call_sites":r.total_hits,"files":r.files,"source":r.source,"rung":r.rung.name(),"elapsed_ms":r.elapsed_ms,"outcome":outcome_json(&oc)}}),
-            )?;
-            writeln!(w)?;
+            crate::json_native::callers(&mut w, &r, limit, &oc)?;
             Ok((w, oc))
         };
         let fitted = fit(c.json(), o, limit, render)?;
@@ -1222,26 +1133,7 @@ pub fn run_impls(c: &Common, o: &Options, name: &str) -> Result<()> {
                 shown: direct + extras,
                 ..oc.clone()
             });
-            if c.json_greeg() {
-                crate::json_native::impls(&mut w, &r, direct, extras, &oc)?;
-                return Ok((w, oc));
-            }
-            for (e, confidence) in r.direct[..direct]
-                .iter()
-                .map(|e| (e, "high"))
-                .chain(r.extras[..extras].iter().map(|e| (e, "low")))
-            {
-                let mut v = def_json(e);
-                v["type"] = json!("impl");
-                v["confidence"] = json!(confidence);
-                serde_json::to_writer(&mut w, &v)?;
-                writeln!(w)?;
-            }
-            serde_json::to_writer(
-                &mut w,
-                &json!({"type":"footer","data":{"verb":"impls","name":r.name,"direct":r.direct_total,"extras":r.extras_total,"source":r.source,"elapsed_ms":r.elapsed_ms,"outcome":outcome_json(&oc)}}),
-            )?;
-            writeln!(w)?;
+            crate::json_native::impls(&mut w, &r, direct, extras, &oc)?;
             Ok((w, oc))
         };
         let fitted = fit(c.json(), o, limit, render)?;
@@ -1324,22 +1216,7 @@ pub fn run_outline(c: &Common, o: &Options, file: &str, imports: bool) -> Result
             let mut w = Vec::new();
             let shown = r.defs.len().min(limit);
             let oc = cut.mark(answered_outcome(r.defs.len(), shown, r.source, r.fresh));
-            if c.json_greeg() {
-                crate::json_native::outline(&mut w, &r, shown, &oc)?;
-                return Ok((w, oc));
-            }
-            for d in &r.defs[..shown] {
-                serde_json::to_writer(
-                    &mut w,
-                    &json!({"type":"symbol","data":{"path":crate::json_rel(&r.rel),"name":d.name,"kind":d.kind.name(),"line":d.line,"start":d.start,"end":d.end,"container":chain_str(&d.chain[..d.chain.len().saturating_sub(1)]),"depth":d.chain.len().saturating_sub(1),"flags":sym_flags(d.flags, FileFlags::default())}}),
-                )?;
-                writeln!(w)?;
-            }
-            serde_json::to_writer(
-                &mut w,
-                &json!({"type":"footer","data":{"verb":"outline","path":crate::json_rel(&r.rel),"symbols":r.defs.len(),"imports":r.imports,"source":r.source,"parse_errors":r.parse_errors,"elapsed_ms":r.elapsed_ms,"outcome":outcome_json(&oc)}}),
-            )?;
-            writeln!(w)?;
+            crate::json_native::outline(&mut w, &r, shown, &oc)?;
             Ok((w, oc))
         };
         let fitted = fit(c.json(), o, r.defs.len(), render)?;
@@ -1481,21 +1358,11 @@ pub fn run_map(c: &Common, o: &Options, dir: &str) -> Result<()> {
     let r = match verbs::map(o, dir) {
         Ok(r) => r,
         Err(e) => {
-            if c.json_greeg()
+            if c.json()
                 && let Some(rb) = e.downcast_ref::<greeg_query::indexed::Rebuilding>()
             {
                 let mut w = out();
                 crate::json_native::map_rebuilding(&mut w, rb.reason, rb.estimate_ms)?;
-                w.flush()?;
-            } else if c.json()
-                && let Some(rb) = e.downcast_ref::<greeg_query::indexed::Rebuilding>()
-            {
-                let mut w = out();
-                serde_json::to_writer(
-                    &mut w,
-                    &json!({"type":"footer","data":{"verb":"map","outcome":{"exit":2,"rebuilding":{"reason":rb.reason,"estimate_ms":rb.estimate_ms}}}}),
-                )?;
-                writeln!(w)?;
                 w.flush()?;
             }
             return Err(e);
@@ -1527,29 +1394,7 @@ pub fn run_map(c: &Common, o: &Options, dir: &str) -> Result<()> {
                 r.source,
                 r.fresh,
             ));
-            if c.json_greeg() {
-                crate::json_native::map(&mut w, &r, dir_limit, file_limit, &oc)?;
-                return Ok((w, oc));
-            }
-            for d in &r.dirs[..dirs] {
-                serde_json::to_writer(
-                    &mut w,
-                    &json!({"type":"dir","data":{"path":crate::json_rel(&d.rel),"files":d.files,"symbols":d.symbols,"rank":d.rank}}),
-                )?;
-                writeln!(w)?;
-            }
-            for f in &r.files[..files] {
-                serde_json::to_writer(
-                    &mut w,
-                    &json!({"type":"file","data":{"path":crate::json_rel(&f.rel),"rank":f.rank,"symbols":f.symbols,"imported_by":f.imported_by,"by_kind":f.by_kind.iter().map(|(k,n)| json!([k.name(), n])).collect::<Vec<_>>(),"top":f.top.iter().map(|(k,n)| json!([k.name(), n])).collect::<Vec<_>>(),"file_flags":f.flags.names()}}),
-                )?;
-                writeln!(w)?;
-            }
-            serde_json::to_writer(
-                &mut w,
-                &json!({"type":"footer","data":{"verb":"map","dir":r.dir,"files_total":r.files_total,"symbols_total":r.symbols_total,"dirs_total":r.dirs.len(),"source":r.source,"graph_changes":r.graph_changes,"elapsed_ms":r.elapsed_ms,"outcome":outcome_json(&oc)}}),
-            )?;
-            writeln!(w)?;
+            crate::json_native::map(&mut w, &r, dir_limit, file_limit, &oc)?;
             Ok((w, oc))
         };
         let fitted = fit(c.json(), o, dir_limit.max(file_limit), render)?;
@@ -1758,25 +1603,7 @@ pub fn run_impact(c: &Common, o: &Options, name: &str) -> Result<()> {
                 shown: groups.iter().map(|g| g.len()).sum::<usize>() + callers,
                 ..r.outcome.clone()
             });
-            if c.json_greeg() {
-                crate::json_native::impact(&mut w, &r, defs, caps, callers, files, &oc)?;
-                return Ok((w, oc));
-            }
-            let grp = |files: &[verbs::ImpactFile]| -> Vec<serde_json::Value> {
-                files.iter().map(|f| json!({"path":crate::json_rel(&f.rel),"hits":f.hits,"kinds":f.kinds.iter().map(|(k,n)| json!([k.name(), n])).collect::<Vec<_>>(),"file_flags":f.flags.names(),"sample":f.sample.iter().map(|(l, t)| json!([l, crate::json_rel(t)])).collect::<Vec<_>>()})).collect()
-            };
-            serde_json::to_writer(
-                &mut w,
-                &json!({"type":"impact","data":{"name":r.name,"definitions":r.defs[..defs].iter().map(def_json).collect::<Vec<_>>(),"will_break":grp(groups[0]),"may_break":grp(groups[1]),"review":grp(groups[2]),
-                "callers":r.callers.callers.iter().take(callers).map(|cl| json!({"path":crate::json_rel(&cl.rel),"symbol":chain_str(&cl.chain),"count":cl.count,"called_by":cl.called_by})).collect::<Vec<_>>(),
-                "total_hits":r.total_hits,"elapsed_ms":r.elapsed_ms}}),
-            )?;
-            writeln!(w)?;
-            serde_json::to_writer(
-                &mut w,
-                &json!({"type":"footer","data":{"verb":"impact","name":r.name,"definitions_total":r.defs_total,"files":files,"callers_total":callers_total,"total_hits":r.total_hits,"elapsed_ms":r.elapsed_ms,"outcome":outcome_json(&oc)}}),
-            )?;
-            writeln!(w)?;
+            crate::json_native::impact(&mut w, &r, defs, caps, callers, files, &oc)?;
             Ok((w, oc))
         };
         let max = [

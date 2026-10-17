@@ -1,15 +1,15 @@
 # greeg JSON output
 
-greeg writes JSON Lines in three dialects:
+greeg writes JSON Lines in two dialects:
 
 | Flag | Dialect | For |
 |---|---|---|
 | `--json=greeg`, and bare `--json` for searches and verbs | greeg's own records, schema 2 (this page) | agents and tools that read greeg |
 | `--json=rg` | ripgrep's records, nothing else | tools written for `rg --json` |
-| `--json=legacy` | ripgrep's records plus greeg's fields, removed in 0.12 | consumers of greeg 0.10 and earlier |
 
-`--json=rg` and `--json=legacy` are described under
-[JSON output](ARCHITECTURE.md#json-output).
+`--json=rg` is described under [JSON output](ARCHITECTURE.md#json-output).
+`--json=legacy`, greeg's records through 0.10, was removed in 0.12.1: it exits
+2 and names `--json` as its replacement.
 
 ## Migrating from bare `--json`
 
@@ -19,11 +19,11 @@ Bare `--json` names no dialect, so its meaning changes:
 |---|---|---|
 | 0.10 | `legacy`; on a terminal, stderr says it will change | available |
 | 0.11 | `greeg` | available; on a terminal, stderr says it goes in 0.12 |
-| 0.12 | `greeg` | removed |
+| 0.12.0 | `greeg` | still available, by mistake |
+| 0.12.1 | `greeg` | removed: exit 2, naming `--json` |
 
 Name a dialect so the release does not choose for you: `--json=greeg` and
-`--json=rg` stay, and `--json=legacy` keeps 0.10's records through 0.11 only.
-Its notice goes only to a terminal, never to a pipe. Commands with a JSON
+`--json=rg` stay. Commands with a JSON
 report of their own, such as `greeg stats --json`, keep it under bare
 `--json`.
 
@@ -38,8 +38,7 @@ From `legacy` to `greeg`:
   footer's `outcome` (`total`, `shown`, `rung`, `source`).
 - `def` and `impl` records are `{"type", "data"}` like the rest, and every
   path is `{"text"}` or `{"bytes"}`.
-- `impact`'s `will_break` and `may_break` are `likely` and `possible`. Legacy
-  keeps its names but fills them with the same groups.
+- `impact`'s `will_break` and `may_break` are `likely` and `possible`.
 
 ## Schema 2 (`--json=greeg`)
 
@@ -240,7 +239,7 @@ fields do not change `schema`.
 ## Explain
 
 `--explain` on a search or a symbol verb adds one `explain` record before the
-footer, in `--json=greeg` and `--json=legacy` (text writes the same as
+footer, in `--json=greeg` (text writes the same as
 `explain:` lines on stderr). It says what the answer was built from and changes
 nothing else: the other records, the budget fit and the byte ceiling are as
 without it, and it is not counted in either. Under `--max-bytes` the record
