@@ -1,0 +1,35 @@
+bench/reports.toml
+  s_eefb2647553a67::t_a415bc5d94f9b0 775-781
+  s_eefb2647553a67::t_8853b331c07e44 782
+bench/bench.py
+  s_eefb2647553a67::t_8853b331c07e44 1178
+references/BENCH.md
+  s_eefb2647553a67::t_a415bc5d94f9b0 2522-2525,2527-2568
+  s_eefb2647553a67::t_8853b331c07e44 2526,2569
+bench/results/release-0.12.1-2026-10-16-darwin-arm64.json
+  s_4349015d1ec7d4::t_6f67c3a8236215 1-5695
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "6dcf1a202cd834bbc55112c557d833b5e25c9ded",
+  "prompts": {},
+  "sessions": {
+    "s_4349015d1ec7d4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "451665bf-845a-434d-b320-5b606239e775",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    },
+    "s_eefb2647553a67": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9fff36d3-3b5f-4343-be78-7893a6fe3965",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
