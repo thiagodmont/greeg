@@ -1,0 +1,29 @@
+README.md
+  s_eefb2647553a67::t_21b92422b20b8d 85
+references/JSON.md
+  s_eefb2647553a67::t_21b92422b20b8d 49
+Cargo.toml
+  s_eefb2647553a67::t_21b92422b20b8d 7
+references/USAGE.md
+  s_eefb2647553a67::t_21b92422b20b8d 273
+Cargo.lock
+  s_eefb2647553a67::t_7175dd9328494f 386,407,414,438,457
+fuzz/Cargo.lock
+  s_eefb2647553a67::t_f5b8e564b968e8 195,215,237
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "6304d5d188cd09c19b36f4a7c54a6459dd9ce1f7",
+  "prompts": {},
+  "sessions": {
+    "s_eefb2647553a67": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9fff36d3-3b5f-4343-be78-7893a6fe3965",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
