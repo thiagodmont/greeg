@@ -33,14 +33,19 @@ class JsonContractTests(unittest.TestCase):
     def output(self, rows, status=0):
         return subprocess.CompletedProcess([], status, b"\n".join(json.dumps(r).encode() for r in rows), b"")
 
-    def test_normalization_ignores_only_timing(self):
-        rows = [self.begin, self.match, self.footer]
+    def test_normalization_ignores_only_timing_and_the_version(self):
+        header = {"type": "greeg", "data": {"schema": 2, "version": "0.12.0"}}
+        rows = [header, self.begin, self.match, self.footer]
         before = stable_stdout(self.output(rows).stdout, True)
+        header["data"]["version"] = "0.12.1"
         self.footer["data"]["elapsed_ms"] = 99
         # a JSON search's estimate counts its elapsed digits
         self.footer["data"]["est_tokens"] = 99
         self.assertEqual(before, stable_stdout(self.output(rows).stdout, True))
         self.footer["data"]["outcome"]["total"] = 99
+        self.assertNotEqual(before, stable_stdout(self.output(rows).stdout, True))
+        self.footer["data"]["outcome"]["total"] = 1
+        header["data"]["schema"] = 3
         self.assertNotEqual(before, stable_stdout(self.output(rows).stdout, True))
 
     def test_contract_detects_wrong_matches_status_rung_and_counts(self):
