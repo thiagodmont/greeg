@@ -192,7 +192,7 @@ dependencies = [
 
 [[package]]
 name = "greeg-fsevents"
-version = "0.12.0"
+version = "0.12.1"
 dependencies = [
  "libc",
 ]
@@ -212,7 +212,7 @@ dependencies = [
 
 [[package]]
 name = "greeg-index"
-version = "0.12.0"
+version = "0.12.1"
 dependencies = [
  "anyhow",
  "blake3",
@@ -234,7 +234,7 @@ dependencies = [
 
 [[package]]
 name = "greeg-lang"
-version = "0.12.0"
+version = "0.12.1"
 dependencies = [
  "libc",
  "memchr",
