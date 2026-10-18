@@ -1175,7 +1175,7 @@ def matching_review_report(output_dir, datasets=None):
                 f"Reproduce: `python3 bench/matching.py BASELINE CANDIDATE --cases {' '.join(data['cases'])} --runs {data['runs']}{token_flag} --output {filename}`.", ""]
     if out:
         out += ["JSON contracts compare match paths, lines, offsets, submatches, status, exact rung, and total hit counts with ripgrep. "
-                "Repeat-output checks remove only elapsed fields; byte/token measurements retain them and use the first raw sample, so small JSON size differences reflect timing values. "
+                "Repeat-output checks remove only elapsed fields, the footer's token estimate and the header's version; byte/token measurements retain them and use the first raw sample, so small JSON size differences reflect timing values. "
                 "Definition checks compare paths and status on this controlled fixture, not general symbol-resolution accuracy.", ""]
     return out
 

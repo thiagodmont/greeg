@@ -82,7 +82,7 @@ brew install thiagodmont/greeg/greeg
 attestation alongside, see [verifying an archive](references/USAGE.md#verifying-a-release-archive)):
 
 ```bash
-v=0.12.0; t=aarch64-apple-darwin   # or x86_64-apple-darwin, x86_64-unknown-linux-gnu, aarch64-unknown-linux-gnu
+v=0.12.1; t=aarch64-apple-darwin   # or x86_64-apple-darwin, x86_64-unknown-linux-gnu, aarch64-unknown-linux-gnu
 curl -sSL https://github.com/thiagodmont/greeg/releases/download/v$v/greeg-$v-$t.tar.gz | tar xz
 sudo install greeg-$v-$t/greeg /usr/local/bin/
 ```

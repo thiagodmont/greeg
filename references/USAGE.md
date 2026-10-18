@@ -270,7 +270,7 @@ carry a build provenance attestation; to check one, download the archive and
 verify it with the GitHub CLI (2.49 or newer):
 
 ```bash
-v=0.12.0; t=aarch64-apple-darwin
+v=0.12.1; t=aarch64-apple-darwin
 curl -sSLO https://github.com/thiagodmont/greeg/releases/download/v$v/greeg-$v-$t.tar.gz
 gh attestation verify greeg-$v-$t.tar.gz --repo thiagodmont/greeg
 ```

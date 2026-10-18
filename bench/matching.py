@@ -64,7 +64,10 @@ def stable_stdout(stdout, is_json):
     records = [json.loads(line) for line in stdout.splitlines()]
     for record in records:
         data = record.get("data", {})
-        if record["type"] == "summary":
+        if record["type"] == "greeg":
+            # releases differ in the header's version alone
+            data.pop("version", None)
+        elif record["type"] == "summary":
             data.pop("elapsed_total", None)
             data.get("stats", {}).pop("elapsed", None)
         elif record["type"] == "footer":
@@ -167,7 +170,7 @@ def main():
         "runs": args.runs, "cases": args.cases, "warmups": 3, "order_seed": 20260922,
         "freshness": "stat", "cache_state": "warm; full index built before queries",
         "tokenizer": "o200k_base" if encoding else None,
-        "output_measurement": "first raw sample; JSON comparison removes only elapsed fields",
+        "output_measurement": "first raw sample; JSON comparison removes only elapsed fields, their token estimate and the header version",
         "scope": "synthetic local corpus; process wall time; no cold-cache/RSS/agent-task claim",
         "binaries": {}, "results": [],
     }
