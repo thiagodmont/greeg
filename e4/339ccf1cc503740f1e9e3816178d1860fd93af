@@ -1,0 +1,23 @@
+crates/greeg-index/src/symtab.rs
+  s_eefb2647553a67::t_27e87710b516ce 669-675
+crates/greeg-index/src/build.rs
+  s_eefb2647553a67::t_a350227dfe8cca 1036-1043,1048,1114-1115,1629-1634
+  s_eefb2647553a67::t_27e87710b516ce 1032-1035,1044-1047,1049-1081,1104-1110,1112-1113,1116-1146,1158-1161,1176
+  s_eefb2647553a67::t_9c73bba5bf9cb4 1162-1165,1174-1175,1182-1183,1192,1198,1207,1635-1638
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e4339ccf1cc503740f1e9e3816178d1860fd93af",
+  "prompts": {},
+  "sessions": {
+    "s_eefb2647553a67": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9fff36d3-3b5f-4343-be78-7893a6fe3965",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
