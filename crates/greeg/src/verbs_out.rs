@@ -879,6 +879,7 @@ pub fn run_refs(c: &Common, o: &Options, name: &str) -> Result<()> {
         line_numbers: false,
         stdin: false,
         cols: s.opts.max_columns,
+        from_grep: false,
     };
     let render = |cut: Cut| -> Result<(Vec<u8>, Outcome)> {
         let lines = cut.rows;

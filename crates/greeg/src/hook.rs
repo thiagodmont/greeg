@@ -1074,12 +1074,26 @@ mod tests {
             assert!(got.contains(why), "{cmd:?}: {got:?}");
         }
         // the `cd`s before it, when nothing else may have moved it
-        let cds = |cmd: &str| rewrite_full(cmd).unwrap().parts[0].cds.clone();
+        // the search's, the last part of the line
+        let cds = |cmd: &str| rewrite_full(cmd).unwrap().parts.last().unwrap().cds.clone();
         assert_eq!(
             cds("cd /x && cd 'y z' && grep -rn a src | sort"),
             Some(vec!["/x".to_string(), "y z".to_string()])
         );
         assert_eq!(cds("grep -rn a src | sort"), Some(vec![]));
+        assert_eq!(
+            cds("cd x && rg b && grep -rn a src | sort"),
+            Some(vec!["x".to_string()])
+        );
+        // a `cd` that may have failed while the search still runs
+        for cmd in [
+            "cd x; grep -rn a src | sort",
+            "cd x || grep -rn a src | sort",
+            "cd x && rg b; grep -rn a src | sort",
+            "cd x && rg b || grep -rn a src | sort",
+        ] {
+            assert_eq!(cds(cmd), None, "{cmd}");
+        }
         for cmd in [
             "ls; grep -rn a src | sort",
             "cd; grep -rn a src | sort",

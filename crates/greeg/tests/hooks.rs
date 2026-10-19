@@ -453,7 +453,7 @@ fn readers_of_a_rewritten_grep_get_grep_s_lines() {
     ] {
         let rewritten = f.rewrite("claude", command);
         assert!(
-            rewritten.starts_with("greeg ") || rewritten.starts_with("cd "),
+            rewritten.contains("greeg --matching exact --budget 0 "),
             "{command}: {rewritten}"
         );
         let (grep, greeg) = (run(command), run(&rewritten));
@@ -463,6 +463,29 @@ fn readers_of_a_rewritten_grep_get_grep_s_lines() {
             "{command} → {rewritten}"
         );
     }
+    // a NUL past the first read buffer stops the file after a match: the
+    // warning rg prints there goes to stderr, out of the reader's lines
+    let mut tail = b"needle first\n".to_vec();
+    tail.extend(b"x\n".repeat(200_000));
+    tail.extend(b"\0needle after\n");
+    fs::write(tree.join("src/deep/tail.txt"), tail).unwrap();
+    let out = run(&f.rewrite("claude", "grep -rn needle src/deep | cat"));
+    let (stdout, stderr) = (
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr),
+    );
+    assert!(
+        stdout.contains("src/deep/tail.txt:1:needle first"),
+        "{stdout}"
+    );
+    assert!(
+        stdout.lines().all(|l| l.starts_with("src/deep/")),
+        "{stdout}"
+    );
+    assert!(
+        stderr.contains("src/deep/tail.txt: stopped searching binary file"),
+        "{stderr}"
+    );
 }
 
 /// A rewritten `grep -r` picks files as rg does, and says so: ignored,

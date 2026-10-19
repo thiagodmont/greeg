@@ -1006,6 +1006,9 @@ pub(crate) struct Fmt {
     pub(crate) stdin: bool,
     /// `--max-columns`: hit lines are clipped to it when shown (0: never).
     pub(crate) cols: usize,
+    /// The hook rewrote a `grep -r` (`--from-grep`): stdout holds only
+    /// grep's kind of lines, so a binary-tail warning goes to stderr.
+    pub(crate) from_grep: bool,
 }
 
 fn run() -> Result<()> {
@@ -1209,6 +1212,7 @@ fn run() -> Result<()> {
         line_numbers: c.line_number,
         stdin: false,
         cols: opts.max_columns,
+        from_grep: c.from_grep,
     };
     if opts.paths.is_empty() && greeg_query::stdin::is_readable_stdin() && !stdin_is_socket() {
         return run_stdin(c, opts, fmt);
@@ -2423,7 +2427,18 @@ fn render_parity_file(
             }
         }
     }
-    if let Some(off) = f.binary_offset {
+    if let Some(off) = f.binary_offset
+        && fmt.from_grep
+    {
+        let mut e = std::io::stderr().lock();
+        e.write_all(b"greeg: ")?;
+        e.write_all(&f.rel)?;
+        writeln!(
+            e,
+            ": stopped searching binary file after match (found \"\\0\" byte around offset {})",
+            off - u64::from(f.bom)
+        )?;
+    } else if let Some(off) = f.binary_offset {
         if !fmt.stdin {
             w.write_all(&f.rel)?;
             write!(w, ": ")?;
@@ -3029,6 +3044,7 @@ mod tests {
             line_numbers: false,
             stdin: true,
             cols: 0,
+            from_grep: false,
         };
         let mut kept = 0;
         for cap in 1..2_000 {
@@ -3066,6 +3082,7 @@ mod tests {
             line_numbers: false,
             stdin: true,
             cols: 0,
+            from_grep: false,
         };
         let kept = |result: &mut ScanResult, ms: f64, cap: usize| {
             result.stats.elapsed_ms = ms;

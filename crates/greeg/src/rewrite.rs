@@ -1177,6 +1177,13 @@ pub fn rewrite_full(cmd: &str) -> Result<Rewrite, String> {
                 }
             }
         }
+        // a later command runs in the `cd`s' directory only if each of them
+        // succeeded: every separator after one is `&&`
+        let end = seg.stages.last().map_or(0, |r| r.end);
+        let and = cmd[end..].trim_start_matches([' ', '\t']).starts_with("&&");
+        if !and && cds.as_ref().is_some_and(|c| !c.is_empty()) {
+            cds = None;
+        }
     }
     if parts.is_empty() {
         return Err(why.map_or_else(|| "not an rg or grep command".into(), |(_, e)| e));
