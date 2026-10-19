@@ -8,8 +8,9 @@
 //! `permissionDecision: allow`, which Claude Code would read as an auto-allow.
 //!
 //! `rg` and recursive `grep` commands qualify, alone, in a `;`/`&&`/`||`
-//! list or piped into `head`. Other greps, pipelines, subshells, explicit executable paths and
-//! shell expansion stay with the original tool.
+//! list or piped into `head`; a recursive `grep -n`/`-l` also piped into another reader,
+//! which then gets every match in grep's format. Other greps, pipelines, subshells,
+//! explicit executable paths and shell expansion stay with the original tool.
 
 use anyhow::{Context, Result, bail};
 use serde_json::{Value, json};
@@ -83,8 +84,10 @@ const CLAUDE_HOOK_NOTES: &str = "## Hook notes
 The installed PreToolUse hook (`greeg hook run`) rewrites `rg` and `grep -r`
 Bash calls into `greeg --matching exact`, also each one in a `;`/`&&`/`||`
 list or piped into `head`, `head -N`, `head -n N`, `head -nN` or
-`head --lines=N` (head then shows greeg's best lines; other `head` options and
-other readers stay unchanged). `egrep -r` and `fgrep -r` count as `grep -r`. Trailing
+`head --lines=N` (head then shows greeg's best lines). A `grep -rn` or `grep -rl`
+piped into another reader (`| grep`, `| sort`, `| wc`, …) gives it every match in
+grep's format, when its paths print as written (not `.` or `./x`) and a lone path
+is a directory; other pipelines stay unchanged. `egrep -r` and `fgrep -r` count as `grep -r`. Trailing
 redirections of stderr to `/dev/null` or stdout (`2>/dev/null`, `2>&1`, also
 `2>>` and with a space) and of stdin from `/dev/null` are kept. A rewritten
 `grep -r` skips ignored, hidden and binary files, as rg does (an `--include`
@@ -106,7 +109,7 @@ The installed PreToolUse hook (`greeg hook run --agent codex`) rewrites `rg`
 and `grep -r` shell calls into `greeg --matching exact`, also one piped into
 `head`, `head -N`, `head -n N`, `head -nN` or `head --lines=N` (head then
 shows greeg's best lines; other `head` options and other readers stay
-unchanged) and a `;`/`&&`/`||` list of
+unchanged, as Codex would run them unasked) and a `;`/`&&`/`||` list of
 them only (a list with any other command stays unchanged). `egrep -r` and
 `fgrep -r` count as `grep -r`. Trailing
 redirections of stderr to `/dev/null` or stdout (`2>/dev/null`, `2>&1`, also
@@ -716,6 +719,23 @@ fn decide(cmd: &str, agent: Agent, cwd: &Path) -> Result<Rewrite, String> {
             "the shell would expand an unquoted `--include=`/`--exclude=` glob here".into(),
         );
     }
+    for p in &rw.parts {
+        let Some(operand) = &p.lone_operand else {
+            continue;
+        };
+        let Some(cds) = &p.cds else {
+            return Err(
+                "a command before the pipeline may change the directory its path names".into(),
+            );
+        };
+        let dir = cds.iter().fold(cwd.to_path_buf(), |d, cd| d.join(cd));
+        // a symlink would be followed by one grep and not another
+        if !std::fs::symlink_metadata(dir.join(operand)).is_ok_and(|m| m.is_dir()) {
+            return Err(format!(
+                "`{operand}` is not a directory: grep prints a lone file's lines with or without its name, by system"
+            ));
+        }
+    }
     // Codex runs an allowed rewrite without asking: it may hold only commands
     // the hook wrote
     if agent == Agent::Codex && !rw.whole {
@@ -867,7 +887,7 @@ mod tests {
             ("rg needle # comment", "shell comment"),
             (
                 "rg needle | sort",
-                "pipeline (only `| head [-n N]` is kept)",
+                "pipeline: only grep -r's lines go to another reader",
             ),
             ("rg needle &", "background job"),
             ("echo a; git status", "not an rg or grep command"),
@@ -1006,6 +1026,104 @@ mod tests {
         // a pipeline into another reader is left as it is
         let r = rewrite_full("rg a | sort; rg b").unwrap();
         assert!(!r.whole && r.parts.len() == 1);
+    }
+
+    #[test]
+    fn a_recursive_grep_piped_into_another_reader_gets_every_match_as_grep_prints_it() {
+        let g = "greeg --matching exact --budget 0 --max-filesize 18446744073709551615 --from-grep";
+        for (cmd, want) in [
+            ("grep -rn a src | sort", format!("{g} a src | sort")),
+            (
+                "grep -rln a src lib | grep -v test | head",
+                format!("{g} -l a src lib | grep -v test | head"),
+            ),
+            (
+                "grep -rn -A2 a src/ | cut -d: -f1",
+                format!("{g} -A 2 a src/ | cut -d: -f1"),
+            ),
+            // only `head` alone takes greeg's best lines
+            (
+                "grep -rn a src | head -5 | cat",
+                format!("{g} a src | head -5 | cat"),
+            ),
+            ("grep -rn a ../src | wc -l", format!("{g} a ../src | wc -l")),
+        ] {
+            same(cmd, &want);
+            let r = rewrite_full(cmd).unwrap();
+            // the readers are other programs: not a line Codex may run unasked
+            assert!(!r.whole && r.parts[0].piped, "{cmd}");
+        }
+        let lone = |cmd: &str| rewrite_full(cmd).unwrap().parts[0].lone_operand.clone();
+        assert_eq!(lone("grep -rn a src | sort").as_deref(), Some("src"));
+        assert_eq!(lone("grep -rn a src lib | sort"), None);
+        assert_eq!(lone("grep -rn a src | head"), None);
+        for (cmd, why) in [
+            ("grep -r a src | sort", "without -n"),
+            ("grep -rn a . | sort", "under `.`"),
+            ("grep -rn a ./src | wc -l", "under `./src`"),
+            ("grep -rn a src//x | sort", "under `src//x`"),
+            ("grep -rn a src/. | sort", "under `src/.`"),
+            ("grep -rn a | sort", "no path"),
+            ("grep -rn --color=always a src | cat", "colors"),
+            ("grep -rn a src 2>&1 | sort", "`2>&1`"),
+            ("grep -rn a src 2>/dev/null | sort", "hide that greeg skips"),
+            ("rg -n a src | sort", "only grep -r"),
+            ("grep -n a f.rs | sort", "searches the files it names"),
+        ] {
+            let got = rewrite_full(cmd).err().unwrap_or_default();
+            assert!(got.contains(why), "{cmd:?}: {got:?}");
+        }
+        // the `cd`s before it, when nothing else may have moved it
+        let cds = |cmd: &str| rewrite_full(cmd).unwrap().parts[0].cds.clone();
+        assert_eq!(
+            cds("cd /x && cd 'y z' && grep -rn a src | sort"),
+            Some(vec!["/x".to_string(), "y z".to_string()])
+        );
+        assert_eq!(cds("grep -rn a src | sort"), Some(vec![]));
+        for cmd in [
+            "ls; grep -rn a src | sort",
+            "cd; grep -rn a src | sort",
+            "cd -; grep -rn a src | sort",
+            "cd ~/x && grep -rn a src | sort",
+            "cd x | cat; grep -rn a src | sort",
+        ] {
+            assert_eq!(cds(cmd), None, "{cmd}");
+        }
+    }
+
+    #[test]
+    fn a_reader_s_lone_path_must_be_a_directory_where_the_search_runs() {
+        let dir = std::env::temp_dir().join(format!("greeg-reader-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("sub/src")).unwrap();
+        std::fs::write(dir.join("f.rs"), "").unwrap();
+        std::os::unix::fs::symlink(dir.join("sub/src"), dir.join("link")).unwrap();
+        let ok = |cmd: &str| decide(cmd, Agent::Claude, &dir);
+        assert!(ok("grep -rn a sub | sort").is_ok());
+        assert!(ok("cd sub && grep -rn a src | sort").is_ok());
+        assert!(
+            ok(&format!(
+                "cd {} && grep -rn a src | sort",
+                dir.join("sub").display()
+            ))
+            .is_ok()
+        );
+        // several paths: every grep prints their names
+        assert!(ok("grep -rn a f.rs sub | sort").is_ok());
+        for (cmd, why) in [
+            ("grep -rn a f.rs | sort", "not a directory"),
+            ("grep -rn a link | sort", "not a directory"),
+            ("grep -rn a nowhere | sort", "not a directory"),
+            ("cd sub && grep -rn a f.rs | sort", "not a directory"),
+            ("ls && grep -rn a sub | sort", "may change the directory"),
+        ] {
+            let got = ok(cmd).err().unwrap_or_default();
+            assert!(got.contains(why), "{cmd:?}: {got:?}");
+        }
+        let why = decide("grep -rn a sub | sort", Agent::Codex, &dir)
+            .err()
+            .unwrap_or_default();
+        assert!(why.contains("Codex approves"), "{why}");
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
