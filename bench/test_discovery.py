@@ -15,6 +15,19 @@ class DiscoveryTests(unittest.TestCase):
         m = discovery.metrics(rs)
         self.assertEqual((m["acc@1"], m["acc@5"], m["mrr"]), ([0.0, 0.0], [1.0, 0.0], [1 / 3, 0.0]))
 
+    def test_held_out_answers_match_by_digest(self):
+        gold = [discovery.digest("src/a.rs")]
+        self.assertEqual(discovery.first_hit(["b.rs", "src/a.rs"], gold, hashed=True), 2)
+        self.assertIsNone(discovery.first_hit(["b.rs", "src/a.rs"], ["src/a.rs"], hashed=True))
+
+    def test_paired_difference_needs_the_same_queries(self):
+        a = [{"id": "q1", "ranked": ["g"], "gold": ["g"]}, {"id": "q2", "ranked": [], "gold": ["g"]}]
+        b = [{"id": "q1", "ranked": [], "gold": ["g"]}, {"id": "q2", "ranked": [], "gold": ["g"]}]
+        mean, lo, hi = discovery.paired(a, b, "acc@5")
+        self.assertEqual(mean, 0.5)
+        with self.assertRaises(SystemExit):
+            discovery.paired(a, b[:1], "acc@5")
+
     def test_rg_ranks_files_by_distinct_words_then_hits(self):
         with tempfile.TemporaryDirectory() as d:
             for name, text in [("one.rs", "timer timer timer\n"), ("two.rs", "timer wheel\n"), ("none.rs", "x\n")]:
@@ -31,7 +44,11 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual(Counter(x["split"] for x in d["query"]), {"dev": 30, "heldout": 60})
         self.assertEqual(Counter(x["split"] for x in d["swebench"]), {"dev": 40, "heldout": 80})
         for x in d["query"] + d["swebench"]:
-            self.assertTrue(x["files"], x["id"])
+            # held-out answers only as digests
+            self.assertEqual("files_sha256" in x, x["split"] == "heldout", x["id"])
+            self.assertTrue(x.get("files") or x.get("files_sha256"), x["id"])
+        for x in d["swebench"]:
+            self.assertEqual(len(x["statement_sha256"]), 64, x["id"])
         self.assertEqual(set(d["corpora"]), {"tokio", "TypeScript-5.9", "ktor"})
 
 
