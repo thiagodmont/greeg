@@ -1,0 +1,1546 @@
+# Discovery evaluation (phase 7, experiment 1). Frozen 2026-10-19 before any
+# ranker work: change a query and the dataset is no longer the one agreed.
+# `split = "dev"` may be used for tuning; "heldout" is scored once, after it.
+# Written queries: 30 definitions per corpus drawn by bench/discovery.py's
+# sampler (seed "phase7-CORPUS"), each question written from the code alone by
+# a model that saw no ranker. SWE-bench rows: django issues from SWE-bench
+# Verified; the answer is the set of files the gold patch changes.
+
+[corpora."tokio"]
+revision = "ea91b33ca57ff0581b38e735cc108f831bccbdaa"
+
+[[query]]
+id = "tokio-00"
+corpus = "tokio"
+query = "Where does the current-thread scheduler's waker notify the runtime to unpark its driver, skipping the wakeup when already running on that runtime?"
+files = ["tokio/src/runtime/scheduler/current_thread/mod.rs"]
+symbol = "wake_by_ref"
+line = 785
+split = "heldout"
+
+[[query]]
+id = "tokio-01"
+corpus = "tokio"
+query = "How does a delay queue reschedule an existing entry to a new deadline and wake the task if the entry is already expired?"
+files = ["tokio-util/src/time/delay_queue.rs"]
+symbol = "reset_at"
+line = 852
+split = "dev"
+
+[[query]]
+id = "tokio-02"
+corpus = "tokio"
+query = "Which code defines the readiness event struct carrying a tick, the read/write direction enum and the tick set-or-clear enum for the I/O driver?"
+files = ["tokio/src/runtime/io/driver.rs"]
+symbol = "with_ready"
+line = 82
+split = "heldout"
+
+[[query]]
+id = "tokio-03"
+corpus = "tokio"
+query = "What function polls a wrapped future held in an optional field and panics if that inner future has been taken away?"
+files = ["tokio/src/process/unix/pidfd_reaper.rs"]
+symbol = "poll"
+line = 177
+split = "heldout"
+
+[[query]]
+id = "tokio-04"
+corpus = "tokio"
+query = "Where is a duplex stream divided into separate read and write halves that share the stream through a lock?"
+files = ["tokio/src/io/split.rs"]
+symbol = "split"
+line = 32
+split = "heldout"
+
+[[query]]
+id = "tokio-05"
+corpus = "tokio"
+query = "Which code dispatches starting a blocking pool worker thread to either a single-lock variant or a sharded variant of the pool?"
+files = ["tokio/src/runtime/blocking/pool.rs"]
+symbol = "run_worker"
+line = 553
+split = "heldout"
+
+[[query]]
+id = "tokio-06"
+corpus = "tokio"
+query = "How does the task allocation compute the byte offset of the trailing section after the header and core, honoring alignment padding?"
+files = ["tokio/src/runtime/task/raw.rs"]
+symbol = "get_trailer_offset"
+line = 125
+split = "dev"
+
+[[query]]
+id = "tokio-07"
+corpus = "tokio"
+query = "Where is a local, non-Send runtime assembled from its scheduler, handle and blocking pool components?"
+files = ["tokio/src/runtime/local_runtime/runtime.rs"]
+symbol = "from_parts"
+line = 54
+split = "heldout"
+
+[[query]]
+id = "tokio-08"
+corpus = "tokio"
+query = "What function tries to take a read lock on a reader-writer lock held in an Arc without waiting, returning an owned guard or an error?"
+files = ["tokio/src/sync/rwlock.rs"]
+symbol = "try_read_owned"
+line = 725
+split = "heldout"
+
+[[query]]
+id = "tokio-09"
+corpus = "tokio"
+query = "Which test checks that configuring a log histogram with a tiny maximum bucket count fails and reports how many buckets would be needed?"
+files = ["tokio/src/runtime/metrics/histogram/h2_histogram.rs"]
+symbol = "max_buckets_enforcement"
+line = 508
+split = "heldout"
+
+[[query]]
+id = "tokio-10"
+corpus = "tokio"
+query = "Where is the future constructed that reads from an async reader into a growable buffer type rather than a fixed slice?"
+files = ["tokio/src/io/util/read_buf.rs"]
+symbol = "read_buf"
+line = 11
+split = "heldout"
+
+[[query]]
+id = "tokio-11"
+corpus = "tokio"
+query = "How is the future created that writes the entire contents of a buffer to an async writer, advancing the buffer as it goes?"
+files = ["tokio/src/io/util/write_all_buf.rs"]
+symbol = "write_all_buf"
+line = 25
+split = "heldout"
+
+[[query]]
+id = "tokio-12"
+corpus = "tokio"
+query = "What constructor builds a framed reader over an I/O object and decoder with a chosen initial buffer size?"
+files = ["tokio-util/src/codec/framed_read.rs"]
+symbol = "with_capacity"
+line = 53
+split = "dev"
+
+[[query]]
+id = "tokio-13"
+corpus = "tokio"
+query = "Where does the scheduler update its exponentially weighted moving average of how long a task poll takes after finishing a batch of tasks?"
+files = ["tokio/src/runtime/scheduler/multi_thread/stats.rs"]
+symbol = "end_processing_scheduled_tasks"
+line = 93
+split = "heldout"
+
+[[query]]
+id = "tokio-14"
+corpus = "tokio"
+query = "How does a UDP framed sink flush a pending outgoing datagram and report an error if the socket wrote only part of it?"
+files = ["tokio-util/src/udp/frame.rs"]
+symbol = "poll_flush"
+line = 144
+split = "heldout"
+
+[[query]]
+id = "tokio-15"
+corpus = "tokio"
+query = "Which stream adapter polls its source for an item, maps it into a future, and drives that future to completion before pulling the next item?"
+files = ["tokio-stream/src/stream_ext/then.rs"]
+symbol = "poll_next"
+line = 77
+split = "dev"
+
+[[query]]
+id = "tokio-16"
+corpus = "tokio"
+query = "Where is the async wait for a watched value to change implemented, registering for notification before checking the version to avoid a race?"
+files = ["tokio/src/sync/watch.rs"]
+symbol = "changed_impl"
+line = 983
+split = "heldout"
+
+[[query]]
+id = "tokio-17"
+corpus = "tokio"
+query = "How does a UDP socket connect to a hostname that resolves to several addresses, trying each one and returning the last failure?"
+files = ["tokio/src/net/udp.rs"]
+symbol = "connect"
+line = 348
+split = "heldout"
+
+[[query]]
+id = "tokio-18"
+corpus = "tokio"
+query = "Where does the timer driver cancel a registered timer entry by removing it from the wheel and firing its completion?"
+files = ["tokio/src/runtime/time/mod.rs"]
+symbol = "clear_entry"
+line = 380
+split = "heldout"
+
+[[query]]
+id = "tokio-19"
+corpus = "tokio"
+query = "What function lets a bounded channel sender reserve several send slots at once without waiting, failing if too many are requested or the channel is full?"
+files = ["tokio/src/sync/mpsc/bounded.rs"]
+symbol = "try_reserve_many"
+line = 1434
+split = "heldout"
+
+[[query]]
+id = "tokio-20"
+corpus = "tokio"
+query = "Where is an I/O interest converted into the set of readiness states it should be notified about, including closed states?"
+files = ["tokio/src/io/interest.rs"]
+symbol = "mask"
+line = 258
+split = "dev"
+
+[[query]]
+id = "tokio-21"
+corpus = "tokio"
+query = "How does the channel receiver try to pop a message without blocking, and park the thread when a concurrent send is mid-way through?"
+files = ["tokio/src/sync/mpsc/chan.rs"]
+symbol = "try_recv"
+line = 424
+split = "dev"
+
+[[query]]
+id = "tokio-22"
+corpus = "tokio"
+query = "What function clears the non-blocking flag on a Unix file descriptor so it becomes a blocking one?"
+files = ["tokio/src/net/unix/pipe.rs"]
+symbol = "set_blocking"
+line = 1539
+split = "heldout"
+
+[[query]]
+id = "tokio-23"
+corpus = "tokio"
+query = "Where does a keyed collection of tasks spawn a new future and associate it with an identifying key?"
+files = ["tokio-util/src/task/join_map.rs"]
+symbol = "spawn"
+line = 264
+split = "dev"
+
+[[query]]
+id = "tokio-24"
+corpus = "tokio"
+query = "Which macro generates conversions of a socket wrapper into an owned file descriptor and implements raw and borrowed descriptor access?"
+files = ["tokio/src/process/mod.rs"]
+symbol = "into_owned_fd"
+line = 1637
+split = "dev"
+
+[[query]]
+id = "tokio-25"
+corpus = "tokio"
+query = "How does the io_uring backend lazily detect kernel support for an operation, falling back when the syscall is missing or blocked by permissions?"
+files = ["tokio/src/runtime/io/driver/uring.rs"]
+symbol = "check_and_init"
+line = 218
+split = "dev"
+
+[[query]]
+id = "tokio-26"
+corpus = "tokio"
+query = "Where is the tracing wrapper built that creates spans around an asynchronous resource operation and its polling?"
+files = ["tokio/src/util/trace.rs"]
+symbol = "async_op"
+line = 114
+split = "dev"
+
+[[query]]
+id = "tokio-27"
+corpus = "tokio"
+query = "How does a reader adapter that caps the total bytes read limit the buffer it passes down and decrease the remaining allowance?"
+files = ["tokio/src/io/util/take.rs"]
+symbol = "poll_read"
+line = 79
+split = "heldout"
+
+[[query]]
+id = "tokio-28"
+corpus = "tokio"
+query = "What function returns the I/O and time driver handle for a scheduler handle, whether it is the single-thread or multi-thread kind?"
+files = ["tokio/src/runtime/scheduler/mod.rs"]
+symbol = "driver"
+line = 56
+split = "heldout"
+
+[[query]]
+id = "tokio-29"
+corpus = "tokio"
+query = "Where is the main runtime value put together from its scheduler, handle and blocking pool pieces?"
+files = ["tokio/src/runtime/runtime.rs"]
+symbol = "from_parts"
+line = 132
+split = "heldout"
+
+[corpora."TypeScript-5.9"]
+revision = "5be33469d551655d878876faa9e30aa3b49f8ee9"
+
+[[query]]
+id = "typescript-00"
+corpus = "TypeScript-5.9"
+query = "Where does the transpiler build the statement that assigns a value to a member of the enclosing namespace when exporting it?"
+files = ["src/compiler/transformers/ts.ts"]
+symbol = "createNamespaceExport"
+line = 2536
+split = "heldout"
+
+[[query]]
+id = "typescript-01"
+corpus = "TypeScript-5.9"
+query = "What function pulls the entity name out of a type annotation node, such as a type reference or heritage clause expression?"
+files = ["src/compiler/utilities.ts"]
+symbol = "getEntityNameFromTypeNode"
+line = 3377
+split = "dev"
+
+[[query]]
+id = "typescript-02"
+corpus = "TypeScript-5.9"
+query = "Where does the checker validate that a computed property name has an allowed type and handle class fields whose name is computed inside a loop?"
+files = ["src/compiler/checker.ts"]
+symbol = "checkComputedPropertyName"
+line = 33317
+split = "heldout"
+
+[[query]]
+id = "typescript-03"
+corpus = "TypeScript-5.9"
+query = "How does completion figure out the expected type at the cursor based on the preceding token, like after an equals sign or case keyword?"
+files = ["src/services/completions.ts"]
+symbol = "getContextualType"
+line = 3254
+split = "heldout"
+
+[[query]]
+id = "typescript-04"
+corpus = "TypeScript-5.9"
+query = "Which code decides what a control-flow join point collapses to when it has no predecessors or only one predecessor?"
+files = ["src/compiler/binder.ts"]
+symbol = "finishFlowLabel"
+line = 1417
+split = "heldout"
+
+[[query]]
+id = "typescript-05"
+corpus = "TypeScript-5.9"
+query = "How does the decorator metadata emit turn a type's name into an expression, cloning identifiers so the checker treats them as original source nodes?"
+files = ["src/compiler/transformers/typeSerializer.ts"]
+symbol = "serializeEntityNameAsExpression"
+line = 595
+split = "dev"
+
+[[query]]
+id = "typescript-06"
+corpus = "TypeScript-5.9"
+query = "Where does the ES5 downlevel transform dispatch a loop statement to the right handler depending on whether it is a while, for, for-in or for-of loop?"
+files = ["src/compiler/transformers/es2015.ts"]
+symbol = "visitIterationStatement"
+line = 2953
+split = "heldout"
+
+[[query]]
+id = "typescript-07"
+corpus = "TypeScript-5.9"
+query = "Which code compares two syntax nodes to decide if they match, comparing by name, condition text or loop header text depending on the statement kind?"
+files = ["src/services/mapCode.ts"]
+symbol = "matchNode"
+line = 256
+split = "heldout"
+
+[[query]]
+id = "typescript-08"
+corpus = "TypeScript-5.9"
+query = "Where does a quick fix add a missing constraint to a generic type parameter, importing any types it needs for the inserted constraint?"
+files = ["src/services/codefixes/fixAddMissingConstraint.ts"]
+symbol = "addMissingConstraint"
+line = 115
+split = "dev"
+
+[[query]]
+id = "typescript-09"
+corpus = "TypeScript-5.9"
+query = "How does the compiler convert a destructuring binding element into an equivalent assignment target, handling rest elements and default values?"
+files = ["src/compiler/factory/nodeConverters.ts"]
+symbol = "convertToArrayAssignmentElement"
+line = 98
+split = "heldout"
+
+[[query]]
+id = "typescript-10"
+corpus = "TypeScript-5.9"
+query = "What function walks a dotted property assignment chain in JavaScript, skipping prototype segments, and starts nested nodes for each outer name?"
+files = ["src/services/navigationBar.ts"]
+symbol = "startNestedNodes"
+line = 253
+split = "heldout"
+
+[[query]]
+id = "typescript-11"
+corpus = "TypeScript-5.9"
+query = "Where does find-all-references collect locations in other files that point to a file through triple-slash style reference directives rather than module imports?"
+files = ["src/services/findAllReferences.ts"]
+symbol = "getReferencesForNonModule"
+line = 1074
+split = "dev"
+
+[[query]]
+id = "typescript-12"
+corpus = "TypeScript-5.9"
+query = "Which code builds a cached listing of files and subdirectories for a folder, and avoids caching when the folder is a symlink?"
+files = ["src/compiler/watchUtilities.ts"]
+symbol = "createCachedFileSystemEntries"
+line = 166
+split = "heldout"
+
+[[query]]
+id = "typescript-13"
+corpus = "TypeScript-5.9"
+query = "How do I find the function declaration under the cursor for a refactoring, refusing when the cursor is inside its body or a top-level doc comment?"
+files = ["src/services/refactors/convertParamsToDestructuredObject.ts"]
+symbol = "getFunctionDeclarationAtPosition"
+line = 435
+split = "heldout"
+
+[[query]]
+id = "typescript-14"
+corpus = "TypeScript-5.9"
+query = "Where are cached auto-import export entries turned back into full symbol records by looking up the module and symbol again when they are missing?"
+files = ["src/services/exportInfoMap.ts"]
+symbol = "rehydrateCachedInfo"
+line = 281
+split = "heldout"
+
+[[query]]
+id = "typescript-15"
+corpus = "TypeScript-5.9"
+query = "Which language service method returns semantic highlighting classifications for a span, choosing between the original format and the newer 2020 format?"
+files = ["src/services/services.ts"]
+symbol = "getSemanticClassifications"
+line = 2590
+split = "dev"
+
+[[query]]
+id = "typescript-16"
+corpus = "TypeScript-5.9"
+query = "How does the scanner temporarily scan a sub-range of text and then restore all its previous position and token state afterwards?"
+files = ["src/compiler/scanner.ts"]
+symbol = "scanRange"
+line = 3952
+split = "heldout"
+
+[[query]]
+id = "typescript-17"
+corpus = "TypeScript-5.9"
+query = "Where does a quick fix add undefined to a property's declared type, using a doc comment tag when the file is JavaScript?"
+files = ["src/services/codefixes/fixStrictClassInitialization.ts"]
+symbol = "addUndefinedType"
+line = 121
+split = "heldout"
+
+[[query]]
+id = "typescript-18"
+corpus = "TypeScript-5.9"
+query = "Which code produces string literal completion suggestions from the property names of an object literal's expected type?"
+files = ["src/services/stringCompletions.ts"]
+symbol = "stringLiteralCompletionsForObjectLiteral"
+line = 602
+split = "heldout"
+
+[[query]]
+id = "typescript-19"
+corpus = "TypeScript-5.9"
+query = "How does organize imports and exports separate a group of export declarations into bare star exports, named exports and type-only exports?"
+files = ["src/services/organizeImports.ts"]
+symbol = "getCategorizedExports"
+line = 607
+split = "dev"
+
+[[query]]
+id = "typescript-20"
+corpus = "TypeScript-5.9"
+query = "Where does the program report a diagnostic about compiler options, pointing at the options property in the config file if one exists?"
+files = ["src/compiler/program.ts"]
+symbol = "createCompilerOptionsDiagnostic"
+line = 4662
+split = "heldout"
+
+[[query]]
+id = "typescript-21"
+corpus = "TypeScript-5.9"
+query = "Which code clears the terminal in watch mode before printing a new compilation starting message, unless output preservation or diagnostics options are set?"
+files = ["src/compiler/watch.ts"]
+symbol = "clearScreenIfNotWatchingForFileChanges"
+line = 145
+split = "dev"
+
+[[query]]
+id = "typescript-22"
+corpus = "TypeScript-5.9"
+query = "Where does the quick fix for unreachable code delete the dead statements, including removing the whole enclosing if, while or for statement?"
+files = ["src/services/codefixes/fixUnreachableCode.ts"]
+symbol = "doChange"
+line = 37
+split = "heldout"
+
+[[query]]
+id = "typescript-23"
+corpus = "TypeScript-5.9"
+query = "What helper asserts a symbol has a parent and, if not, builds a detailed error message listing its declarations and whether they are in JavaScript?"
+files = ["src/services/utilities.ts"]
+symbol = "getSymbolParentOrFail"
+line = 3945
+split = "dev"
+
+[[query]]
+id = "typescript-24"
+corpus = "TypeScript-5.9"
+query = "How does the performance timing module turn on measurement and decide whether to use the native high-resolution performance hooks from Node?"
+files = ["src/compiler/performance.ts"]
+symbol = "enable"
+line = 179
+split = "heldout"
+
+[[query]]
+id = "typescript-25"
+corpus = "TypeScript-5.9"
+query = "Where does the incremental builder get the list of source files affected by a change to one file, and then reset its cached old signatures?"
+files = ["src/compiler/builderState.ts"]
+symbol = "getFilesAffectedBy"
+line = 357
+split = "dev"
+
+[[query]]
+id = "typescript-26"
+corpus = "TypeScript-5.9"
+query = "Which formatting helper checks whether a call argument begins on the same line where the called expression ends?"
+files = ["src/services/formatting/smartIndenter.ts"]
+symbol = "isArgumentAndStartLineOverlapsExpressionBeingCalled"
+line = 396
+split = "heldout"
+
+[[query]]
+id = "typescript-27"
+corpus = "TypeScript-5.9"
+query = "Where is the small utility that builds a string by repeating a character a number of times, with a fallback when the built-in method is missing?"
+files = ["src/compiler/debug.ts"]
+symbol = "repeat"
+line = 1243
+split = "heldout"
+
+[[query]]
+id = "typescript-28"
+corpus = "TypeScript-5.9"
+query = "Which code fix converts a JSDoc typedef comment into a real declaration, adjusting the surrounding comment blocks when there are neighbouring typedefs?"
+files = ["src/services/codefixes/convertTypedefToType.ts"]
+symbol = "doChange"
+line = 73
+split = "heldout"
+
+[[query]]
+id = "typescript-29"
+corpus = "TypeScript-5.9"
+query = "Where does the change-signature refactoring apply a new parameter list to every affected declaration, inserting parameters when none existed before?"
+files = ["src/services/codefixes/fixAddMissingParam.ts"]
+symbol = "doChange"
+line = 229
+split = "dev"
+
+[corpora."ktor"]
+revision = "f92fad04353817c7eacf8599c8d69d517ba4882c"
+
+[[query]]
+id = "ktor-00"
+corpus = "ktor"
+query = "Where does the OpenAPI route generator emit vendor extension entries for a schema field in the generated code?"
+files = ["ktor-compiler-plugin/src/io/ktor/openapi/ir/generators/MediaTypeContentGenerator.kt"]
+symbol = "generateExtensionProperties"
+line = 69
+split = "heldout"
+
+[[query]]
+id = "ktor-01"
+corpus = "ktor"
+query = "How does the custom open-addressing hash map delete an entry and fix up displaced neighbours while keeping iteration order consistent?"
+files = ["ktor-utils/common/src/io/ktor/util/CaseInsensitiveMap.kt"]
+symbol = "remove"
+line = 107
+split = "dev"
+
+[[query]]
+id = "ktor-02"
+corpus = "ktor"
+query = "Which code cancels an in-flight CIO engine request after a deadline passes, and stops that timer when the call finishes?"
+files = ["ktor-client/ktor-client-cio/common/src/io/ktor/client/engine/cio/Endpoint.kt"]
+symbol = "setupTimeout"
+line = 329
+split = "dev"
+
+[[query]]
+id = "ktor-03"
+corpus = "ktor"
+query = "What function creates the random bytes for a TLS client hello, with the current time embedded in the first four bytes?"
+files = ["ktor-network/ktor-network-tls/jvm/src/io/ktor/network/tls/TLSClientHandshake.kt"]
+symbol = "generateClientSeed"
+line = 505
+split = "heldout"
+
+[[query]]
+id = "ktor-04"
+corpus = "ktor"
+query = "Where is the Apple platform websocket task wrapped in a session and its maximum message size set before it starts?"
+files = ["ktor-client/ktor-client-darwin/darwin/src/io/ktor/client/engine/darwin/KtorNSURLSessionDelegate.kt"]
+symbol = "read"
+line = 103
+split = "heldout"
+
+[[query]]
+id = "ktor-05"
+corpus = "ktor"
+query = "How does the OAuth 2.0 authentication provider handle the callback, exchange the token, fall back on errors, or redirect to the authorization page?"
+files = ["ktor-server/ktor-server-plugins/ktor-server-auth/common/src/io/ktor/server/auth/OAuthProcedure.kt"]
+symbol = "oauth2"
+line = 160
+split = "heldout"
+
+[[query]]
+id = "ktor-06"
+corpus = "ktor"
+query = "Which code throws the error when an HTTP header name is invalid, such as empty names or deprecated folded multiline headers?"
+files = ["ktor-http/ktor-http-cio/common/src/io/ktor/http/cio/HttpParser.kt"]
+symbol = "parseHeaderNameFailed"
+line = 266
+split = "dev"
+
+[[query]]
+id = "ktor-07"
+corpus = "ktor"
+query = "Where does the CORS plugin verify that a preflight request asks for an allowed method and log why it was rejected?"
+files = ["ktor-server/ktor-server-plugins/ktor-server-cors/common/src/io/ktor/server/plugins/cors/CORSUtils.kt"]
+symbol = "corsCheckRequestMethod"
+line = 119
+split = "heldout"
+
+[[query]]
+id = "ktor-08"
+corpus = "ktor"
+query = "How does the client send a typed-resource PATCH request that builds the URL from a resource class instance?"
+files = ["ktor-client/ktor-client-plugins/ktor-client-resources/common/src/io/ktor/client/plugins/resources/builders.kt"]
+symbol = "patch"
+line = 103
+split = "heldout"
+
+[[query]]
+id = "ktor-09"
+corpus = "ktor"
+query = "Where is the JVM implementation of a raw websocket session without handshake created from input and output channels?"
+files = ["ktor-shared/ktor-websockets/jvm/src/io/ktor/websocket/RawWebSocketJvm.kt"]
+symbol = "RawWebSocket"
+line = 48
+split = "dev"
+
+[[query]]
+id = "ktor-10"
+corpus = "ktor"
+query = "How does the iOS WebRTC peer connection produce an SDP answer and convert it into the library's own session description?"
+files = ["ktor-client/ktor-client-webrtc/ios/src/io/ktor/client/webrtc/PeerConnection.kt"]
+symbol = "createAnswer"
+line = 159
+split = "heldout"
+
+[[query]]
+id = "ktor-11"
+corpus = "ktor"
+query = "What function skips a line terminator, either carriage return plus line feed or a lone carriage return when parsing is lenient?"
+files = ["ktor-io/common/src/io/ktor/utils/io/ByteReadChannelOperations.kt"]
+symbol = "discardCrlfOrCr"
+line = 752
+split = "dev"
+
+[[query]]
+id = "ktor-12"
+corpus = "ktor"
+query = "Where does the JVM server convert file URIs and input streams into outgoing response content by default?"
+files = ["ktor-server/ktor-server-core/jvm/src/io/ktor/server/http/content/DefaultTransformJvm.kt"]
+symbol = "platformTransformDefaultContent"
+line = 16
+split = "heldout"
+
+[[query]]
+id = "ktor-13"
+corpus = "ktor"
+query = "How does the URL builder append already-encoded path pieces while avoiding doubled or missing slashes at the junction?"
+files = ["ktor-http/common/src/io/ktor/http/URLBuilder.kt"]
+symbol = "appendEncodedPathSegments"
+line = 282
+split = "dev"
+
+[[query]]
+id = "ktor-14"
+corpus = "ktor"
+query = "Where can I peek at buffered bytes in a channel after skipping some, returning nothing if not enough data has arrived yet?"
+files = ["ktor-io/jvm/src/io/ktor/utils/io/LookAheadSession.kt"]
+symbol = "request"
+line = 28
+split = "dev"
+
+[[query]]
+id = "ktor-15"
+corpus = "ktor"
+query = "Which helper builds the browser media constraints object holding optional audio and video settings for a user media request?"
+files = ["ktor-client/ktor-client-webrtc/web/src/io/ktor/client/webrtc/MediaDevices.kt"]
+symbol = "makeStreamConstraints"
+line = 15
+split = "heldout"
+
+[[query]]
+id = "ktor-16"
+corpus = "ktor"
+query = "Where are two lists of route fields combined, pairing up matching entries and appending the leftovers from the second list?"
+files = ["ktor-compiler-plugin/src/io/ktor/openapi/routing/RouteField.kt"]
+symbol = "merge"
+line = 179
+split = "heldout"
+
+[[query]]
+id = "ktor-17"
+corpus = "ktor"
+query = "How are two OpenAPI operation descriptions combined, preferring the later one's values and concatenating tags, responses and parameters?"
+files = ["ktor-server/ktor-server-plugins/ktor-server-routing-openapi/common/src/io/ktor/server/routing/openapi/OpenApiRoutes.kt"]
+symbol = "plus"
+line = 299
+split = "heldout"
+
+[[query]]
+id = "ktor-18"
+corpus = "ktor"
+query = "Where does the HOCON config loader resolve a default configuration file name, read it from classpath or disk, and return null otherwise?"
+files = ["ktor-server/ktor-server-core/jvm/src/io/ktor/server/config/HoconApplicationConfig.kt"]
+symbol = "load"
+line = 28
+split = "heldout"
+
+[[query]]
+id = "ktor-19"
+corpus = "ktor"
+query = "Which function scans text within a range to find the next whitespace character or the end of the range?"
+files = ["ktor-http/ktor-http-cio/common/src/io/ktor/http/cio/internals/Tokenizer.kt"]
+symbol = "findSpaceOrEnd"
+line = 43
+split = "heldout"
+
+[[query]]
+id = "ktor-20"
+corpus = "ktor"
+query = "How does the native TCP server socket accept an incoming connection, wait when it would block, and wrap the new client descriptor?"
+files = ["ktor-network/posix/src/io/ktor/network/sockets/TCPServerSocketNative.kt"]
+symbol = "accept"
+line = 38
+split = "heldout"
+
+[[query]]
+id = "ktor-21"
+corpus = "ktor"
+query = "Where is the parsed header table of the low-level HTTP parser converted into a plain map of names to value lists?"
+files = ["ktor-client/ktor-client-winhttp/windows/src/io/ktor/client/engine/winhttp/internal/WinHttpResponseData.kt"]
+symbol = "toMap"
+line = 46
+split = "heldout"
+
+[[query]]
+id = "ktor-22"
+corpus = "ktor"
+query = "How does the schema generator recursively replace nested JSON schemas with component references and remember a title-to-component lookup?"
+files = ["ktor-server/ktor-server-plugins/ktor-server-routing-openapi/common/src/io/ktor/server/routing/openapi/OperationMapping.kt"]
+symbol = "mapSchemaReferences"
+line = 196
+split = "heldout"
+
+[[query]]
+id = "ktor-23"
+corpus = "ktor"
+query = "Where does the Netty server set up the response writer pipeline once a client connection becomes active?"
+files = ["ktor-server/ktor-server-netty/jvm/src/io/ktor/server/netty/http3/NettyHttp3Handler.kt"]
+symbol = "channelActive"
+line = 48
+split = "heldout"
+
+[[query]]
+id = "ktor-24"
+corpus = "ktor"
+query = "How do plugin authors register a hook that runs when the server receives and transforms the request body?"
+files = ["ktor-server/ktor-server-core/common/src/io/ktor/server/application/PluginBuilder.kt"]
+symbol = "onCallReceive"
+line = 141
+split = "heldout"
+
+[[query]]
+id = "ktor-25"
+corpus = "ktor"
+query = "Where is the OpenAPI server object finalized from a builder, failing if the address is missing?"
+files = ["ktor-shared/ktor-openapi-schema/common/src/io/ktor/openapi/Operation.kt"]
+symbol = "build"
+line = 1438
+split = "heldout"
+
+[[query]]
+id = "ktor-26"
+corpus = "ktor"
+query = "How does the engine instantiate the class holding application modules, using a singleton or a constructor whose parameters can be supplied?"
+files = ["ktor-server/ktor-server-core/jvm/src/io/ktor/server/engine/internal/CallableUtils.kt"]
+symbol = "createModuleContainer"
+line = 81
+split = "dev"
+
+[[query]]
+id = "ktor-27"
+corpus = "ktor"
+query = "Where is periodic keep-alive event sending for server-sent event sessions implemented, running in a child job of the call?"
+files = ["ktor-server/ktor-server-plugins/ktor-server-sse/common/src/io/ktor/server/sse/ServerSSESession.kt"]
+symbol = "heartbeat"
+line = 165
+split = "dev"
+
+[[query]]
+id = "ktor-28"
+corpus = "ktor"
+query = "Which function digs through nested cancellation exceptions to find the real underlying cause, guarding against cyclic causes?"
+files = ["ktor-client/ktor-client-core/nonJvm/src/io/ktor/client/utils/ExceptionUtils.nonJvm.kt"]
+symbol = "unwrapCancellationException"
+line = 14
+split = "dev"
+
+[[query]]
+id = "ktor-29"
+corpus = "ktor"
+query = "How does the iOS WebRTC media factory create a camera video track, rejecting unsupported scaling modes and starting capture?"
+files = ["ktor-client/ktor-client-webrtc/ios/src/io/ktor/client/webrtc/media/MediaDevices.kt"]
+symbol = "createVideoTrack"
+line = 133
+split = "heldout"
+
+[[swebench]]
+id = "django__django-10554"
+base_commit = "14d026cccb144c6877294ba4cd4e03ebf0842498"
+files = ["django/db/models/sql/compiler.py", "django/db/models/sql/query.py"]
+split = "heldout"
+
+[[swebench]]
+id = "django__django-10880"
+base_commit = "838e432e3e5519c5383d12018e6c78f8ec7833c1"
+files = ["django/db/models/aggregates.py"]
+split = "heldout"
+
+[[swebench]]
+id = "django__django-10999"
+base_commit = "36300ef336e3f130a0dadc1143163ff3d23dc843"
+files = ["django/utils/dateparse.py"]
+split = "heldout"
+
+[[swebench]]
+id = "django__django-11066"
+base_commit = "4b45b6c8e4d7c9701a332e80d3b1c84209dc36e2"
+files = ["django/contrib/contenttypes/management/__init__.py"]
+split = "heldout"
+
+[[swebench]]
+id = "django__django-11087"
+base_commit = "8180ffba21bf10f4be905cb0d4890dc2bcff2788"
+files = ["django/db/models/deletion.py"]
+split = "heldout"
+
+[[swebench]]
+id = "django__django-11095"
+base_commit = "7d49ad76562e8c0597a0eb66046ab423b12888d8"
+files = ["django/contrib/admin/options.py"]
+split = "dev"
+
+[[swebench]]
+id = "django__django-11099"
+base_commit = "d26b2424437dabeeca94d7900b37d2df4410da0c"
+files = ["django/contrib/auth/validators.py"]
+split = "dev"
+
+[[swebench]]
+id = "django__django-11133"
+base_commit = "879cc3da6249e920b8d54518a0ae06de835d7373"
+files = ["django/http/response.py"]
+split = "dev"
+
+[[swebench]]
+id = "django__django-11138"
+base_commit = "c84b91b7603e488f7171fdff8f08368ef3d6b856"
+files = ["django/db/backends/mysql/operations.py", "django/db/backends/oracle/operations.py", "django/db/backends/sqlite3/base.py", "django/db/backends/sqlite3/operations.py"]
+split = "heldout"
+
+[[swebench]]
+id = "django__django-11163"
+base_commit = "e6588aa4e793b7f56f4cadbfa155b581e0efc59a"
+files = ["django/forms/models.py"]
+split = "heldout"
+
+[[swebench]]
+id = "django__django-11179"
+base_commit = "19fc6376ce67d01ca37a91ef2f55ef769f50513a"
+files = ["django/db/models/deletion.py"]
+split = "heldout"
+
+[[swebench]]
+id = "django__django-11206"
+base_commit = "571ab44e8a8936014c22e7eebe4948d9611fd7ce"
+files = ["django/utils/numberformat.py"]
+split = "dev"
+
+[[swebench]]
+id = "django__django-11211"
+base_commit = "ba726067604ce5a8ca3919edf653496722b433ab"
+files = ["django/db/models/fields/__init__.py"]
+split = "heldout"
+
+[[swebench]]
+id = "django__django-11239"
+base_commit = "d87bd29c4f8dfcdf3f4a4eb8340e6770a2416fe3"
+files = ["django/db/backends/postgresql/client.py"]
+split = "heldout"
+
+[[swebench]]
+id = "django__django-11276"
+base_commit = "28d5262fa3315690395f04e3619ed554dbaf725b"
+files = ["django/utils/html.py"]
+split = "heldout"
+
+[[swebench]]
+id = "django__django-11292"
+base_commit = "eb16c7260e573ec513d84cb586d96bdf508f3173"
+files = ["django/core/management/base.py"]
+split = "heldout"
+
+[[swebench]]
+id = "django__django-11400"
+base_commit = "1f8382d34d54061eddc41df6994e20ee38c60907"
+files = ["django/contrib/admin/filters.py", "django/db/models/fields/__init__.py", "django/db/models/fields/reverse_related.py"]
+split = "dev"
+
+[[swebench]]
+id = "django__django-11451"
+base_commit = "e065b293878b1e3ea56655aa9d33e87576cd77ff"
+files = ["django/contrib/auth/backends.py"]
+split = "heldout"
+
+[[swebench]]
+id = "django__django-11490"
+base_commit = "a7038adbd02c916315b16939b835f021c2ee8880"
+files = ["django/db/models/sql/compiler.py"]
+split = "dev"
+
+[[swebench]]
+id = "django__django-11532"
+base_commit = "a5308514fb4bc5086c9a16a8a24a945eeebb073c"
+files = ["django/core/mail/message.py", "django/core/mail/utils.py", "django/core/validators.py", "django/utils/encoding.py", "django/utils/html.py"]
+split = "heldout"
+
+[[swebench]]
+id = "django__django-11551"
+base_commit = "7991111af12056ec9a856f35935d273526338c1f"
+files = ["django/contrib/admin/checks.py"]
+split = "heldout"
+
+[[swebench]]
+id = "django__django-11555"
+base_commit = "8dd5877f58f84f2b11126afbd0813e24545919ed"
+files = ["django/db/models/sql/compiler.py"]
+split = "heldout"
+
+[[swebench]]
+id = "django__django-11603"
+base_commit = "f618e033acd37d59b536d6e6126e6c5be18037f6"
+files = ["django/db/models/aggregates.py"]
+split = "dev"
+
+[[swebench]]
+id = "django__django-11740"
+base_commit = "003bb34b218adb23d1a7e67932a6ba9b3c4dcc81"
+files = ["django/db/migrations/autodetector.py"]
+split = "dev"
+
+[[swebench]]
+id = "django__django-11749"
+base_commit = "350123f38c2b6217c38d70bfbd924a9ba3df1289"
+files = ["django/core/management/__init__.py"]
+split = "heldout"
+
+[[swebench]]
+id = "django__django-11790"
+base_commit = "b1d6b35e146aea83b171c1b921178bbaae2795ed"
+files = ["django/contrib/auth/forms.py"]
+split = "heldout"
+
+[[swebench]]
+id = "django__django-11848"
+base_commit = "f0adf3b9b7a19cdee05368ff0c0c2d087f011180"
+files = ["django/utils/http.py"]
+split = "heldout"
+
+[[swebench]]
+id = "django__django-11951"
+base_commit = "312049091288dbba2299de8d07ea3e3311ed7238"
+files = ["django/db/models/query.py"]
+split = "dev"
+
+[[swebench]]
+id = "django__django-11999"
+base_commit = "84633905273fc916e3d17883810d9969c03f73c2"
+files = ["django/db/models/fields/__init__.py"]
+split = "dev"
+
+[[swebench]]
+id = "django__django-12039"
+base_commit = "58c1acb1d6054dfec29d0f30b1033bae6ef62aec"
+files = ["django/db/backends/ddl_references.py"]
+split = "heldout"
+
+[[swebench]]
+id = "django__django-12125"
+base_commit = "89d41cba392b759732ba9f1db4ff29ed47da6a56"
+files = ["django/db/migrations/serializer.py"]
+split = "dev"
+
+[[swebench]]
+id = "django__django-12193"
+base_commit = "3fb7c12158a2402f0f80824f6778112071235803"
+files = ["django/forms/widgets.py"]
+split = "heldout"
+
+[[swebench]]
+id = "django__django-12209"
+base_commit = "5a68f024987e6d16c2626a31bf653a2edddea579"
+files = ["django/db/models/base.py"]
+split = "dev"
+
+[[swebench]]
+id = "django__django-12262"
+base_commit = "69331bb851c34f05bc77e9fc24020fe6908b9cd5"
+files = ["django/template/library.py"]
+split = "heldout"
+
+[[swebench]]
+id = "django__django-12273"
+base_commit = "927c903f3cd25c817c21738328b53991c035b415"
+files = ["django/db/models/base.py"]
+split = "heldout"
+
+[[swebench]]
+id = "django__django-12276"
+base_commit = "53d8646f799de7f92ab9defe9dc56c6125448102"
+files = ["django/forms/widgets.py"]
+split = "heldout"
+
+[[swebench]]
+id = "django__django-12304"
+base_commit = "4c1b401e8250f9f520b3c7dc369554477ce8b15a"
+files = ["django/db/models/enums.py"]
+split = "heldout"
+
+[[swebench]]
+id = "django__django-12325"
+base_commit = "29c126bb349526b5f1cd78facbe9f25906f18563"
+files = ["django/db/models/base.py", "django/db/models/options.py"]
+split = "heldout"
+
+[[swebench]]
+id = "django__django-12406"
+base_commit = "335c9c94acf263901fb023404408880245b0c4b4"
+files = ["django/db/models/fields/related.py", "django/forms/models.py"]
+split = "dev"
+
+[[swebench]]
+id = "django__django-12754"
+base_commit = "18759b2209ff556aed7f20d83cbf23e3d234e41c"
+files = ["django/db/migrations/autodetector.py"]
+split = "heldout"
+
+[[swebench]]
+id = "django__django-12774"
+base_commit = "67f9d076cfc1858b94f9ed6d1a5ce2327dcc8d0d"
+files = ["django/db/models/query.py"]
+split = "heldout"
+
+[[swebench]]
+id = "django__django-12858"
+base_commit = "f2051eb8a7febdaaa43bd33bf5a6108c5f428e59"
+files = ["django/db/models/base.py"]
+split = "heldout"
+
+[[swebench]]
+id = "django__django-12965"
+base_commit = "437196da9a386bd4cc62b0ce3f2de4aba468613d"
+files = ["django/db/models/sql/compiler.py"]
+split = "dev"
+
+[[swebench]]
+id = "django__django-13028"
+base_commit = "78ad4b4b0201003792bfdbf1a7781cbc9ee03539"
+files = ["django/db/models/sql/query.py"]
+split = "heldout"
+
+[[swebench]]
+id = "django__django-13109"
+base_commit = "fbe82f82555bc25dccb476c749ca062f0b522be3"
+files = ["django/db/models/fields/related.py"]
+split = "dev"
+
+[[swebench]]
+id = "django__django-13128"
+base_commit = "2d67222472f80f251607ae1b720527afceba06ad"
+files = ["django/db/models/expressions.py"]
+split = "heldout"
+
+[[swebench]]
+id = "django__django-13158"
+base_commit = "7af8f4127397279d19ef7c7899e93018274e2f9b"
+files = ["django/db/models/sql/query.py"]
+split = "heldout"
+
+[[swebench]]
+id = "django__django-13212"
+base_commit = "f4e93919e4608cfc50849a1f764fd856e0917401"
+files = ["django/core/validators.py", "django/forms/fields.py"]
+split = "heldout"
+
+[[swebench]]
+id = "django__django-13279"
+base_commit = "6e9c5ee88fc948e05b4a7d9f82a8861ed2b0343d"
+files = ["django/contrib/sessions/backends/base.py"]
+split = "heldout"
+
+[[swebench]]
+id = "django__django-13343"
+base_commit = "ece18207cbb64dd89014e279ac636a6c9829828e"
+files = ["django/db/models/fields/files.py"]
+split = "heldout"
+
+[[swebench]]
+id = "django__django-13344"
+base_commit = "e39e727ded673e74016b5d3658d23cbe20234d11"
+files = ["django/contrib/sessions/middleware.py", "django/middleware/cache.py", "django/middleware/security.py"]
+split = "heldout"
+
+[[swebench]]
+id = "django__django-13401"
+base_commit = "453967477e3ddae704cd739eac2449c0e13d464c"
+files = ["django/db/models/fields/__init__.py"]
+split = "dev"
+
+[[swebench]]
+id = "django__django-13406"
+base_commit = "84609b3205905097d7d3038d32e6101f012c0619"
+files = ["django/db/models/query.py"]
+split = "dev"
+
+[[swebench]]
+id = "django__django-13417"
+base_commit = "71ae1ab0123582cc5bfe0f7d5f4cc19a9412f396"
+files = ["django/db/models/query.py"]
+split = "heldout"
+
+[[swebench]]
+id = "django__django-13516"
+base_commit = "b7da588e883e12b8ac3bb8a486e654e30fc1c6c8"
+files = ["django/core/management/base.py"]
+split = "heldout"
+
+[[swebench]]
+id = "django__django-13551"
+base_commit = "7f9e4524d6b23424cf44fbe1bf1f4e70f6bb066e"
+files = ["django/contrib/auth/tokens.py"]
+split = "heldout"
+
+[[swebench]]
+id = "django__django-13590"
+base_commit = "755dbf39fcdc491fe9b588358303e259c7750be4"
+files = ["django/db/models/sql/query.py"]
+split = "heldout"
+
+[[swebench]]
+id = "django__django-13658"
+base_commit = "0773837e15bb632afffb6848a58c59a791008fa1"
+files = ["django/core/management/__init__.py"]
+split = "dev"
+
+[[swebench]]
+id = "django__django-13786"
+base_commit = "bb64b99b78a579cb2f6178011a4cf9366e634438"
+files = ["django/db/migrations/operations/models.py"]
+split = "heldout"
+
+[[swebench]]
+id = "django__django-13807"
+base_commit = "89fc144dedc737a79929231438f035b1d4a993c9"
+files = ["django/db/backends/sqlite3/base.py"]
+split = "dev"
+
+[[swebench]]
+id = "django__django-13821"
+base_commit = "e64c1d8055a3e476122633da141f16b50f0c4a2d"
+files = ["django/db/backends/sqlite3/base.py"]
+split = "dev"
+
+[[swebench]]
+id = "django__django-13837"
+base_commit = "415f50298f97fb17f841a9df38d995ccf347dfcc"
+files = ["django/utils/autoreload.py"]
+split = "dev"
+
+[[swebench]]
+id = "django__django-13933"
+base_commit = "42e8cf47c7ee2db238bf91197ea398126c546741"
+files = ["django/forms/models.py"]
+split = "dev"
+
+[[swebench]]
+id = "django__django-14011"
+base_commit = "e4430f22c8e3d29ce5d9d0263fba57121938d06d"
+files = ["django/core/servers/basehttp.py", "django/db/backends/sqlite3/features.py"]
+split = "heldout"
+
+[[swebench]]
+id = "django__django-14017"
+base_commit = "466920f6d726eee90d5566e0a9948e92b33a122e"
+files = ["django/db/models/query_utils.py"]
+split = "heldout"
+
+[[swebench]]
+id = "django__django-14034"
+base_commit = "db1fc5cd3c5d36cdb5d0fe4404efd6623dd3e8fb"
+files = ["django/forms/boundfield.py"]
+split = "heldout"
+
+[[swebench]]
+id = "django__django-14089"
+base_commit = "d01709aae21de9cd2565b9c52f32732ea28a2d98"
+files = ["django/utils/datastructures.py"]
+split = "heldout"
+
+[[swebench]]
+id = "django__django-14155"
+base_commit = "2f13c476abe4ba787b6cb71131818341911f43cc"
+files = ["django/urls/resolvers.py"]
+split = "dev"
+
+[[swebench]]
+id = "django__django-14170"
+base_commit = "6efc35b4fe3009666e56a60af0675d7d532bf4ff"
+files = ["django/db/backends/base/operations.py", "django/db/models/lookups.py"]
+split = "dev"
+
+[[swebench]]
+id = "django__django-14238"
+base_commit = "30e123ed351317b7527f632b3b7dc4e81e850449"
+files = ["django/db/models/fields/__init__.py"]
+split = "dev"
+
+[[swebench]]
+id = "django__django-14311"
+base_commit = "5a8e8f80bb82a867eab7e4d9d099f21d0a976d22"
+files = ["django/utils/autoreload.py"]
+split = "heldout"
+
+[[swebench]]
+id = "django__django-14351"
+base_commit = "06fd4df41afb5aa1d681b853c3c08d8c688ca3a5"
+files = ["django/db/models/lookups.py"]
+split = "dev"
+
+[[swebench]]
+id = "django__django-14376"
+base_commit = "d06c5b358149c02a62da8a5469264d05f29ac659"
+files = ["django/db/backends/mysql/base.py", "django/db/backends/mysql/client.py"]
+split = "heldout"
+
+[[swebench]]
+id = "django__django-14404"
+base_commit = "de32fe83a2e4a20887972c69a0693b94eb25a88b"
+files = ["django/contrib/admin/sites.py"]
+split = "heldout"
+
+[[swebench]]
+id = "django__django-14434"
+base_commit = "5e04e84d67da8163f365e9f5fcd169e2630e2873"
+files = ["django/db/backends/base/schema.py"]
+split = "heldout"
+
+[[swebench]]
+id = "django__django-14493"
+base_commit = "7272e1963ffdf39c1d4fe225d5425a45dd095d11"
+files = ["django/contrib/staticfiles/storage.py"]
+split = "heldout"
+
+[[swebench]]
+id = "django__django-14539"
+base_commit = "6a5ef557f80a8eb6a758ebe99c8bb477ca47459e"
+files = ["django/utils/html.py"]
+split = "dev"
+
+[[swebench]]
+id = "django__django-14559"
+base_commit = "d79be3ed39b76d3e34431873eec16f6dd354ab17"
+files = ["django/db/models/query.py"]
+split = "dev"
+
+[[swebench]]
+id = "django__django-14631"
+base_commit = "84400d2e9db7c51fee4e9bb04c028f665b8e7624"
+files = ["django/forms/boundfield.py", "django/forms/forms.py"]
+split = "heldout"
+
+[[swebench]]
+id = "django__django-14672"
+base_commit = "00ea883ef56fb5e092cbe4a6f7ff2e7470886ac4"
+files = ["django/db/models/fields/reverse_related.py"]
+split = "dev"
+
+[[swebench]]
+id = "django__django-14787"
+base_commit = "004b4620f6f4ad87261e149898940f2dcd5757ef"
+files = ["django/utils/decorators.py"]
+split = "heldout"
+
+[[swebench]]
+id = "django__django-14915"
+base_commit = "903aaa35e5ceaa33bfc9b19b7f6da65ce5a91dd4"
+files = ["django/forms/models.py"]
+split = "heldout"
+
+[[swebench]]
+id = "django__django-15104"
+base_commit = "a7e7043c8746933dafce652507d3b821801cdc7d"
+files = ["django/db/migrations/autodetector.py"]
+split = "dev"
+
+[[swebench]]
+id = "django__django-15128"
+base_commit = "cb383753c0e0eb52306e1024d32a782549c27e61"
+files = ["django/db/models/sql/query.py"]
+split = "heldout"
+
+[[swebench]]
+id = "django__django-15161"
+base_commit = "96e7ff5e9ff6362d9a886545869ce4496ca4b0fb"
+files = ["django/db/models/expressions.py"]
+split = "heldout"
+
+[[swebench]]
+id = "django__django-15268"
+base_commit = "0ab58c120939093fea90822f376e1866fc714d1f"
+files = ["django/db/migrations/operations/models.py"]
+split = "dev"
+
+[[swebench]]
+id = "django__django-15277"
+base_commit = "30613d6a748fce18919ff8b0da166d9fda2ed9bc"
+files = ["django/db/models/fields/__init__.py"]
+split = "dev"
+
+[[swebench]]
+id = "django__django-15278"
+base_commit = "0ab58c120939093fea90822f376e1866fc714d1f"
+files = ["django/db/backends/sqlite3/schema.py"]
+split = "heldout"
+
+[[swebench]]
+id = "django__django-15280"
+base_commit = "973fa566521037ac140dcece73fceae50ee522f1"
+files = ["django/db/models/fields/related_descriptors.py"]
+split = "heldout"
+
+[[swebench]]
+id = "django__django-15380"
+base_commit = "71e7c8e73712419626f1c2b6ec036e8559a2d667"
+files = ["django/db/migrations/autodetector.py"]
+split = "heldout"
+
+[[swebench]]
+id = "django__django-15382"
+base_commit = "770d3e6a4ce8e0a91a9e27156036c1985e74d4a3"
+files = ["django/db/models/expressions.py"]
+split = "heldout"
+
+[[swebench]]
+id = "django__django-15467"
+base_commit = "e0442a628eb480eac6a7888aed5a86f83499e299"
+files = ["django/contrib/admin/options.py"]
+split = "dev"
+
+[[swebench]]
+id = "django__django-15554"
+base_commit = "59ab3fd0e9e606d7f0f7ca26609c06ee679ece97"
+files = ["django/db/models/sql/query.py"]
+split = "heldout"
+
+[[swebench]]
+id = "django__django-15561"
+base_commit = "6991880109e35c879b71b7d9d9c154baeec12b89"
+files = ["django/db/backends/base/schema.py", "django/db/models/fields/__init__.py"]
+split = "heldout"
+
+[[swebench]]
+id = "django__django-15563"
+base_commit = "9ffd4eae2ce7a7100c98f681e2b6ab818df384a4"
+files = ["django/db/models/sql/compiler.py", "django/db/models/sql/subqueries.py"]
+split = "heldout"
+
+[[swebench]]
+id = "django__django-15569"
+base_commit = "884b4c27f506b3c29d58509fc83a35c30ea10d94"
+files = ["django/db/models/query_utils.py"]
+split = "heldout"
+
+[[swebench]]
+id = "django__django-15572"
+base_commit = "0b31e024873681e187b574fe1c4afe5e48aeeecf"
+files = ["django/template/autoreload.py"]
+split = "heldout"
+
+[[swebench]]
+id = "django__django-15629"
+base_commit = "694cf458f16b8d340a3195244196980b2dec34fd"
+files = ["django/db/backends/base/schema.py", "django/db/backends/oracle/features.py", "django/db/backends/sqlite3/schema.py", "django/db/models/fields/related.py"]
+split = "heldout"
+
+[[swebench]]
+id = "django__django-15731"
+base_commit = "93cedc82f29076c824d476354527af1150888e4f"
+files = ["django/db/models/manager.py"]
+split = "heldout"
+
+[[swebench]]
+id = "django__django-15732"
+base_commit = "ce69e34bd646558bb44ea92cecfd98b345a0b3e0"
+files = ["django/db/backends/base/schema.py"]
+split = "heldout"
+
+[[swebench]]
+id = "django__django-15930"
+base_commit = "63884829acd207404f2a5c3cc1d6b4cd0a822b70"
+files = ["django/db/models/expressions.py"]
+split = "heldout"
+
+[[swebench]]
+id = "django__django-15987"
+base_commit = "7e6b537f5b92be152779fc492bb908d27fe7c52a"
+files = ["django/core/management/commands/loaddata.py"]
+split = "heldout"
+
+[[swebench]]
+id = "django__django-16100"
+base_commit = "c6350d594c359151ee17b0c4f354bb44f28ff69e"
+files = ["django/contrib/admin/options.py"]
+split = "heldout"
+
+[[swebench]]
+id = "django__django-16116"
+base_commit = "5d36a8266c7d5d1994d7a7eeb4016f80d9cb0401"
+files = ["django/core/management/commands/makemigrations.py"]
+split = "dev"
+
+[[swebench]]
+id = "django__django-16139"
+base_commit = "d559cb02da30f74debbb1fc3a46de0df134d2d80"
+files = ["django/contrib/auth/forms.py"]
+split = "heldout"
+
+[[swebench]]
+id = "django__django-16145"
+base_commit = "93d4c9ea1de24eb391cb2b3561b6703fd46374df"
+files = ["django/core/management/commands/runserver.py"]
+split = "heldout"
+
+[[swebench]]
+id = "django__django-16256"
+base_commit = "76e37513e22f4d9a01c7f15eee36fe44388e6670"
+files = ["django/contrib/contenttypes/fields.py", "django/db/models/fields/related_descriptors.py"]
+split = "heldout"
+
+[[swebench]]
+id = "django__django-16263"
+base_commit = "321ecb40f4da842926e1bc07e11df4aabe53ca4b"
+files = ["django/db/models/expressions.py", "django/db/models/query_utils.py", "django/db/models/sql/query.py", "django/db/models/sql/where.py"]
+split = "dev"
+
+[[swebench]]
+id = "django__django-16333"
+base_commit = "60a7bd89860e504c0c33b02c78edcac87f6d1b5a"
+files = ["django/contrib/auth/forms.py"]
+split = "dev"
+
+[[swebench]]
+id = "django__django-16429"
+base_commit = "6c86495bcee22eac19d7fb040b2988b830707cbd"
+files = ["django/utils/timesince.py"]
+split = "dev"
+
+[[swebench]]
+id = "django__django-16485"
+base_commit = "39f83765e12b0e5d260b7939fc3fe281d879b279"
+files = ["django/template/defaultfilters.py"]
+split = "heldout"
+
+[[swebench]]
+id = "django__django-16595"
+base_commit = "f9fe062de5fc0896d6bbbf3f260b5c44473b3c77"
+files = ["django/db/migrations/operations/fields.py"]
+split = "heldout"
+
+[[swebench]]
+id = "django__django-16631"
+base_commit = "9b224579875e30203d079cc2fee83b116d98eb78"
+files = ["django/contrib/auth/__init__.py", "django/contrib/auth/base_user.py"]
+split = "heldout"
+
+[[swebench]]
+id = "django__django-16642"
+base_commit = "fbe850106b2e4b85f838219cb9e1df95fba6c164"
+files = ["django/http/response.py"]
+split = "dev"
+
+[[swebench]]
+id = "django__django-16667"
+base_commit = "02c356f2f3945b8075735d485c3cf48cad991011"
+files = ["django/forms/widgets.py"]
+split = "dev"
+
+[[swebench]]
+id = "django__django-16801"
+base_commit = "3b62d8c83e3e48d2ed61cfa32a61c56d9e030293"
+files = ["django/db/models/fields/files.py"]
+split = "heldout"
+
+[[swebench]]
+id = "django__django-16819"
+base_commit = "0b0998dc151feb77068e2387c34cc50ef6b356ae"
+files = ["django/db/migrations/operations/models.py"]
+split = "heldout"
+
+[[swebench]]
+id = "django__django-16899"
+base_commit = "d3d173425fc0a1107836da5b4567f1c88253191b"
+files = ["django/contrib/admin/checks.py"]
+split = "heldout"
+
+[[swebench]]
+id = "django__django-16901"
+base_commit = "ee36e101e8f8c0acde4bb148b738ab7034e902a0"
+files = ["django/db/models/sql/where.py"]
+split = "heldout"
+
+[[swebench]]
+id = "django__django-9296"
+base_commit = "84322a29ce9b0940335f8ab3d60e55192bef1e50"
+files = ["django/core/paginator.py"]
+split = "dev"

@@ -1,0 +1,1496 @@
+{
+ "method": "greeg-search",
+ "greeg": "greeg 0.12.1+6304d5d18",
+ "split": "dev",
+ "set": "all",
+ "started": "2026-10-19T17:04:35Z",
+ "results": [
+  {
+   "id": "typescript-01",
+   "set": "written",
+   "corpus": "TypeScript-5.9",
+   "split": "dev",
+   "gold": [
+    "src/compiler/utilities.ts"
+   ],
+   "ranked": [
+    "src/testRunner/unittests/helpers.ts",
+    "src/jsTyping/jsTyping.ts",
+    "src/deprecatedCompat/deprecations.ts",
+    "src/harness/vfsUtil.ts",
+    "src/services/types.ts",
+    "src/services/documentRegistry.ts",
+    "src/services/services.ts",
+    "src/services/utilities.ts",
+    "src/harness/harnessIO.ts",
+    "src/services/textChanges.ts",
+    "src/services/navigateTo.ts",
+    "src/services/navigationBar.ts",
+    "src/services/callHierarchy.ts",
+    "src/services/goToDefinition.ts",
+    "src/services/organizeImports.ts",
+    "src/services/signatureHelp.ts",
+    "src/services/classifier2020.ts",
+    "src/compiler/binder.ts",
+    "src/compiler/builderStatePublic.ts",
+    "src/compiler/checker.ts"
+   ],
+   "ms": 1700.5937499925494
+  },
+  {
+   "id": "typescript-05",
+   "set": "written",
+   "corpus": "TypeScript-5.9",
+   "split": "dev",
+   "gold": [
+    "src/compiler/transformers/typeSerializer.ts"
+   ],
+   "ranked": [
+    "src/testRunner/unittests/helpers.ts",
+    "src/jsTyping/jsTyping.ts",
+    "src/testRunner/unittests/helpers/baseline.ts",
+    "src/deprecatedCompat/deprecations.ts",
+    "src/harness/vfsUtil.ts",
+    "src/services/types.ts",
+    "src/services/documentRegistry.ts",
+    "src/services/services.ts",
+    "src/services/suggestionDiagnostics.ts",
+    "src/services/utilities.ts",
+    "src/harness/harnessIO.ts",
+    "src/services/textChanges.ts",
+    "src/services/navigateTo.ts",
+    "src/services/navigationBar.ts",
+    "src/services/callHierarchy.ts",
+    "src/services/organizeImports.ts",
+    "src/services/signatureHelp.ts",
+    "src/services/classifier2020.ts",
+    "src/compiler/binder.ts",
+    "src/compiler/builder.ts"
+   ],
+   "ms": 1309.0741249616258
+  },
+  {
+   "id": "typescript-08",
+   "set": "written",
+   "corpus": "TypeScript-5.9",
+   "split": "dev",
+   "gold": [
+    "src/services/codefixes/fixAddMissingConstraint.ts"
+   ],
+   "ranked": [
+    "src/jsTyping/jsTyping.ts",
+    "src/services/types.ts",
+    "src/services/exportInfoMap.ts",
+    "src/services/utilities.ts",
+    "src/services/signatureHelp.ts",
+    "src/services/classifier2020.ts",
+    "src/compiler/checker.ts",
+    "src/compiler/core.ts",
+    "src/compiler/debug.ts",
+    "src/compiler/executeCommandLine.ts",
+    "src/compiler/expressionToTypeNode.ts",
+    "src/compiler/factory/nodeFactory.ts",
+    "src/compiler/moduleNameResolver.ts",
+    "src/compiler/parser.ts",
+    "src/compiler/transformers/utilities.ts",
+    "src/compiler/tsbuild.ts",
+    "src/compiler/types.ts",
+    "src/compiler/utilities.ts",
+    "src/server/protocol.ts",
+    "src/services/services.ts"
+   ],
+   "ms": 933.3937909686938
+  },
+  {
+   "id": "typescript-11",
+   "set": "written",
+   "corpus": "TypeScript-5.9",
+   "split": "dev",
+   "gold": [
+    "src/services/findAllReferences.ts"
+   ],
+   "ranked": [
+    "src/testRunner/unittests/helpers.ts",
+    "src/harness/evaluatorImpl.ts",
+    "src/services/types.ts",
+    "src/services/exportInfoMap.ts",
+    "src/services/services.ts",
+    "src/services/utilities.ts",
+    "src/harness/harnessIO.ts",
+    "src/services/callHierarchy.ts",
+    "src/services/goToDefinition.ts",
+    "src/compiler/commandLineParser.ts",
+    "src/compiler/core.ts",
+    "src/compiler/moduleNameResolver.ts",
+    "src/compiler/program.ts",
+    "src/compiler/types.ts",
+    "src/server/protocol.ts",
+    "src/testRunner/transpileRunner.ts",
+    "src/services/findAllReferences.ts",
+    "src/harness/client.ts",
+    "src/services/formatting/formatting.ts",
+    "src/services/refactors/extractSymbol.ts"
+   ],
+   "ms": 684.5843339688145
+  },
+  {
+   "id": "typescript-15",
+   "set": "written",
+   "corpus": "TypeScript-5.9",
+   "split": "dev",
+   "gold": [
+    "src/services/services.ts"
+   ],
+   "ranked": [
+    "src/testRunner/unittests/helpers/virtualFileSystemWithWatch.ts",
+    "src/testRunner/unittests/helpers/tsserver.ts",
+    "src/testRunner/unittests/helpers/baseline.ts",
+    "src/services/types.ts",
+    "src/services/services.ts",
+    "src/compiler/transformers/destructuring.ts",
+    "src/compiler/types.ts",
+    "src/server/protocol.ts",
+    "src/services/stringCompletions.ts",
+    "src/services/findAllReferences.ts",
+    "src/harness/fourslashImpl.ts",
+    "src/harness/fourslashInterfaceImpl.ts",
+    "src/services/codefixes/convertToEsModule.ts",
+    "Herebyfile.mjs",
+    "src/lib/dom.generated.d.ts",
+    "src/lib/es2020.bigint.d.ts",
+    "src/lib/es2020.intl.d.ts",
+    "src/lib/es2021.intl.d.ts",
+    "src/lib/es2023.intl.d.ts",
+    "src/lib/es5.d.ts"
+   ],
+   "ms": 378.0091250082478
+  },
+  {
+   "id": "typescript-19",
+   "set": "written",
+   "corpus": "TypeScript-5.9",
+   "split": "dev",
+   "gold": [
+    "src/services/organizeImports.ts"
+   ],
+   "ranked": [],
+   "ms": 1176.4986249618232
+  },
+  {
+   "id": "typescript-21",
+   "set": "written",
+   "corpus": "TypeScript-5.9",
+   "split": "dev",
+   "gold": [
+    "src/compiler/watch.ts"
+   ],
+   "ranked": [
+    "src/testRunner/unittests/helpers/virtualFileSystemWithWatch.ts",
+    "src/testRunner/unittests/helpers.ts",
+    "src/jsTyping/types.ts",
+    "src/deprecatedCompat/deprecations.ts",
+    "src/harness/vfsUtil.ts",
+    "src/services/types.ts",
+    "src/services/transpile.ts",
+    "src/harness/harnessIO.ts",
+    "src/services/textChanges.ts",
+    "src/harness/fakesHosts.ts",
+    "src/compiler/builder.ts",
+    "src/compiler/builderStatePublic.ts",
+    "src/compiler/commandLineParser.ts",
+    "src/compiler/parser.ts",
+    "src/compiler/resolutionCache.ts",
+    "src/compiler/tracing.ts",
+    "src/compiler/tsbuildPublic.ts",
+    "src/compiler/types.ts",
+    "src/compiler/watch.ts",
+    "src/compiler/watchPublic.ts"
+   ],
+   "ms": 658.1110419938341
+  },
+  {
+   "id": "typescript-23",
+   "set": "written",
+   "corpus": "TypeScript-5.9",
+   "split": "dev",
+   "gold": [
+    "src/services/utilities.ts"
+   ],
+   "ranked": [
+    "src/jsTyping/types.ts",
+    "src/deprecatedCompat/deprecations.ts",
+    "src/harness/vfsUtil.ts",
+    "src/harness/harnessLanguageService.ts",
+    "src/harness/evaluatorImpl.ts",
+    "src/services/types.ts",
+    "src/services/exportInfoMap.ts",
+    "src/services/services.ts",
+    "src/services/utilities.ts",
+    "src/services/navigationBar.ts",
+    "src/services/callHierarchy.ts",
+    "src/services/signatureHelp.ts",
+    "src/compiler/checker.ts",
+    "src/compiler/commandLineParser.ts",
+    "src/compiler/debug.ts",
+    "src/compiler/moduleNameResolver.ts",
+    "src/compiler/scanner.ts",
+    "src/compiler/sourcemap.ts",
+    "src/compiler/transformers/es2015.ts",
+    "src/compiler/types.ts"
+   ],
+   "ms": 1016.5689160348848
+  },
+  {
+   "id": "typescript-25",
+   "set": "written",
+   "corpus": "TypeScript-5.9",
+   "split": "dev",
+   "gold": [
+    "src/compiler/builderState.ts"
+   ],
+   "ranked": [
+    "src/harness/vfsUtil.ts",
+    "src/services/types.ts",
+    "src/services/utilities.ts",
+    "src/harness/harnessIO.ts",
+    "src/services/textChanges.ts",
+    "src/services/navigationBar.ts",
+    "src/services/signatureHelp.ts",
+    "src/compiler/builder.ts",
+    "src/compiler/builderPublic.ts",
+    "src/compiler/checker.ts",
+    "src/compiler/debug.ts",
+    "src/compiler/emitter.ts",
+    "src/compiler/sourcemap.ts",
+    "src/compiler/tsbuildPublic.ts",
+    "src/compiler/types.ts",
+    "src/compiler/utilities.ts",
+    "src/server/protocol.ts",
+    "src/harness/findUpDir.ts",
+    "src/harness/typeWriter.ts",
+    "src/services/completions.ts"
+   ],
+   "ms": 532.0528339943849
+  },
+  {
+   "id": "typescript-29",
+   "set": "written",
+   "corpus": "TypeScript-5.9",
+   "split": "dev",
+   "gold": [
+    "src/services/codefixes/fixAddMissingParam.ts"
+   ],
+   "ranked": [
+    "src/testRunner/unittests/helpers/virtualFileSystemWithWatch.ts",
+    "src/testRunner/unittests/helpers.ts",
+    "src/harness/vfsUtil.ts",
+    "src/harness/evaluatorImpl.ts",
+    "src/services/types.ts",
+    "src/services/patternMatcher.ts",
+    "src/services/services.ts",
+    "src/services/utilities.ts",
+    "src/services/textChanges.ts",
+    "src/harness/vpathUtil.ts",
+    "src/services/navigateTo.ts",
+    "src/services/callHierarchy.ts",
+    "src/services/jsDoc.ts",
+    "src/services/signatureHelp.ts",
+    "src/services/classifier2020.ts",
+    "src/compiler/binder.ts",
+    "src/compiler/builder.ts",
+    "src/compiler/builderPublic.ts",
+    "src/compiler/builderState.ts",
+    "src/compiler/checker.ts"
+   ],
+   "ms": 671.1734579876065
+  },
+  {
+   "id": "ktor-01",
+   "set": "written",
+   "corpus": "ktor",
+   "split": "dev",
+   "gold": [
+    "ktor-utils/common/src/io/ktor/util/CaseInsensitiveMap.kt"
+   ],
+   "ranked": [
+    "ktor-http/common/src/io/ktor/http/HttpMethod.kt",
+    "ktor-utils/common/src/io/ktor/util/Hash.kt",
+    "ktor-utils/common/src/io/ktor/util/HashFunction.kt",
+    "ktor-server/ktor-server-core/common/src/io/ktor/server/config/MapApplicationConfig.kt",
+    "ktor-client/ktor-client-core/common/src/io/ktor/client/request/builders.kt",
+    "ktor-shared/ktor-htmx/common/src/io/ktor/htmx/HxAttributeKeys.kt",
+    "ktor-shared/ktor-htmx/common/src/io/ktor/htmx/HxSwap.kt",
+    "ktor-client/ktor-client-core/jvm/src/io/ktor/client/request/buildersJvm.kt",
+    "ktor-client/ktor-client-core/common/src/io/ktor/client/request/buildersWithUrl.kt",
+    "ktor-compiler-plugin/src/io/ktor/openapi/routing/RoutingFunctionConstants.kt",
+    "ktor-server/ktor-server-core/common/src/io/ktor/server/config/MapConfigDecoder.kt",
+    "ktor-server/ktor-server-core/common/src/io/ktor/server/routing/RegexRouting.kt",
+    "ktor-shared/ktor-openapi-schema/common/src/io/ktor/openapi/GenericElement.kt",
+    "ktor-server/ktor-server-core/common/src/io/ktor/server/routing/RoutingBuilder.kt",
+    "ktor-server/ktor-server-core/common/src/io/ktor/server/request/RequestCookies.kt",
+    "ktor-shared/ktor-openapi-schema/common/src/io/ktor/openapi/PathItem.kt",
+    "ktor-utils/common/src/io/ktor/util/collections/MapDelegates.kt",
+    "ktor-network/ktor-network-tls/common/src/io/ktor/network/tls/extensions/SignatureAlgorithm.kt",
+    "ktor-client/ktor-client-core/wasmJs/src/io/ktor/client/fetch/LibDom.kt",
+    "ktor-client/ktor-client-core/js/src/io/ktor/client/fetch/LibDom.kt"
+   ],
+   "ms": 47.774458944331855
+  },
+  {
+   "id": "ktor-02",
+   "set": "written",
+   "corpus": "ktor",
+   "split": "dev",
+   "gold": [
+    "ktor-client/ktor-client-cio/common/src/io/ktor/client/engine/cio/Endpoint.kt"
+   ],
+   "ranked": [],
+   "ms": 68.91120900399983
+  },
+  {
+   "id": "ktor-06",
+   "set": "written",
+   "corpus": "ktor",
+   "split": "dev",
+   "gold": [
+    "ktor-http/ktor-http-cio/common/src/io/ktor/http/cio/HttpParser.kt"
+   ],
+   "ranked": [],
+   "ms": 82.55154197104275
+  },
+  {
+   "id": "ktor-09",
+   "set": "written",
+   "corpus": "ktor",
+   "split": "dev",
+   "gold": [
+    "ktor-shared/ktor-websockets/jvm/src/io/ktor/websocket/RawWebSocketJvm.kt"
+   ],
+   "ranked": [
+    "ktor-io/common/src/io/ktor/utils/io/core/Output.kt",
+    "ktor-io/common/src/io/ktor/utils/io/core/Input.kt",
+    "ktor-io/common/src/io/ktor/utils/io/ByteChannel.kt",
+    "ktor-io/common/src/io/ktor/utils/io/ByteChannelScanner.kt",
+    "ktor-http/common/src/io/ktor/http/Cookie.kt",
+    "ktor-utils/common/src/io/ktor/util/PlatformUtils.kt",
+    "build-logic/src/main/kotlin/ktorbuild/ProjectTagsService.kt",
+    "ktor-client/ktor-client-core/common/src/io/ktor/client/request/ClientUpgradeContent.kt",
+    "ktor-shared/ktor-websockets/common/src/io/ktor/websocket/DefaultWebSocketSession.kt",
+    "ktor-shared/ktor-websockets/common/src/io/ktor/websocket/RawWebSocketCommon.kt",
+    "ktor-network/common/src/io/ktor/network/sockets/Sockets.kt",
+    "ktor-server/ktor-server-netty/jvm/src/io/ktor/server/netty/NettyApplicationEngine.kt",
+    "ktor-http/common/src/io/ktor/http/HttpStatusCode.kt",
+    "ktor-server/ktor-server-plugins/ktor-server-auth/common/src/io/ktor/server/auth/BasicTypedProvider.kt",
+    "ktor-server/ktor-server-plugins/ktor-server-auth/common/src/io/ktor/server/auth/OAuthFlow.kt",
+    "ktor-network/ktor-network-tls/jvm/src/io/ktor/network/tls/TLSClientHandshake.kt",
+    "ktor-client/ktor-client-core/common/src/io/ktor/client/plugins/sse/DefaultClientSSESession.kt",
+    "ktor-client/ktor-client-core/common/src/io/ktor/client/plugins/websocket/WebSockets.kt",
+    "ktor-client/ktor-client-core/common/src/io/ktor/client/plugins/websocket/builders.kt",
+    "ktor-client/ktor-client-core/js/src/io/ktor/client/plugins/websocket/JsWebSocketSession.kt"
+   ],
+   "ms": 45.814416953362525
+  },
+  {
+   "id": "ktor-11",
+   "set": "written",
+   "corpus": "ktor",
+   "split": "dev",
+   "gold": [
+    "ktor-io/common/src/io/ktor/utils/io/ByteReadChannelOperations.kt"
+   ],
+   "ranked": [
+    "ktor-utils/common/src/io/ktor/util/date/Date.kt",
+    "ktor-io/common/src/io/ktor/utils/io/LineEnding.kt",
+    "ktor-io/common/src/io/ktor/utils/io/LineEndingMode.kt",
+    "ktor-http/common/src/io/ktor/http/AsciiBitSet.kt",
+    "ktor-shared/ktor-openapi-schema/common/src/io/ktor/openapi/GenericElement.kt",
+    "ktor-server/ktor-server-plugins/ktor-server-di/common/src/io/ktor/server/plugins/di/DependencyKeyCovariance.kt",
+    "ktor-server/ktor-server-plugins/ktor-server-di/common/src/io/ktor/server/plugins/di/DependencyResolution.kt",
+    "ktor-server/ktor-server-plugins/ktor-server-di/common/src/io/ktor/server/plugins/di/DependencyProvider.kt",
+    "ktor-http/ktor-http-cio/jvm/src/io/ktor/http/cio/RequestResponseBuilder.kt",
+    "ktor-http/ktor-http-cio/nonJvm/src/io/ktor/http/cio/RequestResponseBuilder.nonJvm.kt",
+    "ktor-http/ktor-http-cio/common/src/io/ktor/http/cio/RequestResponseBuilderCommon.kt",
+    "ktor-server/ktor-server-plugins/ktor-server-routing-openapi/common/src/io/ktor/server/routing/openapi/OpenApiRoutes.kt",
+    "ktor-server/ktor-server-plugins/ktor-server-routing-openapi/common/src/io/ktor/server/routing/openapi/OpenApiDocUtils.kt",
+    "ktor-server/ktor-server-plugins/ktor-server-routing-openapi/common/src/io/ktor/server/routing/openapi/OperationMapping.kt",
+    "ktor-http/common/src/io/ktor/http/Parameters.kt",
+    "ktor-server/ktor-server-plugins/ktor-server-csrf/common/src/io/ktor/server/plugins/csrf/CSRFConfig.kt",
+    "ktor-client/ktor-client-tests/common/test/io/ktor/client/tests/utils/LoggerDsl.kt",
+    "ktor-http/common/test/io/ktor/tests/http/RangesTest.kt",
+    "ktor-http/common/test/io/ktor/tests/http/UrlTest.kt",
+    "ktor-server/ktor-server-cio/jvm/test/io/ktor/tests/server/cio/BadRequestPacketSourceTest.kt"
+   ],
+   "ms": 55.24158297339454
+  },
+  {
+   "id": "ktor-13",
+   "set": "written",
+   "corpus": "ktor",
+   "split": "dev",
+   "gold": [
+    "ktor-http/common/src/io/ktor/http/URLBuilder.kt"
+   ],
+   "ranked": [
+    "ktor-io/common/src/io/ktor/utils/io/core/BytePacketBuilder.kt",
+    "ktor-http/common/src/io/ktor/http/Cookie.kt",
+    "ktor-http/common/src/io/ktor/http/HeaderValueWithParameters.kt",
+    "ktor-server/ktor-server-core/common/src/io/ktor/server/application/PluginInstance.kt",
+    "ktor-server/ktor-server-core/common/src/io/ktor/server/config/MapApplicationConfig.kt",
+    "ktor-compiler-plugin/src/io/ktor/openapi/routing/RouteField.kt",
+    "ktor-client/ktor-client-core/common/src/io/ktor/client/request/HttpRequest.kt",
+    "ktor-client/ktor-client-core/common/src/io/ktor/client/request/DefaultHttpRequest.kt",
+    "ktor-client/ktor-client-core/common/src/io/ktor/client/request/buildersWithUrl.kt",
+    "ktor-client/ktor-client-core/jvm/src/io/ktor/client/request/HttpRequestJvm.kt",
+    "ktor-client/ktor-client-core/common/src/io/ktor/client/request/UnixSockets.kt",
+    "ktor-server/ktor-server-core/jvm/src/io/ktor/server/config/HoconApplicationConfig.kt",
+    "ktor-client/ktor-client-core/common/src/io/ktor/client/statement/HttpStatement.kt",
+    "ktor-server/ktor-server-core/common/src/io/ktor/server/config/MapConfigDecoder.kt",
+    "ktor-server/ktor-server-core/jvm/src/io/ktor/server/config/HoconDecoder.kt",
+    "ktor-server/ktor-server-core/common/src/io/ktor/server/routing/RoutingNode.kt",
+    "ktor-shared/ktor-openapi-schema/common/src/io/ktor/openapi/OpenApiDoc.kt",
+    "ktor-client/ktor-client-core/nonJvm/src/io/ktor/client/engine/ProxyConfig.nonJvm.kt",
+    "ktor-client/ktor-client-core/nonJvm/src/io/ktor/client/engine/Loader.kt",
+    "ktor-server/ktor-server-core/common/src/io/ktor/server/response/ResponseHeaders.kt"
+   ],
+   "ms": 44.4433749653399
+  },
+  {
+   "id": "ktor-14",
+   "set": "written",
+   "corpus": "ktor",
+   "split": "dev",
+   "gold": [
+    "ktor-io/jvm/src/io/ktor/utils/io/LookAheadSession.kt"
+   ],
+   "ranked": [
+    "ktor-io/common/src/io/ktor/utils/io/ByteWriteChannelOperations.kt",
+    "ktor-io/common/src/io/ktor/utils/io/ByteChannelScanner.kt",
+    "ktor-io/common/src/io/ktor/utils/io/ByteReadChannelOperations.kt",
+    "ktor-server/ktor-server-core/common/src/io/ktor/server/routing/RoutingResolveTrace.kt",
+    "ktor-http/common/src/io/ktor/http/content/OutgoingContent.kt",
+    "ktor-network/jvm/src/io/ktor/network/selector/JvmSelector.kt",
+    "ktor-http/common/src/io/ktor/http/content/TextContent.kt",
+    "ktor-http/common/src/io/ktor/http/content/ByteArrayContent.kt",
+    "ktor-shared/ktor-websockets/common/src/io/ktor/websocket/FrameCommon.kt",
+    "ktor-shared/ktor-websockets/jvm/src/io/ktor/websocket/Frame.kt",
+    "ktor-client/ktor-client-webrtc/common/src/io/ktor/client/webrtc/WebRtc.kt",
+    "ktor-client/ktor-client-webrtc/common/src/io/ktor/client/webrtc/WebRtcDataChannel.kt",
+    "ktor-network/jvm/src/io/ktor/network/sockets/DatagramSendChannel.kt",
+    "ktor-network/jvm/src/io/ktor/network/sockets/DatagramSocketImpl.kt",
+    "ktor-network/jvm/src/io/ktor/network/sockets/NIOSocketImpl.kt",
+    "ktor-network/jvm/src/io/ktor/network/sockets/ServerSocketImpl.kt",
+    "ktor-io/jvm/src/io/ktor/utils/io/jvm/javaio/Blocking.kt",
+    "ktor-client/ktor-client-core/common/src/io/ktor/client/plugins/DefaultTransform.kt",
+    "ktor-client/ktor-client-core/common/src/io/ktor/client/utils/Content.kt",
+    "ktor-shared/ktor-websockets/nonJvm/src/io/ktor/websocket/Frame.nonJvm.kt"
+   ],
+   "ms": 45.61708401888609
+  },
+  {
+   "id": "ktor-26",
+   "set": "written",
+   "corpus": "ktor",
+   "split": "dev",
+   "gold": [
+    "ktor-server/ktor-server-core/jvm/src/io/ktor/server/engine/internal/CallableUtils.kt"
+   ],
+   "ranked": [
+    "ktor-utils/wasmJs/src/io/ktor/util/date/Date.kt",
+    "build-logic/src/main/kotlin/ktorbuild/KtorBuildExtension.kt",
+    "ktor-http/common/src/io/ktor/http/ContentTypes.kt",
+    "ktor-http/common/src/io/ktor/http/ContentDisposition.kt",
+    "ktor-http/common/src/io/ktor/http/HeaderValueWithParameters.kt",
+    "ktor-http/common/src/io/ktor/http/HttpHeaderValueParser.kt",
+    "ktor-utils/common/src/io/ktor/util/reflect/Type.kt",
+    "ktor-server/ktor-server-core/common/src/io/ktor/server/application/PipelineCall.kt",
+    "build-logic/src/main/kotlin/ktorbuild/internal/gradle/ProjectTargetDirectories.kt",
+    "ktor-shared/ktor-openapi-schema/jvm/test/io/ktor/openapi/OperationSerializationTests.kt",
+    "ktor-io/jvm/src/io/ktor/utils/io/pool/DefaultPool.kt",
+    "ktor-io/web/src/io/ktor/utils/io/pool/DefaultPool.kt",
+    "ktor-io/common/src/io/ktor/utils/io/Annotations.kt",
+    "ktor-io/jvm/src/io/ktor/utils/io/charsets/CharsetJVM.kt"
+   ],
+   "ms": 88.89908296987414
+  },
+  {
+   "id": "ktor-27",
+   "set": "written",
+   "corpus": "ktor",
+   "split": "dev",
+   "gold": [
+    "ktor-server/ktor-server-plugins/ktor-server-sse/common/src/io/ktor/server/sse/ServerSSESession.kt"
+   ],
+   "ranked": [],
+   "ms": 83.63187499344349
+  },
+  {
+   "id": "ktor-28",
+   "set": "written",
+   "corpus": "ktor",
+   "split": "dev",
+   "gold": [
+    "ktor-client/ktor-client-core/nonJvm/src/io/ktor/client/utils/ExceptionUtils.nonJvm.kt"
+   ],
+   "ranked": [
+    "ktor-io/common/src/io/ktor/utils/io/ByteChannel.kt",
+    "ktor-http/common/src/io/ktor/http/parsing/ParseException.kt",
+    "ktor-client/ktor-client-core/jvm/src/io/ktor/client/network/sockets/TimeoutExceptions.kt",
+    "ktor-client/ktor-client-core/nonJvm/src/io/ktor/client/network/sockets/TimeoutExceptions.nonJvm.kt",
+    "ktor-client/ktor-client-core/common/src/io/ktor/client/engine/HttpClientEngineBase.kt",
+    "ktor-client/ktor-client-core/common/src/io/ktor/client/call/HttpClientCall.kt",
+    "ktor-client/ktor-client-core/wasmJs/src/io/ktor/client/fetch/LibEs5.kt",
+    "ktor-client/ktor-client-core/js/src/io/ktor/client/fetch/LibEs5.kt",
+    "ktor-client/ktor-client-core/common/src/io/ktor/client/plugins/HttpRequestRetry.kt",
+    "ktor-client/ktor-client-core/common/src/io/ktor/client/utils/ClientEvents.kt",
+    "ktor-server/ktor-server-plugins/ktor-server-auth/common/src/io/ktor/server/auth/OAuthProcedure.kt",
+    "ktor-http/ktor-http-cio/common/src/io/ktor/http/cio/HttpHeadersMap.kt",
+    "ktor-client/ktor-client-core/common/src/io/ktor/client/plugins/sse/SSE.kt",
+    "ktor-server/ktor-server-plugins/ktor-server-status-pages/common/src/io/ktor/server/plugins/statuspages/StatusPages.kt",
+    "ktor-client/ktor-client-core/common/src/io/ktor/client/plugins/cache/storage/HttpCacheStorage.kt",
+    "ktor-client/ktor-client-curl/desktop/src/io/ktor/client/engine/curl/internal/CurlRaw.kt",
+    "ktor-client/ktor-client-core/jvmAndPosix/src/io/ktor/client/plugins/cache/storage/FileStorage.kt",
+    "ktor-client/ktor-client-core/common/src/io/ktor/client/plugins/cache/storage/UnlimitedCacheStorage.kt",
+    "ktor-client/ktor-client-core/common/src/io/ktor/client/plugins/cache/storage/DisabledCacheStorage.kt",
+    "ktor-client/ktor-client-core/common/src/io/ktor/client/plugins/cache/storage/CachingCacheStorage.kt"
+   ],
+   "ms": 39.859874988906085
+  },
+  {
+   "id": "tokio-01",
+   "set": "written",
+   "corpus": "tokio",
+   "split": "dev",
+   "gold": [
+    "tokio-util/src/time/delay_queue.rs"
+   ],
+   "ranked": [
+    "tokio/src/loom/mocked.rs",
+    "tokio/src/runtime/mod.rs",
+    "tokio/src/runtime/task/mod.rs",
+    "tokio/src/util/rand.rs",
+    "tokio/src/runtime/driver/op.rs",
+    "tokio/src/util/linked_list.rs",
+    "tokio/src/loom/std/parking_lot.rs",
+    "tokio/src/signal/mod.rs",
+    "tokio/src/task/coop/mod.rs",
+    "tokio/src/util/trace.rs",
+    "tokio/src/time/clock.rs",
+    "tokio/src/sync/oneshot.rs",
+    "tokio-test/src/task.rs",
+    "tokio/src/signal/registry.rs",
+    "tokio/src/sync/watch.rs",
+    "tokio/src/time/error.rs",
+    "tokio/src/sync/batch_semaphore.rs",
+    "tokio/src/time/timeout.rs",
+    "tokio/src/time/sleep.rs",
+    "tokio/src/util/metric_atomics.rs"
+   ],
+   "ms": 29.280457994900644
+  },
+  {
+   "id": "tokio-06",
+   "set": "written",
+   "corpus": "tokio",
+   "split": "dev",
+   "gold": [
+    "tokio/src/runtime/task/raw.rs"
+   ],
+   "ranked": [
+    "tokio/src/runtime/task/mod.rs",
+    "tokio/src/util/trace.rs",
+    "tokio/src/sync/oneshot.rs",
+    "tokio-test/src/task.rs",
+    "tokio/src/net/windows/named_pipe.rs",
+    "tokio/src/runtime/task/core.rs",
+    "tokio/src/runtime/task/raw.rs",
+    "tokio/src/runtime/dump.rs",
+    "tokio/src/runtime/task/harness.rs",
+    "tokio/src/runtime/scheduler/multi_thread/worker.rs",
+    "tokio/src/sync/mpsc/block.rs",
+    "tokio/src/runtime/blocking/pool.rs",
+    "tokio/src/runtime/scheduler/current_thread/mod.rs",
+    "tokio/src/io/util/repeat.rs",
+    "benches/sync_rwlock.rs",
+    "benches/sync_semaphore.rs",
+    "tokio/src/runtime/tests/task.rs",
+    "tokio/src/sync/tests/loom_atomic_waker.rs",
+    "tokio/tests/io_driver.rs",
+    "tokio/tests/macros_rename_test.rs"
+   ],
+   "ms": 17.757249996066093
+  },
+  {
+   "id": "tokio-12",
+   "set": "written",
+   "corpus": "tokio",
+   "split": "dev",
+   "gold": [
+    "tokio-util/src/codec/framed_read.rs"
+   ],
+   "ranked": [
+    "tokio/src/task/coop/mod.rs",
+    "tokio/src/sync/watch.rs",
+    "tokio-util/src/codec/decoder.rs",
+    "tokio-util/src/codec/framed_impl.rs",
+    "tokio/src/sync/broadcast.rs",
+    "tokio/src/io/uring/statx.rs",
+    "tokio/src/io/join.rs",
+    "tokio/src/io/util/read_until.rs",
+    "tokio/src/runtime/io/scheduled_io.rs",
+    "tokio-util/src/codec/framed.rs",
+    "tokio/src/io/util/read_line.rs",
+    "tokio/src/runtime/scheduler/multi_thread/queue.rs",
+    "tokio/src/io/util/read_int.rs",
+    "tokio/src/io/util/read_to_end.rs",
+    "tokio-util/src/codec/framed_read.rs",
+    "tokio/src/io/util/copy.rs",
+    "tokio/src/io/util/fill_buf.rs",
+    "tokio/src/io/util/lines.rs",
+    "tokio/src/io/util/split.rs",
+    "tokio/src/io/util/read.rs"
+   ],
+   "ms": 17.196333035826683
+  },
+  {
+   "id": "tokio-15",
+   "set": "written",
+   "corpus": "tokio",
+   "split": "dev",
+   "gold": [
+    "tokio-stream/src/stream_ext/then.rs"
+   ],
+   "ranked": [
+    "tokio/src/loom/std/mod.rs",
+    "tokio-stream/src/stream_ext.rs",
+    "tokio/src/lib.rs",
+    "tokio/src/util/linked_list.rs",
+    "tokio-test/src/task.rs",
+    "tokio/src/sync/watch.rs",
+    "tokio-stream/src/iter.rs",
+    "tokio-stream/src/once.rs",
+    "tokio-stream/src/pending.rs",
+    "tokio-stream/src/empty.rs",
+    "tokio/src/net/addr.rs",
+    "tokio/src/runtime/task/trace/mod.rs",
+    "tokio-test/src/stream_mock.rs",
+    "tokio/src/sync/mpsc/bounded.rs",
+    "tokio-stream/src/stream_close.rs",
+    "tokio-stream/src/stream_map.rs",
+    "tokio-stream/src/stream_ext/collect.rs",
+    "tokio-util/src/codec/decoder.rs",
+    "tokio/src/runtime/time_alt/cancellation_queue.rs",
+    "tokio-util/src/codec/framed_impl.rs"
+   ],
+   "ms": 18.839083961211145
+  },
+  {
+   "id": "tokio-20",
+   "set": "written",
+   "corpus": "tokio",
+   "split": "dev",
+   "gold": [
+    "tokio/src/io/interest.rs"
+   ],
+   "ranked": [
+    "tokio/src/runtime/task/mod.rs",
+    "tokio/src/io/interest.rs",
+    "tokio/src/sync/oneshot.rs",
+    "tokio/src/sync/watch.rs",
+    "tokio/src/sync/batch_semaphore.rs",
+    "tokio/src/runtime/park.rs",
+    "tokio/src/sync/mpsc/bounded.rs",
+    "tokio/src/sync/mpsc/error.rs",
+    "tokio/src/runtime/task/state.rs",
+    "tokio/src/runtime/task/list.rs",
+    "tokio/src/sync/notify.rs",
+    "tokio/src/util/idle_notified_set.rs",
+    "tokio/src/sync/mpsc/unbounded.rs",
+    "tokio/src/sync/broadcast.rs",
+    "tokio/src/runtime/task/harness.rs",
+    "tokio/src/runtime/scheduler/multi_thread/worker.rs",
+    "tokio/src/sync/mpsc/block.rs",
+    "tokio/src/sync/mpsc/chan.rs",
+    "tokio-util/src/sync/mpsc.rs",
+    "tokio/src/runtime/io/registration.rs"
+   ],
+   "ms": 15.076958981808275
+  },
+  {
+   "id": "tokio-21",
+   "set": "written",
+   "corpus": "tokio",
+   "split": "dev",
+   "gold": [
+    "tokio/src/sync/mpsc/chan.rs"
+   ],
+   "ranked": [
+    "tokio/src/loom/std/mod.rs",
+    "tokio/src/loom/mocked.rs",
+    "tokio/src/util/linked_list.rs",
+    "tokio/src/signal/unix.rs",
+    "tokio/src/sync/oneshot.rs",
+    "tokio/src/sync/watch.rs",
+    "tokio/src/runtime/park.rs",
+    "tokio/src/runtime/driver.rs",
+    "tokio/src/io/blocking.rs",
+    "tokio/src/net/addr.rs",
+    "tokio/src/net/windows/named_pipe.rs",
+    "tokio/src/runtime/scheduler/inject.rs",
+    "tokio/src/sync/mpsc/bounded.rs",
+    "tokio/src/runtime/signal/mod.rs",
+    "tokio/src/runtime/time/mod.rs",
+    "tokio/src/runtime/time_alt/cancellation_queue.rs",
+    "tokio/src/sync/mpsc/unbounded.rs",
+    "tokio/src/net/udp.rs",
+    "tokio/src/sync/broadcast.rs",
+    "tokio/src/runtime/io/driver.rs"
+   ],
+   "ms": 16.994083009194583
+  },
+  {
+   "id": "tokio-23",
+   "set": "written",
+   "corpus": "tokio",
+   "split": "dev",
+   "gold": [
+    "tokio-util/src/task/join_map.rs"
+   ],
+   "ranked": [
+    "tokio/src/loom/std/mod.rs",
+    "tokio/src/loom/mocked.rs",
+    "tokio/src/runtime/mod.rs",
+    "tokio/src/runtime/task/mod.rs",
+    "tokio/src/util/rand.rs",
+    "tokio/src/runtime/driver/op.rs",
+    "tokio/src/util/linked_list.rs",
+    "tokio/src/loom/std/parking_lot.rs",
+    "tokio/src/signal/mod.rs",
+    "tokio/src/task/coop/mod.rs",
+    "tokio/src/util/trace.rs",
+    "tokio/src/time/clock.rs",
+    "tokio/src/runtime/scheduler/mod.rs",
+    "tokio/src/sync/oneshot.rs",
+    "tokio-test/src/task.rs",
+    "tokio/src/signal/registry.rs",
+    "tokio/src/sync/watch.rs",
+    "tokio/src/time/error.rs",
+    "tokio/src/sync/batch_semaphore.rs",
+    "tokio/src/util/metric_atomics.rs"
+   ],
+   "ms": 24.344083038158715
+  },
+  {
+   "id": "tokio-24",
+   "set": "written",
+   "corpus": "tokio",
+   "split": "dev",
+   "gold": [
+    "tokio/src/process/mod.rs"
+   ],
+   "ranked": [
+    "tokio/src/runtime/task/mod.rs",
+    "tokio/src/runtime/task/core.rs",
+    "tokio/src/runtime/task/abort.rs",
+    "tokio/src/runtime/task/join.rs",
+    "tokio/src/runtime/scheduler/multi_thread/worker.rs",
+    "tokio/src/task/local.rs",
+    "tokio-util/src/time/wheel/stack.rs",
+    "tokio-util/src/udp/frame.rs",
+    "tokio/src/runtime/scheduler/current_thread/mod.rs",
+    "tokio-util/src/time/delay_queue.rs",
+    "examples/echo-udp.rs",
+    "tokio/src/process/windows.rs",
+    "tokio/src/runtime/tests/task.rs",
+    "tokio-macros/src/select.rs"
+   ],
+   "ms": 15.715916000772268
+  },
+  {
+   "id": "tokio-25",
+   "set": "written",
+   "corpus": "tokio",
+   "split": "dev",
+   "gold": [
+    "tokio/src/runtime/io/driver/uring.rs"
+   ],
+   "ranked": [
+    "tokio/src/fs/file.rs",
+    "tokio/src/process/unix/pidfd_reaper.rs"
+   ],
+   "ms": 16.539500036742538
+  },
+  {
+   "id": "tokio-26",
+   "set": "written",
+   "corpus": "tokio",
+   "split": "dev",
+   "gold": [
+    "tokio/src/util/trace.rs"
+   ],
+   "ranked": [
+    "tokio/src/fs/file.rs",
+    "tokio/src/util/trace.rs",
+    "tokio/src/sync/oneshot.rs",
+    "tokio/src/sync/batch_semaphore.rs"
+   ],
+   "ms": 15.945541963446885
+  },
+  {
+   "id": "django__django-11095",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "dev",
+   "gold": [
+    "django/contrib/admin/options.py"
+   ],
+   "ranked": [
+    "django/utils/translation/__init__.py",
+    "django/db/models/expressions.py",
+    "django/utils/encoding.py",
+    "django/db/models/fields/related.py",
+    "django/db/models/fields/__init__.py",
+    "django/contrib/contenttypes/fields.py",
+    "django/utils/timezone.py",
+    "django/utils/datastructures.py",
+    "django/contrib/contenttypes/models.py",
+    "django/template/defaultfilters.py",
+    "django/template/context.py",
+    "django/core/checks/messages.py",
+    "django/db/models/deletion.py",
+    "django/core/cache/backends/base.py",
+    "django/db/models/query.py",
+    "django/views/generic/base.py",
+    "django/contrib/gis/db/models/fields.py",
+    "django/db/models/options.py",
+    "django/forms/models.py",
+    "django/db/models/sql/query.py"
+   ],
+   "ms": 117.1211670152843
+  },
+  {
+   "id": "django__django-11099",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "dev",
+   "gold": [
+    "django/contrib/auth/validators.py"
+   ],
+   "ranked": [
+    "django/utils/functional.py",
+    "django/apps/config.py",
+    "django/urls/resolvers.py",
+    "django/template/base.py",
+    "django/db/models/expressions.py",
+    "django/contrib/auth/models.py",
+    "django/db/models/fields/related.py",
+    "django/contrib/contenttypes/fields.py",
+    "django/db/models/fields/__init__.py",
+    "django/db/models/lookups.py",
+    "django/http/request.py",
+    "django/contrib/contenttypes/models.py",
+    "django/core/files/base.py",
+    "django/core/handlers/wsgi.py",
+    "django/forms/fields.py",
+    "django/views/generic/base.py",
+    "django/contrib/gis/db/models/fields.py",
+    "django/contrib/sites/models.py",
+    "django/urls/converters.py",
+    "django/forms/boundfield.py"
+   ],
+   "ms": 175.33100000582635
+  },
+  {
+   "id": "django__django-11133",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "dev",
+   "gold": [
+    "django/http/response.py"
+   ],
+   "ranked": [],
+   "ms": 202.9962920350954
+  },
+  {
+   "id": "django__django-11206",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "dev",
+   "gold": [
+    "django/utils/numberformat.py"
+   ],
+   "ranked": [],
+   "ms": 196.79808401269838
+  },
+  {
+   "id": "django__django-11400",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "dev",
+   "gold": [
+    "django/contrib/admin/filters.py",
+    "django/db/models/fields/__init__.py",
+    "django/db/models/fields/reverse_related.py"
+   ],
+   "ranked": [],
+   "ms": 220.62266699504107
+  },
+  {
+   "id": "django__django-11490",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "dev",
+   "gold": [
+    "django/db/models/sql/compiler.py"
+   ],
+   "ranked": [
+    "django/utils/functional.py",
+    "django/apps/config.py",
+    "django/urls/resolvers.py",
+    "django/template/base.py",
+    "django/db/models/expressions.py",
+    "django/contrib/auth/models.py",
+    "django/db/models/fields/related.py",
+    "django/db/models/fields/__init__.py",
+    "django/contrib/contenttypes/fields.py",
+    "django/utils/datastructures.py",
+    "django/contrib/contenttypes/models.py",
+    "django/core/files/base.py",
+    "django/contrib/gis/geos/geometry.py",
+    "django/db/models/query.py",
+    "django/contrib/gis/db/models/fields.py",
+    "django/contrib/sites/models.py",
+    "django/db/models/sql/query.py",
+    "django/forms/boundfield.py",
+    "django/db/models/manager.py",
+    "django/db/models/aggregates.py"
+   ],
+   "ms": 160.86583299329504
+  },
+  {
+   "id": "django__django-11603",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "dev",
+   "gold": [
+    "django/db/models/aggregates.py"
+   ],
+   "ranked": [
+    "django/db/models/expressions.py",
+    "django/db/models/fields/related.py",
+    "django/db/models/fields/__init__.py",
+    "django/contrib/contenttypes/fields.py",
+    "django/utils/datastructures.py",
+    "django/template/defaultfilters.py",
+    "django/db/models/deletion.py",
+    "django/db/models/query.py",
+    "django/core/cache/backends/base.py",
+    "django/contrib/gis/db/models/fields.py",
+    "django/db/models/sql/query.py",
+    "django/db/models/aggregates.py",
+    "django/contrib/admin/options.py",
+    "django/db/models/fields/files.py",
+    "django/db/models/fields/related_descriptors.py",
+    "django/core/cache/backends/locmem.py",
+    "django/contrib/admin/models.py",
+    "django/contrib/messages/storage/base.py",
+    "django/contrib/postgres/fields/array.py",
+    "django/contrib/gis/gdal/geometries.py"
+   ],
+   "ms": 129.2547500343062
+  },
+  {
+   "id": "django__django-11740",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "dev",
+   "gold": [
+    "django/db/migrations/autodetector.py"
+   ],
+   "ranked": [],
+   "ms": 328.6814999883063
+  },
+  {
+   "id": "django__django-11951",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "dev",
+   "gold": [
+    "django/db/models/query.py"
+   ],
+   "ranked": [],
+   "ms": 222.1978330053389
+  },
+  {
+   "id": "django__django-11999",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "dev",
+   "gold": [
+    "django/db/models/fields/__init__.py"
+   ],
+   "ranked": [],
+   "ms": 206.17399999173358
+  },
+  {
+   "id": "django__django-12125",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "dev",
+   "gold": [
+    "django/db/migrations/serializer.py"
+   ],
+   "ranked": [],
+   "ms": 276.71504201134667
+  },
+  {
+   "id": "django__django-12209",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "dev",
+   "gold": [
+    "django/db/models/base.py"
+   ],
+   "ranked": [],
+   "ms": 291.1210840102285
+  },
+  {
+   "id": "django__django-12406",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "dev",
+   "gold": [
+    "django/db/models/fields/related.py",
+    "django/forms/models.py"
+   ],
+   "ranked": [
+    "django/utils/functional.py",
+    "django/apps/config.py",
+    "django/urls/resolvers.py",
+    "django/core/management/base.py",
+    "django/template/base.py",
+    "django/db/models/expressions.py",
+    "django/contrib/auth/models.py",
+    "django/contrib/contenttypes/fields.py",
+    "django/http/request.py",
+    "django/contrib/contenttypes/models.py",
+    "django/template/context.py",
+    "django/db/models/fields/related.py",
+    "django/db/models/fields/__init__.py",
+    "django/template/defaultfilters.py",
+    "django/forms/widgets.py",
+    "django/core/files/base.py",
+    "django/db/models/deletion.py",
+    "django/contrib/gis/geos/geometry.py",
+    "django/core/handlers/wsgi.py",
+    "django/core/checks/registry.py"
+   ],
+   "ms": 240.32979202456772
+  },
+  {
+   "id": "django__django-12965",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "dev",
+   "gold": [
+    "django/db/models/sql/compiler.py"
+   ],
+   "ranked": [],
+   "ms": 315.85958297364414
+  },
+  {
+   "id": "django__django-13109",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "dev",
+   "gold": [
+    "django/db/models/fields/related.py"
+   ],
+   "ranked": [],
+   "ms": 338.1686249631457
+  },
+  {
+   "id": "django__django-13401",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "dev",
+   "gold": [
+    "django/db/models/fields/__init__.py"
+   ],
+   "ranked": [],
+   "ms": 310.95899996580556
+  },
+  {
+   "id": "django__django-13406",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "dev",
+   "gold": [
+    "django/db/models/query.py"
+   ],
+   "ranked": [],
+   "ms": 432.0300000254065
+  },
+  {
+   "id": "django__django-13658",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "dev",
+   "gold": [
+    "django/core/management/__init__.py"
+   ],
+   "ranked": [],
+   "ms": 280.21474997512996
+  },
+  {
+   "id": "django__django-13807",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "dev",
+   "gold": [
+    "django/db/backends/sqlite3/base.py"
+   ],
+   "ranked": [],
+   "ms": 330.53366700187325
+  },
+  {
+   "id": "django__django-13821",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "dev",
+   "gold": [
+    "django/db/backends/sqlite3/base.py"
+   ],
+   "ranked": [],
+   "ms": 226.62274999311194
+  },
+  {
+   "id": "django__django-13837",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "dev",
+   "gold": [
+    "django/utils/autoreload.py"
+   ],
+   "ranked": [],
+   "ms": 318.0333329946734
+  },
+  {
+   "id": "django__django-13933",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "dev",
+   "gold": [
+    "django/forms/models.py"
+   ],
+   "ranked": [
+    "django/core/exceptions.py",
+    "django/core/management/base.py",
+    "django/db/models/expressions.py",
+    "django/template/base.py",
+    "django/utils/datastructures.py",
+    "django/contrib/contenttypes/fields.py",
+    "django/db/models/fields/__init__.py",
+    "django/contrib/contenttypes/models.py",
+    "django/template/defaultfilters.py",
+    "django/db/models/query_utils.py",
+    "django/db/models/fields/related.py",
+    "django/forms/widgets.py",
+    "django/core/checks/messages.py",
+    "django/contrib/gis/geos/geometry.py",
+    "django/core/serializers/json.py",
+    "django/forms/fields.py",
+    "django/db/models/query.py",
+    "django/db/models/options.py",
+    "django/db/migrations/exceptions.py",
+    "django/forms/models.py"
+   ],
+   "ms": 217.70095801912248
+  },
+  {
+   "id": "django__django-14155",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "dev",
+   "gold": [
+    "django/urls/resolvers.py"
+   ],
+   "ranked": [
+    "django/db/utils.py",
+    "django/utils/functional.py",
+    "django/core/exceptions.py",
+    "django/conf/__init__.py",
+    "django/utils/connection.py",
+    "django/utils/translation/__init__.py",
+    "django/apps/config.py",
+    "django/apps/registry.py",
+    "django/urls/resolvers.py",
+    "django/http/response.py",
+    "django/core/management/base.py",
+    "django/db/models/expressions.py",
+    "django/utils/encoding.py",
+    "django/template/base.py",
+    "django/utils/datastructures.py",
+    "django/utils/deprecation.py",
+    "django/contrib/auth/models.py",
+    "django/dispatch/dispatcher.py",
+    "django/utils/autoreload.py",
+    "django/contrib/contenttypes/fields.py"
+   ],
+   "ms": 184.81499998597428
+  },
+  {
+   "id": "django__django-14170",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "dev",
+   "gold": [
+    "django/db/backends/base/operations.py",
+    "django/db/models/lookups.py"
+   ],
+   "ranked": [],
+   "ms": 298.6330410349183
+  },
+  {
+   "id": "django__django-14238",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "dev",
+   "gold": [
+    "django/db/models/fields/__init__.py"
+   ],
+   "ranked": [],
+   "ms": 365.04679202334955
+  },
+  {
+   "id": "django__django-14351",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "dev",
+   "gold": [
+    "django/db/models/lookups.py"
+   ],
+   "ranked": [],
+   "ms": 552.3930420167744
+  },
+  {
+   "id": "django__django-14539",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "dev",
+   "gold": [
+    "django/utils/html.py"
+   ],
+   "ranked": [
+    "django/core/management/base.py",
+    "django/utils/html.py",
+    "django/db/models/fields/__init__.py",
+    "django/db/models/fields/related.py",
+    "django/template/defaultfilters.py",
+    "django/core/servers/basehttp.py",
+    "django/contrib/gis/db/models/fields.py",
+    "django/core/serializers/base.py",
+    "django/db/models/fields/files.py",
+    "django/core/handlers/asgi.py",
+    "django/contrib/gis/geos/prototypes/threadsafe.py",
+    "django/db/models/fields/json.py",
+    "django/core/management/templates.py",
+    "django/contrib/postgres/fields/array.py",
+    "django/contrib/postgres/fields/hstore.py",
+    "django/core/management/commands/startproject.py",
+    "django/core/management/commands/makemessages.py",
+    "django/contrib/admin/helpers.py",
+    "django/core/management/commands/runserver.py",
+    "django/contrib/gis/gdal/raster/band.py"
+   ],
+   "ms": 127.91545799700543
+  },
+  {
+   "id": "django__django-14559",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "dev",
+   "gold": [
+    "django/db/models/query.py"
+   ],
+   "ranked": [],
+   "ms": 219.97208398533985
+  },
+  {
+   "id": "django__django-14672",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "dev",
+   "gold": [
+    "django/db/models/fields/reverse_related.py"
+   ],
+   "ranked": [],
+   "ms": 391.9756669783965
+  },
+  {
+   "id": "django__django-15104",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "dev",
+   "gold": [
+    "django/db/migrations/autodetector.py"
+   ],
+   "ranked": [],
+   "ms": 483.4864999866113
+  },
+  {
+   "id": "django__django-15268",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "dev",
+   "gold": [
+    "django/db/migrations/operations/models.py"
+   ],
+   "ranked": [],
+   "ms": 284.3118750024587
+  },
+  {
+   "id": "django__django-15277",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "dev",
+   "gold": [
+    "django/db/models/fields/__init__.py"
+   ],
+   "ranked": [],
+   "ms": 429.1105409502052
+  },
+  {
+   "id": "django__django-15467",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "dev",
+   "gold": [
+    "django/contrib/admin/options.py"
+   ],
+   "ranked": [],
+   "ms": 239.24554197583348
+  },
+  {
+   "id": "django__django-16116",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "dev",
+   "gold": [
+    "django/core/management/commands/makemigrations.py"
+   ],
+   "ranked": [],
+   "ms": 266.04916696669534
+  },
+  {
+   "id": "django__django-16263",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "dev",
+   "gold": [
+    "django/db/models/expressions.py",
+    "django/db/models/query_utils.py",
+    "django/db/models/sql/query.py",
+    "django/db/models/sql/where.py"
+   ],
+   "ranked": [],
+   "ms": 237.07524995552376
+  },
+  {
+   "id": "django__django-16333",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "dev",
+   "gold": [
+    "django/contrib/auth/forms.py"
+   ],
+   "ranked": [],
+   "ms": 253.508374968078
+  },
+  {
+   "id": "django__django-16429",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "dev",
+   "gold": [
+    "django/utils/timesince.py"
+   ],
+   "ranked": [],
+   "ms": 304.6937499893829
+  },
+  {
+   "id": "django__django-16642",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "dev",
+   "gold": [
+    "django/http/response.py"
+   ],
+   "ranked": [
+    "django/http/response.py",
+    "django/template/base.py",
+    "django/db/models/fields/__init__.py",
+    "django/db/models/fields/related.py",
+    "django/template/defaultfilters.py",
+    "django/core/files/base.py",
+    "django/db/models/query.py",
+    "django/core/mail/backends/base.py",
+    "django/contrib/gis/db/models/fields.py",
+    "django/template/response.py",
+    "django/core/files/uploadedfile.py",
+    "django/db/models/fields/files.py",
+    "django/contrib/gis/gdal/field.py",
+    "django/db/models/fields/json.py",
+    "django/contrib/postgres/fields/array.py",
+    "django/contrib/flatpages/models.py",
+    "django/contrib/gis/geoip2/base.py",
+    "django/contrib/postgres/fields/hstore.py",
+    "django/db/backends/oracle/utils.py",
+    "django/core/files/storage/base.py"
+   ],
+   "ms": 172.77350003132597
+  },
+  {
+   "id": "django__django-16667",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "dev",
+   "gold": [
+    "django/forms/widgets.py"
+   ],
+   "ranked": [],
+   "ms": 329.1714169899933
+  },
+  {
+   "id": "django__django-9296",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "dev",
+   "gold": [
+    "django/core/paginator.py"
+   ],
+   "ranked": [
+    "django/utils/functional.py",
+    "django/db/models/fields/__init__.py",
+    "django/db/models/fields/related.py",
+    "django/contrib/gis/db/models/fields.py",
+    "django/db/models/functions/text.py",
+    "django/contrib/admin/options.py",
+    "django/db/models/fields/files.py",
+    "django/core/paginator.py",
+    "django/contrib/postgres/fields/jsonb.py",
+    "django/contrib/postgres/fields/hstore.py",
+    "tests/db_functions/models.py",
+    "tests/postgres_tests/models.py",
+    "tests/queries/models.py",
+    "tests/generic_views/models.py",
+    "tests/backends/models.py",
+    "tests/admin_widgets/models.py",
+    "tests/model_forms/models.py",
+    "tests/generic_inline_admin/models.py",
+    "django/db/utils.py",
+    "django/db/__init__.py"
+   ],
+   "ms": 131.409999972675
+  }
+ ]
+}
