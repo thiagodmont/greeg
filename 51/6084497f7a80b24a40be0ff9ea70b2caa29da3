@@ -1,0 +1,32 @@
+bench/discovery.py
+  s_eefb2647553a67::t_064dfdcd85b74b 14-15
+  s_eefb2647553a67::t_9339f1fa1dfba0 96-105,112-113
+bench/discovery/results/greeg-find-heldout-2026-10-22.json
+  s_eefb2647553a67::t_064dfdcd85b74b 1-4651
+bench/discovery/results/greeg-search-heldout-2026-10-22.json
+  s_eefb2647553a67::t_064dfdcd85b74b 1-3217
+bench/test_discovery.py
+  s_eefb2647553a67::t_241d0cb36b6572 39-51
+bench/discovery/README.md
+  s_eefb2647553a67::t_064dfdcd85b74b 48-49,92-139
+bench/discovery/results/rg-heldout-2026-10-22.json
+  s_eefb2647553a67::t_064dfdcd85b74b 1-4651
+bench/discovery/results/greeg-find-dev-2026-10-22.json
+  s_eefb2647553a67::t_39dfc50a8a1d91 1-2326
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "516084497f7a80b24a40be0ff9ea70b2caa29da3",
+  "prompts": {},
+  "sessions": {
+    "s_eefb2647553a67": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9fff36d3-3b5f-4343-be78-7893a6fe3965",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
