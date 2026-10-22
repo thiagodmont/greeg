@@ -15,7 +15,7 @@ on them, so they are the ones a decision rests on.
 """
 import json, math, os, random, statistics, sys, tomllib
 
-METRICS = [("success", "success rate"), ("turns", "turns"), ("search_calls", "search calls"), ("tool_output_chars", "tool output ch"), ("output_tokens", "output tokens"), ("input_tokens", "input tokens"), ("cache_creation", "cache writes"), ("cache_read", "cache reads"), ("cost_usd", "cost USD"), ("duration_s", "wall time s")]
+METRICS = [("success", "success rate"), ("turns", "turns"), ("search_calls", "search calls"), ("greeg_find", "greeg find"), ("tool_output_chars", "tool output ch"), ("output_tokens", "output tokens"), ("input_tokens", "input tokens"), ("cache_creation", "cache writes"), ("cache_read", "cache reads"), ("cost_usd", "cost USD"), ("duration_s", "wall time s")]
 
 
 def value(r, m):

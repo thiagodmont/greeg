@@ -6,7 +6,8 @@
 RUNS_DIR holds one subdirectory per run named <task>/<arm>/<n>/ with
 `stream.jsonl` (the agent's stream-json output), `answer.txt` (the final
 result text) and `check.txt` (`0` if the task's check passed). Emits one JSON
-record per run: tool calls by name, search calls (rg/grep/greeg, by tool), the
+record per run: tool calls by name, search calls (rg/grep/greeg, by tool),
+`greeg find` calls, the
 characters the tools returned, input/output and cache tokens, number of turns,
 wall time, cost and success.
 
@@ -51,6 +52,7 @@ import json, os, re, sys
 from pathlib import Path
 
 SEARCH = re.compile(r"^\s*(?:command\s+|\\)?(rg|grep|greeg)\b")
+FIND = re.compile(r"(?:^|[|;&]\s*)(?:command\s+)?greeg\s+find\b", re.M)
 GREEG_FINGERPRINT = re.compile(r"(^|\n)(?:\S.*  [\d,]+ matches · [\d,]+ files|by kind |[\d,]+ of [\d,]+ hits · |greeg: |definitions \(|top hits\n)")
 
 
@@ -153,7 +155,7 @@ def result_text(block):
 
 
 def read_run(d):
-    rec = {"tools": {}, "search": {"rg": 0, "grep": 0, "greeg": 0}, "search_evidence": {"hook": 0, "output": 0, "intent": 0}, "denied": 0, "tool_output_chars": 0, "input_tokens": 0, "output_tokens": 0, "cache_creation": 0, "cache_read": 0, "turns": 0, "duration_ms": None, "cost_usd": None, "model": None, "result": None}
+    rec = {"tools": {}, "search": {"rg": 0, "grep": 0, "greeg": 0}, "search_evidence": {"hook": 0, "output": 0, "intent": 0}, "denied": 0, "greeg_find": 0, "tool_output_chars": 0, "input_tokens": 0, "output_tokens": 0, "cache_creation": 0, "cache_read": 0, "turns": 0, "duration_ms": None, "cost_usd": None, "model": None, "result": None}
     try:
         lines = Path(d, "stream.jsonl").read_text().splitlines()
     except OSError:
@@ -223,6 +225,7 @@ def read_run(d):
         for tool in found:
             rec["search"][tool] += 1
             rec["search_evidence"][how] += 1
+        rec["greeg_find"] += len(FIND.findall(updates.get(tid) or intent_cmd or ""))
     try:
         rec["success"] = Path(d, "check.txt").read_text().strip() == "0"
     except OSError:
