@@ -1,0 +1,4904 @@
+{
+ "greeg": "greeg 0.12.1+c71910870",
+ "seed": 7,
+ "n": 100,
+ "material": 0.1,
+ "corpora": {
+  "tokio": {
+   "revision": "ea91b33c",
+   "summary": {
+    "n": 100,
+    "refs_change": 54,
+    "refs_change_share": 0.54,
+    "mean_other_share": 0.302,
+    "def_judged": 100,
+    "def_miss": 25,
+    "either": 54,
+    "either_share": 0.54,
+    "by_bucket": {
+     "1": {
+      "n": 55,
+      "refs_change": 9,
+      "def_miss": 0
+     },
+     "2-5": {
+      "n": 29,
+      "refs_change": 29,
+      "def_miss": 14
+     },
+     "6+": {
+      "n": 16,
+      "refs_change": 16,
+      "def_miss": 11
+     }
+    }
+   },
+   "rows": [
+    {
+     "name": "TcpStream",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 177,
+     "listed": {
+      "target": 154,
+      "other": 20,
+      "unbound": 192,
+      "outside": 30
+     },
+     "other_share": 0.115,
+     "refs_change": true,
+     "use": "tokio/src/net/tcp/split_owned.rs:504",
+     "def_from_use_first": true
+    },
+    {
+     "name": "LinkedList",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 87,
+     "listed": {
+      "target": 77,
+      "other": 11,
+      "unbound": 9,
+      "outside": 16
+     },
+     "other_share": 0.125,
+     "refs_change": true,
+     "use": "tokio/src/sync/batch_semaphore.rs:188",
+     "def_from_use_first": true
+    },
+    {
+     "name": "level_for",
+     "bucket": "2-5",
+     "definitions": 4,
+     "refs": 15,
+     "listed": {
+      "target": 7,
+      "other": 12,
+      "unbound": 6,
+      "outside": 13
+     },
+     "other_share": 0.632,
+     "refs_change": true,
+     "use": "tokio-util/src/time/wheel/mod.rs:284",
+     "def_from_use_first": true
+    },
+    {
+     "name": "DecodeState",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 7,
+     "listed": {
+      "target": 8,
+      "other": 0,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tokio-util/src/codec/length_delimited.rs:594",
+     "def_from_use_first": true
+    },
+    {
+     "name": "driver",
+     "bucket": "6+",
+     "definitions": 9,
+     "refs": 127,
+     "listed": {
+      "target": 25,
+      "other": 101,
+      "unbound": 252,
+      "outside": 69
+     },
+     "other_share": 0.802,
+     "refs_change": true,
+     "use": "tokio/src/runtime/scheduler/multi_thread/worker.rs:899",
+     "def_from_use_first": false
+    },
+    {
+     "name": "WRITE_CLOSED",
+     "bucket": "2-5",
+     "definitions": 2,
+     "refs": 9,
+     "listed": {
+      "target": 7,
+      "other": 3,
+      "unbound": 7,
+      "outside": 0
+     },
+     "other_share": 0.3,
+     "refs_change": true,
+     "use": "tokio/src/io/interest.rs:261",
+     "def_from_use_first": true
+    },
+    {
+     "name": "ChunksTimeout",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 7,
+     "listed": {
+      "target": 8,
+      "other": 0,
+      "unbound": 1,
+      "outside": 1
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tokio-stream/src/stream_ext.rs:1184",
+     "def_from_use_first": true
+    },
+    {
+     "name": "copy",
+     "bucket": "2-5",
+     "definitions": 3,
+     "refs": 26,
+     "listed": {
+      "target": 16,
+      "other": 14,
+      "unbound": 24,
+      "outside": 26
+     },
+     "other_share": 0.467,
+     "refs_change": true,
+     "use": "tokio/tests/tcp_shutdown.rs:27",
+     "def_from_use_first": false
+    },
+    {
+     "name": "BoxFutureSend",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 7,
+     "listed": {
+      "target": 8,
+      "other": 0,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tokio/tests/async_send_sync.rs:547",
+     "def_from_use_first": true
+    },
+    {
+     "name": "bitor",
+     "bucket": "2-5",
+     "definitions": 2,
+     "refs": 45,
+     "listed": {
+      "target": 1,
+      "other": 1,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.5,
+     "refs_change": true,
+     "use": "tokio/src/net/udp.rs:1130",
+     "def_from_use_first": true
+    },
+    {
+     "name": "DEFAULT_MAX_BUF_SIZE",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 13,
+     "listed": {
+      "target": 14,
+      "other": 0,
+      "unbound": 3,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tokio/src/io/blocking.rs:75",
+     "def_from_use_first": true
+    },
+    {
+     "name": "EventInfo",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 16,
+     "listed": {
+      "target": 17,
+      "other": 0,
+      "unbound": 3,
+      "outside": 7
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tokio/src/signal/registry.rs:18",
+     "def_from_use_first": true
+    },
+    {
+     "name": "asyncify",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 50,
+     "listed": {
+      "target": 51,
+      "other": 0,
+      "unbound": 0,
+      "outside": 4
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tokio/src/fs/dir_builder.rs:103",
+     "def_from_use_first": true
+    },
+    {
+     "name": "rx_waker",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 9,
+     "listed": {
+      "target": 10,
+      "other": 0,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tokio/src/sync/mpsc/chan.rs:465",
+     "def_from_use_first": true
+    },
+    {
+     "name": "Interest",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 206,
+     "listed": {
+      "target": 195,
+      "other": 12,
+      "unbound": 91,
+      "outside": 47
+     },
+     "other_share": 0.058,
+     "refs_change": false,
+     "use": "tokio/src/net/unix/stream.rs:578",
+     "def_from_use_first": true
+    },
+    {
+     "name": "PollSemaphore",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 14,
+     "listed": {
+      "target": 15,
+      "other": 0,
+      "unbound": 4,
+      "outside": 6
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tokio-util/src/sync/poll_semaphore.rs:155",
+     "def_from_use_first": true
+    },
+    {
+     "name": "is_rx_task_set",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 6,
+     "listed": {
+      "target": 7,
+      "other": 0,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tokio/src/sync/oneshot.rs:1450",
+     "def_from_use_first": true
+    },
+    {
+     "name": "try_set_current",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 4,
+     "listed": {
+      "target": 5,
+      "other": 0,
+      "unbound": 1,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tokio/src/runtime/local_runtime/runtime.rs:396",
+     "def_from_use_first": true
+    },
+    {
+     "name": "get_id_ptr",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 4,
+     "listed": {
+      "target": 5,
+      "other": 0,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tokio/src/runtime/task/core.rs:299",
+     "def_from_use_first": true
+    },
+    {
+     "name": "any",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 11,
+     "listed": {
+      "target": 2,
+      "other": 11,
+      "unbound": 706,
+      "outside": 96
+     },
+     "other_share": 0.846,
+     "refs_change": true,
+     "use": "tokio-stream/tests/async_send_sync.rs:108",
+     "def_from_use_first": true
+    },
+    {
+     "name": "wheel",
+     "bucket": "2-5",
+     "definitions": 2,
+     "refs": 45,
+     "listed": {
+      "target": 10,
+      "other": 24,
+      "unbound": 70,
+      "outside": 66
+     },
+     "other_share": 0.706,
+     "refs_change": true,
+     "use": "tokio/src/runtime/time/mod.rs:385",
+     "def_from_use_first": true
+    },
+    {
+     "name": "CLOSED",
+     "bucket": "2-5",
+     "definitions": 2,
+     "refs": 9,
+     "listed": {
+      "target": 8,
+      "other": 3,
+      "unbound": 6,
+      "outside": 0
+     },
+     "other_share": 0.273,
+     "refs_change": true,
+     "use": "tokio/src/sync/oneshot.rs:1572",
+     "def_from_use_first": true
+    },
+    {
+     "name": "shutdown",
+     "bucket": "6+",
+     "definitions": 38,
+     "refs": 107,
+     "listed": {
+      "target": 22,
+      "other": 122,
+      "unbound": 231,
+      "outside": 33
+     },
+     "other_share": 0.847,
+     "refs_change": true,
+     "use": "tokio/src/runtime/scheduler/multi_thread/park.rs:107",
+     "def_from_use_first": false
+    },
+    {
+     "name": "Slot",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 3,
+     "listed": {
+      "target": 4,
+      "other": 0,
+      "unbound": 1,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tokio/src/sync/broadcast.rs:460",
+     "def_from_use_first": true
+    },
+    {
+     "name": "LengthDelimitedCodec",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 34,
+     "listed": {
+      "target": 35,
+      "other": 0,
+      "unbound": 57,
+      "outside": 5
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tokio-util/tests/length_delimited.rs:550",
+     "def_from_use_first": true
+    },
+    {
+     "name": "Init",
+     "bucket": "2-5",
+     "definitions": 4,
+     "refs": 12,
+     "listed": {
+      "target": 5,
+      "other": 11,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.688,
+     "refs_change": true,
+     "use": "tokio/src/io/util/buf_writer.rs:258",
+     "def_from_use_first": true
+    },
+    {
+     "name": "Synced",
+     "bucket": "2-5",
+     "definitions": 4,
+     "refs": 43,
+     "listed": {
+      "target": 28,
+      "other": 19,
+      "unbound": 10,
+      "outside": 2
+     },
+     "other_share": 0.404,
+     "refs_change": true,
+     "use": "tokio/src/runtime/io/registration_set.rs:83",
+     "def_from_use_first": true
+    },
+    {
+     "name": "reset_at",
+     "bucket": "2-5",
+     "definitions": 3,
+     "refs": 22,
+     "listed": {
+      "target": 21,
+      "other": 4,
+      "unbound": 6,
+      "outside": 0
+     },
+     "other_share": 0.16,
+     "refs_change": true,
+     "use": "tokio-util/tests/time_delay_queue.rs:568",
+     "def_from_use_first": false
+    },
+    {
+     "name": "MyOutput",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 6,
+     "listed": {
+      "target": 8,
+      "other": 0,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tokio/tests/task_id.rs:184",
+     "def_from_use_first": true
+    },
+    {
+     "name": "get_pin_mut",
+     "bucket": "6+",
+     "definitions": 18,
+     "refs": 32,
+     "listed": {
+      "target": 18,
+      "other": 31,
+      "unbound": 0,
+      "outside": 1
+     },
+     "other_share": 0.633,
+     "refs_change": true,
+     "use": "tokio/src/io/util/buf_stream.rs:70",
+     "def_from_use_first": false
+    },
+    {
+     "name": "key",
+     "bucket": "6+",
+     "definitions": 6,
+     "refs": 12,
+     "listed": {
+      "target": 4,
+      "other": 14,
+      "unbound": 365,
+      "outside": 0
+     },
+     "other_share": 0.778,
+     "refs_change": true,
+     "use": "examples/tinydb.rs:159",
+     "def_from_use_first": true
+    },
+    {
+     "name": "WithCancellationTokenFutureOwned",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 5,
+     "listed": {
+      "target": 6,
+      "other": 0,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tokio-util/src/future.rs:129",
+     "def_from_use_first": true
+    },
+    {
+     "name": "entry",
+     "bucket": "2-5",
+     "definitions": 2,
+     "refs": 28,
+     "listed": {
+      "target": 10,
+      "other": 22,
+      "unbound": 329,
+      "outside": 94
+     },
+     "other_share": 0.688,
+     "refs_change": true,
+     "use": "tokio/src/util/idle_notified_set.rs:228",
+     "def_from_use_first": false
+    },
+    {
+     "name": "Context",
+     "bucket": "2-5",
+     "definitions": 5,
+     "refs": 966,
+     "listed": {
+      "target": 17,
+      "other": 952,
+      "unbound": 142,
+      "outside": 116
+     },
+     "other_share": 0.982,
+     "refs_change": true,
+     "use": "tokio/src/runtime/scheduler/current_thread/mod.rs:789",
+     "def_from_use_first": false
+    },
+    {
+     "name": "Closed",
+     "bucket": "6+",
+     "definitions": 9,
+     "refs": 62,
+     "listed": {
+      "target": 14,
+      "other": 51,
+      "unbound": 26,
+      "outside": 9
+     },
+     "other_share": 0.785,
+     "refs_change": true,
+     "use": "tokio/src/sync/mpsc/bounded.rs:1359",
+     "def_from_use_first": true
+    },
+    {
+     "name": "OwnedPermit",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 18,
+     "listed": {
+      "target": 19,
+      "other": 0,
+      "unbound": 20,
+      "outside": 4
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tokio/src/sync/mpsc/bounded.rs:1265",
+     "def_from_use_first": true
+    },
+    {
+     "name": "new",
+     "bucket": "6+",
+     "definitions": 251,
+     "refs": 2302,
+     "listed": {
+      "target": 62,
+      "other": 2277,
+      "unbound": 1359,
+      "outside": 479
+     },
+     "other_share": 0.973,
+     "refs_change": true,
+     "use": "tokio-util/tests/framed.rs:198",
+     "def_from_use_first": false
+    },
+    {
+     "name": "before_spawn",
+     "bucket": "2-5",
+     "definitions": 2,
+     "refs": 7,
+     "listed": {
+      "target": 5,
+      "other": 2,
+      "unbound": 1,
+      "outside": 0
+     },
+     "other_share": 0.286,
+     "refs_change": true,
+     "use": "tokio/src/runtime/builder.rs:1781",
+     "def_from_use_first": false
+    },
+    {
+     "name": "TaskHarnessScheduleHooks",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 24,
+     "listed": {
+      "target": 25,
+      "other": 0,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tokio/src/runtime/tests/task.rs:464",
+     "def_from_use_first": true
+    },
+    {
+     "name": "gid_t",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 9,
+     "listed": {
+      "target": 10,
+      "other": 0,
+      "unbound": 0,
+      "outside": 1
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tokio/src/net/unix/ucred.rs:11",
+     "def_from_use_first": true
+    },
+    {
+     "name": "canonicalize",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 7,
+     "listed": {
+      "target": 4,
+      "other": 4,
+      "unbound": 4,
+      "outside": 0
+     },
+     "other_share": 0.5,
+     "refs_change": true,
+     "use": "tokio/src/fs/mod.rs:226",
+     "def_from_use_first": true
+    },
+    {
+     "name": "Stats",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 14,
+     "listed": {
+      "target": 15,
+      "other": 0,
+      "unbound": 1,
+      "outside": 5
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tokio/src/runtime/scheduler/multi_thread/mod.rs:16",
+     "def_from_use_first": true
+    },
+    {
+     "name": "receiver_waker",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 4,
+     "listed": {
+      "target": 5,
+      "other": 0,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tokio-util/src/io/simplex.rs:50",
+     "def_from_use_first": true
+    },
+    {
+     "name": "notify_one",
+     "bucket": "2-5",
+     "definitions": 2,
+     "refs": 51,
+     "listed": {
+      "target": 40,
+      "other": 13,
+      "unbound": 40,
+      "outside": 17
+     },
+     "other_share": 0.245,
+     "refs_change": true,
+     "use": "tokio/tests/sync_notify_owned.rs:90",
+     "def_from_use_first": true
+    },
+    {
+     "name": "Recv",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 6,
+     "listed": {
+      "target": 7,
+      "other": 0,
+      "unbound": 3,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tokio/src/sync/broadcast.rs:1504",
+     "def_from_use_first": true
+    },
+    {
+     "name": "generate_addr_of_methods",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 8,
+     "listed": {
+      "target": 9,
+      "other": 0,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tokio/src/sync/mpsc/block.rs:82",
+     "def_from_use_first": true
+    },
+    {
+     "name": "depth",
+     "bucket": "2-5",
+     "definitions": 2,
+     "refs": 7,
+     "listed": {
+      "target": 6,
+      "other": 3,
+      "unbound": 5,
+      "outside": 0
+     },
+     "other_share": 0.333,
+     "refs_change": true,
+     "use": "tokio/src/runtime/context/current.rs:78",
+     "def_from_use_first": false
+    },
+    {
+     "name": "spawn_local_on",
+     "bucket": "2-5",
+     "definitions": 3,
+     "refs": 14,
+     "listed": {
+      "target": 4,
+      "other": 10,
+      "unbound": 2,
+      "outside": 2
+     },
+     "other_share": 0.714,
+     "refs_change": true,
+     "use": "tokio-util/src/task/join_map.rs:389",
+     "def_from_use_first": false
+    },
+    {
+     "name": "peekable",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 14,
+     "listed": {
+      "target": 13,
+      "other": 3,
+      "unbound": 3,
+      "outside": 4
+     },
+     "other_share": 0.188,
+     "refs_change": true,
+     "use": "tokio-stream/tests/stream_peekable.rs:21",
+     "def_from_use_first": true
+    },
+    {
+     "name": "SlabStorage",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 9,
+     "listed": {
+      "target": 10,
+      "other": 0,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tokio-util/src/time/delay_queue.rs:182",
+     "def_from_use_first": true
+    },
+    {
+     "name": "with_capacity_and_hasher",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 3,
+     "listed": {
+      "target": 3,
+      "other": 1,
+      "unbound": 1,
+      "outside": 0
+     },
+     "other_share": 0.25,
+     "refs_change": true,
+     "use": "tokio-util/src/task/join_map.rs:169",
+     "def_from_use_first": true
+    },
+    {
+     "name": "Inject",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 9,
+     "listed": {
+      "target": 10,
+      "other": 0,
+      "unbound": 7,
+      "outside": 2
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tokio/src/runtime/scheduler/current_thread/mod.rs:168",
+     "def_from_use_first": true
+    },
+    {
+     "name": "assert_recv",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 66,
+     "listed": {
+      "target": 67,
+      "other": 0,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tokio/tests/sync_broadcast.rs:547",
+     "def_from_use_first": true
+    },
+    {
+     "name": "poll_write_io",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 5,
+     "listed": {
+      "target": 6,
+      "other": 0,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tokio/src/net/udp.rs:1222",
+     "def_from_use_first": true
+    },
+    {
+     "name": "LocalNotified",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 11,
+     "listed": {
+      "target": 12,
+      "other": 0,
+      "unbound": 3,
+      "outside": 1
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tokio/src/task/local.rs:780",
+     "def_from_use_first": true
+    },
+    {
+     "name": "closed",
+     "bucket": "6+",
+     "definitions": 11,
+     "refs": 51,
+     "listed": {
+      "target": 10,
+      "other": 52,
+      "unbound": 381,
+      "outside": 35
+     },
+     "other_share": 0.839,
+     "refs_change": true,
+     "use": "tokio/src/sync/broadcast.rs:963",
+     "def_from_use_first": false
+    },
+    {
+     "name": "Budget",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 35,
+     "listed": {
+      "target": 36,
+      "other": 0,
+      "unbound": 2,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tokio/src/task/coop/mod.rs:539",
+     "def_from_use_first": true
+    },
+    {
+     "name": "max_frame_length",
+     "bucket": "2-5",
+     "definitions": 2,
+     "refs": 14,
+     "listed": {
+      "target": 8,
+      "other": 8,
+      "unbound": 2,
+      "outside": 1
+     },
+     "other_share": 0.5,
+     "refs_change": true,
+     "use": "tokio-util/tests/length_delimited.rs:306",
+     "def_from_use_first": false
+    },
+    {
+     "name": "process",
+     "bucket": "2-5",
+     "definitions": 3,
+     "refs": 73,
+     "listed": {
+      "target": 3,
+      "other": 63,
+      "unbound": 337,
+      "outside": 97
+     },
+     "other_share": 0.955,
+     "refs_change": true,
+     "use": "examples/chat.rs:94",
+     "def_from_use_first": true
+    },
+    {
+     "name": "future",
+     "bucket": "6+",
+     "definitions": 12,
+     "refs": 404,
+     "listed": {
+      "target": 11,
+      "other": 404,
+      "unbound": 973,
+      "outside": 152
+     },
+     "other_share": 0.973,
+     "refs_change": true,
+     "use": "tokio-util/src/sync/cancellation_token.rs:387",
+     "def_from_use_first": false
+    },
+    {
+     "name": "spawn_named",
+     "bucket": "2-5",
+     "definitions": 2,
+     "refs": 6,
+     "listed": {
+      "target": 5,
+      "other": 3,
+      "unbound": 0,
+      "outside": 4
+     },
+     "other_share": 0.375,
+     "refs_change": true,
+     "use": "tokio/src/runtime/runtime.rs:255",
+     "def_from_use_first": true
+    },
+    {
+     "name": "Task",
+     "bucket": "2-5",
+     "definitions": 4,
+     "refs": 75,
+     "listed": {
+      "target": 53,
+      "other": 26,
+      "unbound": 50,
+      "outside": 9
+     },
+     "other_share": 0.329,
+     "refs_change": true,
+     "use": "tokio/src/runtime/tests/task.rs:456",
+     "def_from_use_first": true
+    },
+    {
+     "name": "notification",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 9,
+     "listed": {
+      "target": 10,
+      "other": 0,
+      "unbound": 114,
+      "outside": 29
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tokio/src/sync/notify.rs:1256",
+     "def_from_use_first": true
+    },
+    {
+     "name": "hit_zero",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 4,
+     "listed": {
+      "target": 5,
+      "other": 0,
+      "unbound": 1,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tokio/src/task/coop/mod.rs:422",
+     "def_from_use_first": true
+    },
+    {
+     "name": "get_owner_id",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 4,
+     "listed": {
+      "target": 5,
+      "other": 0,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tokio/src/runtime/task/list.rs:153",
+     "def_from_use_first": true
+    },
+    {
+     "name": "capture",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 13,
+     "listed": {
+      "target": 14,
+      "other": 0,
+      "unbound": 10,
+      "outside": 15
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tokio/src/runtime/tests/task.rs:63",
+     "def_from_use_first": true
+    },
+    {
+     "name": "send_to",
+     "bucket": "2-5",
+     "definitions": 2,
+     "refs": 14,
+     "listed": {
+      "target": 6,
+      "other": 10,
+      "unbound": 19,
+      "outside": 1
+     },
+     "other_share": 0.625,
+     "refs_change": true,
+     "use": "tokio/tests/async_send_sync.rs:237",
+     "def_from_use_first": true
+    },
+    {
+     "name": "try_reserve",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 12,
+     "listed": {
+      "target": 13,
+      "other": 0,
+      "unbound": 7,
+      "outside": 6
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tokio/tests/sync_mpsc.rs:1195",
+     "def_from_use_first": true
+    },
+    {
+     "name": "chan",
+     "bucket": "6+",
+     "definitions": 10,
+     "refs": 131,
+     "listed": {
+      "target": 28,
+      "other": 91,
+      "unbound": 19,
+      "outside": 13
+     },
+     "other_share": 0.765,
+     "refs_change": true,
+     "use": "tokio/src/sync/mpsc/bounded.rs:1578",
+     "def_from_use_first": false
+    },
+    {
+     "name": "map_while",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 7,
+     "listed": {
+      "target": 6,
+      "other": 3,
+      "unbound": 9,
+      "outside": 2
+     },
+     "other_share": 0.333,
+     "refs_change": true,
+     "use": "tokio-stream/tests/stream_fused.rs:144",
+     "def_from_use_first": true
+    },
+    {
+     "name": "Compat",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 19,
+     "listed": {
+      "target": 20,
+      "other": 0,
+      "unbound": 4,
+      "outside": 1
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tokio-util/src/compat.rs:333",
+     "def_from_use_first": true
+    },
+    {
+     "name": "now",
+     "bucket": "6+",
+     "definitions": 7,
+     "refs": 155,
+     "listed": {
+      "target": 103,
+      "other": 59,
+      "unbound": 406,
+      "outside": 50
+     },
+     "other_share": 0.364,
+     "refs_change": true,
+     "use": "tokio/tests/time_interval.rs:244",
+     "def_from_use_first": true
+    },
+    {
+     "name": "length_field_length",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 14,
+     "listed": {
+      "target": 15,
+      "other": 0,
+      "unbound": 5,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tokio-util/tests/length_delimited.rs:794",
+     "def_from_use_first": true
+    },
+    {
+     "name": "write_buf",
+     "bucket": "2-5",
+     "definitions": 3,
+     "refs": 13,
+     "listed": {
+      "target": 7,
+      "other": 9,
+      "unbound": 18,
+      "outside": 5
+     },
+     "other_share": 0.562,
+     "refs_change": true,
+     "use": "tokio-util/src/codec/framed.rs:295",
+     "def_from_use_first": true
+    },
+    {
+     "name": "runtime",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 641,
+     "listed": {
+      "target": 17,
+      "other": 547,
+      "unbound": 1498,
+      "outside": 379
+     },
+     "other_share": 0.97,
+     "refs_change": true,
+     "use": "tokio/src/runtime/context.rs:106",
+     "def_from_use_first": true
+    },
+    {
+     "name": "ShutdownHandles",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 5,
+     "listed": {
+      "target": 6,
+      "other": 0,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tokio/src/runtime/blocking/pool.rs:565",
+     "def_from_use_first": true
+    },
+    {
+     "name": "accept",
+     "bucket": "2-5",
+     "definitions": 4,
+     "refs": 60,
+     "listed": {
+      "target": 45,
+      "other": 19,
+      "unbound": 65,
+      "outside": 8
+     },
+     "other_share": 0.297,
+     "refs_change": true,
+     "use": "tokio/tests/tcp_connect.rs:95",
+     "def_from_use_first": false
+    },
+    {
+     "name": "max_buf_size",
+     "bucket": "2-5",
+     "definitions": 3,
+     "refs": 11,
+     "listed": {
+      "target": 8,
+      "other": 6,
+      "unbound": 37,
+      "outside": 2
+     },
+     "other_share": 0.429,
+     "refs_change": true,
+     "use": "tokio/src/fs/file.rs:769",
+     "def_from_use_first": false
+    },
+    {
+     "name": "AtomicCell",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 12,
+     "listed": {
+      "target": 13,
+      "other": 0,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tokio/src/runtime/scheduler/current_thread/mod.rs:182",
+     "def_from_use_first": true
+    },
+    {
+     "name": "cfg_io_driver",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 8,
+     "listed": {
+      "target": 9,
+      "other": 0,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tokio/src/io/poll_evented.rs:12",
+     "def_from_use_first": true
+    },
+    {
+     "name": "MaybePending",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 9,
+     "listed": {
+      "target": 11,
+      "other": 0,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tokio/tests/io_buf_writer.rs:184",
+     "def_from_use_first": true
+    },
+    {
+     "name": "ImplsFd",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 22,
+     "listed": {
+      "target": 23,
+      "other": 0,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tokio/tests/async_send_sync.rs:756",
+     "def_from_use_first": true
+    },
+    {
+     "name": "Clock",
+     "bucket": "2-5",
+     "definitions": 2,
+     "refs": 24,
+     "listed": {
+      "target": 19,
+      "other": 6,
+      "unbound": 3,
+      "outside": 1
+     },
+     "other_share": 0.24,
+     "refs_change": true,
+     "use": "tokio/src/time/clock.rs:298",
+     "def_from_use_first": false
+    },
+    {
+     "name": "ptr_eq",
+     "bucket": "2-5",
+     "definitions": 3,
+     "refs": 18,
+     "listed": {
+      "target": 2,
+      "other": 19,
+      "unbound": 8,
+      "outside": 0
+     },
+     "other_share": 0.905,
+     "refs_change": true,
+     "use": "tokio/src/runtime/scheduler/multi_thread/worker.rs:1363",
+     "def_from_use_first": true
+    },
+    {
+     "name": "Item",
+     "bucket": "6+",
+     "definitions": 69,
+     "refs": 150,
+     "listed": {
+      "target": 7,
+      "other": 188,
+      "unbound": 28,
+      "outside": 30
+     },
+     "other_share": 0.964,
+     "refs_change": true,
+     "use": "tokio-util/src/udp/frame.rs:65",
+     "def_from_use_first": false
+    },
+    {
+     "name": "Repeat",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 9,
+     "listed": {
+      "target": 10,
+      "other": 0,
+      "unbound": 2,
+      "outside": 1
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tokio/src/io/util/repeat.rs:47",
+     "def_from_use_first": true
+    },
+    {
+     "name": "addr_of_pointers",
+     "bucket": "6+",
+     "definitions": 6,
+     "refs": 6,
+     "listed": {
+      "target": 2,
+      "other": 10,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.833,
+     "refs_change": true,
+     "use": "tokio/src/sync/notify.rs:1391",
+     "def_from_use_first": true
+    },
+    {
+     "name": "spawn",
+     "bucket": "6+",
+     "definitions": 18,
+     "refs": 938,
+     "listed": {
+      "target": 408,
+      "other": 548,
+      "unbound": 625,
+      "outside": 189
+     },
+     "other_share": 0.573,
+     "refs_change": true,
+     "use": "tokio/tests/macros_test.rs:118",
+     "def_from_use_first": false
+    },
+    {
+     "name": "ERROR",
+     "bucket": "2-5",
+     "definitions": 4,
+     "refs": 17,
+     "listed": {
+      "target": 9,
+      "other": 9,
+      "unbound": 9,
+      "outside": 0
+     },
+     "other_share": 0.5,
+     "refs_change": true,
+     "use": "tokio/src/io/ready.rs:50",
+     "def_from_use_first": false
+    },
+    {
+     "name": "builder",
+     "bucket": "2-5",
+     "definitions": 2,
+     "refs": 79,
+     "listed": {
+      "target": 24,
+      "other": 18,
+      "unbound": 110,
+      "outside": 41
+     },
+     "other_share": 0.429,
+     "refs_change": true,
+     "use": "tokio-util/src/codec/length_delimited.rs:540",
+     "def_from_use_first": false
+    },
+    {
+     "name": "eof",
+     "bucket": "2-5",
+     "definitions": 4,
+     "refs": 15,
+     "listed": {
+      "target": 10,
+      "other": 8,
+      "unbound": 8,
+      "outside": 2
+     },
+     "other_share": 0.444,
+     "refs_change": true,
+     "use": "tokio-util/src/io/stream_reader.rs:333",
+     "def_from_use_first": true
+    },
+    {
+     "name": "start_send",
+     "bucket": "6+",
+     "definitions": 9,
+     "refs": 32,
+     "listed": {
+      "target": 26,
+      "other": 15,
+      "unbound": 1,
+      "outside": 0
+     },
+     "other_share": 0.366,
+     "refs_change": true,
+     "use": "tokio-util/tests/framed_write.rs:146",
+     "def_from_use_first": false
+    },
+    {
+     "name": "run_fill_buf",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 9,
+     "listed": {
+      "target": 10,
+      "other": 0,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tokio/tests/io_buf_reader.rs:349",
+     "def_from_use_first": true
+    },
+    {
+     "name": "size_hint",
+     "bucket": "6+",
+     "definitions": 34,
+     "refs": 104,
+     "listed": {
+      "target": 21,
+      "other": 118,
+      "unbound": 5,
+      "outside": 11
+     },
+     "other_share": 0.849,
+     "refs_change": true,
+     "use": "tokio-stream/tests/stream_peekable.rs:43",
+     "def_from_use_first": false
+    },
+    {
+     "name": "SetCurrentGuard",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 8,
+     "listed": {
+      "target": 9,
+      "other": 0,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tokio/src/runtime/context/runtime.rs:1",
+     "def_from_use_first": true
+    },
+    {
+     "name": "assert_read",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 24,
+     "listed": {
+      "target": 26,
+      "other": 0,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tokio-util/tests/framed_read.rs:306",
+     "def_from_use_first": true
+    },
+    {
+     "name": "UnsignedShort",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 16,
+     "listed": {
+      "target": 17,
+      "other": 0,
+      "unbound": 5,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tokio/src/runtime/scheduler/multi_thread/queue.rs:472",
+     "def_from_use_first": true
+    },
+    {
+     "name": "state",
+     "bucket": "6+",
+     "definitions": 30,
+     "refs": 279,
+     "listed": {
+      "target": 33,
+      "other": 274,
+      "unbound": 487,
+      "outside": 59
+     },
+     "other_share": 0.893,
+     "refs_change": true,
+     "use": "tokio/src/io/blocking.rs:89",
+     "def_from_use_first": true
+    },
+    {
+     "name": "unowned",
+     "bucket": "2-5",
+     "definitions": 2,
+     "refs": 23,
+     "listed": {
+      "target": 13,
+      "other": 12,
+      "unbound": 3,
+      "outside": 8
+     },
+     "other_share": 0.48,
+     "refs_change": true,
+     "use": "tokio/src/runtime/tests/queue.rs:38",
+     "def_from_use_first": false
+    },
+    {
+     "name": "LocalKey",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 17,
+     "listed": {
+      "target": 16,
+      "other": 2,
+      "unbound": 12,
+      "outside": 4
+     },
+     "other_share": 0.111,
+     "refs_change": true,
+     "use": "tokio/tests/async_send_sync.rs:550",
+     "def_from_use_first": true
+    }
+   ]
+  },
+  "django": {
+   "revision": "5babd2e21a",
+   "summary": {
+    "n": 100,
+    "refs_change": 37,
+    "refs_change_share": 0.37,
+    "mean_other_share": 0.208,
+    "def_judged": 100,
+    "def_miss": 12,
+    "either": 37,
+    "either_share": 0.37,
+    "by_bucket": {
+     "1": {
+      "n": 64,
+      "refs_change": 1,
+      "def_miss": 0
+     },
+     "2-5": {
+      "n": 21,
+      "refs_change": 21,
+      "def_miss": 7
+     },
+     "6+": {
+      "n": 15,
+      "refs_change": 15,
+      "def_miss": 5
+     }
+    }
+   },
+   "rows": [
+    {
+     "name": "SET",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 6,
+     "listed": {
+      "target": 7,
+      "other": 0,
+      "unbound": 78,
+      "outside": 9
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tests/delete/models.py:103",
+     "def_from_use_first": true
+    },
+    {
+     "name": "ForcedError",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 24,
+     "listed": {
+      "target": 25,
+      "other": 0,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tests/transaction_hooks/tests.py:87",
+     "def_from_use_first": true
+    },
+    {
+     "name": "exc_info",
+     "bucket": "2-5",
+     "definitions": 3,
+     "refs": 104,
+     "listed": {
+      "target": 5,
+      "other": 101,
+      "unbound": 74,
+      "outside": 9
+     },
+     "other_share": 0.953,
+     "refs_change": true,
+     "use": "django/test/client.py:804",
+     "def_from_use_first": true
+    },
+    {
+     "name": "CollectionTestCase",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 26,
+     "listed": {
+      "target": 27,
+      "other": 0,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tests/staticfiles_tests/test_storage.py:678",
+     "def_from_use_first": true
+    },
+    {
+     "name": "asvar",
+     "bucket": "6+",
+     "definitions": 6,
+     "refs": 14,
+     "listed": {
+      "target": 5,
+      "other": 15,
+      "unbound": 43,
+      "outside": 3
+     },
+     "other_share": 0.75,
+     "refs_change": true,
+     "use": "django/template/defaulttags.py:407",
+     "def_from_use_first": false
+    },
+    {
+     "name": "Target",
+     "bucket": "6+",
+     "definitions": 21,
+     "refs": 37,
+     "listed": {
+      "target": 14,
+      "other": 44,
+      "unbound": 77,
+      "outside": 3
+     },
+     "other_share": 0.759,
+     "refs_change": true,
+     "use": "tests/invalid_models_tests/test_models.py:534",
+     "def_from_use_first": true
+    },
+    {
+     "name": "CaseInsensitiveMapping",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 12,
+     "listed": {
+      "target": 13,
+      "other": 0,
+      "unbound": 3,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tests/utils_tests/test_datastructures.py:302",
+     "def_from_use_first": true
+    },
+    {
+     "name": "as_datetime",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 3,
+     "listed": {
+      "target": 4,
+      "other": 0,
+      "unbound": 1,
+      "outside": 3
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "django/contrib/gis/gdal/field.py:216",
+     "def_from_use_first": true
+    },
+    {
+     "name": "BaseModel",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 8,
+     "listed": {
+      "target": 9,
+      "other": 0,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tests/serializers/models/data.py:309",
+     "def_from_use_first": true
+    },
+    {
+     "name": "_create_index_sql",
+     "bucket": "2-5",
+     "definitions": 3,
+     "refs": 9,
+     "listed": {
+      "target": 6,
+      "other": 6,
+      "unbound": 1,
+      "outside": 1
+     },
+     "other_share": 0.5,
+     "refs_change": true,
+     "use": "django/db/backends/base/schema.py:1715",
+     "def_from_use_first": true
+    },
+    {
+     "name": "CityAdmin",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 9,
+     "listed": {
+      "target": 10,
+      "other": 0,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tests/admin_views/tests.py:9278",
+     "def_from_use_first": true
+    },
+    {
+     "name": "CustomStorage",
+     "bucket": "2-5",
+     "definitions": 2,
+     "refs": 4,
+     "listed": {
+      "target": 4,
+      "other": 2,
+      "unbound": 0,
+      "outside": 2
+     },
+     "other_share": 0.333,
+     "refs_change": true,
+     "use": "tests/file_storage/test_base.py:28",
+     "def_from_use_first": true
+    },
+    {
+     "name": "_available_apps_calls_balanced",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 4,
+     "listed": {
+      "target": 5,
+      "other": 0,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "django/test/testcases.py:1143",
+     "def_from_use_first": true
+    },
+    {
+     "name": "one_indirection",
+     "bucket": "2-5",
+     "definitions": 2,
+     "refs": 4,
+     "listed": {
+      "target": 4,
+      "other": 2,
+      "unbound": 4,
+      "outside": 0
+     },
+     "other_share": 0.333,
+     "refs_change": true,
+     "use": "tests/deprecation/test_warn_about_external_use.py:37",
+     "def_from_use_first": true
+    },
+    {
+     "name": "EmptyResponseView",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 9,
+     "listed": {
+      "target": 10,
+      "other": 0,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tests/auth_tests/test_mixins.py:293",
+     "def_from_use_first": true
+    },
+    {
+     "name": "MigrateEverythingRouter",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 5,
+     "listed": {
+      "target": 6,
+      "other": 0,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tests/migrations/test_multidb.py:104",
+     "def_from_use_first": true
+    },
+    {
+     "name": "delimiter",
+     "bucket": "2-5",
+     "definitions": 2,
+     "refs": 7,
+     "listed": {
+      "target": 6,
+      "other": 3,
+      "unbound": 39,
+      "outside": 29
+     },
+     "other_share": 0.333,
+     "refs_change": true,
+     "use": "django/db/models/aggregates.py:413",
+     "def_from_use_first": true
+    },
+    {
+     "name": "temp_dir",
+     "bucket": "2-5",
+     "definitions": 5,
+     "refs": 30,
+     "listed": {
+      "target": 18,
+      "other": 17,
+      "unbound": 23,
+      "outside": 0
+     },
+     "other_share": 0.486,
+     "refs_change": true,
+     "use": "tests/file_storage/tests.py:630",
+     "def_from_use_first": false
+    },
+    {
+     "name": "check_token",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 21,
+     "listed": {
+      "target": 22,
+      "other": 0,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tests/auth_tests/test_tokens.py:93",
+     "def_from_use_first": true
+    },
+    {
+     "name": "UnorderedObjectListWarning",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 6,
+     "listed": {
+      "target": 7,
+      "other": 0,
+      "unbound": 1,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tests/pagination/tests.py:15",
+     "def_from_use_first": true
+    },
+    {
+     "name": "user_2",
+     "bucket": "6+",
+     "definitions": 8,
+     "refs": 52,
+     "listed": {
+      "target": 17,
+      "other": 43,
+      "unbound": 20,
+      "outside": 0
+     },
+     "other_share": 0.717,
+     "refs_change": true,
+     "use": "tests/composite_pk/test_values.py:152",
+     "def_from_use_first": true
+    },
+    {
+     "name": "BookForm",
+     "bucket": "2-5",
+     "definitions": 5,
+     "refs": 11,
+     "listed": {
+      "target": 6,
+      "other": 10,
+      "unbound": 0,
+      "outside": 7
+     },
+     "other_share": 0.625,
+     "refs_change": true,
+     "use": "tests/model_formsets/tests.py:1693",
+     "def_from_use_first": true
+    },
+    {
+     "name": "process_response",
+     "bucket": "6+",
+     "definitions": 20,
+     "refs": 25,
+     "listed": {
+      "target": 20,
+      "other": 25,
+      "unbound": 22,
+      "outside": 8
+     },
+     "other_share": 0.556,
+     "refs_change": true,
+     "use": "tests/middleware/test_security.py:298",
+     "def_from_use_first": false
+    },
+    {
+     "name": "PrimaryKeyWithDefault",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 5,
+     "listed": {
+      "target": 6,
+      "other": 0,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tests/basic/models.py:62",
+     "def_from_use_first": true
+    },
+    {
+     "name": "FileStorageTests",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 3,
+     "listed": {
+      "target": 4,
+      "other": 0,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tests/file_storage/tests.py:623",
+     "def_from_use_first": true
+    },
+    {
+     "name": "EMAIL_SETTING_DEPRECATED_MSG",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 7,
+     "listed": {
+      "target": 8,
+      "other": 0,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tests/mail/__init__.py:31",
+     "def_from_use_first": true
+    },
+    {
+     "name": "RegrSlope",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 4,
+     "listed": {
+      "target": 5,
+      "other": 0,
+      "unbound": 1,
+      "outside": 2
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tests/postgres_tests/test_aggregates.py:788",
+     "def_from_use_first": true
+    },
+    {
+     "name": "non_atomic_requests",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 5,
+     "listed": {
+      "target": 6,
+      "other": 0,
+      "unbound": 3,
+      "outside": 3
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tests/handlers/views.py:36",
+     "def_from_use_first": true
+    },
+    {
+     "name": "InMemoryUploadedFile",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 11,
+     "listed": {
+      "target": 12,
+      "other": 0,
+      "unbound": 4,
+      "outside": 2
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tests/file_storage/tests.py:322",
+     "def_from_use_first": true
+    },
+    {
+     "name": "clean",
+     "bucket": "6+",
+     "definitions": 62,
+     "refs": 986,
+     "listed": {
+      "target": 696,
+      "other": 352,
+      "unbound": 116,
+      "outside": 158
+     },
+     "other_share": 0.336,
+     "refs_change": true,
+     "use": "tests/forms_tests/field_tests/test_integerfield.py:106",
+     "def_from_use_first": true
+    },
+    {
+     "name": "dumps",
+     "bucket": "2-5",
+     "definitions": 5,
+     "refs": 178,
+     "listed": {
+      "target": 8,
+      "other": 175,
+      "unbound": 20,
+      "outside": 22
+     },
+     "other_share": 0.956,
+     "refs_change": true,
+     "use": "django/contrib/messages/storage/cookie.py:195",
+     "def_from_use_first": true
+    },
+    {
+     "name": "TestHelper",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 9,
+     "listed": {
+      "target": 10,
+      "other": 0,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tests/serializers/test_data.py:254",
+     "def_from_use_first": true
+    },
+    {
+     "name": "base",
+     "bucket": "2-5",
+     "definitions": 5,
+     "refs": 20,
+     "listed": {
+      "target": 19,
+      "other": 6,
+      "unbound": 1022,
+      "outside": 989
+     },
+     "other_share": 0.24,
+     "refs_change": true,
+     "use": "tests/utils_tests/test_os_utils.py:104",
+     "def_from_use_first": true
+    },
+    {
+     "name": "CheckMessage",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 8,
+     "listed": {
+      "target": 9,
+      "other": 0,
+      "unbound": 2,
+      "outside": 5
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "django/core/checks/__init__.py:7",
+     "def_from_use_first": true
+    },
+    {
+     "name": "Ceil",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 9,
+     "listed": {
+      "target": 10,
+      "other": 0,
+      "unbound": 1,
+      "outside": 6
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tests/db_functions/math/test_ceil.py:21",
+     "def_from_use_first": true
+    },
+    {
+     "name": "LiveServerThread",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 7,
+     "listed": {
+      "target": 8,
+      "other": 0,
+      "unbound": 3,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "django/test/testcases.py:1808",
+     "def_from_use_first": true
+    },
+    {
+     "name": "geom_param_pos",
+     "bucket": "6+",
+     "definitions": 12,
+     "refs": 5,
+     "listed": {
+      "target": 6,
+      "other": 11,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.647,
+     "refs_change": true,
+     "use": "django/contrib/gis/db/models/functions.py:65",
+     "def_from_use_first": true
+    },
+    {
+     "name": "_check_engines",
+     "bucket": "2-5",
+     "definitions": 2,
+     "refs": 10,
+     "listed": {
+      "target": 7,
+      "other": 5,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.417,
+     "refs_change": true,
+     "use": "tests/check_framework/test_templates.py:189",
+     "def_from_use_first": false
+    },
+    {
+     "name": "RemovedInNextVersionWarning",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 24,
+     "listed": {
+      "target": 25,
+      "other": 0,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tests/deprecation/test_warn_about_external_use.py:32",
+     "def_from_use_first": true
+    },
+    {
+     "name": "closed",
+     "bucket": "2-5",
+     "definitions": 5,
+     "refs": 32,
+     "listed": {
+      "target": 13,
+      "other": 24,
+      "unbound": 88,
+      "outside": 80
+     },
+     "other_share": 0.649,
+     "refs_change": true,
+     "use": "django/core/files/utils.py:63",
+     "def_from_use_first": true
+    },
+    {
+     "name": "_has_any_perms_for_target_model",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 4,
+     "listed": {
+      "target": 5,
+      "other": 0,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "django/contrib/admin/options.py:2918",
+     "def_from_use_first": true
+    },
+    {
+     "name": "RFC3986_SUBDELIMS",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 4,
+     "listed": {
+      "target": 5,
+      "other": 0,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "django/urls/resolvers.py:25",
+     "def_from_use_first": true
+    },
+    {
+     "name": "media_dir",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 8,
+     "listed": {
+      "target": 9,
+      "other": 0,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tests/view_tests/tests/test_static.py:30",
+     "def_from_use_first": true
+    },
+    {
+     "name": "get_finders",
+     "bucket": "2-5",
+     "definitions": 2,
+     "refs": 9,
+     "listed": {
+      "target": 9,
+      "other": 2,
+      "unbound": 1,
+      "outside": 0
+     },
+     "other_share": 0.182,
+     "refs_change": true,
+     "use": "django/contrib/staticfiles/checks.py:2",
+     "def_from_use_first": true
+    },
+    {
+     "name": "NaiveAuthorUpdate",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 4,
+     "listed": {
+      "target": 5,
+      "other": 0,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tests/generic_views/urls.py:103",
+     "def_from_use_first": true
+    },
+    {
+     "name": "check_password_with_timing_attack_mitigation",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 3,
+     "listed": {
+      "target": 4,
+      "other": 0,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "django/contrib/auth/handlers/modwsgi.py:39",
+     "def_from_use_first": true
+    },
+    {
+     "name": "assertOperationAttributes",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 197,
+     "listed": {
+      "target": 198,
+      "other": 0,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tests/migrations/test_autodetector.py:2219",
+     "def_from_use_first": true
+    },
+    {
+     "name": "registry",
+     "bucket": "2-5",
+     "definitions": 2,
+     "refs": 25,
+     "listed": {
+      "target": 18,
+      "other": 8,
+      "unbound": 119,
+      "outside": 62
+     },
+     "other_share": 0.308,
+     "refs_change": true,
+     "use": "django/test/utils.py:640",
+     "def_from_use_first": false
+    },
+    {
+     "name": "handle_extensions",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 4,
+     "listed": {
+      "target": 5,
+      "other": 0,
+      "unbound": 2,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "django/core/management/commands/makemessages.py:16",
+     "def_from_use_first": true
+    },
+    {
+     "name": "PostgresOperatorLookup",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 23,
+     "listed": {
+      "target": 24,
+      "other": 0,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "django/contrib/postgres/fields/ranges.py:14",
+     "def_from_use_first": true
+    },
+    {
+     "name": "validate_consistency",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 9,
+     "listed": {
+      "target": 10,
+      "other": 0,
+      "unbound": 3,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tests/migrations/test_graph.py:288",
+     "def_from_use_first": true
+    },
+    {
+     "name": "EMPTY_VALUES",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 7,
+     "listed": {
+      "target": 8,
+      "other": 0,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "django/forms/fields.py:95",
+     "def_from_use_first": true
+    },
+    {
+     "name": "__deepcopy__",
+     "bucket": "6+",
+     "definitions": 19,
+     "refs": 6,
+     "listed": {
+      "target": 4,
+      "other": 21,
+      "unbound": 15,
+      "outside": 0
+     },
+     "other_share": 0.84,
+     "refs_change": true,
+     "use": "django/forms/models.py:1533",
+     "def_from_use_first": false
+    },
+    {
+     "name": "is_valid_path",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 7,
+     "listed": {
+      "target": 8,
+      "other": 0,
+      "unbound": 1,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "django/middleware/common.py:69",
+     "def_from_use_first": true
+    },
+    {
+     "name": "FormFieldAssertionsMixin",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 22,
+     "listed": {
+      "target": 23,
+      "other": 0,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tests/forms_tests/field_tests/test_urlfield.py:6",
+     "def_from_use_first": true
+    },
+    {
+     "name": "add_error",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 12,
+     "listed": {
+      "target": 13,
+      "other": 0,
+      "unbound": 7,
+      "outside": 16
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tests/forms_tests/tests/test_forms.py:1591",
+     "def_from_use_first": true
+    },
+    {
+     "name": "BaseSequenceSerializer",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 3,
+     "listed": {
+      "target": 4,
+      "other": 0,
+      "unbound": 1,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "django/db/migrations/serializer.py:305",
+     "def_from_use_first": true
+    },
+    {
+     "name": "force_escape",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 3,
+     "listed": {
+      "target": 4,
+      "other": 0,
+      "unbound": 22,
+      "outside": 14
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tests/template_tests/filter_tests/test_force_escape.py:90",
+     "def_from_use_first": true
+    },
+    {
+     "name": "klass_info",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 4,
+     "listed": {
+      "target": 5,
+      "other": 0,
+      "unbound": 63,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "django/db/models/sql/compiler.py:1474",
+     "def_from_use_first": true
+    },
+    {
+     "name": "check_mailers_default_alias",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 5,
+     "listed": {
+      "target": 6,
+      "other": 0,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tests/check_framework/test_mail.py:26",
+     "def_from_use_first": true
+    },
+    {
+     "name": "related",
+     "bucket": "6+",
+     "definitions": 8,
+     "refs": 35,
+     "listed": {
+      "target": 33,
+      "other": 10,
+      "unbound": 646,
+      "outside": 1630
+     },
+     "other_share": 0.233,
+     "refs_change": true,
+     "use": "django/db/models/fields/related_descriptors.py:490",
+     "def_from_use_first": true
+    },
+    {
+     "name": "RemovedInDjango70Warning",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 261,
+     "listed": {
+      "target": 262,
+      "other": 0,
+      "unbound": 272,
+      "outside": 6
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "django/core/mail/message.py:608",
+     "def_from_use_first": true
+    },
+    {
+     "name": "get_default_r",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 4,
+     "listed": {
+      "target": 5,
+      "other": 0,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tests/delete/tests.py:53",
+     "def_from_use_first": true
+    },
+    {
+     "name": "connection",
+     "bucket": "6+",
+     "definitions": 21,
+     "refs": 3341,
+     "listed": {
+      "target": 2790,
+      "other": 572,
+      "unbound": 2018,
+      "outside": 442
+     },
+     "other_share": 0.17,
+     "refs_change": true,
+     "use": "tests/migrations/test_operations.py:971",
+     "def_from_use_first": true
+    },
+    {
+     "name": "chris",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 4,
+     "listed": {
+      "target": 5,
+      "other": 0,
+      "unbound": 41,
+      "outside": 6
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tests/m2m_through_regress/test_multitable.py:41",
+     "def_from_use_first": true
+    },
+    {
+     "name": "_iterator",
+     "bucket": "2-5",
+     "definitions": 3,
+     "refs": 8,
+     "listed": {
+      "target": 5,
+      "other": 6,
+      "unbound": 5,
+      "outside": 8
+     },
+     "other_share": 0.545,
+     "refs_change": true,
+     "use": "django/http/response.py:535",
+     "def_from_use_first": true
+    },
+    {
+     "name": "parse_duration",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 27,
+     "listed": {
+      "target": 28,
+      "other": 0,
+      "unbound": 0,
+      "outside": 5
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tests/utils_tests/test_dateparse.py:140",
+     "def_from_use_first": true
+    },
+    {
+     "name": "tag",
+     "bucket": "6+",
+     "definitions": 18,
+     "refs": 91,
+     "listed": {
+      "target": 74,
+      "other": 35,
+      "unbound": 981,
+      "outside": 1043
+     },
+     "other_share": 0.321,
+     "refs_change": true,
+     "use": "django/contrib/admin/templatetags/log.py:26",
+     "def_from_use_first": true
+    },
+    {
+     "name": "_setup",
+     "bucket": "6+",
+     "definitions": 8,
+     "refs": 10,
+     "listed": {
+      "target": 6,
+      "other": 12,
+      "unbound": 3,
+      "outside": 1
+     },
+     "other_share": 0.667,
+     "refs_change": true,
+     "use": "django/utils/functional.py:295",
+     "def_from_use_first": true
+    },
+    {
+     "name": "find",
+     "bucket": "2-5",
+     "definitions": 5,
+     "refs": 29,
+     "listed": {
+      "target": 5,
+      "other": 29,
+      "unbound": 170,
+      "outside": 346
+     },
+     "other_share": 0.853,
+     "refs_change": true,
+     "use": "django/contrib/staticfiles/finders.py:298",
+     "def_from_use_first": false
+    },
+    {
+     "name": "Chapter",
+     "bucket": "2-5",
+     "definitions": 3,
+     "refs": 32,
+     "listed": {
+      "target": 18,
+      "other": 17,
+      "unbound": 12,
+      "outside": 8
+     },
+     "other_share": 0.486,
+     "refs_change": true,
+     "use": "tests/admin_views/tests.py:1119",
+     "def_from_use_first": true
+    },
+    {
+     "name": "get_group_by_cols",
+     "bucket": "6+",
+     "definitions": 19,
+     "refs": 12,
+     "listed": {
+      "target": 4,
+      "other": 27,
+      "unbound": 10,
+      "outside": 6
+     },
+     "other_share": 0.871,
+     "refs_change": true,
+     "use": "tests/expressions_window/tests.py:2019",
+     "def_from_use_first": false
+    },
+    {
+     "name": "error_class",
+     "bucket": "2-5",
+     "definitions": 5,
+     "refs": 15,
+     "listed": {
+      "target": 6,
+      "other": 14,
+      "unbound": 29,
+      "outside": 10
+     },
+     "other_share": 0.7,
+     "refs_change": true,
+     "use": "django/forms/formsets.py:402",
+     "def_from_use_first": false
+    },
+    {
+     "name": "width",
+     "bucket": "6+",
+     "definitions": 7,
+     "refs": 14,
+     "listed": {
+      "target": 10,
+      "other": 11,
+      "unbound": 135,
+      "outside": 347
+     },
+     "other_share": 0.524,
+     "refs_change": true,
+     "use": "tests/gis_tests/gdal_tests/test_raster.py:93",
+     "def_from_use_first": false
+    },
+    {
+     "name": "num_feat",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 4,
+     "listed": {
+      "target": 5,
+      "other": 0,
+      "unbound": 7,
+      "outside": 2
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "django/contrib/gis/gdal/layer.py:64",
+     "def_from_use_first": true
+    },
+    {
+     "name": "Poll",
+     "bucket": "2-5",
+     "definitions": 4,
+     "refs": 33,
+     "listed": {
+      "target": 11,
+      "other": 26,
+      "unbound": 1,
+      "outside": 18
+     },
+     "other_share": 0.703,
+     "refs_change": true,
+     "use": "tests/admin_inlines/admin.py:507",
+     "def_from_use_first": true
+    },
+    {
+     "name": "Truncator",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 38,
+     "listed": {
+      "target": 39,
+      "other": 0,
+      "unbound": 0,
+      "outside": 39
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tests/utils_tests/test_text.py:86",
+     "def_from_use_first": true
+    },
+    {
+     "name": "force_str",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 58,
+     "listed": {
+      "target": 59,
+      "other": 0,
+      "unbound": 4,
+      "outside": 13
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "django/core/mail/message.py:490",
+     "def_from_use_first": true
+    },
+    {
+     "name": "AustraliaCity",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 23,
+     "listed": {
+      "target": 24,
+      "other": 0,
+      "unbound": 0,
+      "outside": 3
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tests/gis_tests/distapp/tests.py:223",
+     "def_from_use_first": true
+    },
+    {
+     "name": "_mocked_authenticated_request",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 27,
+     "listed": {
+      "target": 28,
+      "other": 0,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tests/admin_changelist/tests.py:1242",
+     "def_from_use_first": true
+    },
+    {
+     "name": "HAS_YAML",
+     "bucket": "2-5",
+     "definitions": 5,
+     "refs": 15,
+     "listed": {
+      "target": 5,
+      "other": 15,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.75,
+     "refs_change": true,
+     "use": "tests/timezones/tests.py:57",
+     "def_from_use_first": true
+    },
+    {
+     "name": "DynamicConverter",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 8,
+     "listed": {
+      "target": 9,
+      "other": 0,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tests/urlpatterns/path_dynamic_urls.py:5",
+     "def_from_use_first": true
+    },
+    {
+     "name": "Cast",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 100,
+     "listed": {
+      "target": 101,
+      "other": 0,
+      "unbound": 20,
+      "outside": 16
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tests/schema/tests.py:61",
+     "def_from_use_first": true
+    },
+    {
+     "name": "leaf_nodes",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 15,
+     "listed": {
+      "target": 16,
+      "other": 0,
+      "unbound": 3,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "django/db/migrations/executor.py:115",
+     "def_from_use_first": true
+    },
+    {
+     "name": "ExplicitPK",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 5,
+     "listed": {
+      "target": 6,
+      "other": 0,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tests/model_forms/tests.py:54",
+     "def_from_use_first": true
+    },
+    {
+     "name": "Node",
+     "bucket": "6+",
+     "definitions": 8,
+     "refs": 153,
+     "listed": {
+      "target": 73,
+      "other": 88,
+      "unbound": 37,
+      "outside": 38
+     },
+     "other_share": 0.547,
+     "refs_change": true,
+     "use": "django/template/defaulttags.py:259",
+     "def_from_use_first": true
+    },
+    {
+     "name": "UUID",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 75,
+     "listed": {
+      "target": 7,
+      "other": 68,
+      "unbound": 35,
+      "outside": 353
+     },
+     "other_share": 0.907,
+     "refs_change": true,
+     "use": "tests/expressions/tests.py:2448",
+     "def_from_use_first": true
+    },
+    {
+     "name": "refer_to_missing_field",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 9,
+     "listed": {
+      "target": 10,
+      "other": 0,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "django/contrib/admin/checks.py:602",
+     "def_from_use_first": true
+    },
+    {
+     "name": "ContentTypeManager",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 4,
+     "listed": {
+      "target": 5,
+      "other": 0,
+      "unbound": 2,
+      "outside": 13
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tests/contenttypes_tests/test_models.py:2",
+     "def_from_use_first": true
+    },
+    {
+     "name": "_get_from_db",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 3,
+     "listed": {
+      "target": 4,
+      "other": 0,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "django/db/models/query.py:158",
+     "def_from_use_first": true
+    },
+    {
+     "name": "batch_process_rhs",
+     "bucket": "2-5",
+     "definitions": 2,
+     "refs": 3,
+     "listed": {
+      "target": 4,
+      "other": 1,
+      "unbound": 4,
+      "outside": 0
+     },
+     "other_share": 0.2,
+     "refs_change": true,
+     "use": "django/db/models/lookups.py:540",
+     "def_from_use_first": false
+    },
+    {
+     "name": "request_started",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 27,
+     "listed": {
+      "target": 28,
+      "other": 0,
+      "unbound": 3,
+      "outside": 3
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tests/wsgi/tests.py:3",
+     "def_from_use_first": true
+    },
+    {
+     "name": "now",
+     "bucket": "6+",
+     "definitions": 7,
+     "refs": 364,
+     "listed": {
+      "target": 132,
+      "other": 237,
+      "unbound": 380,
+      "outside": 2793
+     },
+     "other_share": 0.642,
+     "refs_change": true,
+     "use": "tests/cache/models.py:7",
+     "def_from_use_first": true
+    },
+    {
+     "name": "query_values",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 3,
+     "listed": {
+      "target": 4,
+      "other": 0,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tests/gis_tests/test_geoip2.py:156",
+     "def_from_use_first": true
+    },
+    {
+     "name": "PersonNoReadImage",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 4,
+     "listed": {
+      "target": 5,
+      "other": 0,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tests/model_fields/test_imagefield.py:478",
+     "def_from_use_first": true
+    },
+    {
+     "name": "XFrameOptionsMiddleware",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 16,
+     "listed": {
+      "target": 17,
+      "other": 0,
+      "unbound": 12,
+      "outside": 9
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tests/middleware/tests.py:814",
+     "def_from_use_first": true
+    },
+    {
+     "name": "SuspiciousFileOperation",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 46,
+     "listed": {
+      "target": 47,
+      "other": 0,
+      "unbound": 2,
+      "outside": 6
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tests/model_fields/test_filefield.py:8",
+     "def_from_use_first": true
+    },
+    {
+     "name": "requires_csrf_token",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 14,
+     "listed": {
+      "target": 15,
+      "other": 0,
+      "unbound": 3,
+      "outside": 9
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tests/decorators/test_csrf.py:88",
+     "def_from_use_first": true
+    },
+    {
+     "name": "timezone",
+     "bucket": "2-5",
+     "definitions": 5,
+     "refs": 38,
+     "listed": {
+      "target": 12,
+      "other": 31,
+      "unbound": 678,
+      "outside": 356
+     },
+     "other_share": 0.721,
+     "refs_change": true,
+     "use": "django/utils/dateformat.py:89",
+     "def_from_use_first": false
+    },
+    {
+     "name": "ForeignKey",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 1262,
+     "listed": {
+      "target": 1263,
+      "other": 0,
+      "unbound": 211,
+      "outside": 328
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tests/invalid_models_tests/test_models.py:1823",
+     "def_from_use_first": true
+    }
+   ]
+  },
+  "TypeScript-5.9": {
+   "revision": "5be33469d",
+   "summary": {
+    "n": 100,
+    "refs_change": 57,
+    "refs_change_share": 0.57,
+    "mean_other_share": 0.239,
+    "def_judged": 98,
+    "def_miss": 37,
+    "either": 66,
+    "either_share": 0.66,
+    "by_bucket": {
+     "1": {
+      "n": 26,
+      "refs_change": 0,
+      "def_miss": 0
+     },
+     "2-5": {
+      "n": 52,
+      "refs_change": 36,
+      "def_miss": 20
+     },
+     "6+": {
+      "n": 22,
+      "refs_change": 21,
+      "def_miss": 17
+     }
+    }
+   },
+   "rows": [
+    {
+     "name": "ReadonlyPragmaMap",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 6,
+     "listed": {
+      "target": 7,
+      "other": 0,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "src/compiler/parser.ts:1622",
+     "def_from_use_first": true
+    },
+    {
+     "name": "FormatOnKeyRequestArgs",
+     "bucket": "2-5",
+     "definitions": 3,
+     "refs": 6,
+     "listed": {
+      "target": 5,
+      "other": 2,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.286,
+     "refs_change": true,
+     "use": "src/harness/client.ts:370",
+     "def_from_use_first": true
+    },
+    {
+     "name": "getGeneratedPrivateNameForNode",
+     "bucket": "2-5",
+     "definitions": 3,
+     "refs": 8,
+     "listed": {
+      "target": 10,
+      "other": 1,
+      "unbound": 1,
+      "outside": 0
+     },
+     "other_share": 0.091,
+     "refs_change": false,
+     "use": "src/compiler/factory/utilities.ts:1663",
+     "def_from_use_first": true
+    },
+    {
+     "name": "CompilerOptionsValue",
+     "bucket": "2-5",
+     "definitions": 3,
+     "refs": 44,
+     "listed": {
+      "target": 33,
+      "other": 7,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.175,
+     "refs_change": true,
+     "use": "tests/baselines/reference/api/typescript.d.ts:7150",
+     "def_from_use_first": false
+    },
+    {
+     "name": "createDocumentRegistry",
+     "bucket": "2-5",
+     "definitions": 3,
+     "refs": 7,
+     "listed": {
+      "target": 7,
+      "other": 2,
+      "unbound": 2,
+      "outside": 2
+     },
+     "other_share": 0.222,
+     "refs_change": true,
+     "use": "src/services/services.ts:1632",
+     "def_from_use_first": true
+    },
+    {
+     "name": "SetKeyword",
+     "bucket": "2-5",
+     "definitions": 3,
+     "refs": 21,
+     "listed": {
+      "target": 20,
+      "other": 2,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.091,
+     "refs_change": false,
+     "use": "lib/typescript.d.ts:4204",
+     "def_from_use_first": false
+    },
+    {
+     "name": "Choice",
+     "bucket": "6+",
+     "definitions": 10,
+     "refs": 234,
+     "listed": {
+      "target": 118,
+      "other": 13,
+      "unbound": 79,
+      "outside": 2647
+     },
+     "other_share": 0.099,
+     "refs_change": false,
+     "use": "tests/cases/conformance/types/literal/stringEnumLiteralTypes1.ts:52",
+     "def_from_use_first": false
+    },
+    {
+     "name": "cinereus",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 7,
+     "listed": {
+      "target": 8,
+      "other": 0,
+      "unbound": 0,
+      "outside": 117
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tests/cases/compiler/resolvingClassDeclarationWhenInBaseTypeResolution.ts:994",
+     "def_from_use_first": true
+    },
+    {
+     "name": "BooleanLike",
+     "bucket": "2-5",
+     "definitions": 3,
+     "refs": 6,
+     "listed": {
+      "target": 7,
+      "other": 1,
+      "unbound": 0,
+      "outside": 9
+     },
+     "other_share": 0.125,
+     "refs_change": true,
+     "use": "src/services/completions.ts:1860",
+     "def_from_use_first": true
+    },
+    {
+     "name": "VideoColorSpaceInit",
+     "bucket": "2-5",
+     "definitions": 2,
+     "refs": 40,
+     "listed": {
+      "target": 5,
+      "other": 0,
+      "unbound": 0,
+      "outside": 5
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "lib/lib.webworker.d.ts:8937",
+     "def_from_use_first": false
+    },
+    {
+     "name": "CommonJSModule",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 4,
+     "listed": {
+      "target": 5,
+      "other": 0,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "src/harness/evaluatorImpl.ts:177",
+     "def_from_use_first": true
+    },
+    {
+     "name": "DOMPointReadOnly",
+     "bucket": "2-5",
+     "definitions": 4,
+     "refs": 80,
+     "listed": {
+      "target": 5,
+      "other": 1,
+      "unbound": 17,
+      "outside": 29
+     },
+     "other_share": 0.167,
+     "refs_change": true,
+     "use": "src/lib/webworker.generated.d.ts:3186",
+     "def_from_use_first": true
+    },
+    {
+     "name": "Uninitialized",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 12,
+     "listed": {
+      "target": 13,
+      "other": 0,
+      "unbound": 2,
+      "outside": 10
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "src/compiler/transformer.ts:266",
+     "def_from_use_first": true
+    },
+    {
+     "name": "obj4",
+     "bucket": "6+",
+     "definitions": 51,
+     "refs": 57,
+     "listed": {
+      "target": 14,
+      "other": 94,
+      "unbound": 3,
+      "outside": 745
+     },
+     "other_share": 0.87,
+     "refs_change": true,
+     "use": "tests/cases/compiler/assignmentCompatability18.ts:3",
+     "def_from_use_first": true
+    },
+    {
+     "name": "Evaluating",
+     "bucket": "2-5",
+     "definitions": 2,
+     "refs": 4,
+     "listed": {
+      "target": 3,
+      "other": 3,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.5,
+     "refs_change": true,
+     "use": "src/harness/evaluatorImpl.ts:730",
+     "def_from_use_first": false
+    },
+    {
+     "name": "LanguageService",
+     "bucket": "2-5",
+     "definitions": 3,
+     "refs": 31,
+     "listed": {
+      "target": 22,
+      "other": 6,
+      "unbound": 27,
+      "outside": 2
+     },
+     "other_share": 0.214,
+     "refs_change": true,
+     "use": "src/server/project.ts:261",
+     "def_from_use_first": true
+    },
+    {
+     "name": "g22",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 3,
+     "listed": {
+      "target": 4,
+      "other": 0,
+      "unbound": 0,
+      "outside": 32
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tests/cases/conformance/types/rest/genericRestParameters1.ts:122",
+     "def_from_use_first": true
+    },
+    {
+     "name": "then",
+     "bucket": "6+",
+     "definitions": 94,
+     "refs": 3398,
+     "listed": {
+      "target": 288,
+      "other": 188,
+      "unbound": 1397,
+      "outside": 8369
+     },
+     "other_share": 0.395,
+     "refs_change": true,
+     "use": "tests/cases/compiler/promisePermutations3.ts:135",
+     "def_from_use_first": false
+    },
+    {
+     "name": "emitSkipped",
+     "bucket": "6+",
+     "definitions": 11,
+     "refs": 22,
+     "listed": {
+      "target": 11,
+      "other": 18,
+      "unbound": 19,
+      "outside": 93
+     },
+     "other_share": 0.621,
+     "refs_change": true,
+     "use": "src/server/session.ts:2628",
+     "def_from_use_first": false
+    },
+    {
+     "name": "TestServerHostOsFlavor",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 69,
+     "listed": {
+      "target": 70,
+      "other": 0,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "src/testRunner/unittests/tscWatch/watchEnvironment.ts:256",
+     "def_from_use_first": true
+    },
+    {
+     "name": "updateLevel",
+     "bucket": "2-5",
+     "definitions": 2,
+     "refs": 19,
+     "listed": {
+      "target": 12,
+      "other": 9,
+      "unbound": 51,
+      "outside": 0
+     },
+     "other_share": 0.429,
+     "refs_change": true,
+     "use": "src/compiler/watchPublic.ts:1181",
+     "def_from_use_first": true
+    },
+    {
+     "name": "CSSRuleList",
+     "bucket": "2-5",
+     "definitions": 4,
+     "refs": 88,
+     "listed": {
+      "target": 9,
+      "other": 2,
+      "unbound": 0,
+      "outside": 21
+     },
+     "other_share": 0.182,
+     "refs_change": true,
+     "use": "tests/lib/lib.d.ts:4594",
+     "def_from_use_first": false
+    },
+    {
+     "name": "priority",
+     "bucket": "6+",
+     "definitions": 9,
+     "refs": 18,
+     "listed": {
+      "target": 19,
+      "other": 5,
+      "unbound": 82,
+      "outside": 123
+     },
+     "other_share": 0.208,
+     "refs_change": true,
+     "use": "src/compiler/factory/emitHelpers.ts:1155",
+     "def_from_use_first": false
+    },
+    {
+     "name": "ParenthesizedExpression",
+     "bucket": "6+",
+     "definitions": 6,
+     "refs": 133,
+     "listed": {
+      "target": 70,
+      "other": 58,
+      "unbound": 6,
+      "outside": 33
+     },
+     "other_share": 0.453,
+     "refs_change": true,
+     "use": "src/compiler/utilitiesPublic.ts:2008",
+     "def_from_use_first": false
+    },
+    {
+     "name": "Float32List",
+     "bucket": "2-5",
+     "definitions": 2,
+     "refs": 50,
+     "listed": {
+      "target": 1,
+      "other": 25,
+      "unbound": 0,
+      "outside": 26
+     },
+     "other_share": 0.962,
+     "refs_change": true,
+     "use": null,
+     "def_from_use_first": null
+    },
+    {
+     "name": "EncodedSemanticClassificationsResponseBody",
+     "bucket": "2-5",
+     "definitions": 3,
+     "refs": 3,
+     "listed": {
+      "target": 2,
+      "other": 2,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.5,
+     "refs_change": true,
+     "use": "src/server/protocol.ts:944",
+     "def_from_use_first": true
+    },
+    {
+     "name": "Promise2",
+     "bucket": "2-5",
+     "definitions": 2,
+     "refs": 4,
+     "listed": {
+      "target": 3,
+      "other": 3,
+      "unbound": 2,
+      "outside": 52
+     },
+     "other_share": 0.5,
+     "refs_change": true,
+     "use": "tests/cases/compiler/promiseIdentityWithAny2.ts:22",
+     "def_from_use_first": true
+    },
+    {
+     "name": "noRegexTable",
+     "bucket": "2-5",
+     "definitions": 2,
+     "refs": 13,
+     "listed": {
+      "target": 13,
+      "other": 2,
+      "unbound": 0,
+      "outside": 115
+     },
+     "other_share": 0.133,
+     "refs_change": true,
+     "use": "tests/cases/conformance/parser/ecmascript5/parserRealSource10.ts:137",
+     "def_from_use_first": true
+    },
+    {
+     "name": "IAstWalker",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 52,
+     "listed": {
+      "target": 53,
+      "other": 0,
+      "unbound": 0,
+      "outside": 1063
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tests/cases/conformance/parser/ecmascript5/parserRealSource12.ts:221",
+     "def_from_use_first": true
+    },
+    {
+     "name": "ensureTrailingDirectorySeparator",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 49,
+     "listed": {
+      "target": 49,
+      "other": 0,
+      "unbound": 2,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "src/compiler/watchUtilities.ts:233",
+     "def_from_use_first": true
+    },
+    {
+     "name": "getDeclaration",
+     "bucket": "6+",
+     "definitions": 6,
+     "refs": 4,
+     "listed": {
+      "target": 3,
+      "other": 6,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.667,
+     "refs_change": true,
+     "use": "src/services/codefixes/convertToTypeOnlyImport.ts:67",
+     "def_from_use_first": true
+    },
+    {
+     "name": "SourceFileImportsList",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 3,
+     "listed": {
+      "target": 4,
+      "other": 0,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "src/compiler/program.ts:876",
+     "def_from_use_first": true
+    },
+    {
+     "name": "createPropertySignature",
+     "bucket": "2-5",
+     "definitions": 3,
+     "refs": 11,
+     "listed": {
+      "target": 12,
+      "other": 1,
+      "unbound": 2,
+      "outside": 7
+     },
+     "other_share": 0.077,
+     "refs_change": false,
+     "use": "src/compiler/expressionToTypeNode.ts:1203",
+     "def_from_use_first": true
+    },
+    {
+     "name": "ClientQueryOptions",
+     "bucket": "2-5",
+     "definitions": 2,
+     "refs": 10,
+     "listed": {
+      "target": 2,
+      "other": 0,
+      "unbound": 0,
+      "outside": 1
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "lib/lib.webworker.d.ts:2569",
+     "def_from_use_first": false
+    },
+    {
+     "name": "ClassFieldDecoratorContext",
+     "bucket": "2-5",
+     "definitions": 2,
+     "refs": 6,
+     "listed": {
+      "target": 2,
+      "other": 0,
+      "unbound": 4,
+      "outside": 26
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "lib/lib.decorators.d.ts:26",
+     "def_from_use_first": true
+    },
+    {
+     "name": "IsFunctionLike",
+     "bucket": "2-5",
+     "definitions": 2,
+     "refs": 5,
+     "listed": {
+      "target": 5,
+      "other": 2,
+      "unbound": 1,
+      "outside": 0
+     },
+     "other_share": 0.286,
+     "refs_change": true,
+     "use": "src/compiler/binder.ts:3960",
+     "def_from_use_first": false
+    },
+    {
+     "name": "getStringOrNumber",
+     "bucket": "2-5",
+     "definitions": 2,
+     "refs": 16,
+     "listed": {
+      "target": 9,
+      "other": 1,
+      "unbound": 0,
+      "outside": 70
+     },
+     "other_share": 0.1,
+     "refs_change": true,
+     "use": "tests/cases/conformance/controlFlow/constLocalsInFunctionExpressions.ts:19",
+     "def_from_use_first": false
+    },
+    {
+     "name": "UpstreamOutOfDate",
+     "bucket": "2-5",
+     "definitions": 2,
+     "refs": 3,
+     "listed": {
+      "target": 3,
+      "other": 2,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.4,
+     "refs_change": true,
+     "use": "src/compiler/tsbuild.ts:50",
+     "def_from_use_first": true
+    },
+    {
+     "name": "PushEventInit",
+     "bucket": "2-5",
+     "definitions": 2,
+     "refs": 4,
+     "listed": {
+      "target": 2,
+      "other": 0,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "src/lib/webworker.generated.d.ts:6994",
+     "def_from_use_first": false
+    },
+    {
+     "name": "esmy",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 3,
+     "listed": {
+      "target": 4,
+      "other": 0,
+      "unbound": 1,
+      "outside": 31
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tests/cases/conformance/externalModules/verbatimModuleSyntaxRestrictionsCJS.ts:60",
+     "def_from_use_first": true
+    },
+    {
+     "name": "YieldExpression",
+     "bucket": "6+",
+     "definitions": 6,
+     "refs": 64,
+     "listed": {
+      "target": 36,
+      "other": 24,
+      "unbound": 14,
+      "outside": 9
+     },
+     "other_share": 0.4,
+     "refs_change": true,
+     "use": "src/compiler/emitter.ts:1964",
+     "def_from_use_first": false
+    },
+    {
+     "name": "Pos",
+     "bucket": "2-5",
+     "definitions": 3,
+     "refs": 24,
+     "listed": {
+      "target": 13,
+      "other": 14,
+      "unbound": 14,
+      "outside": 4737
+     },
+     "other_share": 0.519,
+     "refs_change": true,
+     "use": "tests/cases/compiler/ramdaToolsNoInfinite.ts:91",
+     "def_from_use_first": true
+    },
+    {
+     "name": "matchesExclude",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 5,
+     "listed": {
+      "target": 6,
+      "other": 0,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "src/compiler/sys.ts:29",
+     "def_from_use_first": true
+    },
+    {
+     "name": "head",
+     "bucket": "6+",
+     "definitions": 18,
+     "refs": 20,
+     "listed": {
+      "target": 15,
+      "other": 24,
+      "unbound": 109,
+      "outside": 267
+     },
+     "other_share": 0.615,
+     "refs_change": true,
+     "use": "src/services/refactors/convertStringOrTemplateLiteral.ts:219",
+     "def_from_use_first": false
+    },
+    {
+     "name": "MinusToken",
+     "bucket": "6+",
+     "definitions": 6,
+     "refs": 90,
+     "listed": {
+      "target": 50,
+      "other": 30,
+      "unbound": 1,
+      "outside": 16
+     },
+     "other_share": 0.375,
+     "refs_change": true,
+     "use": "src/compiler/factory/nodeTests.ts:145",
+     "def_from_use_first": true
+    },
+    {
+     "name": "edit",
+     "bucket": "6+",
+     "definitions": 7,
+     "refs": 1692,
+     "listed": {
+      "target": 1166,
+      "other": 532,
+      "unbound": 161,
+      "outside": 249
+     },
+     "other_share": 0.313,
+     "refs_change": true,
+     "use": "tests/cases/fourslash/pathCompletionsTypesVersionsWildcard5.ts:49",
+     "def_from_use_first": false
+    },
+    {
+     "name": "containsOnlyTriviaWhiteSpaces",
+     "bucket": "2-5",
+     "definitions": 3,
+     "refs": 4,
+     "listed": {
+      "target": 5,
+      "other": 1,
+      "unbound": 9,
+      "outside": 2
+     },
+     "other_share": 0.167,
+     "refs_change": true,
+     "use": "src/compiler/factory/nodeFactory.ts:5715",
+     "def_from_use_first": true
+    },
+    {
+     "name": "readBuilderProgram",
+     "bucket": "2-5",
+     "definitions": 3,
+     "refs": 4,
+     "listed": {
+      "target": 5,
+      "other": 1,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.167,
+     "refs_change": true,
+     "use": "src/compiler/watchPublic.ts:151",
+     "def_from_use_first": true
+    },
+    {
+     "name": "isDocumentRegistryEntry",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 6,
+     "listed": {
+      "target": 7,
+      "other": 0,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "src/services/documentRegistry.ts:354",
+     "def_from_use_first": true
+    },
+    {
+     "name": "PageTransitionEvent",
+     "bucket": "2-5",
+     "definitions": 2,
+     "refs": 152,
+     "listed": {
+      "target": 20,
+      "other": 1,
+      "unbound": 0,
+      "outside": 19
+     },
+     "other_share": 0.048,
+     "refs_change": false,
+     "use": "tests/lib/lib.d.ts:7602",
+     "def_from_use_first": false
+    },
+    {
+     "name": "usage",
+     "bucket": "6+",
+     "definitions": 10,
+     "refs": 12,
+     "listed": {
+      "target": 5,
+      "other": 8,
+      "unbound": 405,
+      "outside": 4902
+     },
+     "other_share": 0.615,
+     "refs_change": true,
+     "use": "src/compiler/core.ts:2098",
+     "def_from_use_first": false
+    },
+    {
+     "name": "EncodedVideoChunkInit",
+     "bucket": "2-5",
+     "definitions": 2,
+     "refs": 10,
+     "listed": {
+      "target": 2,
+      "other": 0,
+      "unbound": 0,
+      "outside": 2
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "lib/lib.webworker.d.ts:3754",
+     "def_from_use_first": false
+    },
+    {
+     "name": "TypeScript",
+     "bucket": "2-5",
+     "definitions": 2,
+     "refs": 4053,
+     "listed": {
+      "target": 28,
+      "other": 261,
+      "unbound": 652,
+      "outside": 16677
+     },
+     "other_share": 0.903,
+     "refs_change": true,
+     "use": "src/compiler/moduleNameResolver.ts:3005",
+     "def_from_use_first": true
+    },
+    {
+     "name": "isReadableIncrementalMultiFileEmitBuildInfo",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 3,
+     "listed": {
+      "target": 4,
+      "other": 0,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "src/testRunner/unittests/helpers/tsc.ts:14",
+     "def_from_use_first": true
+    },
+    {
+     "name": "FsFolder",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 17,
+     "listed": {
+      "target": 18,
+      "other": 0,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "src/testRunner/unittests/helpers/virtualFileSystemWithWatch.ts:776",
+     "def_from_use_first": true
+    },
+    {
+     "name": "baselineParseConfigHost",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 4,
+     "listed": {
+      "target": 5,
+      "other": 0,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "src/testRunner/unittests/config/configurationExtension.ts:373",
+     "def_from_use_first": true
+    },
+    {
+     "name": "BroadcastChannel",
+     "bucket": "2-5",
+     "definitions": 4,
+     "refs": 132,
+     "listed": {
+      "target": 7,
+      "other": 1,
+      "unbound": 10,
+      "outside": 23
+     },
+     "other_share": 0.125,
+     "refs_change": true,
+     "use": "src/lib/webworker.generated.d.ts:1508",
+     "def_from_use_first": true
+    },
+    {
+     "name": "getPossibleExtractionsWorker",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 3,
+     "listed": {
+      "target": 4,
+      "other": 0,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "src/services/refactors/extractSymbol.ts:896",
+     "def_from_use_first": true
+    },
+    {
+     "name": "isThisIdentifier",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 8,
+     "listed": {
+      "target": 9,
+      "other": 0,
+      "unbound": 0,
+      "outside": 7
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "src/services/refactors/extractType.ts:324",
+     "def_from_use_first": true
+    },
+    {
+     "name": "dotDotDotToken",
+     "bucket": "6+",
+     "definitions": 12,
+     "refs": 86,
+     "listed": {
+      "target": 51,
+      "other": 42,
+      "unbound": 117,
+      "outside": 54
+     },
+     "other_share": 0.452,
+     "refs_change": true,
+     "use": "src/compiler/factory/nodeFactory.ts:2495",
+     "def_from_use_first": false
+    },
+    {
+     "name": "readFile",
+     "bucket": "6+",
+     "definitions": 44,
+     "refs": 219,
+     "listed": {
+      "target": 48,
+      "other": 171,
+      "unbound": 57,
+      "outside": 674
+     },
+     "other_share": 0.781,
+     "refs_change": true,
+     "use": "src/compiler/watch.ts:772",
+     "def_from_use_first": false
+    },
+    {
+     "name": "Punctuation",
+     "bucket": "2-5",
+     "definitions": 4,
+     "refs": 3,
+     "listed": {
+      "target": 3,
+      "other": 3,
+      "unbound": 7,
+      "outside": 21
+     },
+     "other_share": 0.5,
+     "refs_change": true,
+     "use": "src/testRunner/unittests/services/colorization.ts:29",
+     "def_from_use_first": true
+    },
+    {
+     "name": "hasExternalReferences",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 5,
+     "listed": {
+      "target": 6,
+      "other": 0,
+      "unbound": 21,
+      "outside": 3
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "src/compiler/utilities.ts:11296",
+     "def_from_use_first": true
+    },
+    {
+     "name": "externalProjectToConfiguredProjectMap",
+     "bucket": "2-5",
+     "definitions": 3,
+     "refs": 9,
+     "listed": {
+      "target": 10,
+      "other": 1,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.091,
+     "refs_change": false,
+     "use": "src/server/editorServices.ts:5364",
+     "def_from_use_first": true
+    },
+    {
+     "name": "endOffset",
+     "bucket": "6+",
+     "definitions": 7,
+     "refs": 69,
+     "listed": {
+      "target": 61,
+      "other": 13,
+      "unbound": 15,
+      "outside": 695
+     },
+     "other_share": 0.176,
+     "refs_change": true,
+     "use": "src/testRunner/unittests/tsserver/projectReferences.ts:1523",
+     "def_from_use_first": false
+    },
+    {
+     "name": "_default",
+     "bucket": "2-5",
+     "definitions": 5,
+     "refs": 6,
+     "listed": {
+      "target": 2,
+      "other": 10,
+      "unbound": 15,
+      "outside": 479
+     },
+     "other_share": 0.833,
+     "refs_change": true,
+     "use": "tests/cases/conformance/externalModules/verbatimModuleSyntaxRestrictionsCJS.ts:15",
+     "def_from_use_first": true
+    },
+    {
+     "name": "padEnd",
+     "bucket": "2-5",
+     "definitions": 2,
+     "refs": 18,
+     "listed": {
+      "target": 7,
+      "other": 0,
+      "unbound": 1,
+      "outside": 10
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "src/compiler/executeCommandLine.ts:334",
+     "def_from_use_first": true
+    },
+    {
+     "name": "testFunction7",
+     "bucket": "2-5",
+     "definitions": 3,
+     "refs": 27,
+     "listed": {
+      "target": 10,
+      "other": 2,
+      "unbound": 0,
+      "outside": 120
+     },
+     "other_share": 0.167,
+     "refs_change": true,
+     "use": "tests/cases/compiler/promisePermutations.ts:109",
+     "def_from_use_first": false
+    },
+    {
+     "name": "antecedent",
+     "bucket": "6+",
+     "definitions": 10,
+     "refs": 30,
+     "listed": {
+      "target": 14,
+      "other": 10,
+      "unbound": 36,
+      "outside": 59
+     },
+     "other_share": 0.417,
+     "refs_change": true,
+     "use": "src/compiler/binder.ts:507",
+     "def_from_use_first": false
+    },
+    {
+     "name": "getOptionFromName",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 3,
+     "listed": {
+      "target": 4,
+      "other": 0,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "src/services/getEditsForFileRename.ts:133",
+     "def_from_use_first": true
+    },
+    {
+     "name": "ClassOrFunctionIncludes",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 7,
+     "listed": {
+      "target": 8,
+      "other": 0,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "src/compiler/transformers/es2018.ts:334",
+     "def_from_use_first": true
+    },
+    {
+     "name": "i1_l1",
+     "bucket": "2-5",
+     "definitions": 4,
+     "refs": 4,
+     "listed": {
+      "target": 3,
+      "other": 3,
+      "unbound": 12,
+      "outside": 62
+     },
+     "other_share": 0.5,
+     "refs_change": true,
+     "use": "tests/cases/conformance/parser/ecmascript5/parserAstSpans1.ts:67",
+     "def_from_use_first": false
+    },
+    {
+     "name": "getFileAndProject",
+     "bucket": "2-5",
+     "definitions": 3,
+     "refs": 33,
+     "listed": {
+      "target": 34,
+      "other": 1,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.029,
+     "refs_change": false,
+     "use": "src/server/session.ts:3364",
+     "def_from_use_first": true
+    },
+    {
+     "name": "watchedDirectoriesStale",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 5,
+     "listed": {
+      "target": 6,
+      "other": 0,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "src/server/editorServices.ts:3063",
+     "def_from_use_first": true
+    },
+    {
+     "name": "numStrBoolTuple",
+     "bucket": "2-5",
+     "definitions": 2,
+     "refs": 6,
+     "listed": {
+      "target": 4,
+      "other": 1,
+      "unbound": 0,
+      "outside": 38
+     },
+     "other_share": 0.2,
+     "refs_change": true,
+     "use": "tests/cases/conformance/types/tuple/contextualTypeWithTuple.ts:19",
+     "def_from_use_first": false
+    },
+    {
+     "name": "Original",
+     "bucket": "6+",
+     "definitions": 6,
+     "refs": 12,
+     "listed": {
+      "target": 7,
+      "other": 10,
+      "unbound": 19,
+      "outside": 90
+     },
+     "other_share": 0.588,
+     "refs_change": true,
+     "use": "src/server/session.ts:1514",
+     "def_from_use_first": false
+    },
+    {
+     "name": "SymbolDisplayPartKind",
+     "bucket": "2-5",
+     "definitions": 3,
+     "refs": 59,
+     "listed": {
+      "target": 60,
+      "other": 1,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.016,
+     "refs_change": false,
+     "use": "src/services/utilities.ts:349",
+     "def_from_use_first": true
+    },
+    {
+     "name": "getPrecedingNonSpaceCharacterPosition",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 6,
+     "listed": {
+      "target": 7,
+      "other": 0,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "src/services/textChanges.ts:57",
+     "def_from_use_first": true
+    },
+    {
+     "name": "Atomics",
+     "bucket": "6+",
+     "definitions": 10,
+     "refs": 165,
+     "listed": {
+      "target": 11,
+      "other": 3,
+      "unbound": 3,
+      "outside": 86
+     },
+     "other_share": 0.214,
+     "refs_change": true,
+     "use": "tests/cases/conformance/es2022/es2024SharedMemory.ts:15",
+     "def_from_use_first": false
+    },
+    {
+     "name": "abc",
+     "bucket": "6+",
+     "definitions": 18,
+     "refs": 209,
+     "listed": {
+      "target": 48,
+      "other": 27,
+      "unbound": 598,
+      "outside": 3651
+     },
+     "other_share": 0.36,
+     "refs_change": true,
+     "use": "tests/cases/compiler/enumAssignmentCompat3.ts:76",
+     "def_from_use_first": true
+    },
+    {
+     "name": "HTMLFormElement",
+     "bucket": "2-5",
+     "definitions": 5,
+     "refs": 300,
+     "listed": {
+      "target": 26,
+      "other": 3,
+      "unbound": 0,
+      "outside": 83
+     },
+     "other_share": 0.103,
+     "refs_change": true,
+     "use": "tests/lib/lib.d.ts:10195",
+     "def_from_use_first": false
+    },
+    {
+     "name": "EmptySFC1",
+     "bucket": "2-5",
+     "definitions": 2,
+     "refs": 4,
+     "listed": {
+      "target": 3,
+      "other": 3,
+      "unbound": 0,
+      "outside": 43
+     },
+     "other_share": 0.5,
+     "refs_change": true,
+     "use": "tests/cases/conformance/jsx/tsxUnionElementType5.tsx:21",
+     "def_from_use_first": true
+    },
+    {
+     "name": "ClassDecorator",
+     "bucket": "2-5",
+     "definitions": 3,
+     "refs": 13,
+     "listed": {
+      "target": 1,
+      "other": 14,
+      "unbound": 1,
+      "outside": 87
+     },
+     "other_share": 0.933,
+     "refs_change": true,
+     "use": null,
+     "def_from_use_first": null
+    },
+    {
+     "name": "isValidBraceCompletionAtPosition",
+     "bucket": "6+",
+     "definitions": 6,
+     "refs": 3,
+     "listed": {
+      "target": 4,
+      "other": 4,
+      "unbound": 39,
+      "outside": 0
+     },
+     "other_share": 0.5,
+     "refs_change": true,
+     "use": "src/services/services.ts:3426",
+     "def_from_use_first": true
+    },
+    {
+     "name": "ExportEquals",
+     "bucket": "2-5",
+     "definitions": 5,
+     "refs": 27,
+     "listed": {
+      "target": 15,
+      "other": 14,
+      "unbound": 3,
+      "outside": 29
+     },
+     "other_share": 0.483,
+     "refs_change": true,
+     "use": "src/services/completions.ts:5388",
+     "def_from_use_first": false
+    },
+    {
+     "name": "ModuleImportResult",
+     "bucket": "2-5",
+     "definitions": 4,
+     "refs": 21,
+     "listed": {
+      "target": 12,
+      "other": 10,
+      "unbound": 2,
+      "outside": 0
+     },
+     "other_share": 0.455,
+     "refs_change": true,
+     "use": "tests/baselines/reference/api/typescript.d.ts:2720",
+     "def_from_use_first": false
+    },
+    {
+     "name": "Table",
+     "bucket": "6+",
+     "definitions": 8,
+     "refs": 70,
+     "listed": {
+      "target": 4,
+      "other": 15,
+      "unbound": 23,
+      "outside": 140
+     },
+     "other_share": 0.789,
+     "refs_change": true,
+     "use": "lib/lib.webworker.d.ts:12607",
+     "def_from_use_first": false
+    },
+    {
+     "name": "r4arg2",
+     "bucket": "6+",
+     "definitions": 6,
+     "refs": 36,
+     "listed": {
+      "target": 9,
+      "other": 9,
+      "unbound": 0,
+      "outside": 120
+     },
+     "other_share": 0.5,
+     "refs_change": true,
+     "use": "tests/cases/conformance/types/typeRelationships/subtypesAndSuperTypes/subtypingWithCallSignatures4.ts:75",
+     "def_from_use_first": false
+    },
+    {
+     "name": "ConstructorTypeNode",
+     "bucket": "2-5",
+     "definitions": 3,
+     "refs": 48,
+     "listed": {
+      "target": 33,
+      "other": 9,
+      "unbound": 1,
+      "outside": 2
+     },
+     "other_share": 0.214,
+     "refs_change": true,
+     "use": "src/compiler/types.ts:1527",
+     "def_from_use_first": true
+    },
+    {
+     "name": "WorkerOptions",
+     "bucket": "2-5",
+     "definitions": 2,
+     "refs": 10,
+     "listed": {
+      "target": 2,
+      "other": 0,
+      "unbound": 0,
+      "outside": 3
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "src/lib/webworker.generated.d.ts:12028",
+     "def_from_use_first": false
+    },
+    {
+     "name": "createSolutionBuilder",
+     "bucket": "2-5",
+     "definitions": 4,
+     "refs": 26,
+     "listed": {
+      "target": 17,
+      "other": 12,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.414,
+     "refs_change": true,
+     "use": "src/testRunner/unittests/helpers/solutionBuilder.ts:111",
+     "def_from_use_first": false
+    },
+    {
+     "name": "replaceAll",
+     "bucket": "2-5",
+     "definitions": 3,
+     "refs": 12,
+     "listed": {
+      "target": 7,
+      "other": 4,
+      "unbound": 1,
+      "outside": 10
+     },
+     "other_share": 0.364,
+     "refs_change": true,
+     "use": "src/testRunner/unittests/helpers/virtualFileSystemWithWatch.ts:598",
+     "def_from_use_first": true
+    },
+    {
+     "name": "normalizedPathToPath",
+     "bucket": "2-5",
+     "definitions": 3,
+     "refs": 7,
+     "listed": {
+      "target": 8,
+      "other": 1,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.111,
+     "refs_change": true,
+     "use": "src/server/editorServices.ts:5090",
+     "def_from_use_first": true
+    },
+    {
+     "name": "proto",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 5,
+     "listed": {
+      "target": 6,
+      "other": 0,
+      "unbound": 8,
+      "outside": 7
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "tests/cases/fourslash/protoVarInContextualObjectLiteral.ts:51",
+     "def_from_use_first": true
+    },
+    {
+     "name": "OffscreenCanvas",
+     "bucket": "2-5",
+     "definitions": 4,
+     "refs": 200,
+     "listed": {
+      "target": 11,
+      "other": 1,
+      "unbound": 14,
+      "outside": 36
+     },
+     "other_share": 0.083,
+     "refs_change": false,
+     "use": "src/lib/webworker.generated.d.ts:13004",
+     "def_from_use_first": false
+    },
+    {
+     "name": "TypeMembers",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 7,
+     "listed": {
+      "target": 8,
+      "other": 0,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "src/compiler/parser.ts:3433",
+     "def_from_use_first": true
+    },
+    {
+     "name": "ScriptKind",
+     "bucket": "2-5",
+     "definitions": 3,
+     "refs": 191,
+     "listed": {
+      "target": 148,
+      "other": 23,
+      "unbound": 5,
+      "outside": 2
+     },
+     "other_share": 0.135,
+     "refs_change": true,
+     "use": "src/services/documentRegistry.ts:71",
+     "def_from_use_first": true
+    },
+    {
+     "name": "replaceNodeWithNodes",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 9,
+     "listed": {
+      "target": 10,
+      "other": 0,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "src/services/codefixes/fixMissingTypeAnnotationOnExports.ts:575",
+     "def_from_use_first": true
+    },
+    {
+     "name": "transformFlags",
+     "bucket": "2-5",
+     "definitions": 5,
+     "refs": 305,
+     "listed": {
+      "target": 298,
+      "other": 11,
+      "unbound": 15,
+      "outside": 789
+     },
+     "other_share": 0.036,
+     "refs_change": false,
+     "use": "src/compiler/factory/nodeFactory.ts:3847",
+     "def_from_use_first": true
+    },
+    {
+     "name": "FormattingScanner",
+     "bucket": "1",
+     "definitions": 1,
+     "refs": 3,
+     "listed": {
+      "target": 4,
+      "other": 0,
+      "unbound": 0,
+      "outside": 0
+     },
+     "other_share": 0.0,
+     "refs_change": false,
+     "use": "src/services/formatting/formattingScanner.ts:55",
+     "def_from_use_first": true
+    }
+   ]
+  }
+ }
+}
