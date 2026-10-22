@@ -1363,7 +1363,7 @@ pub fn run_map(c: &Common, o: &Options, dir: &str) -> Result<()> {
                 && let Some(rb) = e.downcast_ref::<greeg_query::indexed::Rebuilding>()
             {
                 let mut w = out();
-                crate::json_native::map_rebuilding(&mut w, rb.reason, rb.estimate_ms)?;
+                crate::json_native::graph_rebuilding(&mut w, "map", rb.reason, rb.estimate_ms)?;
                 w.flush()?;
             }
             return Err(e);
@@ -1506,6 +1506,94 @@ pub fn run_map(c: &Common, o: &Options, dir: &str) -> Result<()> {
     write_fitted(c, o, &mut w, "map", ex.as_ref(), &fitted)?;
     w.flush()?;
     Ok(())
+}
+
+pub fn run_find(c: &Common, o: &Options, query: &str) -> Result<()> {
+    let r = match greeg_query::find::find(o, query) {
+        Ok(r) => r,
+        Err(e) => {
+            if c.json()
+                && let Some(rb) = e.downcast_ref::<greeg_query::indexed::Rebuilding>()
+            {
+                let mut w = out();
+                crate::json_native::graph_rebuilding(&mut w, "find", rb.reason, rb.estimate_ms)?;
+                w.flush()?;
+            }
+            return Err(e);
+        }
+    };
+    let ex = c.explain.then(|| {
+        crate::explain::VerbExplain::new(
+            json!({"terms": r.terms, "unknown": r.unknown, "files": r.files_total}),
+        )
+    });
+    let w = out();
+    let limit = if o.budget == 0 {
+        usize::MAX
+    } else {
+        (o.budget / 60).clamp(3, 20)
+    };
+    let outcome = |shown: usize| answered_outcome(r.files_total, shown, r.source, r.fresh);
+    if c.json() {
+        let render = |cut: Cut| -> Result<(Vec<u8>, Outcome)> {
+            let limit = limit.min(cut.rows);
+            let mut w = Vec::new();
+            let oc = cut.mark(outcome(r.files.len().min(limit)));
+            crate::json_native::find(&mut w, &r, limit, &oc)?;
+            Ok((w, oc))
+        };
+        let fitted = fit(c.json(), o, limit.min(r.files.len()), render)?;
+        return finish_fit(c, o, w, "find", ex.as_ref(), fitted);
+    }
+    let render = |cut: Cut| -> Result<(Vec<u8>, Outcome)> {
+        let limit = limit.min(cut.rows);
+        let mut w = Vec::new();
+        writeln!(
+            w,
+            "find {}  {} files hold a piece · {}{}",
+            r.terms.join(" "),
+            fmt_n(r.files_total),
+            r.source,
+            ms(c, r.elapsed_ms)
+        )?;
+        if !r.unknown.is_empty() {
+            writeln!(w, "in no file: {}", r.unknown.join(" "))?;
+        }
+        for f in r.files.iter().take(limit) {
+            writeln!(
+                w,
+                "  {}{}  {}",
+                path_text(&f.rel),
+                file_flag_suffix(&f.rel, f.flags),
+                f.terms.join(" ")
+            )?;
+            if !f.defs.is_empty() {
+                let defs: Vec<String> = f
+                    .defs
+                    .iter()
+                    .map(|d| format!("{} {}:{}", d.kind.name(), d.name, d.line))
+                    .collect();
+                writeln!(w, "      {}", defs.join(" · "))?;
+            }
+        }
+        let shown = r.files.len().min(limit);
+        let oc = cut.mark(outcome(shown));
+        outcome_line(
+            &mut w,
+            &[(shown, r.files_total, "files")],
+            &oc,
+            &format!("{} or add words", cut.more()),
+        )?;
+        if let Some(f) = r.files.first() {
+            match f.defs.first() {
+                Some(d) => writeln!(w, "next: outline {} | def {}", path_text(&f.rel), d.name)?,
+                None => writeln!(w, "next: outline {}", path_text(&f.rel))?,
+            }
+        }
+        Ok((w, oc))
+    };
+    let fitted = fit(c.json(), o, limit.min(r.files.len()), render)?;
+    finish_fit(c, o, w, "find", ex.as_ref(), fitted)
 }
 
 pub fn run_impact(c: &Common, o: &Options, name: &str) -> Result<()> {

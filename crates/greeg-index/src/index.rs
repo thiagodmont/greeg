@@ -776,6 +776,40 @@ impl Index {
         v
     }
 
+    /// One pass over every segment's dictionary: `pick` chooses words by their
+    /// bytes, and `take` gets each chosen word's file ids (tombstoned ids
+    /// included). An unreadable dictionary or list marks its segment corrupt.
+    pub fn scan_words<T>(
+        &self,
+        mut pick: impl FnMut(&[u8]) -> Option<T>,
+        mut take: impl FnMut(T, &mut dyn Iterator<Item = u32>),
+    ) {
+        let corrupt = |seg: &Segment| {
+            seg.corrupt
+                .store(true, std::sync::atomic::Ordering::Relaxed)
+        };
+        for (_, seg) in self.segments() {
+            let Some(wv) = seg.words.as_ref() else {
+                continue;
+            };
+            let Some((word_off, arena, _)) = wv.dictionary() else {
+                corrupt(seg);
+                continue;
+            };
+            for (i, ends) in word_off.windows(2).enumerate() {
+                let Some(w) = arena.get(ends[0] as usize..ends[1] as usize) else {
+                    corrupt(seg);
+                    break;
+                };
+                let Some(t) = pick(w) else { continue };
+                match RoaringBitmap::deserialize_from(wv.posting_bytes(i)) {
+                    Ok(bm) => take(t, &mut bm.into_iter()),
+                    Err(_) => corrupt(seg),
+                }
+            }
+        }
+    }
+
     /// All live (searchable) file ids.
     pub fn live(&self) -> RoaringBitmap {
         self.candidates(&Q::All)

@@ -246,8 +246,8 @@ impl Parsed {
 
 /// Every subcommand name: a pattern spelled like one needs `-e`.
 pub(crate) const VERBS: &[&str] = &[
-    "def", "refs", "callers", "impls", "outline", "show", "map", "impact", "index", "doctor",
-    "purge", "man", "hook", "lang", "budget", "stats",
+    "def", "refs", "callers", "impls", "outline", "show", "map", "impact", "find", "index",
+    "doctor", "purge", "man", "hook", "lang", "budget", "stats",
 ];
 
 /// The value word after a flag at `words[i - 1]`.

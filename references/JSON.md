@@ -50,11 +50,11 @@ the schema and the command:
 ```
 
 `command` is `search` (also for stdin) or the verb: `def`, `refs`, `callers`,
-`impls`, `impact`, `show`, `outline`, `map`. Other commands, such as `stats`
+`impls`, `impact`, `show`, `outline`, `map`, `find`. Other commands, such as `stats`
 and `index`, refuse `--json=greeg` (exit 2).
 
 The last record is a `footer` with an `outcome`. A run that fails before it
-answers writes nothing to stdout and exits 2. The exception is `map` while the
+answers writes nothing to stdout and exits 2. The exception is `map` or `find` while the
 index it needs is rebuilt: its footer then holds only
 `"outcome":{"exit":2,"rebuilding":{"reason":…,"estimate_ms":…}}`.
 
@@ -211,6 +211,12 @@ definition or null), `start_line`, `end_line`, `shown_to`, `clipped`, `text`
 `by_kind`, `top` (`[kind, name]`), `file_flags`. Footer: `dir`, `files_total`,
 `symbols_total`, `dirs_total`, `graph_changes`, `elapsed_ms`, `outcome`.
 
+**`file`** records (`find`), best first: `path`, `score`, `terms` (the
+question's pieces the file holds), `defs` (`[kind, name, line]`, at most
+three), `file_flags`. Footer: `terms` (every piece searched for), `unknown`
+(pieces no selected file holds), `files_total` (files holding any piece),
+`elapsed_ms`, `outcome`.
+
 ## Capabilities
 
 `greeg --capabilities` prints one record, `{"type":"capabilities","data":…}`,
@@ -272,5 +278,5 @@ A symbol verb's record (`def`, `refs`, `callers`, `impls`, `impact`,
 | `fresh` | index answers: the freshness method; null for a scan |
 | `deferred` | the number of files changed since the index was published, read from disk instead (0 for a scan) |
 | `fit` | when the budget or the byte ceiling cut the answer: `rows`, the row allowance it was written at; `of`, the largest allowance the verb offered (for some verbs already scaled to the budget, so `total` and `shown` say what was left out; null when it offered every row); and `cut_by`, an array of the limits that cut it (`budget`, `bytes`). A verb's rows are its lines or entries, so a `show` body clipped to the budget is reported here even when every location is shown. Null when nothing was cut |
-| `considered` | what the answer was chosen from, per verb (counts, and `import_graph`, whether the import graph was used): `def` `definitions`, `described`, `near_names`; `refs` `definitions`, `files_searched`, `files_matched`, `hits`, `classified`, `resolved`; `callers` `depth`, `files`, `hits`, `callers`; `impls` `direct`, `extras`; `impact` `definitions`, `likely`, `possible`, `review`, `import_graph`, `callers`, `hits`; `outline` `symbols`, `imports`, `parse_errors`; `show` `locations`, `in_a_definition`; `map` `files`, `symbols`, `graph_changes` |
+| `considered` | what the answer was chosen from, per verb (counts, and `import_graph`, whether the import graph was used): `def` `definitions`, `described`, `near_names`; `refs` `definitions`, `files_searched`, `files_matched`, `hits`, `classified`, `resolved`; `callers` `depth`, `files`, `hits`, `callers`; `impls` `direct`, `extras`; `impact` `definitions`, `likely`, `possible`, `review`, `import_graph`, `callers`, `hits`; `outline` `symbols`, `imports`, `parse_errors`; `show` `locations`, `in_a_definition`; `map` `files`, `symbols`, `graph_changes`; `find` `terms`, `unknown`, `files` |
 | `ranking` | `def` only: `terms`, the term names, and `definitions`, an array of the first ten shown definitions with `path`, `line`, `kind`, `score` and `terms` (`kind`, `exported`, `nested`, `location`, `rank`, `reach`; null when the definition was not ranked from the index); `score` is the product of the terms |

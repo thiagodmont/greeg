@@ -1706,6 +1706,7 @@ fn file_verbs_report_their_freshness_check() {
         &["outline", "src/lib.rs"][..],
         &["show", "src/lib.rs:2"][..],
         &["map", "src"][..],
+        &["find", "alpha"][..],
     ] {
         let mut a = args.to_vec();
         a.extend(["--json=greeg", "--fresh", "stat"]);
@@ -1782,7 +1783,7 @@ fn outcome_fixture() -> Fixture {
 fn verb_text_fits_its_budget() {
     let f = outcome_fixture();
     let est = |b: &[u8]| greeg_query::tokens::estimate(b);
-    let queries: [&[&str]; 8] = [
+    let queries: [&[&str]; 9] = [
         &["def", "target"],
         &["refs", "target"],
         &["callers", "target"],
@@ -1791,10 +1792,11 @@ fn verb_text_fits_its_budget() {
         &["outline", "src/lib.rs"],
         &["show", "src/lib.rs:12", "src/lib.rs:20"],
         &["map", "src"],
+        &["find", "target", "shape"],
     ];
     for backend in [&["--fresh", "stat"][..], &["--no-index"][..]] {
         for q in queries {
-            if backend == ["--no-index"] && q[0] == "map" {
+            if backend == ["--no-index"] && matches!(q[0], "map" | "find") {
                 continue;
             }
             let run = |budget: usize| {
@@ -1854,7 +1856,7 @@ fn stable_records(out: &[u8]) -> Vec<serde_json::Value> {
 fn json_fits_its_budget() {
     let f = outcome_fixture();
     let est = |b: &[u8]| greeg_query::tokens::estimate(b);
-    let queries: [&[&str]; 9] = [
+    let queries: [&[&str]; 10] = [
         &["target"],
         &["def", "target"],
         &["refs", "target"],
@@ -1864,11 +1866,12 @@ fn json_fits_its_budget() {
         &["outline", "src/lib.rs"],
         &["show", "src/lib.rs:12", "src/lib.rs:20"],
         &["map", "src"],
+        &["find", "target", "shape"],
     ];
     let dialect = "--json=greeg";
     for backend in [&["--fresh", "stat"][..], &["--no-index"][..]] {
         for q in queries {
-            if backend == ["--no-index"] && q[0] == "map" {
+            if backend == ["--no-index"] && matches!(q[0], "map" | "find") {
                 continue;
             }
             let run = |budget: usize| {
@@ -1954,7 +1957,7 @@ fn a_cut_names_every_limit_that_cut_it() {
 #[test]
 fn max_bytes_bounds_stdout() {
     let f = outcome_fixture();
-    let queries: [&[&str]; 13] = [
+    let queries: [&[&str]; 14] = [
         &["target"],
         &["target", "--budget", "0"],
         &["target", "-l"],
@@ -1968,6 +1971,7 @@ fn max_bytes_bounds_stdout() {
         &["outline", "src/lib.rs"],
         &["show", "src/lib.rs:12", "src/lib.rs:20"],
         &["map", "src"],
+        &["find", "target", "shape"],
     ];
     // random ceilings, seeded so a failure reproduces, plus both ends
     let mut seed = 0x9e37_79b9_7f4a_7c15u64;
@@ -2363,6 +2367,8 @@ fn text_states_its_outcome_as_json_does() {
         &["show", "src/lib.rs:5"],
         &["map", "src"],
         &["map", "src", "--budget", "50"],
+        &["find", "target", "shape"],
+        &["find", "target", "shape", "--budget", "50"],
     ];
     for backend in [
         &["--no-index"][..],
@@ -2370,7 +2376,7 @@ fn text_states_its_outcome_as_json_does() {
         &["--fresh", "none"][..],
     ] {
         for case in cases {
-            if case[0] == "map" && backend[0] == "--no-index" {
+            if matches!(case[0], "map" | "find") && backend[0] == "--no-index" {
                 continue;
             }
             let mut args = case.to_vec();
@@ -2388,7 +2394,7 @@ fn text_states_its_outcome_as_json_does() {
             let line = outcome_line(&text);
             let verb = match case[0] {
                 v @ ("def" | "refs" | "callers" | "impls" | "impact" | "outline" | "show"
-                | "map") => v,
+                | "map" | "find") => v,
                 _ => "search",
             };
 
@@ -2456,6 +2462,12 @@ fn text_states_its_outcome_as_json_does() {
                         l.contains("raise --budget or narrow the directory"),
                         "{ctx}"
                     );
+                }
+                // `find` keeps its best files and counts every file holding a piece
+                "find" if shown < total => {
+                    let l = line.unwrap_or_else(|| panic!("no outcome line: {ctx}"));
+                    assert!(l.contains(&format!("{shown}/{total} files")), "{ctx}");
+                    assert!(l.contains("raise --budget or add words"), "{ctx}");
                 }
                 "impact" if cut_marker => {
                     let l = line.unwrap_or_else(|| panic!("no outcome line: {ctx}"));
@@ -2841,11 +2853,12 @@ fn every_json_greeg_answer_is_typed_and_ends_with_its_outcome() {
         &["show", "src/lib.rs:5"],
         &["outline", "src/lib.rs"],
         &["map", "."],
+        &["find", "needle", "shape"],
     ];
     for backend in [&["--no-index"][..], &[][..]] {
         for case in cases {
             // `map` reads the import graph, which only the index holds
-            if case[0] == "map" && !backend.is_empty() {
+            if matches!(case[0], "map" | "find") && !backend.is_empty() {
                 continue;
             }
             let mut args = vec!["--json=greeg"];
@@ -2855,9 +2868,8 @@ fn every_json_greeg_answer_is_typed_and_ends_with_its_outcome() {
             let at = format!("{args:?}");
             let records = json_lines(&String::from_utf8_lossy(&o.stdout));
             let command = match case[0] {
-                "def" | "refs" | "callers" | "impls" | "impact" | "show" | "outline" | "map" => {
-                    case[0]
-                }
+                "def" | "refs" | "callers" | "impls" | "impact" | "show" | "outline" | "map"
+                | "find" => case[0],
                 _ => "search",
             };
             assert!(
@@ -3208,7 +3220,7 @@ fn explain_says_what_a_search_was_built_from() {
 #[test]
 fn explain_says_how_a_verb_answer_was_built() {
     let f = outcome_fixture();
-    let queries: [(&[&str], serde_json::Value); 8] = [
+    let queries: [(&[&str], serde_json::Value); 9] = [
         (&["def", "target"], serde_json::json!({"definitions": 9})),
         (
             &["refs", "target"],
@@ -3237,6 +3249,10 @@ fn explain_says_how_a_verb_answer_was_built() {
         (
             &["map", "src"],
             serde_json::json!({"files": 10, "symbols": 44}),
+        ),
+        (
+            &["find", "target", "shape"],
+            serde_json::json!({"terms": ["target", "shape"], "unknown": [], "files": 10}),
         ),
     ];
     let with = |q: &[&str], extra: &[&str]| {
@@ -3494,4 +3510,88 @@ fn fsevents_answers_edits_and_falls_back_to_stat_when_events_are_lost() {
     w(&f.root.join("d2/f2.rs"), "fn needle() {}\n");
     fs::remove_file(f.root.join("d3/f4.rs")).unwrap();
     check(6, true);
+}
+
+/// `find` ranks files for a question in plain words: the file whose path,
+/// definitions and words hold its pieces comes first, a test file is demoted,
+/// filters apply, and an edit since the build counts.
+#[test]
+fn find_ranks_files_for_a_question_in_plain_words() {
+    let f = empty_fixture();
+    w(
+        &f.root.join("src/net/retry.rs"),
+        "/// How long to wait before the next attempt.\n\
+         pub fn backoff_delay(attempt: u32) -> u64 {\n    let retry_base = 50;\n    retry_base << attempt\n}\n",
+    );
+    w(
+        &f.root.join("src/net/conn.rs"),
+        "// a failed connect may retry later\npub fn connect() {}\n",
+    );
+    w(
+        &f.root.join("tests/retry_backoff.rs"),
+        "fn retry_backoff_grows() { let retry = 1; let backoff = retry; }\n",
+    );
+    w(
+        &f.root.join("src/lib.rs"),
+        "pub mod net;\npub fn unrelated() {}\n",
+    );
+    f.indexed();
+    let files = |args: &[&str]| -> (Vec<String>, serde_json::Value) {
+        let mut a = vec!["find", "--json=greeg", "--fresh", "stat"];
+        a.extend_from_slice(args);
+        let records = json_lines(&f.out(&a));
+        let paths = records
+            .iter()
+            .filter(|r| r["type"] == "file")
+            .map(|r| r["data"]["path"]["text"].as_str().unwrap().to_string())
+            .collect();
+        (paths, records.last().unwrap()["data"].clone())
+    };
+
+    let (paths, footer) = files(&["where is the RetryBackoff delay computed"]);
+    assert_eq!(
+        paths,
+        [
+            "src/net/retry.rs",
+            "tests/retry_backoff.rs",
+            "src/net/conn.rs"
+        ],
+        "{footer}"
+    );
+    assert_eq!(
+        footer["terms"],
+        serde_json::json!(["retry", "backoff", "delay", "computed"])
+    );
+    assert_eq!(footer["unknown"], serde_json::json!(["computed"]));
+    assert_eq!(footer["outcome"]["exit"], 0);
+    let text = f.out(&["find", "--fresh", "stat", "retry backoff delay"]);
+    assert!(
+        text.contains("src/net/retry.rs  retry backoff delay\n      fn backoff_delay:2"),
+        "{text}"
+    );
+    assert!(
+        text.contains("next: outline src/net/retry.rs | def backoff_delay"),
+        "{text}"
+    );
+
+    let (paths, _) = files(&["-g", "!src/net/**", "retry backoff"]);
+    assert_eq!(paths, ["tests/retry_backoff.rs"]);
+
+    fs::remove_file(f.root.join("src/net/retry.rs")).unwrap();
+    w(
+        &f.root.join("src/wait.rs"),
+        "pub fn backoff_delay() -> u64 { 1 }\n",
+    );
+    let (paths, _) = files(&["retry backoff delay"]);
+    assert_eq!(
+        paths,
+        ["src/wait.rs", "tests/retry_backoff.rs", "src/net/conn.rs"]
+    );
+
+    let o = f.run(&["find", "--fresh", "stat", "zzqx_unheard"]);
+    assert_eq!(o.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&o.stdout).contains("in no file: zzqx unheard"));
+    let o = f.run(&["find", "how does it do that"]);
+    assert_eq!(o.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&o.stderr).contains("`find` needs words"));
 }

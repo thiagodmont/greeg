@@ -838,12 +838,14 @@ struct ErrorFooter<'a> {
 }
 
 /// `map` while the index it needs is being rebuilt: exit 2.
-pub(crate) fn map_rebuilding(
+/// The answer of a verb that waits for the index graph (`map`, `find`) while it is rebuilt.
+pub(crate) fn graph_rebuilding(
     w: &mut dyn Write,
+    command: &str,
     reason: &str,
     estimate_ms: Option<u64>,
 ) -> Result<()> {
-    header(w, "map")?;
+    header(w, command)?;
     put(
         w,
         "footer",
@@ -855,6 +857,62 @@ pub(crate) fn map_rebuilding(
                     estimate_ms,
                 },
             },
+        },
+    )
+}
+
+#[derive(Serialize)]
+struct FindFileRec<'a> {
+    path: Text<'a>,
+    score: f64,
+    terms: &'a [String],
+    defs: Vec<(&'static str, &'a str, u32)>,
+    file_flags: Vec<&'static str>,
+}
+
+#[derive(Serialize)]
+struct FindFooter<'a> {
+    terms: &'a [String],
+    unknown: &'a [String],
+    files_total: usize,
+    elapsed_ms: f64,
+    outcome: OutcomeRec,
+}
+
+pub(crate) fn find(
+    w: &mut dyn Write,
+    r: &greeg_query::find::FindResult,
+    limit: usize,
+    oc: &Outcome,
+) -> Result<()> {
+    header(w, "find")?;
+    let files = &r.files[..r.files.len().min(limit)];
+    for f in files {
+        put(
+            w,
+            "file",
+            &FindFileRec {
+                path: Text::of(&f.rel),
+                score: r3(f.score as f64),
+                terms: &f.terms,
+                defs: f
+                    .defs
+                    .iter()
+                    .map(|d| (d.kind.name(), d.name.as_str(), d.line))
+                    .collect(),
+                file_flags: f.flags.names(),
+            },
+        )?;
+    }
+    put(
+        w,
+        "footer",
+        &FindFooter {
+            terms: &r.terms,
+            unknown: &r.unknown,
+            files_total: r.files_total,
+            elapsed_ms: r3(r.elapsed_ms),
+            outcome: OutcomeRec::of(oc),
         },
     )
 }

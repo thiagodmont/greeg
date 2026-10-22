@@ -146,6 +146,12 @@ greeg outline src/sync/oneshot.rs   # the shape of a file
 greeg map tokio/src/sync            # the most important files, by import graph
 ```
 
+Or ask in plain words when you don't know the name:
+
+```bash
+greeg find where retries back off   # files ranked for the question, with their matching definitions
+```
+
 Ranked searches and symbol commands fit 2,000 tokens by default. Change it per
 call (`--budget 5000`, `--budget 0` for everything) or once (`greeg budget
 high`); `-l`, `-c` and `--json=rg` are never budgeted. The
