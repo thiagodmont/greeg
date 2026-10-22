@@ -45,7 +45,8 @@ Each corpus must be clean at its pinned revision.
 python3 bench/discovery.py fetch                 # SWE-bench rows → ~/.cache/greeg-bench/discovery
 python3 bench/discovery.py run rg GREEG --split dev --output rg-dev.json
 python3 bench/discovery.py run greeg-search GREEG --split dev --output gs-dev.json
-python3 bench/discovery.py score gs-dev.json --vs rg-dev.json
+python3 bench/discovery.py run greeg-find GREEG --split dev --output find-dev.json
+python3 bench/discovery.py score find-dev.json --vs rg-dev.json
 ```
 
 - **Metrics:** Acc@k means a gold file is among the first k files; MRR is
@@ -88,3 +89,51 @@ Per corpus, rg's written Acc@5 is 0.70 on tokio, 0.30 on ktor and 0.20 on
 TypeScript. greeg's ranked search was built for identifiers: with a dozen
 plain words in an alternation, it ranks definitions of common words first.
 Raw results: `results/*-dev-2026-10-19.json`.
+
+## `greeg find`, dev split (2026-10-22)
+
+`greeg-find` passes the question as written to `greeg find` (`--budget 0`,
+JSON) and takes its files in order. Its weights were chosen on this split
+(PR #125): no stemming; term frequency as the number of a file's distinct
+words holding the piece; path weight 3; definition weight 1; the rank prior
+`1 + 0.5·√rank`.
+
+| set | n | Acc@1 | Acc@5 | Acc@10 | MRR |
+|---|---:|---:|---:|---:|---:|
+| written | 30 | 0.33 | 0.63 [0.47–0.80] | 0.80 | 0.48 |
+| SWE-bench django | 40 | 0.50 | 0.75 [0.62–0.88] | 0.95 | 0.62 |
+| pooled | 70 | 0.43 | 0.70 [0.60–0.80] | 0.89 | 0.56 |
+
+## Held-out result (2026-10-22, run once)
+
+All three methods ran once with `--final`, after the weights were frozen:
+`rg` and `greeg-search` with greeg 0.12.1, and `greeg-find` with greeg at
+3d496cd. Each scored the same 140 held-out rows.
+
+| set | method | n | Acc@1 | Acc@5 | Acc@10 | MRR |
+|---|---|---:|---:|---:|---:|---:|
+| pooled | rg | 140 | 0.08 | 0.26 [0.19–0.33] | 0.36 | 0.15 |
+| pooled | greeg-search | 140 | 0.00 | 0.04 [0.01–0.08] | 0.10 | 0.03 |
+| pooled | greeg-find | 140 | 0.31 | 0.72 [0.64–0.79] | 0.87 | 0.50 |
+| written | rg | 60 | 0.13 | 0.47 [0.33–0.58] | 0.57 | 0.26 |
+| written | greeg-find | 60 | 0.30 | 0.72 [0.60–0.82] | 0.88 | 0.48 |
+| SWE-bench django | rg | 80 | 0.04 | 0.10 [0.04–0.17] | 0.20 | 0.07 |
+| SWE-bench django | greeg-find | 80 | 0.33 | 0.72 [0.62–0.82] | 0.86 | 0.51 |
+
+- **Gate:** rg is the better baseline. The paired difference in Acc@5 is
+  **+0.46 [+0.36, +0.56]**, against the +0.10 required with an interval
+  excluding 0: **passed.**
+- **Per corpus (written):** greeg-find against rg scores 0.70 against 0.30
+  on TypeScript (Δ +0.40 [+0.15, +0.65]) and 0.85 against 0.45 on ktor (Δ
+  +0.40 [+0.15, +0.65]).
+- **tokio:** 0.60 against rg's 0.65 (Δ −0.05 [−0.30, +0.20]), **no gain**.
+  tokio is small, and its questions' words often name the answer's file, so
+  counting the files that hold the most of them already works.
+- **Envelope:** index size, build CPU and delta apply are unchanged: `find`
+  adds nothing to the index and only reads it. Its own warm time (`--fresh
+  none`) on the dev questions: p95 41 ms on TypeScript-5.9, 14 ms on
+  django.
+
+Raw results: `results/*-heldout-2026-10-22.json` and
+`results/greeg-find-dev-2026-10-22.json`. Held-out gold files appear only as
+digests there too.
