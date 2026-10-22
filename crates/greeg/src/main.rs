@@ -35,6 +35,7 @@ Examples:
   greeg show src/lib.rs:120         the definition enclosing a line, whole (def NAME --mode block: bodies)
   greeg map src/                    important files by import PageRank
   greeg impact get_queryset         files that use it, graded by evidence
+  greeg find where retries back off files for a question in plain words
   greeg -e def --kind def           a pattern that looks like a verb
 
 Reading the output: one header line per file (`path [test]`), then
@@ -477,6 +478,11 @@ enum Cmd {
     },
     /// Files that use NAME, graded by evidence (likely affected, possible, review), plus callers by name
     Impact { name: String },
+    /// Files ranked for a question in plain words, from the index (no names needed)
+    Find {
+        #[arg(required = true, num_args = 1..)]
+        words: Vec<String>,
+    },
     /// Index health, freshness mode, language coverage, disk use
     Doctor,
     /// Remove greeg's indexes, sessions and statistics: every repository in
@@ -1067,6 +1073,7 @@ fn run() -> Result<()> {
             Cmd::Show { .. } => "show",
             Cmd::Map { .. } => "map",
             Cmd::Impact { .. } => "impact",
+            Cmd::Find { .. } => "find",
             _ => "",
         };
         if c.explain && verb.is_empty() {
@@ -1128,6 +1135,10 @@ fn run() -> Result<()> {
             }
             Cmd::Impact { name } => {
                 verbs_out::run_impact(c, &build_options(c, name.clone(), vec![])?, &name)
+            }
+            Cmd::Find { words } => {
+                let query = words.join(" ");
+                verbs_out::run_find(c, &build_options(c, String::new(), vec![])?, &query)
             }
             Cmd::Doctor => doctor::run(c),
             Cmd::Purge { yes } => run_purge(c, yes),

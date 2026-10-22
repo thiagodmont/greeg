@@ -300,7 +300,7 @@ Existing indexed symbol/module results are retained; the fallback costs a
 scan of the selected files.
 
 File searches and the search verbs (`def`, `refs`, `callers`, `impls`,
-`impact`) exit 0 for exact hits, 1 for no exact hits (including answers a
+`impact`, and `find`, whose hits are files holding a piece) exit 0 for exact hits, 1 for no exact hits (including answers a
 relaxed rung found), and 2 for errors, including output-write failures such
 as a closed pipe. One typed outcome decides the status in every format:
 eligible results (`total`), results shown, the rung, the source and the
@@ -682,6 +682,21 @@ a file that defines the name, not which definition a call binds to: with
 several definitions, a link to any of them counts. A scan has no import
 graph, so nothing is likely affected there, and the header says so. Its
 `callers by name` section matches calls by name.
+
+`find` answers a question in plain words from the same index, with no
+model and nothing more on disk (`find.rs`). The question's words are cut
+into identifier pieces, as `split_tokens` cuts names. One pass over every
+segment's word dictionary finds the words that hold each piece. A file's
+term frequency is the number of its distinct words holding the piece: the
+word postings record which files hold a word, not how often. Definition
+names come from the symbol table's token index, and path pieces from the
+file table. BM25 (k1 1.2, b 0.75, file size as the length) then scores each
+piece, adding 1 for a definition and 3 for a path segment that holds it. The
+sum is multiplied by the location weight and `1 + 0.5·√rank`. These weights
+were fixed on the development split of a frozen evaluation and nowhere
+else. Per-file tables are dense arrays indexed by file id, reset after each
+piece, so a question costs a few passes over the file and word tables:
+p95 41 ms on TypeScript-5.9 (73k files) and 14 ms on django, warm.
 
 Cross-file type resolution here is heuristic. It's a set of import-graph rules,
 not a compiler, so where it matters the output carries a confidence, and

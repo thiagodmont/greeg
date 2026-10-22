@@ -18,6 +18,7 @@ grep-regex.workspace = true
 grep-searcher.workspace = true
 ignore.workspace = true
 memchr.workspace = true
+hashbrown.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 libc.workspace = true

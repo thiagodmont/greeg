@@ -1,6 +1,7 @@
 //! Scan-mode search: walk, match with ripgrep's crates, classify each hit with
 //! the language layer, score it, and hand a `ScanResult` to `shape`.
 
+pub mod find;
 pub mod indexed;
 mod ordered;
 pub mod outcome;

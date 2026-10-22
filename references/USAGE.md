@@ -45,6 +45,35 @@ definition, which beats guessing a `sed -n '340,380p'` range. Every verb takes
 the search flags (`--budget`, `--json`, `--no-tests`, `--root`) and answers in a
 few milliseconds from the index.
 
+### Questions in plain words
+
+```bash
+greeg find where retries back off          # files for a question, best first
+greeg find "which file parses the tsconfig paths" -t ts
+```
+
+`find` is for when you don't know a name to search for. It cuts the
+question into identifier pieces, the way `RetryBackoff` and `retry_backoff`
+are cut into `retry` and `backoff`. Short and common words (`the`, `how`,
+`file`, `function`, …) are left out. Each file then gets a score:
+
+- how many of its distinct words hold each piece (BM25, rare pieces count
+  more);
+- more when one of its definitions or its path holds the piece;
+- less for tests, generated and vendored files;
+- a little more for files many others import.
+
+Each file lists the pieces it holds and up to three definitions whose names
+hold the most of them, with their lines. `in no file:` names the pieces that
+no file holds.
+
+It is a ranking, not a search. It never claims to list every file that
+mentions a word: the outcome counts the files holding any piece, and only
+the best 50 are kept. Use a search once you have a name. `find` reads only
+the index (it needs one, like `map`) and takes `-g`/`-t` filters. It exits
+`1` when no selected file holds any piece, and `2` when the question has no
+words left to search for.
+
 ## Budgets
 
 `--budget` sets one run's token budget. Without it, greeg uses `GREEG_BUDGET`,
