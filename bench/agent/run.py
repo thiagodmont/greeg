@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Run paired agent tasks headless: rg and grep only (arm A) against greeg through
-its hook (arm B) and, if asked, the hook plus a prompt that names greeg (arm C).
+its hook (arm B) and, if asked, the hook plus a prompt that names greeg (arm C)
+or the hook plus greeg's own skill in the system prompt (arm S).
 
     bench/agent/run.py --greeg BIN --out DIR [--tasks ID,…] [--repeats 2]
         [--model sonnet] [--max-turns 25] [--max-budget-usd 2] [--seed 7]
@@ -25,7 +26,7 @@ and `greeg hook run` as their PreToolUse hook. Isolation:
 Each run directory holds `stream.jsonl`, `answer.txt`, `check.txt` and
 `meta.json`. It needs a Claude Code login and spends API credits.
 """
-import argparse, contextlib, json, os, random, shutil, signal, subprocess, sys, time, tomllib
+import argparse, contextlib, hashlib, json, os, random, shutil, signal, subprocess, sys, time, tomllib
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -107,6 +108,20 @@ def prepare(out, corpus, greeg):
     return work, baseline.read_text(), template
 
 
+def skill_text(out, greeg):
+    """The skill `greeg hook claude` installs, written into a scratch home once
+    per run directory, so every arm-S run gets the same text."""
+    saved = out / "skill.md"
+    if not saved.exists():
+        home = out / "skill-home"
+        env = {k: v for k, v in os.environ.items() if not k.startswith(("CLAUDE", "CODEX", "GREEG_"))}
+        env.update(HOME=str(home), GREEG_CONFIG_DIR=str(home / "greeg-config"))
+        subprocess.run([greeg, "hook", "claude"], env=env, check=True, capture_output=True,
+                       stdin=subprocess.DEVNULL)
+        saved.write_text((home / ".claude" / "skills" / "greeg" / "SKILL.md").read_text())
+    return saved.read_text()
+
+
 def tree_state(root):
     """Paths, sizes and modification times under `root`."""
     return sorted((str(p.relative_to(root)), p.stat().st_size, p.stat().st_mtime_ns)
@@ -128,7 +143,8 @@ def run_cell(a, out, task, arm, n, order):
     settings = d / "settings.json"
     settings.write_text(json.dumps({} if arm == "A" else HOOK))
     prompt = ("Use greeg for code search. " if arm == "C" else "") + task["prompt"]
-    cmd = [a.claude, "-p", prompt, "--model", a.model, "--max-turns", str(a.max_turns),
+    skill = ["--append-system-prompt", skill_text(out, a.greeg)] if arm == "S" else []
+    cmd = [a.claude, "-p", prompt, *skill, "--model", a.model, "--max-turns", str(a.max_turns),
            "--max-budget-usd", str(a.max_budget_usd), "--output-format", "stream-json", "--verbose",
            "--include-hook-events", "--no-session-persistence", "--setting-sources", "",
            "--strict-mcp-config", "--settings", str(settings), "--tools", "Bash,Read",
@@ -202,7 +218,7 @@ def main():
     ap.add_argument("--greeg", help="greeg binary for arms B and C")
     ap.add_argument("--out", required=True, type=Path)
     ap.add_argument("--tasks", help="comma-separated task ids (default: all)")
-    ap.add_argument("--arms", default="A,B", help="A, B and C; A is the baseline")
+    ap.add_argument("--arms", default="A,B", help="A, B, C and S; A is the baseline")
     ap.add_argument("--repeats", type=int, default=2)
     ap.add_argument("--model", default="sonnet")
     ap.add_argument("--max-turns", type=int, default=25)
@@ -221,8 +237,8 @@ def main():
     for name, path in (("--greeg", a.greeg), ("--claude", a.claude)):
         if not path or not os.access(path, os.X_OK):
             ap.error(f"{name}: not an executable: {path}")
-    if not set(a.arms.split(",")) <= {"A", "B", "C"} or not a.arms.startswith("A"):
-        sys.exit("--arms: A first, then B and/or C")
+    if not set(a.arms.split(",")) <= {"A", "B", "C", "S"} or not a.arms.startswith("A"):
+        sys.exit("--arms: A first, then any of B, C and S")
     tasks = tomllib.load(open(HERE / "tasks.toml", "rb"))["task"]
     if a.tasks:
         want = a.tasks.split(",")
@@ -243,6 +259,8 @@ def main():
         "corpora": {c: sh(["git", "rev-parse", "--short", "HEAD"], cwd=corpus_path(c)).strip()
                     for c in sorted({t["corpus"] for t in tasks})},
     }
+    if "S" in a.arms.split(","):
+        setup["skill_sha256"] = hashlib.sha256(skill_text(a.out, a.greeg).encode()).hexdigest()
     saved = a.out / "setup.json"
     if saved.exists():
         old = json.loads(saved.read_text())

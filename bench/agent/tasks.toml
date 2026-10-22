@@ -6,6 +6,8 @@
 #   A  no greeg:         rg and grep only, no greeg on PATH, no hook
 #   B  greeg hook:       `greeg hook run` as the PreToolUse hook (rg rewritten, grep left alone)
 #   C  hook and prompt:  as B, and the prompt starts with "Use greeg for code search."
+#   S  hook and skill:   as B, and greeg's generated skill (what `greeg hook claude`
+#                        installs) appended to the system prompt
 # `run.py` runs them; see README.md. `held_out = true` marks a task greeg is
 # not tuned on: `analyze.py` reports those apart, and a decision rests on them.
 
@@ -247,3 +249,168 @@ prompt = "Map what depends directly on PollEvented inside tokio/src/net: list ev
 check = "grep -Eq '(^|[^A-Za-z0-9_.-])tcp/listener\\.rs(:|[^A-Za-z0-9_./-]{1,6}(lines? )?)(56|57|58|59|60)([^0-9]|$)' answer.txt && grep -q 'TcpListener' answer.txt && grep -Eq '(^|[^A-Za-z0-9_.-])tcp/stream\\.rs(:|[^A-Za-z0-9_./-]{1,6}(lines? )?)(72|73|74|75|76)([^0-9]|$)' answer.txt && grep -q 'TcpStream' answer.txt && grep -Eq '(^|[^A-Za-z0-9_.-])udp\\.rs(:|[^A-Za-z0-9_./-]{1,6}(lines? )?)(121|122|123|124|125)([^0-9]|$)' answer.txt && grep -q 'UdpSocket' answer.txt && grep -Eq '(^|[^A-Za-z0-9_.-])datagram/socket\\.rs(:|[^A-Za-z0-9_./-]{1,6}(lines? )?)(95|96|97|98|99)([^0-9]|$)' answer.txt && grep -q 'UnixDatagram' answer.txt && grep -Eq '(^|[^A-Za-z0-9_.-])unix/listener\\.rs(:|[^A-Za-z0-9_./-]{1,6}(lines? )?)(53|54|55|56|57)([^0-9]|$)' answer.txt && grep -q 'UnixListener' answer.txt && grep -Eq '(^|[^A-Za-z0-9_.-])unix/stream\\.rs(:|[^A-Za-z0-9_./-]{1,6}(lines? )?)(42|43|44|45|46)([^0-9]|$)' answer.txt && grep -q 'UnixStream' answer.txt && grep -Eq '(^|[^A-Za-z0-9_.-])pipe\\.rs(:|[^A-Za-z0-9_./-]{1,6}(lines? )?)(364|365|366|367|368)([^0-9]|$)' answer.txt && grep -q 'Sender' answer.txt && grep -Eq '(^|[^A-Za-z0-9_.-])pipe\\.rs(:|[^A-Za-z0-9_./-]{1,6}(lines? )?)(912|913|914|915|916)([^0-9]|$)' answer.txt && grep -q 'Receiver' answer.txt && grep -Eq '(^|[^A-Za-z0-9_.-])named_pipe\\.rs(:|[^A-Za-z0-9_./-]{1,6}(lines? )?)(104|105|106|107|108)([^0-9]|$)' answer.txt && grep -q 'NamedPipeServer' answer.txt && grep -Eq '(^|[^A-Za-z0-9_.-])named_pipe\\.rs(:|[^A-Za-z0-9_./-]{1,6}(lines? )?)(977|978|979|980|981)([^0-9]|$)' answer.txt && grep -q 'NamedPipeClient' answer.txt"
 answer = "Ten types, each with a field io: PollEvented<...>: TcpListener (field io at tokio/src/net/tcp/listener.rs:58); TcpStream (field io at tokio/src/net/tcp/stream.rs:74); UdpSocket (field io at tokio/src/net/udp.rs:123); UnixDatagram (field io at tokio/src/net/unix/datagram/socket.rs:97); UnixListener (field io at tokio/src/net/unix/listener.rs:55); UnixStream (field io at tokio/src/net/unix/stream.rs:44); Sender (field io at tokio/src/net/unix/pipe.rs:366); Receiver (field io at tokio/src/net/unix/pipe.rs:914); NamedPipeServer (field io at tokio/src/net/windows/named_pipe.rs:106); NamedPipeClient (field io at tokio/src/net/windows/named_pipe.rs:979)."
 incomplete = ["TcpListener (field io at tokio/src/net/tcp/listener.rs:58); TcpStream (field io at tokio/src/net/tcp/stream.rs:74); UdpSocket (field io at tokio/src/net/udp.rs:123); UnixDatagram (field io at tokio/src/net/unix/datagram/socket.rs:97); UnixListener (field io at tokio/src/net/unix/listener.rs:55); UnixStream (field io at tokio/src/net/unix/stream.rs:44); Sender (field io at tokio/src/net/unix/pipe.rs:366); Receiver (field io at tokio/src/net/unix/pipe.rs:914); and ChildStdio (field inner at tokio/src/process/unix/mod.rs:274).", "TcpListener (field io at tokio/src/net/tcp/listener.rs:58), UnixListener (field io at tokio/src/net/tcp/listener.rs:55), TcpStream (field io at tokio/src/net/tcp/stream.rs:74), UnixStream (field io at tokio/src/net/tcp/stream.rs:44), UdpSocket (field io at tokio/src/net/udp.rs:123), UnixDatagram (field io at tokio/src/net/unix/datagram/socket.rs:97), Sender (field io at tokio/src/net/unix/pipe.rs:366), Receiver (field io at tokio/src/net/unix/pipe.rs:914), NamedPipeServer (field io at tokio/src/net/windows/named_pipe.rs:106), NamedPipeClient (field io at tokio/src/net/windows/named_pipe.rs:979).", "TcpListener (field io at tokio/src/net/tcp/listener.rs:58); TcpStream (field io at tokio/src/net/tcp/stream.rs:74); UdpSocket (field io at tokio/src/net/udp.rs:123); UnixDatagram (field io at tokio/src/net/unix/datagram/socket.rs:97); UnixListener (field io at tokio/src/net/unix/listener.rs:55); UnixStream (field io at tokio/src/net/unix/stream.rs:44); Sender (field io at tokio/src/net/unix/pipe.rs:366); NamedPipeServer (field io at tokio/src/net/windows/named_pipe.rs:106); NamedPipeClient (field io at tokio/src/net/windows/named_pipe.rs:979)."]
+
+# Discovery: questions without a known name, from the discovery eval's dev split
+# (bench/discovery/dataset.toml; `greeg find`'s weights were chosen on it). The
+# answer is the definition named in the dataset, cited within three lines.
+
+[[task]]
+id = "discover-tokio-01"
+corpus = "tokio"
+prompt = "How does a delay queue reschedule an existing entry to a new deadline and wake the task if the entry is already expired? Name the function or type that does it and give its definition as file:line."
+check = "grep -Eo 'delay_queue\\.rs:[0-9]+' answer.txt | cut -d: -f2 | awk '$1>=849 && $1<=855' | grep -q . && grep -qw 'reset_at' answer.txt"
+answer = "reset_at at tokio-util/src/time/delay_queue.rs:852"
+incomplete = ["reset_at.", "reset_at at tokio-util/src/time/delay_queue.rs:882"]
+
+[[task]]
+id = "discover-tokio-06"
+corpus = "tokio"
+prompt = "How does the task allocation compute the byte offset of the trailing section after the header and core, honoring alignment padding? Name the function or type that does it and give its definition as file:line."
+check = "grep -Eo 'raw\\.rs:[0-9]+' answer.txt | cut -d: -f2 | awk '$1>=122 && $1<=128' | grep -q . && grep -qw 'get_trailer_offset' answer.txt"
+answer = "get_trailer_offset at tokio/src/runtime/task/raw.rs:125"
+incomplete = ["get_trailer_offset.", "get_trailer_offset at tokio/src/runtime/task/raw.rs:155"]
+
+[[task]]
+id = "discover-tokio-12"
+corpus = "tokio"
+prompt = "What constructor builds a framed reader over an I/O object and decoder with a chosen initial buffer size? Name the function or type that does it and give its definition as file:line."
+check = "grep -Eo 'codec/framed_read\\.rs:[0-9]+' answer.txt | cut -d: -f2 | awk '$1>=50 && $1<=56' | grep -q . && grep -qw 'with_capacity' answer.txt"
+answer = "with_capacity at tokio-util/src/codec/framed_read.rs:53"
+incomplete = ["with_capacity.", "with_capacity at tokio-util/src/codec/framed_read.rs:83"]
+
+[[task]]
+id = "discover-tokio-15"
+corpus = "tokio"
+prompt = "Which stream adapter polls its source for an item, maps it into a future, and drives that future to completion before pulling the next item? Name the function or type that does it and give its definition as file:line."
+# the adapter (`Then`, then.rs:13) answers the question as asked, as does its poll_next
+check = "( grep -Eo 'then\\.rs:[0-9]+' answer.txt | cut -d: -f2 | awk '$1>=74 && $1<=80' | grep -q . && grep -qw 'poll_next' answer.txt ) || ( grep -Eo 'then\\.rs:[0-9]+' answer.txt | cut -d: -f2 | awk '$1>=10 && $1<=16' | grep -q . && grep -qw 'Then' answer.txt )"
+answer = "poll_next at tokio-stream/src/stream_ext/then.rs:77"
+incomplete = ["poll_next.", "poll_next at tokio-stream/src/stream_ext/then.rs:107"]
+
+[[task]]
+id = "discover-tokio-20"
+corpus = "tokio"
+prompt = "Where is an I/O interest converted into the set of readiness states it should be notified about, including closed states? Name the function or type that does it and give its definition as file:line."
+check = "grep -Eo 'interest\\.rs:[0-9]+' answer.txt | cut -d: -f2 | awk '$1>=255 && $1<=261' | grep -q . && grep -qw 'mask' answer.txt"
+answer = "mask at tokio/src/io/interest.rs:258"
+incomplete = ["mask.", "mask at tokio/src/io/interest.rs:288"]
+
+[[task]]
+id = "discover-tokio-21"
+corpus = "tokio"
+prompt = "How does the channel receiver try to pop a message without blocking, and park the thread when a concurrent send is mid-way through? Name the function or type that does it and give its definition as file:line."
+check = "grep -Eo 'chan\\.rs:[0-9]+' answer.txt | cut -d: -f2 | awk '$1>=421 && $1<=427' | grep -q . && grep -qw 'try_recv' answer.txt"
+answer = "try_recv at tokio/src/sync/mpsc/chan.rs:424"
+incomplete = ["try_recv.", "try_recv at tokio/src/sync/mpsc/chan.rs:454"]
+
+[[task]]
+id = "discover-tokio-23"
+corpus = "tokio"
+prompt = "Where does a keyed collection of tasks spawn a new future and associate it with an identifying key? Name the function or type that does it and give its definition as file:line."
+check = "grep -Eo 'join_map\\.rs:[0-9]+' answer.txt | cut -d: -f2 | awk '$1>=261 && $1<=267' | grep -q . && grep -qw 'spawn' answer.txt"
+answer = "spawn at tokio-util/src/task/join_map.rs:264"
+incomplete = ["spawn.", "spawn at tokio-util/src/task/join_map.rs:294"]
+
+[[task]]
+id = "discover-typescript-01"
+corpus = "TypeScript-5.9"
+prompt = "What function pulls the entity name out of a type annotation node, such as a type reference or heritage clause expression? Name the function or type that does it and give its definition as file:line."
+check = "grep -Eo 'compiler/utilities\\.ts:[0-9]+' answer.txt | cut -d: -f2 | awk '$1>=3374 && $1<=3380' | grep -q . && grep -qw 'getEntityNameFromTypeNode' answer.txt"
+answer = "getEntityNameFromTypeNode at src/compiler/utilities.ts:3377"
+incomplete = ["getEntityNameFromTypeNode.", "getEntityNameFromTypeNode at src/compiler/utilities.ts:3407"]
+
+[[task]]
+id = "discover-typescript-05"
+corpus = "TypeScript-5.9"
+prompt = "How does the decorator metadata emit turn a type's name into an expression, cloning identifiers so the checker treats them as original source nodes? Name the function or type that does it and give its definition as file:line."
+check = "grep -Eo 'typeSerializer\\.ts:[0-9]+' answer.txt | cut -d: -f2 | awk '$1>=592 && $1<=598' | grep -q . && grep -qw 'serializeEntityNameAsExpression' answer.txt"
+answer = "serializeEntityNameAsExpression at src/compiler/transformers/typeSerializer.ts:595"
+incomplete = ["serializeEntityNameAsExpression.", "serializeEntityNameAsExpression at src/compiler/transformers/typeSerializer.ts:625"]
+
+[[task]]
+id = "discover-typescript-08"
+corpus = "TypeScript-5.9"
+prompt = "Where does a quick fix add a missing constraint to a generic type parameter, importing any types it needs for the inserted constraint? Name the function or type that does it and give its definition as file:line."
+check = "grep -Eo 'fixAddMissingConstraint\\.ts:[0-9]+' answer.txt | cut -d: -f2 | awk '$1>=112 && $1<=118' | grep -q . && grep -qw 'addMissingConstraint' answer.txt"
+answer = "addMissingConstraint at src/services/codefixes/fixAddMissingConstraint.ts:115"
+incomplete = ["addMissingConstraint.", "addMissingConstraint at src/services/codefixes/fixAddMissingConstraint.ts:145"]
+
+[[task]]
+id = "discover-typescript-11"
+corpus = "TypeScript-5.9"
+prompt = "Where does find-all-references collect locations in other files that point to a file through triple-slash style reference directives rather than module imports? Name the function or type that does it and give its definition as file:line."
+check = "grep -Eo 'services/findAllReferences\\.ts:[0-9]+' answer.txt | cut -d: -f2 | awk '$1>=1071 && $1<=1077' | grep -q . && grep -qw 'getReferencesForNonModule' answer.txt"
+answer = "getReferencesForNonModule at src/services/findAllReferences.ts:1074"
+incomplete = ["getReferencesForNonModule.", "getReferencesForNonModule at src/services/findAllReferences.ts:1104"]
+
+[[task]]
+id = "discover-typescript-15"
+corpus = "TypeScript-5.9"
+prompt = "Which language service method returns semantic highlighting classifications for a span, choosing between the original format and the newer 2020 format? Name the function or type that does it and give its definition as file:line."
+check = "grep -Eo 'services\\.ts:[0-9]+' answer.txt | cut -d: -f2 | awk '$1>=2587 && $1<=2593' | grep -q . && grep -qw 'getSemanticClassifications' answer.txt"
+answer = "getSemanticClassifications at src/services/services.ts:2590"
+incomplete = ["getSemanticClassifications.", "getSemanticClassifications at src/services/services.ts:2620"]
+
+[[task]]
+id = "discover-typescript-19"
+corpus = "TypeScript-5.9"
+prompt = "How does organize imports and exports separate a group of export declarations into bare star exports, named exports and type-only exports? Name the function or type that does it and give its definition as file:line."
+check = "grep -Eo 'services/organizeImports\\.ts:[0-9]+' answer.txt | cut -d: -f2 | awk '$1>=604 && $1<=610' | grep -q . && grep -qw 'getCategorizedExports' answer.txt"
+answer = "getCategorizedExports at src/services/organizeImports.ts:607"
+incomplete = ["getCategorizedExports.", "getCategorizedExports at src/services/organizeImports.ts:637"]
+
+[[task]]
+id = "discover-typescript-21"
+corpus = "TypeScript-5.9"
+prompt = "Which code clears the terminal in watch mode before printing a new compilation starting message, unless output preservation or diagnostics options are set? Name the function or type that does it and give its definition as file:line."
+check = "grep -Eo 'watch\\.ts:[0-9]+' answer.txt | cut -d: -f2 | awk '$1>=142 && $1<=148' | grep -q . && grep -qw 'clearScreenIfNotWatchingForFileChanges' answer.txt"
+answer = "clearScreenIfNotWatchingForFileChanges at src/compiler/watch.ts:145"
+incomplete = ["clearScreenIfNotWatchingForFileChanges.", "clearScreenIfNotWatchingForFileChanges at src/compiler/watch.ts:175"]
+
+[[task]]
+id = "discover-ktor-01"
+corpus = "ktor"
+prompt = "How does the custom open-addressing hash map delete an entry and fix up displaced neighbours while keeping iteration order consistent? Name the function or type that does it and give its definition as file:line."
+check = "grep -Eo 'CaseInsensitiveMap\\.kt:[0-9]+' answer.txt | cut -d: -f2 | awk '$1>=104 && $1<=110' | grep -q . && grep -qw 'remove' answer.txt"
+answer = "remove at ktor-utils/common/src/io/ktor/util/CaseInsensitiveMap.kt:107"
+incomplete = ["remove.", "remove at ktor-utils/common/src/io/ktor/util/CaseInsensitiveMap.kt:137"]
+
+[[task]]
+id = "discover-ktor-02"
+corpus = "ktor"
+prompt = "Which code cancels an in-flight CIO engine request after a deadline passes, and stops that timer when the call finishes? Name the function or type that does it and give its definition as file:line."
+check = "grep -Eo 'Endpoint\\.kt:[0-9]+' answer.txt | cut -d: -f2 | awk '$1>=326 && $1<=332' | grep -q . && grep -qw 'setupTimeout' answer.txt"
+answer = "setupTimeout at ktor-client/ktor-client-cio/common/src/io/ktor/client/engine/cio/Endpoint.kt:329"
+incomplete = ["setupTimeout.", "setupTimeout at ktor-client/ktor-client-cio/common/src/io/ktor/client/engine/cio/Endpoint.kt:359"]
+
+[[task]]
+id = "discover-ktor-06"
+corpus = "ktor"
+prompt = "Which code throws the error when an HTTP header name is invalid, such as empty names or deprecated folded multiline headers? Name the function or type that does it and give its definition as file:line."
+check = "grep -Eo 'HttpParser\\.kt:[0-9]+' answer.txt | cut -d: -f2 | awk '$1>=263 && $1<=269' | grep -q . && grep -qw 'parseHeaderNameFailed' answer.txt"
+answer = "parseHeaderNameFailed at ktor-http/ktor-http-cio/common/src/io/ktor/http/cio/HttpParser.kt:266"
+incomplete = ["parseHeaderNameFailed.", "parseHeaderNameFailed at ktor-http/ktor-http-cio/common/src/io/ktor/http/cio/HttpParser.kt:296"]
+
+[[task]]
+id = "discover-ktor-09"
+corpus = "ktor"
+prompt = "Where is the JVM implementation of a raw websocket session without handshake created from input and output channels? Name the function or type that does it and give its definition as file:line."
+check = "grep -Eo 'RawWebSocketJvm\\.kt:[0-9]+' answer.txt | cut -d: -f2 | awk '$1>=45 && $1<=51' | grep -q . && grep -qw 'RawWebSocket' answer.txt"
+answer = "RawWebSocket at ktor-shared/ktor-websockets/jvm/src/io/ktor/websocket/RawWebSocketJvm.kt:48"
+incomplete = ["RawWebSocket.", "RawWebSocket at ktor-shared/ktor-websockets/jvm/src/io/ktor/websocket/RawWebSocketJvm.kt:78"]
+
+[[task]]
+id = "discover-ktor-11"
+corpus = "ktor"
+prompt = "What function skips a line terminator, either carriage return plus line feed or a lone carriage return when parsing is lenient? Name the function or type that does it and give its definition as file:line."
+check = "grep -Eo 'ByteReadChannelOperations\\.kt:[0-9]+' answer.txt | cut -d: -f2 | awk '$1>=749 && $1<=755' | grep -q . && grep -qw 'discardCrlfOrCr' answer.txt"
+answer = "discardCrlfOrCr at ktor-io/common/src/io/ktor/utils/io/ByteReadChannelOperations.kt:752"
+incomplete = ["discardCrlfOrCr.", "discardCrlfOrCr at ktor-io/common/src/io/ktor/utils/io/ByteReadChannelOperations.kt:782"]
+
+[[task]]
+id = "discover-ktor-13"
+corpus = "ktor"
+prompt = "How does the URL builder append already-encoded path pieces while avoiding doubled or missing slashes at the junction? Name the function or type that does it and give its definition as file:line."
+check = "grep -Eo 'http/URLBuilder\\.kt:[0-9]+' answer.txt | cut -d: -f2 | awk '$1>=279 && $1<=285' | grep -q . && grep -qw 'appendEncodedPathSegments' answer.txt"
+answer = "appendEncodedPathSegments at ktor-http/common/src/io/ktor/http/URLBuilder.kt:282"
+incomplete = ["appendEncodedPathSegments.", "appendEncodedPathSegments at ktor-http/common/src/io/ktor/http/URLBuilder.kt:312"]

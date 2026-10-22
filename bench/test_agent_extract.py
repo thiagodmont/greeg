@@ -57,6 +57,16 @@ class AgentExtractTests(unittest.TestCase):
         self.assertEqual(rec["search_evidence"]["hook"], 2)
         self.assertEqual(why, [])
 
+    def test_greeg_find_calls_are_counted_by_command(self):
+        rec, why = run([
+            bash("a", "greeg find retry backoff | head -20", "one"), hook(None, "one"),
+            bash("b", "cd src && greeg find wake task; greeg def poll", "two"), hook(None, "two"),
+            bash("c", "find . -name '*.rs'", "three"), hook(None, "three"),
+            result("a", "x"), result("b", "y"), result("c", "z"), END], "S", meta={})
+        self.assertEqual(rec["greeg_find"], 2)
+        self.assertEqual(rec["search"]["greeg"], 3)
+        self.assertEqual(why, [])
+
     def test_a_declined_call_keeps_its_own_command(self):
         rec, why = run([bash("a", "grep -r foo .", "d"), hook(), result("a", "x"), END], "B", meta={})
         self.assertEqual(rec["search"]["grep"], 1)

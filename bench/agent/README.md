@@ -2,11 +2,14 @@
 
 Measures whether a coding agent does better with greeg than with ripgrep on
 real tasks. It is run by hand: it spends API credits and needs a Claude Code
-login, so it is not part of CI. Tasks live in `tasks.toml`, twenty-eight
-across tokio, django, ktor, TypeScript 5.9 and kotlinx.coroutines: ten single
-lookups, ten that take several hops (five held out), and eight that pick which
-of many same-named definitions a call site reaches or map the files around one
-anchor (four held out). Each has a mechanical check on the agent's final
+login, so it is not part of CI. Tasks live in `tasks.toml`, forty-eight
+across tokio, django, ktor, TypeScript 5.9 and kotlinx.coroutines:
+- ten single lookups;
+- ten that take several hops (five held out);
+- eight that pick which of many same-named definitions a call site reaches,
+  or map the files around one anchor (four held out);
+- twenty questions without a known name (`discover-*`), from the discovery
+  eval's development split. Each has a mechanical check on the agent's final
 answer: every item the prompt asks for, with its file:line. An ambiguous-name
 task's `incomplete` answers include one that follows the wrong definition. A check must pass the task's verified `answer`, and fail it without
 its line numbers and each `incomplete` answer.
@@ -18,6 +21,7 @@ its line numbers and each `incomplete` answer.
 | A | ripgrep and grep via Bash, no greeg | greeg not on `PATH`, no hook |
 | B | greeg through the hook | `greeg hook run` as the run's PreToolUse hook; plain `rg` calls are rewritten, `grep` is left alone |
 | C | greeg through the hook, named in the prompt | as B, and the prompt starts with "Use greeg for code search." |
+| S | greeg through the hook, with its skill | as B, and the skill `greeg hook claude` installs is appended to the system prompt (`--append-system-prompt`); its digest is in `setup.json` |
 
 Same model, task prompt (C adds its prefix), turn limit, tools (`Bash`,
 `Read`) and allowed commands for every arm.
@@ -198,3 +202,44 @@ No wrong-definition failure was observed: none in the 24 ambiguous-name runs
 (a 95 % upper bound of about 14 %). Held out is at the ceiling in both arms,
 so these tasks cannot show a gain from an ambiguity-aware `def`; they show no
 headroom for one with this model.
+
+## Discovery run (2026-10-22)
+
+The twenty discovery tasks × arms A and S × 1 repeat, with Claude Code
+2.1.308 on Sonnet (`claude-sonnet-5-5`) and greeg at c719108 (`greeg find`
+merged). Arm S gets greeg's skill, which names `find` "for questions in plain
+words, when no name is known". This is the agent arm of phase 7 experiment
+1, run after `find` passed its offline gate (held-out Acc@5 0.72 against
+rg's 0.26, `bench/discovery/README.md`). `results/discovery-2026-10-22.json`
+holds the records, `.txt` the analysis, `-setup.json` the setup. 40 runs cost
+$0.97.
+
+The tasks' questions are from the split `find`'s weights were chosen on, which
+favours arm S. Each check takes the definition the dataset names, cited within
+three lines. One check was widened after the run: `discover-tokio-15` asks
+"which stream adapter …", and both arms answered with the adapter (`Then`,
+`then.rs:13`) rather than its `poll_next`; both verdicts went from fail to
+pass (`--recheck`).
+
+- **Left out:** three S runs whose hook responses could belong to more than
+  one call (chained greeg commands), with their A pairs, so 17 pairs remain.
+- **Success:** 17/17 in both arms (Wilson 82–100 %). The tasks do not
+  separate the arms: each took 2 to 12 turns, and the question's words led
+  both arms to the right file.
+- **`find` is rarely used.** Arm S ran greeg for all 59 of its searches,
+  where arm A ran grep for all 54. But only 2 of the 20 S runs called `greeg
+  find`, once each. The agents searched for a guessed identifier (`greeg def
+  Then`, `greeg "serializeEntityNameAsExpression|…"`) and found it.
+- **Cost:** no difference shown. Cost −$0.01 [−0.01, +0.00], turns −0.6
+  [−1.6, +0.1], tool output −980 characters [−2,880, +360], cache reads −1.8k
+  [−17.3k, +8.6k].
+- **Wall time:** −3.9 s [−8.1, −0.4]. It is the one interval that excludes
+  zero, and it comes from greeg's shorter answers and fewer turns, not from
+  `find`.
+
+**Verdict:** the agent gate (better task success, or fewer total tokens with
+follow-up reads included) is not met. The success rate is at the ceiling in
+both arms, and agents with the skill seldom choose `find`. This says nothing
+against `find`'s ranking, which held out offline. Showing an agent-level gain
+would need harder questions, where the words do not point at the file, or an
+agent that reaches for `find` first.
