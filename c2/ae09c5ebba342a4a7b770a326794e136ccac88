@@ -1,0 +1,25 @@
+bench/test_scip_headroom.py
+  s_eefb2647553a67::t_3a0cf66374c272 1-29
+bench/scip_headroom.py
+  s_eefb2647553a67::t_1b87f9b6cfead9 1-178
+bench/headroom/scip-headroom-2026-10-22.json
+  s_eefb2647553a67::t_47755755b407cf 1-4904
+bench/headroom/README.md
+  s_eefb2647553a67::t_3a0cf66374c272 1-58
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "c2ae09c5ebba342a4a7b770a326794e136ccac88",
+  "prompts": {},
+  "sessions": {
+    "s_eefb2647553a67": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9fff36d3-3b5f-4343-be78-7893a6fe3965",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
