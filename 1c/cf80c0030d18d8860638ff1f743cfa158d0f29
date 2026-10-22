@@ -1,0 +1,27 @@
+bench/agent/results/discovery-2026-10-22.json
+  s_eefb2647553a67::t_02af8d425581d7 1-1423
+bench/agent/results/discovery-2026-10-22-setup.json
+  s_eefb2647553a67::t_02af8d425581d7 1-59
+bench/agent/tasks.toml
+  s_eefb2647553a67::t_65b9778c1bbdaa 285-286
+bench/agent/results/discovery-2026-10-22.txt
+  s_eefb2647553a67::t_02af8d425581d7 1-44
+bench/agent/README.md
+  s_eefb2647553a67::t_b5533556633fcb 5-12,24,205-245
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "1ccf80c0030d18d8860638ff1f743cfa158d0f29",
+  "prompts": {},
+  "sessions": {
+    "s_eefb2647553a67": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9fff36d3-3b5f-4343-be78-7893a6fe3965",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
