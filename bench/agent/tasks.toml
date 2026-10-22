@@ -282,7 +282,8 @@ incomplete = ["with_capacity.", "with_capacity at tokio-util/src/codec/framed_re
 id = "discover-tokio-15"
 corpus = "tokio"
 prompt = "Which stream adapter polls its source for an item, maps it into a future, and drives that future to completion before pulling the next item? Name the function or type that does it and give its definition as file:line."
-check = "grep -Eo 'then\\.rs:[0-9]+' answer.txt | cut -d: -f2 | awk '$1>=74 && $1<=80' | grep -q . && grep -qw 'poll_next' answer.txt"
+# the adapter (`Then`, then.rs:13) answers the question as asked, as does its poll_next
+check = "( grep -Eo 'then\\.rs:[0-9]+' answer.txt | cut -d: -f2 | awk '$1>=74 && $1<=80' | grep -q . && grep -qw 'poll_next' answer.txt ) || ( grep -Eo 'then\\.rs:[0-9]+' answer.txt | cut -d: -f2 | awk '$1>=10 && $1<=16' | grep -q . && grep -qw 'Then' answer.txt )"
 answer = "poll_next at tokio-stream/src/stream_ext/then.rs:77"
 incomplete = ["poll_next.", "poll_next at tokio-stream/src/stream_ext/then.rs:107"]
 

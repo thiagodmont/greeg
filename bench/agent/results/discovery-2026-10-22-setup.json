@@ -1,0 +1,59 @@
+{
+ "claude": "2.1.308 (Claude Code)",
+ "greeg": "greeg 0.12.1+c71910870",
+ "model": "sonnet",
+ "max_turns": 25,
+ "max_budget_usd": 2.0,
+ "seed": 7,
+ "allowed": [
+  "Read",
+  "Bash(rg:*)",
+  "Bash(greeg:*)",
+  "Bash(grep:*)",
+  "Bash(find:*)",
+  "Bash(ls:*)",
+  "Bash(cat:*)",
+  "Bash(head:*)",
+  "Bash(tail:*)",
+  "Bash(sed:*)",
+  "Bash(wc:*)",
+  "Bash(sort:*)",
+  "Bash(uniq:*)",
+  "Bash(cut:*)",
+  "Bash(tr:*)"
+ ],
+ "denied": [
+  "Bash(sed -i:*)",
+  "Bash(sed --in-place:*)",
+  "Bash(sort -o:*)",
+  "Bash(sort --output:*)"
+ ],
+ "tasks": [
+  "discover-tokio-01",
+  "discover-tokio-06",
+  "discover-tokio-12",
+  "discover-tokio-15",
+  "discover-tokio-20",
+  "discover-tokio-21",
+  "discover-tokio-23",
+  "discover-typescript-01",
+  "discover-typescript-05",
+  "discover-typescript-08",
+  "discover-typescript-11",
+  "discover-typescript-15",
+  "discover-typescript-19",
+  "discover-typescript-21",
+  "discover-ktor-01",
+  "discover-ktor-02",
+  "discover-ktor-06",
+  "discover-ktor-09",
+  "discover-ktor-11",
+  "discover-ktor-13"
+ ],
+ "corpora": {
+  "TypeScript-5.9": "5be33469d",
+  "ktor": "f92fad043",
+  "tokio": "ea91b33c"
+ },
+ "skill_sha256": "1536452735467c3721c4830ee53f6e47edd9139ece779d2769cdcf4a6582fd35"
+}

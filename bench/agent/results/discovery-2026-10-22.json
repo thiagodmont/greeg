@@ -1,0 +1,1423 @@
+[
+ {
+  "tools": {
+   "Bash": 2,
+   "Read": 1
+  },
+  "search": {
+   "rg": 0,
+   "grep": 2,
+   "greeg": 0
+  },
+  "search_evidence": {
+   "hook": 0,
+   "output": 0,
+   "intent": 2
+  },
+  "denied": 0,
+  "greeg_find": 0,
+  "tool_output_chars": 17838,
+  "input_tokens": 8,
+  "output_tokens": 820,
+  "cache_creation": 8545,
+  "cache_read": 22457,
+  "turns": 4,
+  "duration_ms": 17284,
+  "cost_usd": 0.050051700000000005,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 0,
+  "success": true,
+  "unhooked": 2,
+  "writes": 0,
+  "task": "discover-ktor-01",
+  "arm": "A",
+  "run": "1",
+  "invalid": []
+ },
+ {
+  "tools": {
+   "Bash": 3,
+   "Read": 1
+  },
+  "search": {
+   "rg": 0,
+   "grep": 0,
+   "greeg": 5
+  },
+  "search_evidence": {
+   "hook": 5,
+   "output": 0,
+   "intent": 0
+  },
+  "denied": 0,
+  "greeg_find": 1,
+  "tool_output_chars": 8684,
+  "input_tokens": 10,
+  "output_tokens": 689,
+  "cache_creation": 6823,
+  "cache_read": 40748,
+  "turns": 5,
+  "duration_ms": 14734,
+  "cost_usd": 0.037037,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 1,
+  "success": true,
+  "unhooked": 0,
+  "writes": 0,
+  "task": "discover-ktor-01",
+  "arm": "S",
+  "run": "1",
+  "invalid": [
+   "1 hook responses could belong to more than one call"
+  ]
+ },
+ {
+  "tools": {
+   "Bash": 5
+  },
+  "search": {
+   "rg": 0,
+   "grep": 7,
+   "greeg": 0
+  },
+  "search_evidence": {
+   "hook": 0,
+   "output": 0,
+   "intent": 7
+  },
+  "denied": 0,
+  "greeg_find": 0,
+  "tool_output_chars": 8603,
+  "input_tokens": 14,
+  "output_tokens": 639,
+  "cache_creation": 10449,
+  "cache_read": 46988,
+  "turns": 6,
+  "duration_ms": 20482,
+  "cost_usd": 0.0529033,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 0,
+  "success": true,
+  "unhooked": 7,
+  "writes": 0,
+  "task": "discover-ktor-02",
+  "arm": "A",
+  "run": "1",
+  "invalid": []
+ },
+ {
+  "tools": {
+   "Bash": 2
+  },
+  "search": {
+   "rg": 0,
+   "grep": 0,
+   "greeg": 2
+  },
+  "search_evidence": {
+   "hook": 2,
+   "output": 0,
+   "intent": 0
+  },
+  "denied": 0,
+  "greeg_find": 0,
+  "tool_output_chars": 3477,
+  "input_tokens": 6,
+  "output_tokens": 371,
+  "cache_creation": 3175,
+  "cache_read": 23040,
+  "turns": 3,
+  "duration_ms": 6305,
+  "cost_usd": 0.020246,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 0,
+  "success": true,
+  "unhooked": 0,
+  "writes": 0,
+  "task": "discover-ktor-02",
+  "arm": "S",
+  "run": "1",
+  "invalid": []
+ },
+ {
+  "tools": {
+   "Bash": 3
+  },
+  "search": {
+   "rg": 0,
+   "grep": 4,
+   "greeg": 0
+  },
+  "search_evidence": {
+   "hook": 0,
+   "output": 0,
+   "intent": 4
+  },
+  "denied": 0,
+  "greeg_find": 0,
+  "tool_output_chars": 3513,
+  "input_tokens": 8,
+  "output_tokens": 442,
+  "cache_creation": 3485,
+  "cache_read": 22671,
+  "turns": 4,
+  "duration_ms": 13021,
+  "cost_usd": 0.0259031,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 0,
+  "success": true,
+  "unhooked": 4,
+  "writes": 0,
+  "task": "discover-ktor-06",
+  "arm": "A",
+  "run": "1",
+  "invalid": []
+ },
+ {
+  "tools": {
+   "Bash": 3
+  },
+  "search": {
+   "rg": 0,
+   "grep": 0,
+   "greeg": 3
+  },
+  "search_evidence": {
+   "hook": 3,
+   "output": 0,
+   "intent": 0
+  },
+  "denied": 0,
+  "greeg_find": 0,
+  "tool_output_chars": 5675,
+  "input_tokens": 10,
+  "output_tokens": 505,
+  "cache_creation": 5470,
+  "cache_read": 38555,
+  "turns": 4,
+  "duration_ms": 14449,
+  "cost_usd": 0.027541299999999998,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 0,
+  "success": true,
+  "unhooked": 0,
+  "writes": 0,
+  "task": "discover-ktor-06",
+  "arm": "S",
+  "run": "1",
+  "invalid": []
+ },
+ {
+  "tools": {
+   "Bash": 2,
+   "Read": 1
+  },
+  "search": {
+   "rg": 0,
+   "grep": 3,
+   "greeg": 0
+  },
+  "search_evidence": {
+   "hook": 0,
+   "output": 0,
+   "intent": 3
+  },
+  "denied": 0,
+  "greeg_find": 0,
+  "tool_output_chars": 3900,
+  "input_tokens": 8,
+  "output_tokens": 327,
+  "cache_creation": 3640,
+  "cache_read": 22635,
+  "turns": 4,
+  "duration_ms": 9506,
+  "cost_usd": 0.0234795,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 0,
+  "success": true,
+  "unhooked": 3,
+  "writes": 0,
+  "task": "discover-ktor-09",
+  "arm": "A",
+  "run": "1",
+  "invalid": []
+ },
+ {
+  "tools": {
+   "Bash": 2
+  },
+  "search": {
+   "rg": 0,
+   "grep": 0,
+   "greeg": 1
+  },
+  "search_evidence": {
+   "hook": 1,
+   "output": 0,
+   "intent": 0
+  },
+  "denied": 0,
+  "greeg_find": 0,
+  "tool_output_chars": 3006,
+  "input_tokens": 6,
+  "output_tokens": 370,
+  "cache_creation": 6349,
+  "cache_read": 18462,
+  "turns": 3,
+  "duration_ms": 9379,
+  "cost_usd": 0.0321942,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 0,
+  "success": true,
+  "unhooked": 0,
+  "writes": 0,
+  "task": "discover-ktor-09",
+  "arm": "S",
+  "run": "1",
+  "invalid": []
+ },
+ {
+  "tools": {
+   "Bash": 11
+  },
+  "search": {
+   "rg": 0,
+   "grep": 18,
+   "greeg": 0
+  },
+  "search_evidence": {
+   "hook": 0,
+   "output": 0,
+   "intent": 18
+  },
+  "denied": 0,
+  "greeg_find": 0,
+  "tool_output_chars": 16839,
+  "input_tokens": 34,
+  "output_tokens": 694,
+  "cache_creation": 17638,
+  "cache_read": 157509,
+  "turns": 12,
+  "duration_ms": 39737,
+  "cost_usd": 0.0757589,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 0,
+  "success": true,
+  "unhooked": 18,
+  "writes": 0,
+  "task": "discover-ktor-11",
+  "arm": "A",
+  "run": "1",
+  "invalid": []
+ },
+ {
+  "tools": {
+   "Bash": 4
+  },
+  "search": {
+   "rg": 0,
+   "grep": 0,
+   "greeg": 6
+  },
+  "search_evidence": {
+   "hook": 6,
+   "output": 0,
+   "intent": 0
+  },
+  "denied": 0,
+  "greeg_find": 0,
+  "tool_output_chars": 3517,
+  "input_tokens": 12,
+  "output_tokens": 230,
+  "cache_creation": 4386,
+  "cache_read": 47903,
+  "turns": 5,
+  "duration_ms": 14386,
+  "cost_usd": 0.0244807,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 0,
+  "success": true,
+  "unhooked": 0,
+  "writes": 0,
+  "task": "discover-ktor-11",
+  "arm": "S",
+  "run": "1",
+  "invalid": []
+ },
+ {
+  "tools": {
+   "Bash": 2,
+   "Read": 1
+  },
+  "search": {
+   "rg": 0,
+   "grep": 2,
+   "greeg": 0
+  },
+  "search_evidence": {
+   "hook": 0,
+   "output": 0,
+   "intent": 2
+  },
+  "denied": 0,
+  "greeg_find": 0,
+  "tool_output_chars": 3724,
+  "input_tokens": 8,
+  "output_tokens": 506,
+  "cache_creation": 3402,
+  "cache_read": 22615,
+  "turns": 4,
+  "duration_ms": 10917,
+  "cost_usd": 0.024535500000000002,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 0,
+  "success": true,
+  "unhooked": 2,
+  "writes": 0,
+  "task": "discover-ktor-13",
+  "arm": "A",
+  "run": "1",
+  "invalid": []
+ },
+ {
+  "tools": {
+   "Bash": 2,
+   "Read": 1
+  },
+  "search": {
+   "rg": 0,
+   "grep": 0,
+   "greeg": 2
+  },
+  "search_evidence": {
+   "hook": 2,
+   "output": 0,
+   "intent": 0
+  },
+  "denied": 0,
+  "greeg_find": 1,
+  "tool_output_chars": 5751,
+  "input_tokens": 8,
+  "output_tokens": 507,
+  "cache_creation": 5456,
+  "cache_read": 30088,
+  "turns": 4,
+  "duration_ms": 12819,
+  "cost_usd": 0.027339000000000002,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 0,
+  "success": true,
+  "unhooked": 0,
+  "writes": 0,
+  "task": "discover-ktor-13",
+  "arm": "S",
+  "run": "1",
+  "invalid": []
+ },
+ {
+  "tools": {
+   "Bash": 1,
+   "Read": 1
+  },
+  "search": {
+   "rg": 0,
+   "grep": 1,
+   "greeg": 0
+  },
+  "search_evidence": {
+   "hook": 0,
+   "output": 0,
+   "intent": 1
+  },
+  "denied": 0,
+  "greeg_find": 0,
+  "tool_output_chars": 2273,
+  "input_tokens": 6,
+  "output_tokens": 518,
+  "cache_creation": 1510,
+  "cache_read": 17600,
+  "turns": 3,
+  "duration_ms": 11526,
+  "cost_usd": 0.017641999999999998,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 0,
+  "success": true,
+  "unhooked": 1,
+  "writes": 0,
+  "task": "discover-tokio-01",
+  "arm": "A",
+  "run": "1",
+  "invalid": []
+ },
+ {
+  "tools": {
+   "Bash": 3
+  },
+  "search": {
+   "rg": 0,
+   "grep": 0,
+   "greeg": 4
+  },
+  "search_evidence": {
+   "hook": 4,
+   "output": 0,
+   "intent": 0
+  },
+  "denied": 0,
+  "greeg_find": 0,
+  "tool_output_chars": 2335,
+  "input_tokens": 8,
+  "output_tokens": 364,
+  "cache_creation": 1429,
+  "cache_read": 31332,
+  "turns": 4,
+  "duration_ms": 8387,
+  "cost_usd": 0.0139752,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 0,
+  "success": true,
+  "unhooked": 0,
+  "writes": 0,
+  "task": "discover-tokio-01",
+  "arm": "S",
+  "run": "1",
+  "invalid": []
+ },
+ {
+  "tools": {
+   "Bash": 2,
+   "Read": 1
+  },
+  "search": {
+   "rg": 0,
+   "grep": 2,
+   "greeg": 0
+  },
+  "search_evidence": {
+   "hook": 0,
+   "output": 0,
+   "intent": 2
+  },
+  "denied": 0,
+  "greeg_find": 0,
+  "tool_output_chars": 4340,
+  "input_tokens": 8,
+  "output_tokens": 488,
+  "cache_creation": 3880,
+  "cache_read": 23313,
+  "turns": 4,
+  "duration_ms": 12052,
+  "cost_usd": 0.0276773,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 0,
+  "success": true,
+  "unhooked": 2,
+  "writes": 0,
+  "task": "discover-tokio-06",
+  "arm": "A",
+  "run": "1",
+  "invalid": []
+ },
+ {
+  "tools": {
+   "Bash": 3
+  },
+  "search": {
+   "rg": 0,
+   "grep": 0,
+   "greeg": 5
+  },
+  "search_evidence": {
+   "hook": 5,
+   "output": 0,
+   "intent": 0
+  },
+  "denied": 0,
+  "greeg_find": 0,
+  "tool_output_chars": 2626,
+  "input_tokens": 8,
+  "output_tokens": 242,
+  "cache_creation": 2783,
+  "cache_read": 30689,
+  "turns": 4,
+  "duration_ms": 7525,
+  "cost_usd": 0.0184669,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 0,
+  "success": true,
+  "unhooked": 0,
+  "writes": 0,
+  "task": "discover-tokio-06",
+  "arm": "S",
+  "run": "1",
+  "invalid": []
+ },
+ {
+  "tools": {
+   "Bash": 1
+  },
+  "search": {
+   "rg": 0,
+   "grep": 1,
+   "greeg": 0
+  },
+  "search_evidence": {
+   "hook": 0,
+   "output": 0,
+   "intent": 1
+  },
+  "denied": 0,
+  "greeg_find": 0,
+  "tool_output_chars": 239,
+  "input_tokens": 4,
+  "output_tokens": 200,
+  "cache_creation": 1457,
+  "cache_read": 10224,
+  "turns": 2,
+  "duration_ms": 5034,
+  "cost_usd": 0.0096384,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 0,
+  "success": true,
+  "unhooked": 1,
+  "writes": 0,
+  "task": "discover-tokio-12",
+  "arm": "A",
+  "run": "1",
+  "invalid": []
+ },
+ {
+  "tools": {
+   "Bash": 1
+  },
+  "search": {
+   "rg": 0,
+   "grep": 0,
+   "greeg": 1
+  },
+  "search_evidence": {
+   "hook": 1,
+   "output": 0,
+   "intent": 0
+  },
+  "denied": 0,
+  "greeg_find": 0,
+  "tool_output_chars": 1017,
+  "input_tokens": 4,
+  "output_tokens": 227,
+  "cache_creation": 1844,
+  "cache_read": 13941,
+  "turns": 2,
+  "duration_ms": 4906,
+  "cost_usd": 0.011528100000000001,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 0,
+  "success": true,
+  "unhooked": 0,
+  "writes": 0,
+  "task": "discover-tokio-12",
+  "arm": "S",
+  "run": "1",
+  "invalid": []
+ },
+ {
+  "tools": {
+   "Bash": 2
+  },
+  "search": {
+   "rg": 0,
+   "grep": 1,
+   "greeg": 0
+  },
+  "search_evidence": {
+   "hook": 0,
+   "output": 0,
+   "intent": 1
+  },
+  "denied": 0,
+  "greeg_find": 0,
+  "tool_output_chars": 1713,
+  "input_tokens": 8,
+  "output_tokens": 39,
+  "cache_creation": 3637,
+  "cache_read": 22469,
+  "turns": 3,
+  "duration_ms": 9301,
+  "cost_usd": 0.0187429,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 0,
+  "success": true,
+  "unhooked": 1,
+  "writes": 0,
+  "task": "discover-tokio-15",
+  "arm": "A",
+  "run": "1",
+  "invalid": []
+ },
+ {
+  "tools": {
+   "Bash": 2
+  },
+  "search": {
+   "rg": 0,
+   "grep": 0,
+   "greeg": 3
+  },
+  "search_evidence": {
+   "hook": 3,
+   "output": 0,
+   "intent": 0
+  },
+  "denied": 0,
+  "greeg_find": 0,
+  "tool_output_chars": 667,
+  "input_tokens": 8,
+  "output_tokens": 190,
+  "cache_creation": 2981,
+  "cache_read": 28158,
+  "turns": 3,
+  "duration_ms": 4568,
+  "cost_usd": 0.012634,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 0,
+  "success": true,
+  "unhooked": 0,
+  "writes": 0,
+  "task": "discover-tokio-15",
+  "arm": "S",
+  "run": "1",
+  "invalid": []
+ },
+ {
+  "tools": {
+   "Bash": 3
+  },
+  "search": {
+   "rg": 0,
+   "grep": 4,
+   "greeg": 0
+  },
+  "search_evidence": {
+   "hook": 0,
+   "output": 0,
+   "intent": 4
+  },
+  "denied": 0,
+  "greeg_find": 0,
+  "tool_output_chars": 2831,
+  "input_tokens": 12,
+  "output_tokens": 428,
+  "cache_creation": 3945,
+  "cache_read": 35075,
+  "turns": 4,
+  "duration_ms": 26877,
+  "cost_usd": 0.0219163,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 0,
+  "success": true,
+  "unhooked": 4,
+  "writes": 0,
+  "task": "discover-tokio-20",
+  "arm": "A",
+  "run": "1",
+  "invalid": []
+ },
+ {
+  "tools": {
+   "Bash": 2
+  },
+  "search": {
+   "rg": 0,
+   "grep": 0,
+   "greeg": 1
+  },
+  "search_evidence": {
+   "hook": 1,
+   "output": 0,
+   "intent": 0
+  },
+  "denied": 0,
+  "greeg_find": 0,
+  "tool_output_chars": 2568,
+  "input_tokens": 6,
+  "output_tokens": 276,
+  "cache_creation": 2647,
+  "cache_read": 22204,
+  "turns": 3,
+  "duration_ms": 7451,
+  "cost_usd": 0.017010400000000002,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 0,
+  "success": true,
+  "unhooked": 0,
+  "writes": 0,
+  "task": "discover-tokio-20",
+  "arm": "S",
+  "run": "1",
+  "invalid": []
+ },
+ {
+  "tools": {
+   "Bash": 1,
+   "Read": 1
+  },
+  "search": {
+   "rg": 0,
+   "grep": 1,
+   "greeg": 0
+  },
+  "search_evidence": {
+   "hook": 0,
+   "output": 0,
+   "intent": 1
+  },
+  "denied": 0,
+  "greeg_find": 0,
+  "tool_output_chars": 3902,
+  "input_tokens": 6,
+  "output_tokens": 571,
+  "cache_creation": 3273,
+  "cache_read": 16990,
+  "turns": 3,
+  "duration_ms": 9266,
+  "cost_usd": 0.024123,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 0,
+  "success": true,
+  "unhooked": 1,
+  "writes": 0,
+  "task": "discover-tokio-21",
+  "arm": "A",
+  "run": "1",
+  "invalid": []
+ },
+ {
+  "tools": {
+   "Bash": 2
+  },
+  "search": {
+   "rg": 0,
+   "grep": 0,
+   "greeg": 3
+  },
+  "search_evidence": {
+   "hook": 3,
+   "output": 0,
+   "intent": 0
+  },
+  "denied": 0,
+  "greeg_find": 0,
+  "tool_output_chars": 4429,
+  "input_tokens": 8,
+  "output_tokens": 703,
+  "cache_creation": 4710,
+  "cache_read": 28998,
+  "turns": 3,
+  "duration_ms": 16569,
+  "cost_usd": 0.026114,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 0,
+  "success": true,
+  "unhooked": 0,
+  "writes": 0,
+  "task": "discover-tokio-21",
+  "arm": "S",
+  "run": "1",
+  "invalid": []
+ },
+ {
+  "tools": {
+   "Bash": 1
+  },
+  "search": {
+   "rg": 0,
+   "grep": 1,
+   "greeg": 0
+  },
+  "search_evidence": {
+   "hook": 0,
+   "output": 0,
+   "intent": 1
+  },
+  "denied": 0,
+  "greeg_find": 0,
+  "tool_output_chars": 742,
+  "input_tokens": 4,
+  "output_tokens": 268,
+  "cache_creation": 1803,
+  "cache_read": 10221,
+  "turns": 2,
+  "duration_ms": 5805,
+  "cost_usd": 0.0124421,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 0,
+  "success": true,
+  "unhooked": 1,
+  "writes": 0,
+  "task": "discover-tokio-23",
+  "arm": "A",
+  "run": "1",
+  "invalid": []
+ },
+ {
+  "tools": {
+   "Bash": 2
+  },
+  "search": {
+   "rg": 0,
+   "grep": 0,
+   "greeg": 3
+  },
+  "search_evidence": {
+   "hook": 3,
+   "output": 0,
+   "intent": 0
+  },
+  "denied": 0,
+  "greeg_find": 0,
+  "tool_output_chars": 1142,
+  "input_tokens": 8,
+  "output_tokens": 325,
+  "cache_creation": 3291,
+  "cache_read": 28412,
+  "turns": 3,
+  "duration_ms": 6396,
+  "cost_usd": 0.015511400000000002,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 0,
+  "success": true,
+  "unhooked": 0,
+  "writes": 0,
+  "task": "discover-tokio-23",
+  "arm": "S",
+  "run": "1",
+  "invalid": []
+ },
+ {
+  "tools": {
+   "Bash": 1,
+   "Read": 1
+  },
+  "search": {
+   "rg": 0,
+   "grep": 1,
+   "greeg": 0
+  },
+  "search_evidence": {
+   "hook": 0,
+   "output": 0,
+   "intent": 1
+  },
+  "denied": 0,
+  "greeg_find": 0,
+  "tool_output_chars": 1473,
+  "input_tokens": 6,
+  "output_tokens": 405,
+  "cache_creation": 3857,
+  "cache_read": 14379,
+  "turns": 3,
+  "duration_ms": 11711,
+  "cost_usd": 0.024307900000000004,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 0,
+  "success": true,
+  "unhooked": 1,
+  "writes": 0,
+  "task": "discover-typescript-01",
+  "arm": "A",
+  "run": "1",
+  "invalid": []
+ },
+ {
+  "tools": {
+   "Bash": 2
+  },
+  "search": {
+   "rg": 0,
+   "grep": 0,
+   "greeg": 4
+  },
+  "search_evidence": {
+   "hook": 4,
+   "output": 0,
+   "intent": 0
+  },
+  "denied": 0,
+  "greeg_find": 0,
+  "tool_output_chars": 2532,
+  "input_tokens": 8,
+  "output_tokens": 372,
+  "cache_creation": 3477,
+  "cache_read": 28121,
+  "turns": 3,
+  "duration_ms": 12460,
+  "cost_usd": 0.0175617,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 0,
+  "success": true,
+  "unhooked": 0,
+  "writes": 0,
+  "task": "discover-typescript-01",
+  "arm": "S",
+  "run": "1",
+  "invalid": []
+ },
+ {
+  "tools": {
+   "Bash": 1,
+   "Read": 1
+  },
+  "search": {
+   "rg": 0,
+   "grep": 1,
+   "greeg": 0
+  },
+  "search_evidence": {
+   "hook": 0,
+   "output": 0,
+   "intent": 1
+  },
+  "denied": 0,
+  "greeg_find": 0,
+  "tool_output_chars": 3270,
+  "input_tokens": 6,
+  "output_tokens": 308,
+  "cache_creation": 2765,
+  "cache_read": 16028,
+  "turns": 3,
+  "duration_ms": 10659,
+  "cost_usd": 0.019234800000000003,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 0,
+  "success": true,
+  "unhooked": 1,
+  "writes": 0,
+  "task": "discover-typescript-05",
+  "arm": "A",
+  "run": "1",
+  "invalid": []
+ },
+ {
+  "tools": {
+   "Bash": 2,
+   "Read": 1
+  },
+  "search": {
+   "rg": 0,
+   "grep": 0,
+   "greeg": 2
+  },
+  "search_evidence": {
+   "hook": 2,
+   "output": 0,
+   "intent": 0
+  },
+  "denied": 0,
+  "greeg_find": 0,
+  "tool_output_chars": 7943,
+  "input_tokens": 8,
+  "output_tokens": 362,
+  "cache_creation": 5985,
+  "cache_read": 30314,
+  "turns": 4,
+  "duration_ms": 8909,
+  "cost_usd": 0.028742999999999998,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 1,
+  "success": true,
+  "unhooked": 0,
+  "writes": 0,
+  "task": "discover-typescript-05",
+  "arm": "S",
+  "run": "1",
+  "invalid": [
+   "1 hook responses could belong to more than one call"
+  ]
+ },
+ {
+  "tools": {
+   "Bash": 1,
+   "Read": 1
+  },
+  "search": {
+   "rg": 0,
+   "grep": 1,
+   "greeg": 0
+  },
+  "search_evidence": {
+   "hook": 0,
+   "output": 0,
+   "intent": 1
+  },
+  "denied": 0,
+  "greeg_find": 0,
+  "tool_output_chars": 1742,
+  "input_tokens": 6,
+  "output_tokens": 283,
+  "cache_creation": 2275,
+  "cache_read": 16166,
+  "turns": 3,
+  "duration_ms": 9802,
+  "cost_usd": 0.0170586,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 0,
+  "success": true,
+  "unhooked": 1,
+  "writes": 0,
+  "task": "discover-typescript-08",
+  "arm": "A",
+  "run": "1",
+  "invalid": []
+ },
+ {
+  "tools": {
+   "Bash": 1,
+   "Read": 1
+  },
+  "search": {
+   "rg": 0,
+   "grep": 0,
+   "greeg": 2
+  },
+  "search_evidence": {
+   "hook": 2,
+   "output": 0,
+   "intent": 0
+  },
+  "denied": 0,
+  "greeg_find": 0,
+  "tool_output_chars": 2684,
+  "input_tokens": 6,
+  "output_tokens": 295,
+  "cache_creation": 6103,
+  "cache_read": 18253,
+  "turns": 3,
+  "duration_ms": 7003,
+  "cost_usd": 0.031749299999999994,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 0,
+  "success": true,
+  "unhooked": 0,
+  "writes": 0,
+  "task": "discover-typescript-08",
+  "arm": "S",
+  "run": "1",
+  "invalid": []
+ },
+ {
+  "tools": {
+   "Bash": 1,
+   "Read": 1
+  },
+  "search": {
+   "rg": 0,
+   "grep": 1,
+   "greeg": 0
+  },
+  "search_evidence": {
+   "hook": 0,
+   "output": 0,
+   "intent": 1
+  },
+  "denied": 0,
+  "greeg_find": 0,
+  "tool_output_chars": 2421,
+  "input_tokens": 6,
+  "output_tokens": 320,
+  "cache_creation": 2530,
+  "cache_read": 16093,
+  "turns": 3,
+  "duration_ms": 10127,
+  "cost_usd": 0.0185613,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 0,
+  "success": true,
+  "unhooked": 1,
+  "writes": 0,
+  "task": "discover-typescript-11",
+  "arm": "A",
+  "run": "1",
+  "invalid": []
+ },
+ {
+  "tools": {
+   "Bash": 2
+  },
+  "search": {
+   "rg": 0,
+   "grep": 0,
+   "greeg": 2
+  },
+  "search_evidence": {
+   "hook": 2,
+   "output": 0,
+   "intent": 0
+  },
+  "denied": 0,
+  "greeg_find": 0,
+  "tool_output_chars": 1914,
+  "input_tokens": 6,
+  "output_tokens": 250,
+  "cache_creation": 2096,
+  "cache_read": 21788,
+  "turns": 3,
+  "duration_ms": 9333,
+  "cost_usd": 0.014474800000000001,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 0,
+  "success": true,
+  "unhooked": 0,
+  "writes": 0,
+  "task": "discover-typescript-11",
+  "arm": "S",
+  "run": "1",
+  "invalid": []
+ },
+ {
+  "tools": {
+   "Bash": 1
+  },
+  "search": {
+   "rg": 0,
+   "grep": 1,
+   "greeg": 0
+  },
+  "search_evidence": {
+   "hook": 0,
+   "output": 0,
+   "intent": 1
+  },
+  "denied": 0,
+  "greeg_find": 0,
+  "tool_output_chars": 940,
+  "input_tokens": 4,
+  "output_tokens": 276,
+  "cache_creation": 1644,
+  "cache_read": 10114,
+  "turns": 2,
+  "duration_ms": 5712,
+  "cost_usd": 0.0118854,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 0,
+  "success": false,
+  "unhooked": 1,
+  "writes": 0,
+  "task": "discover-typescript-15",
+  "arm": "A",
+  "run": "1",
+  "invalid": []
+ },
+ {
+  "tools": {
+   "Bash": 3
+  },
+  "search": {
+   "rg": 0,
+   "grep": 0,
+   "greeg": 5
+  },
+  "search_evidence": {
+   "hook": 5,
+   "output": 0,
+   "intent": 0
+  },
+  "denied": 0,
+  "greeg_find": 0,
+  "tool_output_chars": 2830,
+  "input_tokens": 10,
+  "output_tokens": 54,
+  "cache_creation": 11915,
+  "cache_read": 28716,
+  "turns": 4,
+  "duration_ms": 15761,
+  "cost_usd": 0.0341461,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 1,
+  "success": true,
+  "unhooked": 0,
+  "writes": 0,
+  "task": "discover-typescript-15",
+  "arm": "S",
+  "run": "1",
+  "invalid": [
+   "1 hook responses could belong to more than one call"
+  ]
+ },
+ {
+  "tools": {
+   "Bash": 3
+  },
+  "search": {
+   "rg": 0,
+   "grep": 1,
+   "greeg": 0
+  },
+  "search_evidence": {
+   "hook": 0,
+   "output": 0,
+   "intent": 1
+  },
+  "denied": 0,
+  "greeg_find": 0,
+  "tool_output_chars": 4236,
+  "input_tokens": 8,
+  "output_tokens": 448,
+  "cache_creation": 3055,
+  "cache_read": 23410,
+  "turns": 4,
+  "duration_ms": 9069,
+  "cost_usd": 0.021037,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 0,
+  "success": true,
+  "unhooked": 1,
+  "writes": 0,
+  "task": "discover-typescript-19",
+  "arm": "A",
+  "run": "1",
+  "invalid": []
+ },
+ {
+  "tools": {
+   "Bash": 2,
+   "Read": 1
+  },
+  "search": {
+   "rg": 0,
+   "grep": 0,
+   "greeg": 2
+  },
+  "search_evidence": {
+   "hook": 2,
+   "output": 0,
+   "intent": 0
+  },
+  "denied": 0,
+  "greeg_find": 0,
+  "tool_output_chars": 4179,
+  "input_tokens": 8,
+  "output_tokens": 384,
+  "cache_creation": 3354,
+  "cache_read": 30524,
+  "turns": 4,
+  "duration_ms": 7141,
+  "cost_usd": 0.0232544,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 0,
+  "success": true,
+  "unhooked": 0,
+  "writes": 0,
+  "task": "discover-typescript-19",
+  "arm": "S",
+  "run": "1",
+  "invalid": []
+ },
+ {
+  "tools": {
+   "Bash": 2
+  },
+  "search": {
+   "rg": 0,
+   "grep": 1,
+   "greeg": 0
+  },
+  "search_evidence": {
+   "hook": 0,
+   "output": 0,
+   "intent": 1
+  },
+  "denied": 0,
+  "greeg_find": 0,
+  "tool_output_chars": 3176,
+  "input_tokens": 6,
+  "output_tokens": 353,
+  "cache_creation": 4402,
+  "cache_read": 14436,
+  "turns": 3,
+  "duration_ms": 8694,
+  "cost_usd": 0.0256836,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 0,
+  "success": true,
+  "unhooked": 1,
+  "writes": 0,
+  "task": "discover-typescript-21",
+  "arm": "A",
+  "run": "1",
+  "invalid": []
+ },
+ {
+  "tools": {
+   "Bash": 2
+  },
+  "search": {
+   "rg": 0,
+   "grep": 0,
+   "greeg": 3
+  },
+  "search_evidence": {
+   "hook": 3,
+   "output": 0,
+   "intent": 0
+  },
+  "denied": 0,
+  "greeg_find": 0,
+  "tool_output_chars": 1454,
+  "input_tokens": 6,
+  "output_tokens": 242,
+  "cache_creation": 1964,
+  "cache_read": 21630,
+  "turns": 3,
+  "duration_ms": 7987,
+  "cost_usd": 0.013631,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 0,
+  "success": true,
+  "unhooked": 0,
+  "writes": 0,
+  "task": "discover-typescript-21",
+  "arm": "S",
+  "run": "1",
+  "invalid": []
+ }
+]
