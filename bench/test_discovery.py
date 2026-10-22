@@ -36,6 +36,19 @@ class DiscoveryTests(unittest.TestCase):
             self.assertEqual(discovery.rank_rg(d, ["timer", "wheel"]), ["two.rs", "one.rs"])
             self.assertEqual(discovery.rank_rg(d, []), [])
 
+    def test_greeg_find_passes_the_question_whole_and_keeps_file_order(self):
+        with tempfile.TemporaryDirectory() as d:
+            stub = os.path.join(d, "greeg")
+            with open(stub, "w") as f:
+                # answers with the argument after `--` as the second file
+                f.write("#!/bin/sh\nfor a; do q=$a; done\n"
+                        "printf '%s\\n' '{\"type\":\"greeg\",\"data\":{}}' '{\"type\":\"file\",\"data\":{\"path\":{\"text\":\"b.rs\"}}}'\n"
+                        "printf '{\"type\":\"file\",\"data\":{\"path\":{\"text\":\"%s\"}}}\\n' \"$q\"\n"
+                        "printf '%s\\n' '{\"type\":\"footer\",\"data\":{}}'\n")
+            os.chmod(stub, 0o755)
+            self.assertEqual(discovery.rank_greeg_find(stub, d, "-x where", os.path.join(d, "idx")),
+                             ["b.rs", "-x where"])
+
     def test_the_frozen_dataset_is_whole(self):
         d = tomllib.load(open(discovery.DATASET, "rb"))
         ids = [x["id"] for x in d["query"]] + [x["id"] for x in d["swebench"]]

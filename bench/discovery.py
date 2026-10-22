@@ -11,7 +11,8 @@ MRR with 95 % bootstrap intervals, and with `--vs` the paired difference in
 Acc@5 and MRR from the baseline over the same queries.
 
 METHOD is `rg` (files ranked by how many of the query's words they hold, then
-by hits) or `greeg-search` (greeg's ranked search over the same words). The
+by hits), `greeg-search` (greeg's ranked search over the same words) or
+`greeg-find` (`greeg find` over the question as written). The
 dataset is bench/discovery/dataset.toml, frozen before any ranker work.
 Written queries run on the pinned corpora in ~/.cache/greeg-bench/corpora;
 each SWE-bench row runs on django checked out at its base commit in a
@@ -92,12 +93,24 @@ def rank_greeg_search(greeg, root, ws, index_dir):
     return order[:TOP]
 
 
+def rank_greeg_find(greeg, root, text, index_dir):
+    """`greeg find` over the question as written: files in answer order."""
+    r = subprocess.run([greeg, "find", "--no-session", "--json=greeg", "--budget", "0", "--", text],
+                       cwd=root, capture_output=True, stdin=subprocess.DEVNULL, env=env_for(index_dir))
+    if r.returncode > 1:
+        sys.exit(f"greeg failed ({r.returncode}): {r.stderr.decode(errors='replace')[:300]}")
+    return [rec["data"]["path"]["text"] for rec in map(json.loads, r.stdout.splitlines())
+            if rec["type"] == "file"][:TOP]
+
+
 def rank(method, greeg, root, text, index_dir):
     ws = words(text)
     if method == "rg":
         return rank_rg(root, ws)
     if method == "greeg-search":
         return rank_greeg_search(greeg, root, ws, index_dir)
+    if method == "greeg-find":
+        return rank_greeg_find(greeg, root, text, index_dir)
     sys.exit(f"unknown method {method}")
 
 

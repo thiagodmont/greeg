@@ -1,0 +1,3217 @@
+{
+ "method": "greeg-search",
+ "greeg": "greeg 0.12.1+6304d5d18",
+ "split": "heldout",
+ "set": "all",
+ "started": "2026-10-22T20:46:30Z",
+ "results": [
+  {
+   "id": "typescript-00",
+   "set": "written",
+   "corpus": "TypeScript-5.9",
+   "split": "heldout",
+   "gold": [
+    "434a48997b788187774ea0573dd60688d07638fc89e809acf9bb3f455c816027"
+   ],
+   "hashed": true,
+   "ranked": [
+    "src/services/exportInfoMap.ts",
+    "src/services/utilities.ts",
+    "src/harness/harnessIO.ts",
+    "src/services/classifier2020.ts",
+    "src/compiler/checker.ts",
+    "src/compiler/executeCommandLine.ts",
+    "src/compiler/factory/utilities.ts",
+    "src/compiler/moduleNameResolver.ts",
+    "src/compiler/parser.ts",
+    "src/compiler/scanner.ts",
+    "src/compiler/semver.ts",
+    "src/compiler/sourcemap.ts",
+    "src/compiler/transformers/destructuring.ts",
+    "src/compiler/transformers/generators.ts",
+    "src/compiler/tsbuildPublic.ts",
+    "src/compiler/types.ts",
+    "src/compiler/utilities.ts",
+    "src/compiler/moduleSpecifiers.ts",
+    "src/services/formatting/smartIndenter.ts",
+    "src/services/refactors/convertArrowFunctionOrFunctionExpression.ts"
+   ],
+   "ms": 747.778374934569
+  },
+  {
+   "id": "typescript-02",
+   "set": "written",
+   "corpus": "TypeScript-5.9",
+   "split": "heldout",
+   "gold": [
+    "d9ab6589e714c71e657f601cf30ff51dfc607fc98419bf72e04f6b0fa92cc4b8"
+   ],
+   "hashed": true,
+   "ranked": [
+    "src/testRunner/unittests/helpers.ts",
+    "src/jsTyping/jsTyping.ts",
+    "src/deprecatedCompat/deprecations.ts",
+    "src/services/types.ts",
+    "src/services/documentRegistry.ts",
+    "src/services/services.ts",
+    "src/services/utilities.ts",
+    "src/harness/harnessIO.ts",
+    "src/harness/vpathUtil.ts",
+    "src/services/navigateTo.ts",
+    "src/services/navigationBar.ts",
+    "src/services/callHierarchy.ts",
+    "src/services/organizeImports.ts",
+    "src/services/signatureHelp.ts",
+    "src/services/classifier2020.ts",
+    "src/compiler/binder.ts",
+    "src/compiler/builderStatePublic.ts",
+    "src/compiler/checker.ts",
+    "src/compiler/debug.ts",
+    "src/compiler/executeCommandLine.ts"
+   ],
+   "ms": 1660.5114589910954
+  },
+  {
+   "id": "typescript-03",
+   "set": "written",
+   "corpus": "TypeScript-5.9",
+   "split": "heldout",
+   "gold": [
+    "4237fd08a5f920543e184b7748bc8ae000d9b1c031810ba375b0053362ec2b6a"
+   ],
+   "hashed": true,
+   "ranked": [
+    "src/services/types.ts",
+    "src/services/utilities.ts",
+    "src/services/signatureHelp.ts",
+    "src/services/classifier2020.ts",
+    "src/compiler/checker.ts",
+    "src/compiler/debug.ts",
+    "src/compiler/executeCommandLine.ts",
+    "src/compiler/expressionToTypeNode.ts",
+    "src/compiler/factory/nodeFactory.ts",
+    "src/compiler/moduleNameResolver.ts",
+    "src/compiler/parser.ts",
+    "src/compiler/tsbuild.ts",
+    "src/compiler/types.ts",
+    "src/compiler/utilities.ts",
+    "src/server/protocol.ts",
+    "src/harness/typeWriter.ts",
+    "src/services/completions.ts",
+    "src/services/findAllReferences.ts",
+    "src/harness/fourslashImpl.ts",
+    "src/testRunner/parallel/shared.ts"
+   ],
+   "ms": 1202.8653749730438
+  },
+  {
+   "id": "typescript-04",
+   "set": "written",
+   "corpus": "TypeScript-5.9",
+   "split": "heldout",
+   "gold": [
+    "9ad14a2e2e66533cd0c3f02ecf01f7e6bc9d60cdf2e125df2a14ce0713222898"
+   ],
+   "hashed": true,
+   "ranked": [
+    "src/lib/dom.generated.d.ts",
+    "src/lib/es2020.bigint.d.ts",
+    "src/lib/es5.d.ts",
+    "src/lib/esnext.float16.d.ts",
+    "src/lib/webworker.generated.d.ts",
+    "tests/cases/compiler/accessOverriddenBaseClassMember1.ts",
+    "tests/cases/compiler/anyAsReturnTypeForNewOnCall.ts",
+    "tests/cases/compiler/assignToPrototype1.ts",
+    "tests/cases/compiler/assignmentCompatForEnums.ts",
+    "tests/cases/compiler/assignmentCompatability1.ts",
+    "tests/cases/compiler/assignmentCompatability10.ts",
+    "tests/cases/compiler/assignmentCompatability11.ts",
+    "src/testRunner/unittests/helpers/virtualFileSystemWithWatch.ts",
+    "src/testRunner/unittests/helpers/tsserver.ts",
+    "src/testRunner/unittests/helpers/tsc.ts",
+    "src/testRunner/unittests/helpers/tscWatch.ts",
+    "src/harness/harnessLanguageService.ts",
+    "src/services/services.ts"
+   ],
+   "ms": 250.2076670061797
+  },
+  {
+   "id": "typescript-06",
+   "set": "written",
+   "corpus": "TypeScript-5.9",
+   "split": "heldout",
+   "gold": [
+    "dcd4349c3d05901caf249656675e87a417abb13c0c678026b823e8a259442c34"
+   ],
+   "hashed": true,
+   "ranked": [
+    "src/services/transform.ts",
+    "src/compiler/debug.ts",
+    "src/compiler/factory/utilities.ts",
+    "src/compiler/transformers/classThis.ts",
+    "src/compiler/transformers/es2015.ts",
+    "src/compiler/transformers/generators.ts",
+    "src/compiler/types.ts",
+    "src/compiler/utilities.ts",
+    "src/server/protocol.ts",
+    "src/services/refactors/convertArrowFunctionOrFunctionExpression.ts",
+    "src/services/codefixes/requireInTs.ts",
+    "src/services/codefixes/returnValueCorrect.ts",
+    "src/lib/dom.generated.d.ts",
+    "src/lib/webworker.generated.d.ts",
+    "tests/cases/compiler/augmentExportEquals5.ts",
+    "tests/cases/compiler/bindingPatternCannotBeOnlyInferenceSource.ts",
+    "tests/cases/compiler/circularConstrainedMappedTypeNoCrash.ts",
+    "tests/cases/compiler/coAndContraVariantInferences2.ts",
+    "tests/cases/compiler/coAndContraVariantInferences3.ts",
+    "tests/cases/compiler/es6ClassTest8.ts"
+   ],
+   "ms": 396.15141600370407
+  },
+  {
+   "id": "typescript-07",
+   "set": "written",
+   "corpus": "TypeScript-5.9",
+   "split": "heldout",
+   "gold": [
+    "cead007e4bb1bce2320fae0a56f5a9444efe755f61e52a2c41b1bb06d945cac9"
+   ],
+   "hashed": true,
+   "ranked": [
+    "src/testRunner/unittests/helpers.ts",
+    "src/jsTyping/types.ts",
+    "src/jsTyping/jsTyping.ts",
+    "src/deprecatedCompat/deprecations.ts",
+    "src/services/types.ts",
+    "src/services/documentRegistry.ts",
+    "src/services/patternMatcher.ts",
+    "src/services/services.ts",
+    "src/services/utilities.ts",
+    "src/harness/harnessIO.ts",
+    "src/services/textChanges.ts",
+    "src/services/navigateTo.ts",
+    "src/services/navigationBar.ts",
+    "src/services/callHierarchy.ts",
+    "src/services/organizeImports.ts",
+    "src/services/signatureHelp.ts",
+    "src/harness/documentsUtil.ts",
+    "src/compiler/binder.ts",
+    "src/compiler/builderStatePublic.ts",
+    "src/compiler/checker.ts"
+   ],
+   "ms": 687.6951670274138
+  },
+  {
+   "id": "typescript-09",
+   "set": "written",
+   "corpus": "TypeScript-5.9",
+   "split": "heldout",
+   "gold": [
+    "c2fa6cfc0ab49998c50f6f57146d7b3d1eb57f35402563f9ac2b83b25ac7303d"
+   ],
+   "hashed": true,
+   "ranked": [
+    "src/services/types.ts",
+    "src/services/exportInfoMap.ts",
+    "src/harness/harnessIO.ts",
+    "src/compiler/checker.ts",
+    "src/compiler/debug.ts",
+    "src/compiler/moduleNameResolver.ts",
+    "src/compiler/transformers/utilities.ts",
+    "src/compiler/types.ts",
+    "src/compiler/utilities.ts",
+    "src/server/protocol.ts",
+    "src/harness/collectionsImpl.ts",
+    "src/services/stringCompletions.ts",
+    "src/services/importTracker.ts",
+    "src/services/refactors/extractSymbol.ts",
+    "src/services/codefixes/addOptionalPropertyUndefined.ts",
+    "src/services/codefixes/convertToAsyncFunction.ts",
+    "src/services/codefixes/fixMissingTypeAnnotationOnExports.ts",
+    "src/lib/dom.asynciterable.generated.d.ts",
+    "src/lib/dom.generated.d.ts",
+    "src/lib/dom.iterable.generated.d.ts"
+   ],
+   "ms": 1569.5764579577371
+  },
+  {
+   "id": "typescript-10",
+   "set": "written",
+   "corpus": "TypeScript-5.9",
+   "split": "heldout",
+   "gold": [
+    "6740404ec2d88bc50e64dc4a0ef5896878c4d848b0a52900c205be6844654f8f"
+   ],
+   "hashed": true,
+   "ranked": [
+    "src/testRunner/unittests/helpers.ts",
+    "src/jsTyping/jsTyping.ts",
+    "src/deprecatedCompat/deprecations.ts",
+    "src/services/types.ts",
+    "src/services/documentRegistry.ts",
+    "src/services/services.ts",
+    "src/services/utilities.ts",
+    "src/harness/harnessIO.ts",
+    "src/services/textChanges.ts",
+    "src/services/navigateTo.ts",
+    "src/services/navigationBar.ts",
+    "src/services/callHierarchy.ts",
+    "src/services/organizeImports.ts",
+    "src/services/classifier2020.ts",
+    "src/compiler/binder.ts",
+    "src/compiler/builderStatePublic.ts",
+    "src/compiler/checker.ts",
+    "src/compiler/executeCommandLine.ts",
+    "src/compiler/factory/emitHelpers.ts",
+    "src/compiler/moduleNameResolver.ts"
+   ],
+   "ms": 828.0807500705123
+  },
+  {
+   "id": "typescript-12",
+   "set": "written",
+   "corpus": "TypeScript-5.9",
+   "split": "heldout",
+   "gold": [
+    "688653419d095b1b2aad0eeff8c9d232a9d2bcb83925d094d567d6fdb6883641"
+   ],
+   "hashed": true,
+   "ranked": [
+    "src/testRunner/unittests/helpers/virtualFileSystemWithWatch.ts",
+    "src/harness/vfsUtil.ts",
+    "src/harness/findUpDir.ts",
+    "src/harness/fourslashImpl.ts",
+    "tests/cases/compiler/arrayTypeInSignatureOfInterfaceAndClass.ts",
+    "src/harness/harnessIO.ts",
+    "src/compiler/checker.ts"
+   ],
+   "ms": 122.53145803697407
+  },
+  {
+   "id": "typescript-13",
+   "set": "written",
+   "corpus": "TypeScript-5.9",
+   "split": "heldout",
+   "gold": [
+    "a4093cddd50333f2defad94e6c8bc2227a4cbfb903c32140bfa6fda6ba978af4"
+   ],
+   "hashed": true,
+   "ranked": [
+    "src/harness/evaluatorImpl.ts",
+    "src/services/types.ts",
+    "src/services/services.ts",
+    "src/services/utilities.ts",
+    "src/services/navigateTo.ts",
+    "src/services/callHierarchy.ts",
+    "src/services/classifier2020.ts",
+    "src/compiler/core.ts",
+    "src/compiler/debug.ts",
+    "src/compiler/moduleNameResolver.ts",
+    "src/compiler/transformers/classThis.ts",
+    "src/compiler/transformers/destructuring.ts",
+    "src/compiler/transformers/es2015.ts",
+    "src/compiler/transformers/namedEvaluation.ts",
+    "src/compiler/transformers/ts.ts",
+    "src/compiler/tsbuildPublic.ts",
+    "src/compiler/types.ts",
+    "src/compiler/utilities.ts",
+    "src/server/protocol.ts",
+    "src/testRunner/transpileRunner.ts"
+   ],
+   "ms": 702.1876249928027
+  },
+  {
+   "id": "typescript-14",
+   "set": "written",
+   "corpus": "TypeScript-5.9",
+   "split": "heldout",
+   "gold": [
+    "e103edcf604d8cf6f9e4e9bc7bd6bab002b5eaa96719fee4909d4b69e4f46623"
+   ],
+   "hashed": true,
+   "ranked": [],
+   "ms": 1346.0698750568554
+  },
+  {
+   "id": "typescript-16",
+   "set": "written",
+   "corpus": "TypeScript-5.9",
+   "split": "heldout",
+   "gold": [
+    "e19070e6b0ecc4de5f7d4bc6b42a9a71c8f23ce8ce155f7bd7cd48763170e506"
+   ],
+   "hashed": true,
+   "ranked": [
+    "src/testRunner/unittests/helpers.ts",
+    "src/harness/evaluatorImpl.ts",
+    "src/services/types.ts",
+    "src/services/patternMatcher.ts",
+    "src/services/services.ts",
+    "src/services/utilities.ts",
+    "src/services/textChanges.ts",
+    "src/services/callHierarchy.ts",
+    "src/services/pasteEdits.ts",
+    "src/harness/documentsUtil.ts",
+    "src/compiler/builderPublic.ts",
+    "src/compiler/builderStatePublic.ts",
+    "src/compiler/checker.ts",
+    "src/compiler/debug.ts",
+    "src/compiler/parser.ts",
+    "src/compiler/program.ts",
+    "src/compiler/scanner.ts",
+    "src/compiler/sourcemap.ts",
+    "src/compiler/transformers/classFields.ts",
+    "src/compiler/transformers/generators.ts"
+   ],
+   "ms": 571.1418749997392
+  },
+  {
+   "id": "typescript-17",
+   "set": "written",
+   "corpus": "TypeScript-5.9",
+   "split": "heldout",
+   "gold": [
+    "72b8abb304fc8c93eaae9d38ce26802b363d84bec5e0b2554f0a43a2fd207383"
+   ],
+   "hashed": true,
+   "ranked": [
+    "src/services/types.ts",
+    "src/services/exportInfoMap.ts",
+    "src/services/utilities.ts",
+    "src/services/signatureHelp.ts",
+    "src/services/classifier2020.ts",
+    "src/compiler/checker.ts",
+    "src/compiler/core.ts",
+    "src/compiler/debug.ts",
+    "src/compiler/executeCommandLine.ts",
+    "src/compiler/expressionToTypeNode.ts",
+    "src/compiler/factory/nodeFactory.ts",
+    "src/compiler/moduleNameResolver.ts",
+    "src/compiler/parser.ts",
+    "src/compiler/transformers/utilities.ts",
+    "src/compiler/tsbuild.ts",
+    "src/compiler/types.ts",
+    "src/compiler/utilities.ts",
+    "src/server/protocol.ts",
+    "src/harness/watchUtils.ts",
+    "src/jsTyping/jsTyping.ts"
+   ],
+   "ms": 1397.941334056668
+  },
+  {
+   "id": "typescript-18",
+   "set": "written",
+   "corpus": "TypeScript-5.9",
+   "split": "heldout",
+   "gold": [
+    "3348dda4cea653e350948f038ce30f8c824e834bc7354128cc4c1d6858370084"
+   ],
+   "hashed": true,
+   "ranked": [
+    "src/services/types.ts",
+    "src/services/utilities.ts",
+    "src/services/signatureHelp.ts",
+    "src/services/classifier2020.ts",
+    "src/harness/documentsUtil.ts",
+    "src/compiler/checker.ts",
+    "src/compiler/debug.ts",
+    "src/compiler/executeCommandLine.ts",
+    "src/compiler/expressionToTypeNode.ts",
+    "src/compiler/factory/nodeFactory.ts",
+    "src/compiler/moduleNameResolver.ts",
+    "src/compiler/parser.ts",
+    "src/compiler/scanner.ts",
+    "src/compiler/tsbuild.ts",
+    "src/compiler/types.ts",
+    "src/compiler/utilities.ts",
+    "src/server/protocol.ts",
+    "tests/cases/compiler/InterfaceDeclaration8.ts",
+    "src/compiler/transformers/declarations/diagnostics.ts",
+    "src/compiler/transformers/generators.ts"
+   ],
+   "ms": 1481.6523750778288
+  },
+  {
+   "id": "typescript-20",
+   "set": "written",
+   "corpus": "TypeScript-5.9",
+   "split": "heldout",
+   "gold": [
+    "dbfa0e7f632eca196a5ee0e08e00743c46c03799e2704206cfccc065bb6f9e3a"
+   ],
+   "hashed": true,
+   "ranked": [
+    "src/testRunner/unittests/helpers.ts",
+    "src/services/types.ts",
+    "src/harness/harnessIO.ts",
+    "src/services/textChanges.ts",
+    "src/services/classifier2020.ts",
+    "src/compiler/builder.ts",
+    "src/compiler/checker.ts",
+    "src/compiler/commandLineParser.ts",
+    "src/compiler/parser.ts",
+    "src/compiler/program.ts",
+    "src/compiler/programDiagnostics.ts",
+    "src/compiler/resolutionCache.ts",
+    "src/compiler/sys.ts",
+    "src/compiler/tracing.ts",
+    "src/compiler/tsbuildPublic.ts",
+    "src/compiler/types.ts",
+    "src/compiler/watch.ts",
+    "src/compiler/watchPublic.ts",
+    "src/compiler/watchUtilities.ts",
+    "src/server/protocol.ts"
+   ],
+   "ms": 1419.446500018239
+  },
+  {
+   "id": "typescript-22",
+   "set": "written",
+   "corpus": "TypeScript-5.9",
+   "split": "heldout",
+   "gold": [
+    "914c656e8264feb46f1dd04e4431397379498cd6502bdf033e9c0bb2aa980ff4"
+   ],
+   "hashed": true,
+   "ranked": [
+    "src/services/services.ts",
+    "src/services/textChanges.ts",
+    "src/compiler/moduleNameResolver.ts",
+    "src/compiler/transformers/classThis.ts",
+    "src/compiler/transformers/generators.ts",
+    "src/compiler/transformers/namedEvaluation.ts",
+    "src/compiler/transformers/utilities.ts",
+    "src/compiler/types.ts",
+    "src/harness/collectionsImpl.ts",
+    "src/services/refactors/convertArrowFunctionOrFunctionExpression.ts",
+    "src/server/packageJsonCache.ts",
+    "src/services/codefixes/fixJSDocTypes.ts",
+    "src/services/codefixes/importFixes.ts",
+    "src/services/codefixes/requireInTs.ts",
+    "src/services/codefixes/returnValueCorrect.ts",
+    "src/lib/dom.generated.d.ts",
+    "src/lib/es2015.collection.d.ts",
+    "src/lib/webworker.generated.d.ts",
+    "tests/cases/compiler/coAndContraVariantInferences2.ts",
+    "tests/cases/compiler/coAndContraVariantInferences3.ts"
+   ],
+   "ms": 634.0495409676805
+  },
+  {
+   "id": "typescript-24",
+   "set": "written",
+   "corpus": "TypeScript-5.9",
+   "split": "heldout",
+   "gold": [
+    "cac1cccddc5637cfe31badfa1529b4a8c1d729bf8c2009a186f8e1288fd44b1c"
+   ],
+   "hashed": true,
+   "ranked": [
+    "src/harness/vfsUtil.ts",
+    "src/harness/evaluatorImpl.ts",
+    "src/services/types.ts",
+    "src/services/exportInfoMap.ts",
+    "src/services/textChanges.ts",
+    "src/services/navigationBar.ts",
+    "src/services/signatureHelp.ts",
+    "src/compiler/debug.ts",
+    "src/compiler/performanceCore.ts",
+    "src/compiler/sys.ts",
+    "src/compiler/types.ts",
+    "src/compiler/utilities.ts",
+    "src/server/protocol.ts",
+    "src/testRunner/transpileRunner.ts",
+    "src/services/findAllReferences.ts",
+    "src/harness/fourslashImpl.ts",
+    "src/services/refactors/extractSymbol.ts",
+    "src/server/project.ts",
+    "src/server/types.ts",
+    "src/services/codefixes/fixExpectedComma.ts"
+   ],
+   "ms": 1518.3150420198217
+  },
+  {
+   "id": "typescript-26",
+   "set": "written",
+   "corpus": "TypeScript-5.9",
+   "split": "heldout",
+   "gold": [
+    "3850aa3524df3df1182add6759295452d207283d2e95147cb96950c1b4963d5e"
+   ],
+   "hashed": true,
+   "ranked": [
+    "src/deprecatedCompat/deprecations.ts",
+    "src/services/types.ts",
+    "src/services/suggestionDiagnostics.ts",
+    "src/services/utilities.ts",
+    "src/services/signatureHelp.ts",
+    "src/compiler/checker.ts",
+    "src/compiler/parser.ts",
+    "src/compiler/transformers/classThis.ts",
+    "src/compiler/transformers/es2015.ts",
+    "src/compiler/transformers/generators.ts",
+    "src/compiler/transformers/namedEvaluation.ts",
+    "src/compiler/tsbuildPublic.ts",
+    "src/compiler/types.ts",
+    "src/compiler/utilities.ts",
+    "src/server/protocol.ts",
+    "src/harness/typeWriter.ts",
+    "src/services/importTracker.ts",
+    "src/harness/fourslashImpl.ts",
+    "src/services/refactors/moveToFile.ts",
+    "src/services/refactors/convertToOptionalChainExpression.ts"
+   ],
+   "ms": 1334.1875419719145
+  },
+  {
+   "id": "typescript-27",
+   "set": "written",
+   "corpus": "TypeScript-5.9",
+   "split": "heldout",
+   "gold": [
+    "ce6737a5e1076533f431cbbbc425bfdd5afe3119fdfe93f8b5a8653ad42e586f"
+   ],
+   "hashed": true,
+   "ranked": [
+    "src/services/types.ts",
+    "src/compiler/scanner.ts",
+    "src/compiler/types.ts",
+    "src/services/completions.ts",
+    "src/services/findAllReferences.ts",
+    "src/services/formatting/smartIndenter.ts",
+    "src/lib/dom.generated.d.ts",
+    "src/lib/es2015.core.d.ts",
+    "src/lib/es2015.iterable.d.ts",
+    "src/lib/es2015.symbol.wellknown.d.ts",
+    "src/lib/es2017.string.d.ts",
+    "src/lib/es2019.string.d.ts",
+    "src/lib/es2020.intl.d.ts",
+    "src/lib/es2020.number.d.ts",
+    "src/lib/es2020.string.d.ts",
+    "src/lib/es2021.string.d.ts",
+    "src/lib/es2022.string.d.ts",
+    "src/lib/es2024.string.d.ts",
+    "src/lib/es5.d.ts",
+    "src/lib/webworker.generated.d.ts"
+   ],
+   "ms": 1906.2724580289796
+  },
+  {
+   "id": "typescript-28",
+   "set": "written",
+   "corpus": "TypeScript-5.9",
+   "split": "heldout",
+   "gold": [
+    "a0cdabedb785b1b4c32973e41c709077ad856e384affe364f109d7abd03e58f5"
+   ],
+   "hashed": true,
+   "ranked": [
+    "src/harness/vfsUtil.ts",
+    "src/harness/evaluatorImpl.ts",
+    "src/services/types.ts",
+    "src/services/services.ts",
+    "src/services/textChanges.ts",
+    "src/services/navigateTo.ts",
+    "src/services/callHierarchy.ts",
+    "src/services/classifier2020.ts",
+    "src/compiler/moduleNameResolver.ts",
+    "src/compiler/parser.ts",
+    "src/compiler/tsbuildPublic.ts",
+    "src/compiler/types.ts",
+    "src/compiler/utilities.ts",
+    "src/testRunner/transpileRunner.ts",
+    "src/services/completions.ts",
+    "src/services/refactors/inferFunctionReturnType.ts",
+    "src/harness/fourslashInterfaceImpl.ts",
+    "src/services/refactors/inlineVariable.ts",
+    "src/services/codefixes/fixAddMissingConstraint.ts",
+    "src/services/codefixes/fixAddMissingParam.ts"
+   ],
+   "ms": 1174.8169170459732
+  },
+  {
+   "id": "ktor-00",
+   "set": "written",
+   "corpus": "ktor",
+   "split": "heldout",
+   "gold": [
+    "acf88acd6cac339840f10f242482837f6c725c4d1028a25918226148ab4d6ec6"
+   ],
+   "hashed": true,
+   "ranked": [
+    "ktor-http/common/src/io/ktor/http/Headers.kt",
+    "ktor-utils/common/src/io/ktor/util/CaseInsensitiveMap.kt",
+    "ktor-server/ktor-server-core/common/src/io/ktor/server/application/CreatePluginUtils.kt",
+    "ktor-server/ktor-server-core/common/src/io/ktor/server/application/RouteScopedPluginBuilder.kt",
+    "ktor-compiler-plugin/src/io/ktor/openapi/routing/RoutingFunctionConstants.kt",
+    "ktor-server/ktor-server-core/common/src/io/ktor/server/routing/RoutingNode.kt",
+    "ktor-shared/ktor-openapi-schema/common/src/io/ktor/openapi/OpenApiDoc.kt",
+    "ktor-shared/ktor-openapi-schema/common/src/io/ktor/openapi/GenericElement.kt",
+    "ktor-server/ktor-server-core/common/src/io/ktor/server/routing/RoutingPipelineCall.kt",
+    "ktor-server/ktor-server-core/common/src/io/ktor/server/routing/RoutingPathTree.kt",
+    "ktor-server/ktor-server-core/common/src/io/ktor/server/routing/RoutingResolveResult.kt",
+    "ktor-server/ktor-server-core/common/src/io/ktor/server/routing/RoutingResolveTrace.kt",
+    "ktor-shared/ktor-openapi-schema/common/src/io/ktor/openapi/MediaType.kt",
+    "ktor-shared/ktor-openapi-schema/common/src/io/ktor/openapi/Operation.kt",
+    "ktor-shared/ktor-openapi-schema/common/src/io/ktor/openapi/ReferenceOr.kt",
+    "ktor-utils/common/src/io/ktor/util/collections/ConcurrentMap.kt",
+    "ktor-utils/posix/src/io/ktor/util/collections/ConcurrentMapNative.kt",
+    "ktor-utils/jvm/src/io/ktor/util/collections/ConcurrentMapJvm.kt",
+    "ktor-utils/web/src/io/ktor/util/collections/ConcurrentMap.web.kt",
+    "ktor-server/ktor-server-core/common/src/io/ktor/server/engine/BaseApplicationRequest.kt"
+   ],
+   "ms": 106.836499995552
+  },
+  {
+   "id": "ktor-03",
+   "set": "written",
+   "corpus": "ktor",
+   "split": "heldout",
+   "gold": [
+    "288abe250fdcc9eb4b1d27d2510b9425b36c6d0a771b0de52d912d608cee7d05"
+   ],
+   "hashed": true,
+   "ranked": [],
+   "ms": 217.12270902935416
+  },
+  {
+   "id": "ktor-04",
+   "set": "written",
+   "corpus": "ktor",
+   "split": "heldout",
+   "gold": [
+    "7224b5708f4dad616f966346157d089c4c0df4bcb77d292ce8e6c782de5b3546"
+   ],
+   "hashed": true,
+   "ranked": [
+    "ktor-io/common/src/io/ktor/utils/io/core/BytePacketBuilder.kt",
+    "ktor-io/common/src/io/ktor/utils/io/ByteChannel.kt",
+    "ktor-io/web/src/io/ktor/utils/io/pool/DefaultPool.kt",
+    "ktor-http/common/src/io/ktor/http/ContentTypes.kt",
+    "ktor-http/common/src/io/ktor/http/ContentDisposition.kt",
+    "ktor-utils/common/src/io/ktor/util/PlatformUtils.kt",
+    "ktor-utils/common/src/io/ktor/util/CaseInsensitiveMap.kt",
+    "ktor-utils/common/src/io/ktor/util/CaseInsensitiveSet.kt",
+    "ktor-utils/common/src/io/ktor/util/DelegatingMutableSet.kt",
+    "ktor-server/ktor-server-core/common/src/io/ktor/server/application/ApplicationPlugin.kt",
+    "ktor-utils/common/src/io/ktor/util/pipeline/PhaseContent.kt",
+    "ktor-http/common/src/io/ktor/http/parsing/ParseException.kt",
+    "ktor-client/ktor-client-core/nonJvm/src/io/ktor/client/network/sockets/TimeoutExceptions.nonJvm.kt",
+    "ktor-compiler-plugin/src/io/ktor/openapi/model/Attributes.kt",
+    "ktor-server/ktor-server-core/common/src/io/ktor/server/config/MapConfigDecoder.kt",
+    "ktor-server/ktor-server-core/common/src/io/ktor/server/routing/SegmentedPath.kt",
+    "ktor-network/jvm/src/io/ktor/network/selector/SelectorManager.kt",
+    "ktor-shared/ktor-openapi-schema/common/src/io/ktor/openapi/JsonSchema.kt",
+    "ktor-utils/common/src/io/ktor/util/collections/ConcurrentMap.kt",
+    "ktor-utils/posix/src/io/ktor/util/collections/ConcurrentMapNative.kt"
+   ],
+   "ms": 109.23041694331914
+  },
+  {
+   "id": "ktor-05",
+   "set": "written",
+   "corpus": "ktor",
+   "split": "heldout",
+   "gold": [
+    "59f96354af0649143bb8ca5bb2f9138e8edab9d452f97c7a0e38c5ffaa4de469"
+   ],
+   "hashed": true,
+   "ranked": [
+    "ktor-http/common/src/io/ktor/http/HttpHeaders.kt",
+    "ktor-shared/ktor-htmx/common/src/io/ktor/htmx/HxResponseHeaders.kt",
+    "ktor-http/common/src/io/ktor/http/auth/AuthScheme.kt",
+    "ktor-server/ktor-server-core/common/src/io/ktor/server/routing/RoutingNode.kt",
+    "ktor-server/ktor-server-core/common/src/io/ktor/server/request/ApplicationRequestProperties.kt",
+    "ktor-network/jvm/src/io/ktor/network/selector/SelectorManager.kt",
+    "ktor-network/jvm/src/io/ktor/network/selector/SelectorManagerSupport.kt",
+    "ktor-http/common/src/io/ktor/http/content/Multipart.kt",
+    "ktor-shared/ktor-openapi-schema/common/src/io/ktor/openapi/Operation.kt",
+    "ktor-client/ktor-client-core/wasmJs/src/io/ktor/client/fetch/LibDom.kt",
+    "ktor-shared/ktor-websockets/jvm/src/io/ktor/websocket/SimpleFrameCollector.kt",
+    "ktor-client/ktor-client-core/js/src/io/ktor/client/fetch/LibDom.kt",
+    "ktor-server/ktor-server-plugins/ktor-server-di/common/src/io/ktor/server/plugins/di/DependencyRegistry.kt",
+    "ktor-server/ktor-server-plugins/ktor-server-auth/common/src/io/ktor/server/auth/AuthenticationScheme.kt",
+    "ktor-server/ktor-server-plugins/ktor-server-auth/common/src/io/ktor/server/auth/Authentication.kt",
+    "ktor-server/ktor-server-plugins/ktor-server-auth/common/src/io/ktor/server/auth/AuthenticationContext.kt",
+    "ktor-server/ktor-server-plugins/ktor-server-auth/common/src/io/ktor/server/auth/OAuthCommon.kt",
+    "ktor-server/ktor-server-plugins/ktor-server-auth/common/src/io/ktor/server/auth/OAuthFlow.kt",
+    "ktor-server/ktor-server-plugins/ktor-server-auth/common/src/io/ktor/server/auth/OAuthProcedure.kt",
+    "ktor-server/ktor-server-jetty-jakarta/jvm/src/io/ktor/server/jetty/jakarta/JettyKtorHandler.kt"
+   ],
+   "ms": 135.6362079968676
+  },
+  {
+   "id": "ktor-07",
+   "set": "written",
+   "corpus": "ktor",
+   "split": "heldout",
+   "gold": [
+    "b15b080707e0ab344cf013ede81a401dd22277ec937542a0e0173a94c030c0ba"
+   ],
+   "hashed": true,
+   "ranked": [
+    "ktor-utils/web/src/io/ktor/util/logging/KtorSimpleLogger.web.kt",
+    "ktor-utils/posix/src/io/ktor/util/logging/KtorSimpleLoggerNative.kt",
+    "ktor-server/ktor-server-core/common/src/io/ktor/server/application/PipelineCall.kt",
+    "ktor-server/ktor-server-core/common/src/io/ktor/server/application/Application.kt",
+    "ktor-server/ktor-server-core/common/src/io/ktor/server/application/ApplicationPlugin.kt",
+    "ktor-compiler-plugin/src/io/ktor/openapi/Logger.kt",
+    "ktor-client/ktor-client-core/common/src/io/ktor/client/statement/HttpResponse.kt",
+    "ktor-client/ktor-client-core/common/src/io/ktor/client/request/builders.kt",
+    "ktor-shared/ktor-htmx/common/src/io/ktor/htmx/HxAttributeKeys.kt",
+    "ktor-shared/ktor-htmx/common/src/io/ktor/htmx/HxCss.kt",
+    "ktor-shared/ktor-htmx/common/src/io/ktor/htmx/HxRequestHeaders.kt",
+    "ktor-client/ktor-client-core/common/src/io/ktor/client/request/ClientUpgradeContent.kt",
+    "ktor-client/ktor-client-core/jvm/src/io/ktor/client/request/buildersJvm.kt",
+    "ktor-server/ktor-server-core/common/src/io/ktor/server/routing/RoutingNode.kt",
+    "ktor-server/ktor-server-core/common/src/io/ktor/server/routing/RoutingRoot.kt",
+    "ktor-server/ktor-server-core/common/src/io/ktor/server/routing/RoutingPipelineCall.kt",
+    "ktor-server/ktor-server-core/common/src/io/ktor/server/request/RequestCookies.kt",
+    "ktor-shared/ktor-openapi-schema/common/src/io/ktor/openapi/AdditionalProperties.kt",
+    "ktor-client/ktor-client-core/wasmJs/src/io/ktor/client/fetch/LibDom.kt",
+    "ktor-client/ktor-client-tests/common/test/io/ktor/client/tests/utils/Logging.kt"
+   ],
+   "ms": 165.19666591193527
+  },
+  {
+   "id": "ktor-08",
+   "set": "written",
+   "corpus": "ktor",
+   "split": "heldout",
+   "gold": [
+    "d6c5d6024fbe7618e780b51d81393cb2afdf974f999136bd766ef6395d419dc0"
+   ],
+   "hashed": true,
+   "ranked": [],
+   "ms": 277.77000004425645
+  },
+  {
+   "id": "ktor-10",
+   "set": "written",
+   "corpus": "ktor",
+   "split": "heldout",
+   "gold": [
+    "b9eba9113409883372f959c6c0128ccca4474f625a723ccfffd09bbea608e02b"
+   ],
+   "hashed": true,
+   "ranked": [
+    "ktor-http/common/src/io/ktor/http/HttpHeaders.kt",
+    "build-logic/src/main/kotlin/ktorbuild/KtorSyncMode.kt",
+    "ktor-utils/common/src/io/ktor/util/DelegatingMutableSet.kt",
+    "ktor-compiler-plugin/src/io/ktor/openapi/routing/RouteField.kt",
+    "build-logic/src/main/kotlin/ktorbuild/ProjectTagsService.kt",
+    "ktor-compiler-plugin/src/io/ktor/openapi/model/Attributes.kt",
+    "ktor-shared/ktor-openapi-schema/common/src/io/ktor/openapi/OpenApiDoc.kt",
+    "ktor-shared/ktor-openapi-schema/common/src/io/ktor/openapi/SecurityScheme.kt",
+    "ktor-shared/ktor-openapi-schema/common/src/io/ktor/openapi/Operation.kt",
+    "ktor-shared/ktor-openapi-schema/common/src/io/ktor/openapi/PathItem.kt",
+    "ktor-shared/ktor-openapi-schema/common/src/io/ktor/openapi/ExampleObject.kt",
+    "ktor-shared/ktor-openapi-schema/common/src/io/ktor/openapi/ExternalDocs.kt",
+    "ktor-shared/ktor-openapi-schema/common/src/io/ktor/openapi/JsonSchema.kt",
+    "ktor-network/common/src/io/ktor/network/sockets/SocketOptions.kt",
+    "ktor-client/ktor-client-webrtc/common/src/io/ktor/client/webrtc/WebRtc.kt",
+    "ktor-network/common/src/io/ktor/network/sockets/Sockets.kt",
+    "ktor-utils/common/src/io/ktor/util/converters/DataConversion.kt",
+    "ktor-server/ktor-server-plugins/ktor-server-auth/common/src/io/ktor/server/auth/AuthenticationProvider.kt",
+    "ktor-http/common/src/io/ktor/http/HttpStatusCode.kt",
+    "ktor-server/ktor-server-plugins/ktor-server-auth/common/src/io/ktor/server/auth/BasicTypedProvider.kt"
+   ],
+   "ms": 131.2416250584647
+  },
+  {
+   "id": "ktor-12",
+   "set": "written",
+   "corpus": "ktor",
+   "split": "heldout",
+   "gold": [
+    "61e9eadcd1f97061e5af5cc44629976888ee641b4de4c1a33f0bef4cd3afaba1"
+   ],
+   "hashed": true,
+   "ranked": [],
+   "ms": 142.9280829615891
+  },
+  {
+   "id": "ktor-15",
+   "set": "written",
+   "corpus": "ktor",
+   "split": "heldout",
+   "gold": [
+    "d63939ebb8ab784c999b4fcafae3a03080041eb550ffec2ab21170453b0cc236"
+   ],
+   "hashed": true,
+   "ranked": [
+    "ktor-server/ktor-server-core/common/src/io/ktor/server/application/PipelineCall.kt",
+    "ktor-utils/common/src/io/ktor/util/PlatformUtils.kt",
+    "ktor-compiler-plugin/src/io/ktor/openapi/routing/RouteField.kt",
+    "ktor-client/ktor-client-core/common/src/io/ktor/client/statement/HttpResponse.kt",
+    "ktor-client/ktor-client-core/common/src/io/ktor/client/request/builders.kt",
+    "ktor-shared/ktor-htmx/common/src/io/ktor/htmx/HxAttributeKeys.kt",
+    "ktor-shared/ktor-htmx/common/src/io/ktor/htmx/HxCss.kt",
+    "ktor-shared/ktor-htmx/common/src/io/ktor/htmx/HxRequestHeaders.kt",
+    "ktor-compiler-plugin/src/io/ktor/openapi/routing/TypeReference.kt",
+    "ktor-client/ktor-client-core/jvm/src/io/ktor/client/request/buildersJvm.kt",
+    "ktor-server/ktor-server-core/common/src/io/ktor/server/config/ApplicationConfig.kt",
+    "ktor-server/ktor-server-core/common/src/io/ktor/server/routing/RoutingNode.kt",
+    "ktor-server/ktor-server-core/common/src/io/ktor/server/routing/RoutingPipelineCall.kt",
+    "ktor-server/ktor-server-core/common/src/io/ktor/server/request/RequestCookies.kt",
+    "ktor-shared/ktor-openapi-schema/common/src/io/ktor/openapi/Operation.kt",
+    "ktor-shared/ktor-openapi-schema/common/src/io/ktor/openapi/JsonType.kt",
+    "ktor-client/ktor-client-core/wasmJs/src/io/ktor/client/fetch/LibDom.kt",
+    "ktor-client/ktor-client-core/common/src/io/ktor/client/call/HttpClientCall.kt",
+    "ktor-server/ktor-server-core/common/src/io/ktor/server/engine/BaseApplicationCall.kt",
+    "ktor-client/ktor-client-webrtc/common/src/io/ktor/client/webrtc/WebRtcMedia.kt"
+   ],
+   "ms": 188.3115000091493
+  },
+  {
+   "id": "ktor-16",
+   "set": "written",
+   "corpus": "ktor",
+   "split": "heldout",
+   "gold": [
+    "4d7bb26f0e357cad1c5e195bd4f14985aecca218d685aa25fc0e8ccc902d6bdb"
+   ],
+   "hashed": true,
+   "ranked": [
+    "ktor-http/common/src/io/ktor/http/Headers.kt",
+    "ktor-utils/common/src/io/ktor/util/CaseInsensitiveMap.kt",
+    "ktor-server/ktor-server-core/common/src/io/ktor/server/application/CreatePluginUtils.kt",
+    "ktor-server/ktor-server-core/common/src/io/ktor/server/application/RouteScopedPluginBuilder.kt",
+    "ktor-server/ktor-server-core/common/src/io/ktor/server/config/ApplicationConfig.kt",
+    "ktor-compiler-plugin/src/io/ktor/openapi/routing/RoutingFunctionConstants.kt",
+    "ktor-server/ktor-server-core/common/src/io/ktor/server/config/MergedApplicationConfig.kt",
+    "ktor-compiler-plugin/src/io/ktor/openapi/routing/RouteCall.kt",
+    "ktor-server/ktor-server-core/jvm/src/io/ktor/server/config/HoconDecoder.kt",
+    "ktor-server/ktor-server-core/common/src/io/ktor/server/routing/RoutingNode.kt",
+    "ktor-shared/ktor-openapi-schema/common/src/io/ktor/openapi/GenericElement.kt",
+    "ktor-server/ktor-server-core/common/src/io/ktor/server/routing/RoutingPipelineCall.kt",
+    "ktor-server/ktor-server-core/common/src/io/ktor/server/routing/RouteSelector.kt",
+    "ktor-server/ktor-server-core/common/src/io/ktor/server/routing/RoutingPathTree.kt",
+    "ktor-server/ktor-server-core/common/src/io/ktor/server/routing/RoutingResolveResult.kt",
+    "ktor-server/ktor-server-core/common/src/io/ktor/server/routing/RoutingResolveTrace.kt",
+    "ktor-utils/common/src/io/ktor/util/collections/ConcurrentMap.kt",
+    "ktor-utils/posix/src/io/ktor/util/collections/ConcurrentMapNative.kt",
+    "ktor-utils/jvm/src/io/ktor/util/collections/ConcurrentMapJvm.kt",
+    "ktor-utils/web/src/io/ktor/util/collections/ConcurrentMap.web.kt"
+   ],
+   "ms": 129.27108409348875
+  },
+  {
+   "id": "ktor-17",
+   "set": "written",
+   "corpus": "ktor",
+   "split": "heldout",
+   "gold": [
+    "972a15f83508668ed1a5314533d90ea7ffe58a49da98443ecb119641e5adb19f"
+   ],
+   "hashed": true,
+   "ranked": [
+    "ktor-io/common/src/io/ktor/utils/io/LineEndingMode.kt",
+    "ktor-http/common/src/io/ktor/http/ContentDisposition.kt",
+    "ktor-http/common/src/io/ktor/http/HeaderValueWithParameters.kt",
+    "ktor-server/ktor-server-core/common/src/io/ktor/server/application/PipelineCall.kt",
+    "build-logic/src/main/kotlin/ktorbuild/internal/gradle/ProjectTargetDirectories.kt",
+    "ktor-utils/common/src/io/ktor/util/CaseInsensitiveMap.kt",
+    "build-logic/src/main/kotlin/ktorbuild/internal/gradle/ProjectGradleProperties.kt",
+    "build-logic/src/main/kotlin/ktorbuild/internal/gradle/LocalProperties.kt",
+    "build-logic/src/main/kotlin/ktorbuild/ProjectTagsService.kt",
+    "ktor-http/common/src/io/ktor/http/auth/HttpAuthHeader.kt",
+    "ktor-server/ktor-server-core/common/src/io/ktor/server/routing/RoutingNode.kt",
+    "ktor-shared/ktor-openapi-schema/common/src/io/ktor/openapi/OpenApiDoc.kt",
+    "ktor-server/ktor-server-core/common/src/io/ktor/server/response/ResponseHeaders.kt",
+    "ktor-server/ktor-server-core/common/src/io/ktor/server/routing/RoutingPipelineCall.kt",
+    "ktor-server/ktor-server-core/common/src/io/ktor/server/routing/RouteSelector.kt",
+    "ktor-server/ktor-server-core/common/src/io/ktor/server/routing/RoutingResolveResult.kt",
+    "ktor-shared/ktor-openapi-schema/common/src/io/ktor/openapi/Operation.kt",
+    "ktor-shared/ktor-openapi-schema/common/src/io/ktor/openapi/PathItem.kt",
+    "ktor-shared/ktor-openapi-schema/common/src/io/ktor/openapi/ReferenceOr.kt",
+    "ktor-utils/common/src/io/ktor/util/collections/ConcurrentMap.kt"
+   ],
+   "ms": 118.98220796138048
+  },
+  {
+   "id": "ktor-18",
+   "set": "written",
+   "corpus": "ktor",
+   "split": "heldout",
+   "gold": [
+    "f9eda36b1b3166607d55c84c0c2aa5506513002574b4e22071b2ad00450b8f8b"
+   ],
+   "hashed": true,
+   "ranked": [
+    "ktor-io/jvm/src/io/ktor/utils/io/core/ByteReadPacketExtensions.jvm.kt",
+    "ktor-io/common/src/io/ktor/utils/io/ByteChannel.kt",
+    "ktor-io/common/src/io/ktor/utils/io/ByteReadChannelOperations.kt",
+    "ktor-io/common/src/io/ktor/utils/io/LineEnding.kt",
+    "ktor-io/common/src/io/ktor/utils/io/charsets/Encoding.kt",
+    "build-logic/src/main/kotlin/ktorbuild/KtorBuildExtension.kt",
+    "ktor-http/common/src/io/ktor/http/Cookie.kt",
+    "ktor-http/common/src/io/ktor/http/HttpProtocolVersion.kt",
+    "ktor-http/common/src/io/ktor/http/ContentDisposition.kt",
+    "ktor-http/common/src/io/ktor/http/CookieUtils.kt",
+    "ktor-http/common/src/io/ktor/http/HttpHeaderValueParser.kt",
+    "ktor-io/jvm/src/io/ktor/utils/io/charsets/CharsetJVM.kt",
+    "ktor-io/posix/src/io/ktor/utils/io/charsets/CharsetNative.kt",
+    "ktor-io/wasmJs/src/io/ktor/utils/io/charsets/Encoding.wasmJs.kt",
+    "ktor-io/js/src/io/ktor/utils/io/charsets/Charset.js.kt",
+    "ktor-utils/common/src/io/ktor/util/Attributes.kt",
+    "ktor-utils/common/src/io/ktor/util/ContentEncoder.kt",
+    "ktor-utils/common/src/io/ktor/util/pipeline/PipelinePhase.kt",
+    "ktor-http/common/src/io/ktor/http/parsing/ParserDsl.kt",
+    "ktor-server/ktor-server-core/common/src/io/ktor/server/config/MapApplicationConfig.kt"
+   ],
+   "ms": 312.6470420975238
+  },
+  {
+   "id": "ktor-19",
+   "set": "written",
+   "corpus": "ktor",
+   "split": "heldout",
+   "gold": [
+    "8382f9f8a92fb036d5ee4d8f1b0c4f7d8266130a62fcc0c42e7c6495fa1cfbfc"
+   ],
+   "hashed": true,
+   "ranked": [
+    "ktor-io/jvm/src/io/ktor/utils/io/pool/DefaultPool.kt",
+    "ktor-http/common/src/io/ktor/http/HttpHeaders.kt",
+    "ktor-http/common/src/io/ktor/http/ContentTypes.kt",
+    "ktor-utils/common/src/io/ktor/util/CaseInsensitiveMap.kt",
+    "ktor-utils/common/src/io/ktor/util/DelegatingMutableSet.kt",
+    "ktor-utils/common/src/io/ktor/util/internal/LockFreeLinkedList.kt",
+    "ktor-compiler-plugin/src/io/ktor/openapi/routing/RouteField.kt",
+    "ktor-client/ktor-client-core/nonJvm/src/io/ktor/client/engine/Loader.kt",
+    "ktor-network/jvm/src/io/ktor/network/selector/LockFreeMPSCQueue.kt",
+    "ktor-http/common/src/io/ktor/http/content/TextContent.kt",
+    "ktor-shared/ktor-openapi-schema/common/src/io/ktor/openapi/MediaType.kt",
+    "ktor-utils/posix/src/io/ktor/util/collections/LockFreeMPSCQueueNative.kt",
+    "ktor-utils/common/src/io/ktor/util/collections/ConcurrentSet.kt",
+    "ktor-client/ktor-client-core/wasmJs/src/io/ktor/client/fetch/LibDom.kt",
+    "ktor-shared/ktor-websockets/common/src/io/ktor/websocket/FrameCommon.kt",
+    "ktor-shared/ktor-websockets/jvm/src/io/ktor/websocket/Frame.kt",
+    "ktor-shared/ktor-websockets/common/src/io/ktor/websocket/FrameType.kt",
+    "ktor-client/ktor-client-core/js/src/io/ktor/client/fetch/LibDom.kt",
+    "ktor-client/ktor-client-core/wasmJs/src/io/ktor/client/fetch/LibEs5.kt",
+    "ktor-client/ktor-client-core/js/src/io/ktor/client/fetch/LibEs5.kt"
+   ],
+   "ms": 93.61199999693781
+  },
+  {
+   "id": "ktor-20",
+   "set": "written",
+   "corpus": "ktor",
+   "split": "heldout",
+   "gold": [
+    "4d2d59abaaef9522aedf0700c96e13d521421902db6a5cccba6e49e53d4f5fc2"
+   ],
+   "hashed": true,
+   "ranked": [],
+   "ms": 205.3086250089109
+  },
+  {
+   "id": "ktor-21",
+   "set": "written",
+   "corpus": "ktor",
+   "split": "heldout",
+   "gold": [
+    "ff2058ac9f75ca1edc3d721aa9020ed7595c68639abadf3843fbc3f89d7c5c1b"
+   ],
+   "hashed": true,
+   "ranked": [],
+   "ms": 116.4619589690119
+  },
+  {
+   "id": "ktor-22",
+   "set": "written",
+   "corpus": "ktor",
+   "split": "heldout",
+   "gold": [
+    "2db05c376b16273b9218faaedc9b6a4adce5457d40efed4c59fc3e06a4a04c4a"
+   ],
+   "hashed": true,
+   "ranked": [
+    "ktor-http/common/src/io/ktor/http/ContentTypes.kt",
+    "ktor-compiler-plugin/src/io/ktor/openapi/model/Attributes.kt",
+    "ktor-shared/ktor-openapi-schema/common/src/io/ktor/openapi/OpenApiDoc.kt",
+    "ktor-shared/ktor-openapi-schema/common/src/io/ktor/openapi/GenericElement.kt",
+    "ktor-shared/ktor-openapi-schema/common/src/io/ktor/openapi/MediaType.kt",
+    "ktor-shared/ktor-openapi-schema/common/src/io/ktor/openapi/Operation.kt",
+    "ktor-shared/ktor-openapi-schema/common/src/io/ktor/openapi/ReferenceOr.kt",
+    "ktor-shared/ktor-openapi-schema/common/src/io/ktor/openapi/JsonSchema.kt",
+    "ktor-client/ktor-client-core/wasmJs/src/io/ktor/client/fetch/LibDom.kt",
+    "ktor-client/ktor-client-core/js/src/io/ktor/client/fetch/LibDom.kt",
+    "ktor-server/ktor-server-plugins/ktor-server-di/common/src/io/ktor/server/plugins/di/DependencyConflictPolicy.kt",
+    "ktor-client/ktor-client-plugins/ktor-client-json/common/src/io/ktor/client/plugins/json/JsonPlugin.kt",
+    "ktor-shared/ktor-serialization/ktor-serialization-kotlinx/ktor-serialization-kotlinx-json/common/src/io/ktor/serialization/kotlinx/json/JsonSupport.kt",
+    "ktor-server/ktor-server-config-yaml/jvmAndPosix/src/io/ktor/server/config/yaml/YamlConfig.kt",
+    "ktor-server/ktor-server-plugins/ktor-server-auth-oidc/jvm/src/io/ktor/server/auth/oidc/OidcStateCodec.kt",
+    "ktor-client/ktor-client-plugins/ktor-client-json/ktor-client-serialization/common/src/io/ktor/client/plugins/kotlinx/serializer/KotlinxSerializer.kt",
+    "ktor-server/ktor-server-plugins/ktor-server-openapi/jvm/src/io/ktor/server/plugins/openapi/OpenAPIConfig.kt",
+    "ktor-http/common/src/io/ktor/http/LinkHeader.kt",
+    "settings.gradle.kts",
+    "ktor-server/ktor-server-core/common/test/io/ktor/server/config/MapDecoderTest.kt"
+   ],
+   "ms": 60.9469999326393
+  },
+  {
+   "id": "ktor-23",
+   "set": "written",
+   "corpus": "ktor",
+   "split": "heldout",
+   "gold": [
+    "e682bd7e0540aa0ec078c38c19dff75e4e69cfc47a7af69d0f7847577659311b"
+   ],
+   "hashed": true,
+   "ranked": [],
+   "ms": 139.60404205136
+  },
+  {
+   "id": "ktor-24",
+   "set": "written",
+   "corpus": "ktor",
+   "split": "heldout",
+   "gold": [
+    "b48abbf0994136eb79a95921ce93b09fcd35c2ede82d8a8b52bc2c730e58ae05"
+   ],
+   "hashed": true,
+   "ranked": [],
+   "ms": 95.48312495462596
+  },
+  {
+   "id": "ktor-25",
+   "set": "written",
+   "corpus": "ktor",
+   "split": "heldout",
+   "gold": [
+    "c4ff9a1bae90db309de803f8026853b8e2e154fdb6b016dc76122eb7a7888d23"
+   ],
+   "hashed": true,
+   "ranked": [],
+   "ms": 89.8477080045268
+  },
+  {
+   "id": "ktor-29",
+   "set": "written",
+   "corpus": "ktor",
+   "split": "heldout",
+   "gold": [
+    "932fc4fe11e37dba2918e3e7942ca08af508dd9e40965834da8ac13310b9b0fa"
+   ],
+   "hashed": true,
+   "ranked": [
+    "ktor-http/common/src/io/ktor/http/ContentTypes.kt",
+    "ktor-http/common/src/io/ktor/http/CookieUtils.kt",
+    "ktor-io/wasmJs/src/io/ktor/utils/io/charsets/TextEncoder.kt",
+    "ktor-client/ktor-client-core/common/src/io/ktor/client/engine/HttpClientEngine.kt",
+    "ktor-client/ktor-client-core/common/src/io/ktor/client/engine/HttpClientEngineFactory.kt",
+    "ktor-client/ktor-client-core/jvm/src/io/ktor/client/HttpClientJvm.kt",
+    "ktor-client/ktor-client-core/web/src/io/ktor/client/HttpClient.web.kt",
+    "ktor-client/ktor-client-core/posix/src/io/ktor/client/HttpClient.kt",
+    "ktor-client/ktor-client-webrtc/ios/src/io/ktor/client/webrtc/media/MediaDevices.kt",
+    "ktor-client/ktor-client-core/wasmJs/src/io/ktor/client/fetch/LibDom.kt",
+    "ktor-server/ktor-server-core/common/src/io/ktor/server/engine/EmbeddedServer.kt",
+    "ktor-client/ktor-client-webrtc/common/src/io/ktor/client/webrtc/WebRtcMedia.kt",
+    "ktor-shared/ktor-websockets/common/src/io/ktor/websocket/WebSocketExtension.kt",
+    "ktor-network/common/src/io/ktor/network/sockets/SocketOptions.kt",
+    "ktor-client/ktor-client-webrtc/android/src/io/ktor/client/webrtc/Engine.kt",
+    "ktor-client/ktor-client-webrtc/android/src/io/ktor/client/webrtc/Senders.kt",
+    "ktor-client/ktor-client-webrtc/common/src/io/ktor/client/webrtc/WebRtc.kt",
+    "ktor-client/ktor-client-webrtc/common/src/io/ktor/client/webrtc/WebRtcClient.kt",
+    "ktor-client/ktor-client-webrtc/common/src/io/ktor/client/webrtc/WebRtcPeerConnectionEvents.kt",
+    "ktor-client/ktor-client-webrtc/ios/src/io/ktor/client/webrtc/Engine.kt"
+   ],
+   "ms": 60.829541995190084
+  },
+  {
+   "id": "tokio-00",
+   "set": "written",
+   "corpus": "tokio",
+   "split": "heldout",
+   "gold": [
+    "d0e80ea71419286333af23acf1cf2ed527a3ed2a02a21eedd684727cc29c39a1"
+   ],
+   "hashed": true,
+   "ranked": [
+    "tokio/src/loom/std/mod.rs",
+    "tokio/src/loom/mocked.rs",
+    "tokio/src/runtime/context.rs",
+    "tokio/src/runtime/scheduler/mod.rs",
+    "tokio-test/src/task.rs",
+    "tokio/src/sync/batch_semaphore.rs",
+    "tokio/src/time/sleep.rs",
+    "tokio/src/runtime/park.rs",
+    "tokio/src/runtime/driver.rs",
+    "tokio/src/runtime/task/core.rs",
+    "tokio/src/runtime/signal/mod.rs",
+    "tokio/src/runtime/time/mod.rs",
+    "tokio/src/runtime/task/state.rs",
+    "tokio/src/sync/notify.rs",
+    "tokio/src/util/idle_notified_set.rs",
+    "tokio/src/util/wake.rs",
+    "tokio/src/sync/broadcast.rs",
+    "tokio/src/runtime/io/driver.rs",
+    "tokio/src/runtime/runtime.rs",
+    "tokio/src/sync/set_once.rs"
+   ],
+   "ms": 19.3198750494048
+  },
+  {
+   "id": "tokio-02",
+   "set": "written",
+   "corpus": "tokio",
+   "split": "heldout",
+   "gold": [
+    "3925fbabc380eeac8b1e02f49d9b67ce4cd655c3a1afd0b2210229f2f2eca14e"
+   ],
+   "hashed": true,
+   "ranked": [
+    "tokio/src/loom/mocked.rs",
+    "tokio/src/runtime/driver/op.rs",
+    "tokio/src/loom/std/parking_lot.rs",
+    "tokio/src/runtime/scheduler/mod.rs",
+    "tokio-test/src/task.rs",
+    "tokio/src/time/sleep.rs",
+    "tokio/src/runtime/driver.rs",
+    "tokio/src/time/interval.rs",
+    "tokio-test/src/io.rs",
+    "tokio/src/net/windows/named_pipe.rs",
+    "tokio/src/loom/std/rwlock.rs",
+    "tokio/src/runtime/signal/mod.rs",
+    "tokio/src/runtime/time/mod.rs",
+    "tokio-stream/src/stream_map.rs",
+    "tokio/src/sync/rwlock.rs",
+    "tokio/src/io/read_buf.rs",
+    "tokio-util/src/codec/framed_impl.rs",
+    "tokio/src/fs/open_options.rs",
+    "tokio/src/sync/notify.rs",
+    "tokio/src/io/uring/read.rs"
+   ],
+   "ms": 21.67970803566277
+  },
+  {
+   "id": "tokio-03",
+   "set": "written",
+   "corpus": "tokio",
+   "split": "heldout",
+   "gold": [
+    "49f4fbff786e86310da933b7bf9ac8033b74a3e6b07a16d98913f188cfec9e75"
+   ],
+   "hashed": true,
+   "ranked": [
+    "tokio/src/loom/std/mod.rs",
+    "tokio/src/util/linked_list.rs",
+    "tokio/src/signal/mod.rs",
+    "tokio/src/time/clock.rs",
+    "tokio/src/signal/unix.rs",
+    "tokio/src/sync/oneshot.rs",
+    "tokio-test/src/task.rs",
+    "tokio/src/sync/watch.rs",
+    "tokio/src/time/sleep.rs",
+    "tokio/src/runtime/park.rs",
+    "tokio/src/runtime/driver.rs",
+    "tokio/src/io/blocking.rs",
+    "tokio/src/process/mod.rs",
+    "tokio/src/net/addr.rs",
+    "tokio-test/src/io.rs",
+    "tokio/src/runtime/task/trace/mod.rs",
+    "tokio/src/loom/std/atomic_u16.rs",
+    "tokio/src/loom/std/atomic_u32.rs",
+    "tokio/src/loom/std/atomic_usize.rs",
+    "tokio/src/runtime/signal/mod.rs"
+   ],
+   "ms": 29.735166928730905
+  },
+  {
+   "id": "tokio-04",
+   "set": "written",
+   "corpus": "tokio",
+   "split": "heldout",
+   "gold": [
+    "8c62b05e99482bf4cf5bba26aa17ae6395c57ba2bb905c0fad7482c1b9d919d9"
+   ],
+   "hashed": true,
+   "ranked": [
+    "tokio/src/loom/mocked.rs",
+    "tokio/src/lib.rs",
+    "tokio/src/runtime/driver/op.rs",
+    "tokio/src/loom/std/parking_lot.rs",
+    "tokio-test/src/io.rs",
+    "tokio/src/net/windows/named_pipe.rs",
+    "tokio/src/loom/std/mutex.rs",
+    "tokio/src/loom/std/rwlock.rs",
+    "tokio/src/util/sharded_list.rs",
+    "tokio/src/runtime/time/mod.rs",
+    "tokio/src/sync/rwlock.rs",
+    "tokio-stream/src/stream_ext/collect.rs",
+    "tokio-util/src/codec/framed_impl.rs",
+    "tokio/src/fs/open_options.rs",
+    "tokio/src/util/try_lock.rs",
+    "tokio/src/loom/std/barrier.rs",
+    "tokio/src/io/uring/read.rs",
+    "tokio/src/io/uring/write.rs",
+    "tokio/src/runtime/io/driver.rs",
+    "tokio/src/fs/read.rs"
+   ],
+   "ms": 22.57937507238239
+  },
+  {
+   "id": "tokio-05",
+   "set": "written",
+   "corpus": "tokio",
+   "split": "heldout",
+   "gold": [
+    "c632261b41085469310e4840a71f9582257c348bf23807251dde960fc985b21c"
+   ],
+   "hashed": true,
+   "ranked": [
+    "tokio/src/loom/std/mod.rs",
+    "tokio/src/loom/mocked.rs",
+    "tokio/src/loom/std/parking_lot.rs",
+    "tokio/src/time/instant.rs",
+    "tokio/src/io/blocking.rs",
+    "tokio/src/net/addr.rs",
+    "tokio/src/loom/std/mutex.rs",
+    "tokio/src/util/sharded_list.rs",
+    "tokio/src/runtime/time/mod.rs",
+    "tokio/src/util/try_lock.rs",
+    "tokio/src/loom/std/barrier.rs",
+    "tokio/src/runtime/scheduler/multi_thread/worker.rs",
+    "tokio/src/sync/mutex.rs",
+    "tokio-util/src/net/mod.rs",
+    "tokio/src/runtime/blocking/pool.rs",
+    "tokio-util/src/either.rs",
+    "tokio/src/runtime/context/runtime.rs",
+    "tokio/src/sync/rwlock/owned_read_guard.rs",
+    "tokio/src/sync/rwlock/owned_write_guard_mapped.rs",
+    "tokio/src/runtime/scheduler/inject/rt_multi_thread.rs"
+   ],
+   "ms": 18.154457909986377
+  },
+  {
+   "id": "tokio-07",
+   "set": "written",
+   "corpus": "tokio",
+   "split": "heldout",
+   "gold": [
+    "141ede1829a17dc1271d95887cc7e21c17ef59ad3ba5ad034fad1a1e74677ac7"
+   ],
+   "hashed": true,
+   "ranked": [
+    "tokio/src/runtime/task/mod.rs",
+    "tokio/src/runtime/driver/op.rs",
+    "tokio/src/util/linked_list.rs",
+    "tokio/src/runtime/context.rs",
+    "tokio/src/runtime/scheduler/mod.rs",
+    "tokio/src/sync/oneshot.rs",
+    "tokio/src/sync/watch.rs",
+    "tokio/src/sync/batch_semaphore.rs",
+    "tokio/src/runtime/driver.rs",
+    "tokio/src/io/blocking.rs",
+    "tokio/src/net/addr.rs",
+    "tokio-test/src/io.rs",
+    "tokio/src/runtime/task/core.rs",
+    "tokio/src/sync/mpsc/bounded.rs",
+    "tokio/src/runtime/signal/mod.rs",
+    "tokio/src/runtime/time/mod.rs",
+    "tokio/src/runtime/time_alt/cancellation_queue.rs",
+    "tokio/src/sync/notify.rs",
+    "tokio/src/util/idle_notified_set.rs",
+    "tokio/src/sync/mpsc/unbounded.rs"
+   ],
+   "ms": 19.425958045758307
+  },
+  {
+   "id": "tokio-08",
+   "set": "written",
+   "corpus": "tokio",
+   "split": "heldout",
+   "gold": [
+    "030341d48b2aa58138b7e49399466ec744533a1806398c0a2c51c52d85aeaa63"
+   ],
+   "hashed": true,
+   "ranked": [
+    "tokio/src/loom/mocked.rs",
+    "tokio-stream/src/stream_ext.rs",
+    "tokio/src/io/interest.rs",
+    "tokio/src/io/ready.rs",
+    "tokio/src/runtime/driver/op.rs",
+    "tokio/src/util/linked_list.rs",
+    "tokio/src/loom/std/parking_lot.rs",
+    "tokio/src/sync/oneshot.rs",
+    "tokio/src/sync/watch.rs",
+    "tokio/src/time/error.rs",
+    "tokio/src/process/mod.rs",
+    "tokio-test/src/io.rs",
+    "tokio/src/net/windows/named_pipe.rs",
+    "tokio/src/loom/std/mutex.rs",
+    "tokio/src/loom/std/rwlock.rs",
+    "tokio/src/runtime/task/core.rs",
+    "tokio/src/util/sharded_list.rs",
+    "tokio/src/runtime/time/mod.rs",
+    "tokio/src/sync/rwlock.rs",
+    "tokio-util/src/codec/encoder.rs"
+   ],
+   "ms": 30.372665962204337
+  },
+  {
+   "id": "tokio-09",
+   "set": "written",
+   "corpus": "tokio",
+   "split": "heldout",
+   "gold": [
+    "48650819f3287310435466edaf4bc2e9d1e0aea064e6cdb56c4850b32cc58031"
+   ],
+   "hashed": true,
+   "ranked": [
+    "tokio/src/task/coop/mod.rs",
+    "tokio/src/process/mod.rs",
+    "tokio/src/util/sharded_list.rs",
+    "tokio/src/signal/reusable_box.rs",
+    "tokio-util/src/time/wheel/mod.rs",
+    "tokio/src/loom/std/barrier.rs",
+    "tokio/src/runtime/time_alt/wheel/mod.rs",
+    "tokio-util/src/time/wheel/level.rs",
+    "tokio/src/runtime/metrics/histogram.rs",
+    "tokio/src/runtime/time_alt/wheel/level.rs",
+    "tokio/src/runtime/time/wheel/mod.rs",
+    "tokio/src/runtime/metrics/histogram/h2_histogram.rs",
+    "tokio/src/runtime/time/wheel/level.rs",
+    "tokio-macros/src/entry.rs",
+    "tokio/src/process/unix/orphan.rs",
+    "tokio/src/macros/select.rs",
+    "tokio/src/process/unix/pidfd_reaper.rs",
+    "tokio/src/process/unix/reap.rs",
+    "benches/signal.rs",
+    "tokio-macros/src/lib.rs"
+   ],
+   "ms": 19.93941597174853
+  },
+  {
+   "id": "tokio-10",
+   "set": "written",
+   "corpus": "tokio",
+   "split": "heldout",
+   "gold": [
+    "86845e5895b7cd77b84479be0421b1331d1d8b3b03d11cfdabee9fe0fe840953"
+   ],
+   "hashed": true,
+   "ranked": [
+    "tokio/src/loom/std/mod.rs",
+    "tokio-test/src/task.rs",
+    "tokio/src/runtime/task/trace/mod.rs",
+    "tokio-util/src/codec/framed_impl.rs",
+    "tokio/src/future/maybe_done.rs",
+    "tokio/src/sync/broadcast.rs",
+    "tokio/src/io/uring/statx.rs",
+    "tokio/src/io/join.rs",
+    "tokio-util/src/sync/cancellation_token.rs",
+    "tokio/src/io/util/read_until.rs",
+    "tokio/src/runtime/io/scheduled_io.rs",
+    "tokio-stream/src/stream_ext/then.rs",
+    "tokio/src/task/local.rs",
+    "tokio/src/task/task_local.rs",
+    "tokio/src/io/util/read_line.rs",
+    "tokio/src/runtime/scheduler/multi_thread/queue.rs",
+    "tokio/src/io/util/read_int.rs",
+    "tokio/src/io/util/read_to_end.rs",
+    "tokio-util/src/task/task_tracker.rs",
+    "tokio/src/io/util/copy.rs"
+   ],
+   "ms": 21.313083940185606
+  },
+  {
+   "id": "tokio-11",
+   "set": "written",
+   "corpus": "tokio",
+   "split": "heldout",
+   "gold": [
+    "d44b974681bbc32dd44857269362ecc01db58c0bb350f330efb6c40a7d27d1d3"
+   ],
+   "hashed": true,
+   "ranked": [
+    "tokio/src/loom/std/mod.rs",
+    "tokio-test/src/task.rs",
+    "tokio/src/net/addr.rs",
+    "tokio/src/runtime/task/trace/mod.rs",
+    "tokio-util/src/codec/framed_impl.rs",
+    "tokio/src/future/maybe_done.rs",
+    "tokio/src/sync/broadcast.rs",
+    "tokio/src/io/uring/statx.rs",
+    "tokio/src/io/join.rs",
+    "tokio-util/src/sync/cancellation_token.rs",
+    "tokio/src/runtime/io/scheduled_io.rs",
+    "tokio-stream/src/stream_ext/then.rs",
+    "tokio/src/task/local.rs",
+    "tokio/src/task/task_local.rs",
+    "tokio/src/runtime/scheduler/multi_thread/queue.rs",
+    "tokio/src/io/util/write_int.rs",
+    "tokio-util/src/io/write_all_vectored.rs",
+    "tokio-util/src/task/task_tracker.rs",
+    "tokio/src/io/util/copy.rs",
+    "tokio/src/io/util/write.rs"
+   ],
+   "ms": 20.60691697988659
+  },
+  {
+   "id": "tokio-13",
+   "set": "written",
+   "corpus": "tokio",
+   "split": "heldout",
+   "gold": [
+    "f1570dbf2ec9350a6cf8c183485ce70600eb106289265f5e6a81f1c2c6979d8c"
+   ],
+   "hashed": true,
+   "ranked": [
+    "tokio/src/runtime/task/mod.rs",
+    "tokio/src/blocking.rs",
+    "tokio/src/runtime/driver/op.rs",
+    "tokio/src/task/coop/mod.rs",
+    "tokio/src/runtime/context.rs",
+    "tokio/src/util/trace.rs",
+    "tokio/src/sync/oneshot.rs",
+    "tokio-test/src/task.rs",
+    "tokio/src/sync/batch_semaphore.rs",
+    "tokio/src/time/timeout.rs",
+    "tokio/src/time/sleep.rs",
+    "tokio/src/process/mod.rs",
+    "tokio/src/net/addr.rs",
+    "tokio/src/runtime/task/trace/mod.rs",
+    "tokio/src/runtime/task/core.rs",
+    "tokio/src/signal/reusable_box.rs",
+    "tokio-stream/src/stream_ext/collect.rs",
+    "tokio/src/runtime/task/raw.rs",
+    "tokio/src/future/maybe_done.rs",
+    "tokio/src/sync/notify.rs"
+   ],
+   "ms": 24.982874980196357
+  },
+  {
+   "id": "tokio-14",
+   "set": "written",
+   "corpus": "tokio",
+   "split": "heldout",
+   "gold": [
+    "869d40926cd12f2bd417ea810f13bc2bd07db26793222f36d9c174274cf9cbda"
+   ],
+   "hashed": true,
+   "ranked": [
+    "tokio/src/io/interest.rs",
+    "tokio/src/io/ready.rs",
+    "tokio/src/sync/oneshot.rs",
+    "tokio/src/signal/registry.rs",
+    "tokio/src/sync/watch.rs",
+    "tokio/src/time/error.rs",
+    "tokio-stream/src/pending.rs",
+    "tokio/src/process/mod.rs",
+    "tokio/src/fs/read_dir.rs",
+    "tokio-util/src/codec/encoder.rs",
+    "tokio-util/src/codec/decoder.rs",
+    "tokio-util/src/codec/framed_impl.rs",
+    "tokio/src/net/udp.rs",
+    "tokio/src/sync/broadcast.rs",
+    "tokio/src/runtime/task/error.rs",
+    "tokio/src/io/async_fd.rs",
+    "tokio-util/src/sync/mpsc.rs",
+    "tokio-stream/src/stream_ext/timeout.rs",
+    "tokio/src/net/unix/datagram/socket.rs",
+    "tokio/src/runtime/blocking/pool.rs"
+   ],
+   "ms": 19.717000075615942
+  },
+  {
+   "id": "tokio-16",
+   "set": "written",
+   "corpus": "tokio",
+   "split": "heldout",
+   "gold": [
+    "a5649ae75289dfca0891c1de2eaa2c45057ec0c47afdb1ff60b560bb7dfeafe1"
+   ],
+   "hashed": true,
+   "ranked": [
+    "tokio/src/loom/std/parking_lot.rs",
+    "tokio/src/sync/oneshot.rs",
+    "tokio/src/sync/watch.rs",
+    "tokio/src/time/timeout.rs",
+    "tokio/src/util/metric_atomics.rs",
+    "tokio-stream/src/once.rs",
+    "tokio-test/src/io.rs",
+    "tokio-test/src/stream_mock.rs",
+    "tokio/src/util/cacheline.rs",
+    "tokio/src/sync/notify.rs",
+    "tokio/src/util/idle_notified_set.rs",
+    "tokio/src/util/sync_wrapper.rs",
+    "tokio/src/loom/std/barrier.rs",
+    "tokio/src/sync/once_cell.rs",
+    "tokio/src/sync/set_once.rs",
+    "tokio/src/sync/task/atomic_waker.rs",
+    "tokio/src/sync/mpsc/block.rs",
+    "tokio/src/task/task_local.rs",
+    "tokio/src/sync/barrier.rs",
+    "tokio/src/runtime/blocking/shutdown.rs"
+   ],
+   "ms": 25.236541987396777
+  },
+  {
+   "id": "tokio-17",
+   "set": "written",
+   "corpus": "tokio",
+   "split": "heldout",
+   "gold": [
+    "044489bdfaedc0e1a180059cd5ade7cb3f0a45f5d6802168a0d80a2cf8d67ead"
+   ],
+   "hashed": true,
+   "ranked": [
+    "tokio/src/util/rand.rs",
+    "tokio/src/util/linked_list.rs",
+    "tokio/src/net/addr.rs",
+    "tokio/src/net/windows/named_pipe.rs",
+    "tokio-stream/src/stream_map.rs",
+    "tokio/src/sync/notify.rs",
+    "tokio/src/net/udp.rs",
+    "tokio/src/net/unix/datagram/socket.rs",
+    "tokio-util/src/udp/frame.rs",
+    "tokio/src/net/tcp/socket.rs",
+    "tokio/src/net/tcp/stream.rs",
+    "tokio/src/net/unix/socket.rs",
+    "tokio/src/net/unix/stream.rs",
+    "examples/connect-tcp.rs",
+    "examples/connect-udp.rs",
+    "examples/echo-udp.rs",
+    "tokio/tests/macros_pin.rs",
+    "tokio/tests/macros_select.rs",
+    "tokio/src/sync/batch_semaphore.rs"
+   ],
+   "ms": 19.316209014505148
+  },
+  {
+   "id": "tokio-18",
+   "set": "written",
+   "corpus": "tokio",
+   "split": "heldout",
+   "gold": [
+    "5295c4014bc618a59e9df37f241e57f708de2364c7214eb35513535e1a186a76"
+   ],
+   "hashed": true,
+   "ranked": [
+    "tokio/src/runtime/mod.rs",
+    "tokio/src/runtime/driver/op.rs",
+    "tokio/src/util/linked_list.rs",
+    "tokio/src/runtime/scheduler/mod.rs",
+    "tokio/src/time/sleep.rs",
+    "tokio/src/runtime/driver.rs",
+    "tokio/src/runtime/signal/mod.rs",
+    "tokio/src/runtime/time/mod.rs",
+    "tokio/src/io/uring/rename.rs",
+    "tokio/src/util/idle_notified_set.rs",
+    "tokio-util/src/time/wheel/mod.rs",
+    "tokio/src/io/uring/open.rs",
+    "tokio/src/io/uring/read.rs",
+    "tokio/src/io/uring/statx.rs",
+    "tokio/src/io/uring/write.rs",
+    "tokio/src/runtime/io/driver.rs",
+    "tokio/src/runtime/time_alt/wheel/mod.rs",
+    "tokio/src/runtime/process.rs",
+    "tokio-util/src/sync/cancellation_token.rs",
+    "tokio/src/runtime/time_alt/context.rs"
+   ],
+   "ms": 16.142542008310556
+  },
+  {
+   "id": "tokio-19",
+   "set": "written",
+   "corpus": "tokio",
+   "split": "heldout",
+   "gold": [
+    "5db60a88cdf4e7a3f4004b877acc50d2fe0ebf486a74960e263b2c1914f87e50"
+   ],
+   "hashed": true,
+   "ranked": [
+    "tokio/src/runtime/driver/op.rs",
+    "tokio/src/signal/unix.rs",
+    "tokio/src/sync/oneshot.rs",
+    "tokio/src/sync/watch.rs",
+    "tokio-test/src/io.rs",
+    "tokio/src/sync/mpsc/bounded.rs",
+    "tokio/src/sync/mpsc/error.rs",
+    "tokio/src/runtime/time_alt/cancellation_queue.rs",
+    "tokio/src/sync/notify.rs",
+    "tokio/src/sync/mpsc/unbounded.rs",
+    "tokio/src/net/udp.rs",
+    "tokio/src/sync/broadcast.rs",
+    "tokio/src/sync/task/atomic_waker.rs",
+    "tokio/src/sync/mpsc/chan.rs",
+    "tokio-util/src/sync/mpsc.rs",
+    "tokio/src/io/util/vec_with_initialized.rs",
+    "tokio/src/runtime/io/scheduled_io.rs",
+    "tokio/src/net/unix/datagram/socket.rs",
+    "tokio/src/sync/mpsc/list.rs",
+    "tokio/src/net/unix/pipe.rs"
+   ],
+   "ms": 19.436792004853487
+  },
+  {
+   "id": "tokio-22",
+   "set": "written",
+   "corpus": "tokio",
+   "split": "heldout",
+   "gold": [
+    "9f7a835112d16281770556d2d77908db1f2ac56cc16c8b2543a939184b0f5833"
+   ],
+   "hashed": true,
+   "ranked": [
+    "tokio/src/io/mod.rs",
+    "tokio/src/util/rand.rs",
+    "tokio/src/io/blocking.rs",
+    "tokio/src/process/mod.rs",
+    "tokio/src/net/addr.rs",
+    "tokio-stream/src/stream_map.rs",
+    "tokio/src/sync/notify.rs",
+    "tokio/src/runtime/context/runtime.rs",
+    "tokio/tests/io_panic.rs",
+    "tokio/tests/macros_pin.rs",
+    "tokio/tests/macros_select.rs",
+    "tokio/tests/rt_threaded.rs"
+   ],
+   "ms": 21.51391690131277
+  },
+  {
+   "id": "tokio-27",
+   "set": "written",
+   "corpus": "tokio",
+   "split": "heldout",
+   "gold": [
+    "b9e6b81e9a0d8cc064cdc23c971ee66dea87d449643db9d924f94aafb7b74d0f"
+   ],
+   "hashed": true,
+   "ranked": [
+    "tokio/src/loom/mocked.rs",
+    "tokio/src/loom/std/parking_lot.rs",
+    "tokio/src/io/blocking.rs",
+    "tokio-test/src/io.rs",
+    "tokio/src/net/windows/named_pipe.rs",
+    "tokio/src/loom/std/rwlock.rs",
+    "tokio/src/util/as_ref.rs",
+    "tokio/src/sync/rwlock.rs",
+    "tokio/src/io/read_buf.rs",
+    "tokio-util/src/codec/framed_impl.rs",
+    "tokio/src/fs/open_options.rs",
+    "tokio/src/sync/broadcast.rs",
+    "tokio/src/io/uring/read.rs",
+    "tokio/src/io/uring/statx.rs",
+    "tokio/src/runtime/io/driver.rs",
+    "tokio/src/fs/read.rs",
+    "tokio/src/fs/file.rs",
+    "tokio/src/sync/mpsc/block.rs",
+    "tokio/src/fs/open_options/mock_open_options.rs",
+    "tokio/src/io/join.rs"
+   ],
+   "ms": 20.44170896988362
+  },
+  {
+   "id": "tokio-28",
+   "set": "written",
+   "corpus": "tokio",
+   "split": "heldout",
+   "gold": [
+    "a482a9d9b6387ff9e18bba382e4c350df2a0dbe80c0a642aa7310e7a7df04367"
+   ],
+   "hashed": true,
+   "ranked": [
+    "tokio/src/loom/std/mod.rs",
+    "tokio/src/loom/mocked.rs",
+    "tokio/src/runtime/task/mod.rs",
+    "tokio/src/runtime/driver/op.rs",
+    "tokio/src/util/linked_list.rs",
+    "tokio/src/runtime/context.rs",
+    "tokio/src/runtime/scheduler/mod.rs",
+    "tokio/src/time/error.rs",
+    "tokio/src/sync/batch_semaphore.rs",
+    "tokio/src/time/sleep.rs",
+    "tokio/src/runtime/driver.rs",
+    "tokio/src/runtime/builder.rs",
+    "tokio-test/src/io.rs",
+    "tokio/src/runtime/task/core.rs",
+    "tokio/src/runtime/signal/mod.rs",
+    "tokio/src/runtime/time/mod.rs",
+    "tokio/src/fs/open_options.rs",
+    "tokio/src/sync/notify.rs",
+    "tokio/src/util/idle_notified_set.rs",
+    "tokio/src/sync/broadcast.rs"
+   ],
+   "ms": 19.750958075746894
+  },
+  {
+   "id": "tokio-29",
+   "set": "written",
+   "corpus": "tokio",
+   "split": "heldout",
+   "gold": [
+    "1df91173cdc443fabd0ad84b6fc455967350eb829249b9927b1df4119abb6ff5"
+   ],
+   "hashed": true,
+   "ranked": [
+    "tokio/src/runtime/task/mod.rs",
+    "tokio/src/runtime/driver/op.rs",
+    "tokio/src/util/linked_list.rs",
+    "tokio/src/runtime/context.rs",
+    "tokio/src/runtime/scheduler/mod.rs",
+    "tokio/src/sync/oneshot.rs",
+    "tokio/src/sync/watch.rs",
+    "tokio/src/sync/batch_semaphore.rs",
+    "tokio/src/time/timeout.rs",
+    "tokio/src/util/metric_atomics.rs",
+    "tokio/src/runtime/driver.rs",
+    "tokio-stream/src/once.rs",
+    "tokio/src/io/blocking.rs",
+    "tokio/src/net/addr.rs",
+    "tokio-test/src/io.rs",
+    "tokio/src/runtime/task/core.rs",
+    "tokio/src/runtime/signal/mod.rs",
+    "tokio/src/runtime/time/mod.rs",
+    "tokio/src/util/cacheline.rs",
+    "tokio/src/sync/notify.rs"
+   ],
+   "ms": 19.64437507558614
+  },
+  {
+   "id": "django__django-10554",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "heldout",
+   "gold": [
+    "f58de2deaccecd2d53199c5ca29e3e1050ec2adb80fb057cdfc0b4e6accdf14f",
+    "fd2300283d1546e36141373b0621f142ed871e3e8856e07efe5a22ecc38ad620"
+   ],
+   "hashed": true,
+   "ranked": [],
+   "ms": 359.87625003326684
+  },
+  {
+   "id": "django__django-10880",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "heldout",
+   "gold": [
+    "c7d87b6e6b973bf87e5685442a6c1da9531c24bcaa86fe158c40ea0276986f32"
+   ],
+   "hashed": true,
+   "ranked": [],
+   "ms": 178.3039999427274
+  },
+  {
+   "id": "django__django-10999",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "heldout",
+   "gold": [
+    "caa022416e3e7edef1acf0a62cbc5254c67829f29f409d9a6e6847cc7fef584d"
+   ],
+   "hashed": true,
+   "ranked": [],
+   "ms": 201.6729589086026
+  },
+  {
+   "id": "django__django-11066",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "heldout",
+   "gold": [
+    "2ca1925090f84d3f1e6fad6be986490413e350bb5838d82f177e586d7199e006"
+   ],
+   "hashed": true,
+   "ranked": [],
+   "ms": 348.8641249714419
+  },
+  {
+   "id": "django__django-11087",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "heldout",
+   "gold": [
+    "57c167a5cb143e7bd8906c74b645eacd58881f4c971f7f753d83fdd8a318de5a"
+   ],
+   "hashed": true,
+   "ranked": [],
+   "ms": 585.2978330804035
+  },
+  {
+   "id": "django__django-11138",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "heldout",
+   "gold": [
+    "3c5cc4378f2a2f1ca6b54efc80fb472ac444eba9a38c50b40eaa1251a8534a9f",
+    "7f045c96237039534a9f677097b5e4ca29d02ebd94ccc263502b34b47aa035aa",
+    "1792a7530a7c213cffb0304df6c9af93de6a0b436d9782e69be1cabf4226b26c",
+    "cef70c8b07d9e091f7d36ced0b0bd4988ee2400bd91f6259e62d140ce4686fc8"
+   ],
+   "hashed": true,
+   "ranked": [],
+   "ms": 387.35008402727544
+  },
+  {
+   "id": "django__django-11163",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "heldout",
+   "gold": [
+    "360e00ebf46ef996c61729321d5a59992d78be2ad6913fb546394c2817b3837a"
+   ],
+   "hashed": true,
+   "ranked": [],
+   "ms": 188.51775000803173
+  },
+  {
+   "id": "django__django-11179",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "heldout",
+   "gold": [
+    "57c167a5cb143e7bd8906c74b645eacd58881f4c971f7f753d83fdd8a318de5a"
+   ],
+   "hashed": true,
+   "ranked": [],
+   "ms": 179.86558307893574
+  },
+  {
+   "id": "django__django-11211",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "heldout",
+   "gold": [
+    "35c61cb049d39b2e890f12f8c1f9583fb8ca351a8495718b5375a7120f775d05"
+   ],
+   "hashed": true,
+   "ranked": [],
+   "ms": 288.1442910293117
+  },
+  {
+   "id": "django__django-11239",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "heldout",
+   "gold": [
+    "84a816281d634a239ffea940f184cf875a4e7a2b8e394e137ce02794568dfecd"
+   ],
+   "hashed": true,
+   "ranked": [],
+   "ms": 268.9414999913424
+  },
+  {
+   "id": "django__django-11276",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "heldout",
+   "gold": [
+    "7c4f4486e07496c325bac53eb0f814a979edbfffc8c48877ddbae83120ab3c84"
+   ],
+   "hashed": true,
+   "ranked": [],
+   "ms": 245.9874169435352
+  },
+  {
+   "id": "django__django-11292",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "heldout",
+   "gold": [
+    "b24fd1a4236b2598b0c5de3e4aba7032cecacb4586f5c0082387fc7888993434"
+   ],
+   "hashed": true,
+   "ranked": [
+    "django/urls/resolvers.py",
+    "django/db/models/expressions.py",
+    "django/core/management/base.py",
+    "django/db/models/fields/related.py",
+    "django/db/models/fields/__init__.py",
+    "django/contrib/contenttypes/fields.py",
+    "django/utils/datastructures.py",
+    "django/template/defaultfilters.py",
+    "django/db/models/query_utils.py",
+    "django/db/models/deletion.py",
+    "django/core/cache/backends/base.py",
+    "django/contrib/gis/db/models/fields.py",
+    "django/core/servers/basehttp.py",
+    "django/db/models/base.py",
+    "django/db/models/manager.py",
+    "django/contrib/admin/options.py",
+    "django/db/models/fields/files.py",
+    "django/contrib/staticfiles/finders.py",
+    "django/db/models/fields/related_descriptors.py",
+    "django/db/models/constraints.py"
+   ],
+   "ms": 183.77608398441225
+  },
+  {
+   "id": "django__django-11451",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "heldout",
+   "gold": [
+    "64fcf3f92bafcc46ed2945129edfac0c040d182a687645bbbf6673a6934091e5"
+   ],
+   "hashed": true,
+   "ranked": [],
+   "ms": 344.56812497228384
+  },
+  {
+   "id": "django__django-11532",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "heldout",
+   "gold": [
+    "e50242bf13a2bf28d630502925f8bcb1ffe3bd2651e4dcd436010f6dd94d8c26",
+    "7474a5c040c84008d6068a2fcf28a9f5be627dde713aaa53ced8a5f4154af945",
+    "d9609d8dc8482b30eac30df16213cba134562949fd62c97573927b89e880f85b",
+    "4a7319fdf0af0302fda666203ffd77f7b7a7be774948e73c76b3a2f08375f439",
+    "7c4f4486e07496c325bac53eb0f814a979edbfffc8c48877ddbae83120ab3c84"
+   ],
+   "hashed": true,
+   "ranked": [],
+   "ms": 306.447375100106
+  },
+  {
+   "id": "django__django-11551",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "heldout",
+   "gold": [
+    "62567589a31d0f30952dcc2d447901442f0d12bc56fe105f5cd94ca58786aa6e"
+   ],
+   "hashed": true,
+   "ranked": [],
+   "ms": 468.71191705577075
+  },
+  {
+   "id": "django__django-11555",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "heldout",
+   "gold": [
+    "f58de2deaccecd2d53199c5ca29e3e1050ec2adb80fb057cdfc0b4e6accdf14f"
+   ],
+   "hashed": true,
+   "ranked": [
+    "django/__init__.py",
+    "django/http/response.py",
+    "django/db/models/expressions.py",
+    "django/core/management/base.py",
+    "django/contrib/auth/models.py",
+    "django/db/models/fields/related.py",
+    "django/db/models/fields/__init__.py",
+    "django/contrib/contenttypes/fields.py",
+    "django/db/models/lookups.py",
+    "django/http/request.py",
+    "django/contrib/contenttypes/models.py",
+    "django/template/defaultfilters.py",
+    "django/core/files/base.py",
+    "django/contrib/gis/geos/geometry.py",
+    "django/core/handlers/wsgi.py",
+    "django/forms/fields.py",
+    "django/db/models/query.py",
+    "django/views/generic/base.py",
+    "django/contrib/auth/base_user.py",
+    "django/contrib/gis/db/models/fields.py"
+   ],
+   "ms": 240.85862503852695
+  },
+  {
+   "id": "django__django-11749",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "heldout",
+   "gold": [
+    "245d53f8ea5739a37b3392e65dd6e62b4f0fbfef37925fd328bccabd941aa1b9"
+   ],
+   "hashed": true,
+   "ranked": [],
+   "ms": 252.90270801633596
+  },
+  {
+   "id": "django__django-11790",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "heldout",
+   "gold": [
+    "d5edaf4c83291243e04e0c99e9f374cf3665c50cfc05ab1308991af10284a0e4"
+   ],
+   "hashed": true,
+   "ranked": [],
+   "ms": 207.2292499942705
+  },
+  {
+   "id": "django__django-11848",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "heldout",
+   "gold": [
+    "a73a5062f47e9c4a504cccfe1674ec080ecc7f515d0d53885e6472704236efd2"
+   ],
+   "hashed": true,
+   "ranked": [],
+   "ms": 216.73924999777228
+  },
+  {
+   "id": "django__django-12039",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "heldout",
+   "gold": [
+    "443bda377ea84f332cea3928012ea377ab349cc46ee98b21f509e6b9fc7ccf38"
+   ],
+   "hashed": true,
+   "ranked": [],
+   "ms": 276.6381249530241
+  },
+  {
+   "id": "django__django-12193",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "heldout",
+   "gold": [
+    "e055697be3c76c9d081c16a2f1f572153f7d5905362a0e295d19ec3bdca9266c"
+   ],
+   "hashed": true,
+   "ranked": [],
+   "ms": 247.75495810899884
+  },
+  {
+   "id": "django__django-12262",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "heldout",
+   "gold": [
+    "4ea91e90ebf87795fbf00d2f3bd8bb6333ef908db1adc0bc2b19f6dd5b71490f"
+   ],
+   "hashed": true,
+   "ranked": [
+    "django/db/utils.py",
+    "django/core/exceptions.py",
+    "django/apps/registry.py",
+    "django/urls/resolvers.py",
+    "django/db/models/expressions.py",
+    "django/template/base.py",
+    "django/core/validators.py",
+    "django/db/models/fields/__init__.py",
+    "django/db/models/fields/related.py",
+    "django/template/context.py",
+    "django/template/defaultfilters.py",
+    "django/db/models/query_utils.py",
+    "django/template/exceptions.py",
+    "django/contrib/gis/geos/libgeos.py",
+    "django/core/checks/messages.py",
+    "django/core/checks/registry.py",
+    "django/template/library.py",
+    "django/views/generic/base.py",
+    "django/contrib/gis/db/models/fields.py",
+    "django/db/migrations/exceptions.py"
+   ],
+   "ms": 205.91970800887793
+  },
+  {
+   "id": "django__django-12273",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "heldout",
+   "gold": [
+    "1c8b882c73bfda668d5451d4578c97191b0ebc0f088d0c0ba2296ab89b428c44"
+   ],
+   "hashed": true,
+   "ranked": [],
+   "ms": 263.2469170494005
+  },
+  {
+   "id": "django__django-12276",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "heldout",
+   "gold": [
+    "e055697be3c76c9d081c16a2f1f572153f7d5905362a0e295d19ec3bdca9266c"
+   ],
+   "hashed": true,
+   "ranked": [],
+   "ms": 237.39287501666695
+  },
+  {
+   "id": "django__django-12304",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "heldout",
+   "gold": [
+    "38d49eed2bc9b34514b66a76e874f0d6bd90f680e5df651ac3ce4b160c0b262a"
+   ],
+   "hashed": true,
+   "ranked": [],
+   "ms": 229.08520803321153
+  },
+  {
+   "id": "django__django-12325",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "heldout",
+   "gold": [
+    "1c8b882c73bfda668d5451d4578c97191b0ebc0f088d0c0ba2296ab89b428c44",
+    "11ee95e0230bcff70a542128891516b8022177e0af58f00257aee9e8ef83a933"
+   ],
+   "hashed": true,
+   "ranked": [],
+   "ms": 256.72279100399464
+  },
+  {
+   "id": "django__django-12754",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "heldout",
+   "gold": [
+    "50cc08301fdd233fd64196aa90bc684d96ef557d99af67692995559646de567a"
+   ],
+   "hashed": true,
+   "ranked": [],
+   "ms": 272.5997919915244
+  },
+  {
+   "id": "django__django-12774",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "heldout",
+   "gold": [
+    "d58ef61559dc7af5fdf7b56fee13571a4d2948e784cd608f6afeacf3ac2fb195"
+   ],
+   "hashed": true,
+   "ranked": [],
+   "ms": 308.3095829933882
+  },
+  {
+   "id": "django__django-12858",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "heldout",
+   "gold": [
+    "1c8b882c73bfda668d5451d4578c97191b0ebc0f088d0c0ba2296ab89b428c44"
+   ],
+   "hashed": true,
+   "ranked": [
+    "django/urls/resolvers.py",
+    "django/core/management/base.py",
+    "django/db/models/expressions.py",
+    "django/contrib/auth/models.py",
+    "django/contrib/contenttypes/fields.py",
+    "django/contrib/contenttypes/models.py",
+    "django/db/models/fields/__init__.py",
+    "django/db/models/query_utils.py",
+    "django/db/models/lookups.py",
+    "django/db/models/fields/related.py",
+    "django/db/models/deletion.py",
+    "django/core/checks/registry.py",
+    "django/forms/fields.py",
+    "django/db/models/query.py",
+    "django/contrib/sites/models.py",
+    "django/db/models/base.py",
+    "django/db/models/manager.py",
+    "django/forms/formsets.py",
+    "django/contrib/gis/db/models/fields.py",
+    "tests/model_fields/models.py"
+   ],
+   "ms": 213.88454094994813
+  },
+  {
+   "id": "django__django-13028",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "heldout",
+   "gold": [
+    "fd2300283d1546e36141373b0621f142ed871e3e8856e07efe5a22ecc38ad620"
+   ],
+   "hashed": true,
+   "ranked": [],
+   "ms": 388.35020805709064
+  },
+  {
+   "id": "django__django-13128",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "heldout",
+   "gold": [
+    "359ab56295cce36b9597e1d65185f695f271955617b40f43df58ce3fe76fd0c8"
+   ],
+   "hashed": true,
+   "ranked": [],
+   "ms": 245.61049998737872
+  },
+  {
+   "id": "django__django-13158",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "heldout",
+   "gold": [
+    "fd2300283d1546e36141373b0621f142ed871e3e8856e07efe5a22ecc38ad620"
+   ],
+   "hashed": true,
+   "ranked": [
+    "django/utils/functional.py",
+    "django/apps/config.py",
+    "django/db/models/expressions.py",
+    "django/contrib/auth/models.py",
+    "django/contrib/contenttypes/fields.py",
+    "django/http/request.py",
+    "django/contrib/contenttypes/models.py",
+    "django/db/models/fields/__init__.py",
+    "django/utils/log.py",
+    "django/db/models/fields/related.py",
+    "django/contrib/gis/geos/geometry.py",
+    "django/core/handlers/wsgi.py",
+    "django/core/checks/registry.py",
+    "django/template/library.py",
+    "django/forms/fields.py",
+    "django/db/models/query.py",
+    "django/db/__init__.py",
+    "django/conf/__init__.py",
+    "django/utils/autoreload.py"
+   ],
+   "ms": 274.46145901922137
+  },
+  {
+   "id": "django__django-13212",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "heldout",
+   "gold": [
+    "d9609d8dc8482b30eac30df16213cba134562949fd62c97573927b89e880f85b",
+    "5a7bf4b2271ba7a2dcce4b0bbef40199985f02cbce6aeebf2111401c2342d57b"
+   ],
+   "hashed": true,
+   "ranked": [
+    "django/db/utils.py",
+    "django/core/exceptions.py",
+    "django/utils/translation/__init__.py",
+    "django/core/management/base.py",
+    "django/template/base.py",
+    "django/db/models/expressions.py",
+    "django/core/validators.py",
+    "django/contrib/auth/models.py",
+    "django/db/models/fields/__init__.py",
+    "django/urls/conf.py",
+    "django/db/models/fields/related.py",
+    "django/utils/timezone.py",
+    "django/contrib/gis/geos/geometry.py",
+    "django/core/checks/messages.py",
+    "django/forms/fields.py",
+    "django/db/migrations/exceptions.py",
+    "django/forms/models.py",
+    "django/core/mail/message.py",
+    "django/contrib/gis/db/models/fields.py",
+    "django/forms/boundfield.py"
+   ],
+   "ms": 142.3777500167489
+  },
+  {
+   "id": "django__django-13279",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "heldout",
+   "gold": [
+    "3a6c11bbe36a0e6927f71ad8d669f0021897ba73768ee41073a318a12e11c3d1"
+   ],
+   "hashed": true,
+   "ranked": [],
+   "ms": 191.92179199308157
+  },
+  {
+   "id": "django__django-13343",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "heldout",
+   "gold": [
+    "ffc2a7a9623222d5926482bec96348c039ad377a9f310da9c6ccdb3b7b17086d"
+   ],
+   "hashed": true,
+   "ranked": [],
+   "ms": 279.97620904352516
+  },
+  {
+   "id": "django__django-13344",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "heldout",
+   "gold": [
+    "f6e8a9fa0162f27231293f927e72abef6022c8502596288288b4a1026d58599d",
+    "7035eab6127c2204841dee837f4b262eb659115ddebdffc0d2749be8e3f66a4a",
+    "5df5e7aaa2f959b43d5877d54b864b9d153d61c3131497c3ee73d8f8b3865ef3"
+   ],
+   "hashed": true,
+   "ranked": [],
+   "ms": 314.0755830099806
+  },
+  {
+   "id": "django__django-13417",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "heldout",
+   "gold": [
+    "d58ef61559dc7af5fdf7b56fee13571a4d2948e784cd608f6afeacf3ac2fb195"
+   ],
+   "hashed": true,
+   "ranked": [
+    "django/utils/functional.py",
+    "django/apps/config.py",
+    "django/urls/resolvers.py",
+    "django/core/management/base.py",
+    "django/template/base.py",
+    "django/db/models/expressions.py",
+    "django/contrib/auth/models.py",
+    "django/contrib/contenttypes/fields.py",
+    "django/http/request.py",
+    "django/contrib/contenttypes/models.py",
+    "django/db/models/fields/__init__.py",
+    "django/template/defaultfilters.py",
+    "django/db/models/query_utils.py",
+    "django/db/models/fields/related.py",
+    "django/core/files/base.py",
+    "django/core/serializers/json.py",
+    "django/core/handlers/wsgi.py",
+    "django/core/checks/registry.py",
+    "django/db/models/query.py",
+    "django/db/__init__.py"
+   ],
+   "ms": 221.87254205346107
+  },
+  {
+   "id": "django__django-13516",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "heldout",
+   "gold": [
+    "b24fd1a4236b2598b0c5de3e4aba7032cecacb4586f5c0082387fc7888993434"
+   ],
+   "hashed": true,
+   "ranked": [
+    "django/http/response.py",
+    "django/db/models/fields/__init__.py",
+    "django/db/models/fields/related.py",
+    "django/core/files/utils.py",
+    "django/contrib/gis/db/models/fields.py",
+    "django/contrib/sessions/backends/base.py",
+    "django/db/migrations/executor.py",
+    "django/db/models/fields/files.py",
+    "django/db/models/fields/json.py",
+    "django/db/migrations/migration.py",
+    "django/contrib/postgres/fields/array.py",
+    "django/db/migrations/recorder.py",
+    "django/contrib/postgres/fields/hstore.py",
+    "django/core/management/commands/startproject.py",
+    "django/core/management/commands/makemessages.py",
+    "django/core/management/commands/runserver.py",
+    "django/contrib/gis/gdal/raster/band.py",
+    "django/contrib/staticfiles/management/commands/collectstatic.py",
+    "django/core/management/commands/loaddata.py",
+    "django/core/management/commands/testserver.py"
+   ],
+   "ms": 186.81241699960083
+  },
+  {
+   "id": "django__django-13551",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "heldout",
+   "gold": [
+    "b93dda4cd6422ff34822c0dcb5f4d89f4c9634093c4220f9acd267535b007be4"
+   ],
+   "hashed": true,
+   "ranked": [
+    "django/template/base.py",
+    "django/db/models/expressions.py",
+    "django/contrib/auth/models.py",
+    "django/contrib/contenttypes/fields.py",
+    "django/utils/datastructures.py",
+    "django/contrib/contenttypes/models.py",
+    "django/template/context.py",
+    "django/db/models/fields/__init__.py",
+    "django/template/defaultfilters.py",
+    "django/db/models/fields/related.py",
+    "django/db/models/deletion.py",
+    "django/core/cache/backends/base.py",
+    "django/views/generic/base.py",
+    "django/db/models/query.py",
+    "django/db/models/options.py",
+    "django/contrib/auth/base_user.py",
+    "django/db/models/base.py",
+    "django/forms/models.py",
+    "django/db/models/sql/query.py",
+    "django/db/models/manager.py"
+   ],
+   "ms": 175.6381660234183
+  },
+  {
+   "id": "django__django-13590",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "heldout",
+   "gold": [
+    "fd2300283d1546e36141373b0621f142ed871e3e8856e07efe5a22ecc38ad620"
+   ],
+   "hashed": true,
+   "ranked": [],
+   "ms": 275.3664170159027
+  },
+  {
+   "id": "django__django-13786",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "heldout",
+   "gold": [
+    "6a90a27392d9fcde626b4965f274ffdbc485699da0f1c2b781129cc4c3e6337e"
+   ],
+   "hashed": true,
+   "ranked": [],
+   "ms": 253.22179193608463
+  },
+  {
+   "id": "django__django-14011",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "heldout",
+   "gold": [
+    "1f531e5cd125b40d41f3001b15c1674e8e8244df6e0191b93bf30da420871501",
+    "ac48410d061e41489fada117b6cd85e08c77509654117c5d904adfc6905612ad"
+   ],
+   "hashed": true,
+   "ranked": [],
+   "ms": 384.2542910715565
+  },
+  {
+   "id": "django__django-14017",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "heldout",
+   "gold": [
+    "fd68084e8b9b4f7bfd0df330a70f792633b28109d07b3df6609f2fb019d0f0f7"
+   ],
+   "hashed": true,
+   "ranked": [],
+   "ms": 269.04554199427366
+  },
+  {
+   "id": "django__django-14034",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "heldout",
+   "gold": [
+    "9da17cc8ef134b4f62a6cd6df0ff75a0d970737818bf54ab51adddfb1460ceb7"
+   ],
+   "hashed": true,
+   "ranked": [],
+   "ms": 270.9635409992188
+  },
+  {
+   "id": "django__django-14089",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "heldout",
+   "gold": [
+    "1d0be5d7b901099bb96986939782d30de4ee8cb9047bf5d5c3c694ef61eccb5c"
+   ],
+   "hashed": true,
+   "ranked": [
+    "django/db/models/expressions.py",
+    "django/utils/datastructures.py",
+    "django/contrib/contenttypes/fields.py",
+    "django/db/models/fields/__init__.py",
+    "django/template/defaultfilters.py",
+    "django/db/models/fields/related.py",
+    "django/db/models/deletion.py",
+    "django/core/cache/backends/base.py",
+    "django/db/models/query.py",
+    "django/db/models/base.py",
+    "django/contrib/gis/db/models/fields.py",
+    "django/db/migrations/operations/base.py",
+    "django/db/models/fields/files.py",
+    "django/contrib/postgres/operations.py",
+    "django/contrib/messages/storage/base.py",
+    "django/contrib/postgres/search.py",
+    "django/db/models/fields/related_descriptors.py",
+    "django/core/cache/backends/locmem.py",
+    "django/db/models/fields/json.py",
+    "django/contrib/gis/gdal/geometries.py"
+   ],
+   "ms": 136.5548330359161
+  },
+  {
+   "id": "django__django-14311",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "heldout",
+   "gold": [
+    "384a8302431bfb6168493fb02dca549e9294f02d52dcde766f5b1fb3983d68ba"
+   ],
+   "hashed": true,
+   "ranked": [],
+   "ms": 250.3763750428334
+  },
+  {
+   "id": "django__django-14376",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "heldout",
+   "gold": [
+    "dabf20e4ab58ae26d868833eefa64d93896519623d676bdb47bee47b0b6b5543",
+    "8e9c1ad319a8a3dc4089b67b4d0e8fb0547f47962f929841ed43e3256b4e65e8"
+   ],
+   "hashed": true,
+   "ranked": [],
+   "ms": 282.2184159886092
+  },
+  {
+   "id": "django__django-14404",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "heldout",
+   "gold": [
+    "0b9b76020bca57d146eddea5c47e1e6a99744ce287a365e18a0d7685dd268f18"
+   ],
+   "hashed": true,
+   "ranked": [],
+   "ms": 229.83324993401766
+  },
+  {
+   "id": "django__django-14434",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "heldout",
+   "gold": [
+    "f7637259acc1ecbb74910a7df2879cae5f3209d7a87ab0ad06dbd594b27f1831"
+   ],
+   "hashed": true,
+   "ranked": [
+    "django/contrib/contenttypes/fields.py",
+    "django/db/models/fields/__init__.py",
+    "django/db/models/fields/related.py",
+    "django/db/models/query.py",
+    "django/forms/models.py",
+    "django/contrib/gis/db/models/fields.py",
+    "django/db/models/fields/files.py",
+    "django/db/models/sql/where.py",
+    "django/db/backends/ddl_references.py",
+    "django/db/backends/base/schema.py",
+    "django/db/models/fields/related_descriptors.py",
+    "django/db/models/fields/json.py",
+    "django/db/migrations/operations/models.py",
+    "django/contrib/postgres/fields/array.py",
+    "django/contrib/postgres/fields/hstore.py",
+    "django/contrib/postgres/indexes.py",
+    "django/contrib/admin/helpers.py",
+    "django/contrib/contenttypes/forms.py",
+    "django/contrib/gis/gdal/raster/band.py",
+    "tests/model_fields/models.py"
+   ],
+   "ms": 133.75712500419468
+  },
+  {
+   "id": "django__django-14493",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "heldout",
+   "gold": [
+    "f5c7100e3528e9f6edb98cd5a3d33133bdde6286a89fa472f89980fb07364a8e"
+   ],
+   "hashed": true,
+   "ranked": [],
+   "ms": 348.7750000786036
+  },
+  {
+   "id": "django__django-14631",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "heldout",
+   "gold": [
+    "9da17cc8ef134b4f62a6cd6df0ff75a0d970737818bf54ab51adddfb1460ceb7",
+    "bec9cad724e24202d0a304c98660b17539c743415ad41b05bdbf6508781798b6"
+   ],
+   "hashed": true,
+   "ranked": [
+    "django/utils/functional.py",
+    "django/contrib/auth/models.py",
+    "django/db/models/fields/__init__.py",
+    "django/contrib/contenttypes/models.py",
+    "django/db/models/fields/related.py",
+    "django/contrib/sites/models.py",
+    "django/contrib/gis/db/models/fields.py",
+    "django/http/multipartparser.py",
+    "django/core/files/uploadedfile.py",
+    "django/db/models/fields/files.py",
+    "django/contrib/admin/options.py",
+    "django/views/generic/edit.py",
+    "django/db/models/aggregates.py",
+    "django/db/models/fields/json.py",
+    "django/contrib/admin/models.py",
+    "django/db/migrations/migration.py",
+    "django/db/migrations/recorder.py",
+    "django/contrib/sessions/base_session.py",
+    "django/contrib/postgres/fields/hstore.py",
+    "django/db/backends/oracle/utils.py"
+   ],
+   "ms": 285.50220804754645
+  },
+  {
+   "id": "django__django-14787",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "heldout",
+   "gold": [
+    "3fd16120fca44bdc94983057b9c28e7e815ed56a44f74fee21c2ddfac5cee2ac"
+   ],
+   "hashed": true,
+   "ranked": [
+    "django/template/base.py",
+    "django/dispatch/dispatcher.py",
+    "django/utils/autoreload.py",
+    "django/db/models/fields/__init__.py",
+    "django/db/models/fields/related.py",
+    "django/contrib/gis/geos/libgeos.py",
+    "django/views/generic/base.py",
+    "django/core/checks/messages.py",
+    "django/middleware/csrf.py",
+    "django/core/servers/basehttp.py",
+    "django/contrib/gis/gdal/libgdal.py",
+    "django/db/backends/utils.py",
+    "django/contrib/gis/db/models/fields.py",
+    "django/db/models/sql/constants.py",
+    "django/contrib/messages/constants.py",
+    "django/db/models/fields/files.py",
+    "django/core/handlers/asgi.py",
+    "django/db/backends/base/schema.py",
+    "django/db/models/fields/json.py",
+    "django/core/handlers/base.py"
+   ],
+   "ms": 284.06579210422933
+  },
+  {
+   "id": "django__django-14915",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "heldout",
+   "gold": [
+    "360e00ebf46ef996c61729321d5a59992d78be2ad6913fb546394c2817b3837a"
+   ],
+   "hashed": true,
+   "ranked": [],
+   "ms": 300.35145895089954
+  },
+  {
+   "id": "django__django-15128",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "heldout",
+   "gold": [
+    "fd2300283d1546e36141373b0621f142ed871e3e8856e07efe5a22ecc38ad620"
+   ],
+   "hashed": true,
+   "ranked": [],
+   "ms": 400.46820894349366
+  },
+  {
+   "id": "django__django-15161",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "heldout",
+   "gold": [
+    "359ab56295cce36b9597e1d65185f695f271955617b40f43df58ce3fe76fd0c8"
+   ],
+   "hashed": true,
+   "ranked": [],
+   "ms": 219.80979200452566
+  },
+  {
+   "id": "django__django-15278",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "heldout",
+   "gold": [
+    "2be9ad69128f8302dff5bc2a759b6866205fa859fd6ea31f2e87694a0dc48704"
+   ],
+   "hashed": true,
+   "ranked": [],
+   "ms": 354.41762499976903
+  },
+  {
+   "id": "django__django-15280",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "heldout",
+   "gold": [
+    "54641a9ddf1f5d711ec47feea99186925391b466e9ca734c071b57a8cbfa4621"
+   ],
+   "hashed": true,
+   "ranked": [],
+   "ms": 408.2065839320421
+  },
+  {
+   "id": "django__django-15380",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "heldout",
+   "gold": [
+    "50cc08301fdd233fd64196aa90bc684d96ef557d99af67692995559646de567a"
+   ],
+   "hashed": true,
+   "ranked": [],
+   "ms": 314.7670830367133
+  },
+  {
+   "id": "django__django-15382",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "heldout",
+   "gold": [
+    "359ab56295cce36b9597e1d65185f695f271955617b40f43df58ce3fe76fd0c8"
+   ],
+   "hashed": true,
+   "ranked": [],
+   "ms": 231.98445804882795
+  },
+  {
+   "id": "django__django-15554",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "heldout",
+   "gold": [
+    "fd2300283d1546e36141373b0621f142ed871e3e8856e07efe5a22ecc38ad620"
+   ],
+   "hashed": true,
+   "ranked": [],
+   "ms": 309.32408291846514
+  },
+  {
+   "id": "django__django-15561",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "heldout",
+   "gold": [
+    "f7637259acc1ecbb74910a7df2879cae5f3209d7a87ab0ad06dbd594b27f1831",
+    "35c61cb049d39b2e890f12f8c1f9583fb8ca351a8495718b5375a7120f775d05"
+   ],
+   "hashed": true,
+   "ranked": [
+    "django/db/models/expressions.py",
+    "django/utils/datastructures.py",
+    "django/db/models/fields/__init__.py",
+    "django/template/context.py",
+    "django/db/models/fields/related.py",
+    "django/forms/widgets.py",
+    "django/forms/fields.py",
+    "django/forms/models.py",
+    "django/db/models/base.py",
+    "django/db/models/sql/query.py",
+    "django/contrib/gis/db/models/fields.py",
+    "django/db/migrations/operations/base.py",
+    "django/db/models/fields/files.py",
+    "django/db/backends/ddl_references.py",
+    "django/db/models/enums.py",
+    "django/db/models/fields/json.py",
+    "django/contrib/admin/models.py",
+    "django/db/migrations/migration.py",
+    "django/contrib/admin/filters.py",
+    "django/db/migrations/operations/models.py"
+   ],
+   "ms": 179.36045897658914
+  },
+  {
+   "id": "django__django-15563",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "heldout",
+   "gold": [
+    "f58de2deaccecd2d53199c5ca29e3e1050ec2adb80fb057cdfc0b4e6accdf14f",
+    "0439081ad1f1b21a0112e02c47360a7711f340174d84f6c3ce155adf8b06c4ca"
+   ],
+   "hashed": true,
+   "ranked": [],
+   "ms": 293.1187079520896
+  },
+  {
+   "id": "django__django-15569",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "heldout",
+   "gold": [
+    "fd68084e8b9b4f7bfd0df330a70f792633b28109d07b3df6609f2fb019d0f0f7"
+   ],
+   "hashed": true,
+   "ranked": [],
+   "ms": 251.37216597795486
+  },
+  {
+   "id": "django__django-15572",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "heldout",
+   "gold": [
+    "85e705dc6a3e8563ae082481a870c003b31fc639accfa6133e47477c9e964c90"
+   ],
+   "hashed": true,
+   "ranked": [],
+   "ms": 317.03366595320404
+  },
+  {
+   "id": "django__django-15629",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "heldout",
+   "gold": [
+    "f7637259acc1ecbb74910a7df2879cae5f3209d7a87ab0ad06dbd594b27f1831",
+    "3a63146840e0cf93271a0e339d504bb702cc67e45248d9aab2984ac74fca2fd1",
+    "2be9ad69128f8302dff5bc2a759b6866205fa859fd6ea31f2e87694a0dc48704",
+    "e65b05ecbbe594164125af53550a43ef8a174f80811608012bc8e9e4ed575749"
+   ],
+   "hashed": true,
+   "ranked": [
+    "django/apps/config.py",
+    "django/urls/resolvers.py",
+    "django/db/models/expressions.py",
+    "django/core/management/base.py",
+    "django/template/base.py",
+    "django/contrib/auth/models.py",
+    "django/utils/datastructures.py",
+    "django/contrib/contenttypes/fields.py",
+    "django/utils/autoreload.py",
+    "django/http/request.py",
+    "django/db/models/fields/__init__.py",
+    "django/contrib/contenttypes/models.py",
+    "django/db/models/fields/related.py",
+    "django/template/defaultfilters.py",
+    "django/db/models/deletion.py",
+    "django/core/checks/messages.py",
+    "django/core/checks/registry.py",
+    "django/core/cache/backends/base.py",
+    "django/forms/fields.py",
+    "django/conf/__init__.py"
+   ],
+   "ms": 318.8158329576254
+  },
+  {
+   "id": "django__django-15731",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "heldout",
+   "gold": [
+    "3de95a1817c72194bdb2f3390d86a10dd6e4b41ca78ec4e510181cb9a7615ec3"
+   ],
+   "hashed": true,
+   "ranked": [],
+   "ms": 334.10770795308053
+  },
+  {
+   "id": "django__django-15732",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "heldout",
+   "gold": [
+    "f7637259acc1ecbb74910a7df2879cae5f3209d7a87ab0ad06dbd594b27f1831"
+   ],
+   "hashed": true,
+   "ranked": [
+    "django/db/models/expressions.py",
+    "django/contrib/auth/models.py",
+    "django/contrib/contenttypes/fields.py",
+    "django/db/models/fields/__init__.py",
+    "django/contrib/contenttypes/models.py",
+    "django/db/models/fields/related.py",
+    "django/db/models/query_utils.py",
+    "django/contrib/gis/geos/geometry.py",
+    "django/core/checks/registry.py",
+    "django/forms/fields.py",
+    "django/db/models/query.py",
+    "django/db/models/options.py",
+    "django/forms/models.py",
+    "django/db/models/base.py",
+    "django/db/models/sql/constants.py",
+    "django/db/models/sql/query.py",
+    "django/forms/boundfield.py",
+    "django/db/models/manager.py",
+    "django/contrib/gis/db/models/fields.py",
+    "django/http/multipartparser.py"
+   ],
+   "ms": 228.66479202639312
+  },
+  {
+   "id": "django__django-15930",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "heldout",
+   "gold": [
+    "359ab56295cce36b9597e1d65185f695f271955617b40f43df58ce3fe76fd0c8"
+   ],
+   "hashed": true,
+   "ranked": [
+    "django/db/utils.py",
+    "django/urls/resolvers.py",
+    "django/core/management/base.py",
+    "django/db/models/expressions.py",
+    "django/template/base.py",
+    "django/contrib/auth/models.py",
+    "django/utils/datastructures.py",
+    "django/http/request.py",
+    "django/db/models/fields/__init__.py",
+    "django/contrib/contenttypes/models.py",
+    "django/db/models/fields/related.py",
+    "django/db/models/lookups.py",
+    "django/template/defaultfilters.py",
+    "django/forms/widgets.py",
+    "django/db/models/query_utils.py",
+    "django/core/checks/messages.py",
+    "django/core/serializers/json.py",
+    "django/forms/fields.py",
+    "django/db/models/query.py",
+    "django/contrib/sites/models.py"
+   ],
+   "ms": 207.62295799795538
+  },
+  {
+   "id": "django__django-15987",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "heldout",
+   "gold": [
+    "2e979ec7174d4cedb196eddcd10aca4dfa12f5041d89bd90d368b2953170d637"
+   ],
+   "hashed": true,
+   "ranked": [
+    "django/apps/config.py",
+    "django/utils/regex_helper.py",
+    "django/urls/resolvers.py",
+    "django/core/management/base.py",
+    "django/contrib/contenttypes/fields.py",
+    "django/http/request.py",
+    "django/db/models/fields/__init__.py",
+    "django/db/models/fields/related.py",
+    "django/urls/conf.py",
+    "django/db/models/lookups.py",
+    "django/template/engine.py",
+    "django/db/models/query_utils.py",
+    "django/contrib/gis/geos/geometry.py",
+    "django/core/handlers/wsgi.py",
+    "django/db/models/query.py",
+    "django/core/files/storage.py",
+    "django/forms/models.py",
+    "django/db/models/base.py",
+    "django/db/models/manager.py",
+    "django/contrib/gis/db/models/fields.py"
+   ],
+   "ms": 117.65137501060963
+  },
+  {
+   "id": "django__django-16100",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "heldout",
+   "gold": [
+    "e77dfa6935de3fac94356ffd1029a679f8aa23f2979fe9b31aea7f93e1dccad3"
+   ],
+   "hashed": true,
+   "ranked": [],
+   "ms": 224.21129094436765
+  },
+  {
+   "id": "django__django-16139",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "heldout",
+   "gold": [
+    "d5edaf4c83291243e04e0c99e9f374cf3665c50cfc05ab1308991af10284a0e4"
+   ],
+   "hashed": true,
+   "ranked": [
+    "django/http/response.py",
+    "django/core/management/base.py",
+    "django/db/models/fields/__init__.py",
+    "django/contrib/contenttypes/models.py",
+    "django/db/models/fields/related.py",
+    "django/views/generic/base.py",
+    "django/core/checks/registry.py",
+    "django/contrib/auth/base_user.py",
+    "django/forms/models.py",
+    "django/contrib/gis/db/models/fields.py",
+    "django/db/models/fields/files.py",
+    "django/contrib/admin/options.py",
+    "django/views/generic/edit.py",
+    "django/http/multipartparser.py",
+    "django/contrib/auth/forms.py",
+    "django/views/generic/detail.py",
+    "django/db/models/fields/json.py",
+    "django/contrib/admin/models.py",
+    "django/contrib/flatpages/models.py",
+    "django/contrib/postgres/fields/hstore.py"
+   ],
+   "ms": 238.9752499293536
+  },
+  {
+   "id": "django__django-16145",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "heldout",
+   "gold": [
+    "8853c1eaede7f1032b32864f8c4039b266caa853123f8581de94ca923eb3beaf"
+   ],
+   "hashed": true,
+   "ranked": [
+    "django/utils/autoreload.py",
+    "django/db/models/fields/__init__.py",
+    "django/db/models/fields/related.py",
+    "django/core/servers/basehttp.py",
+    "django/core/serializers/base.py",
+    "django/contrib/gis/db/models/fields.py",
+    "django/db/models/fields/files.py",
+    "django/db/models/fields/json.py",
+    "django/contrib/postgres/fields/array.py",
+    "django/contrib/postgres/fields/hstore.py",
+    "django/core/management/commands/startproject.py",
+    "django/core/management/commands/makemessages.py",
+    "django/contrib/admin/templatetags/admin_list.py",
+    "django/contrib/admin/helpers.py",
+    "django/core/management/commands/runserver.py",
+    "django/contrib/gis/gdal/raster/band.py",
+    "django/db/migrations/autodetector.py",
+    "django/contrib/staticfiles/management/commands/collectstatic.py",
+    "django/core/management/commands/dumpdata.py",
+    "django/core/management/commands/loaddata.py"
+   ],
+   "ms": 164.79700000490993
+  },
+  {
+   "id": "django__django-16256",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "heldout",
+   "gold": [
+    "76b33afd71c30afb749a0de312cfe4a4578d78abae84a9d5db06388a4b1bc454",
+    "54641a9ddf1f5d711ec47feea99186925391b466e9ca734c071b57a8cbfa4621"
+   ],
+   "hashed": true,
+   "ranked": [],
+   "ms": 373.41991695575416
+  },
+  {
+   "id": "django__django-16485",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "heldout",
+   "gold": [
+    "3cc1a63a6e4fc8c013f7faffbd1fa874742050eb007c0c50de8c5cd5bee7e794"
+   ],
+   "hashed": true,
+   "ranked": [],
+   "ms": 194.52666700817645
+  },
+  {
+   "id": "django__django-16595",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "heldout",
+   "gold": [
+    "81aba0272380d8ad46fbe401a8d589834e8313113c31952eb455c043195d3b5d"
+   ],
+   "hashed": true,
+   "ranked": [],
+   "ms": 292.5261249765754
+  },
+  {
+   "id": "django__django-16631",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "heldout",
+   "gold": [
+    "a8d076a62a7452cc01bac06c4a0b15b98d17fc52ed5c80085d6371cae8b7bba4",
+    "835852526356585f3ec8131d93e51e2617ba40f46018dce57a13764e5b23993c"
+   ],
+   "hashed": true,
+   "ranked": [],
+   "ms": 377.1341670071706
+  },
+  {
+   "id": "django__django-16801",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "heldout",
+   "gold": [
+    "ffc2a7a9623222d5926482bec96348c039ad377a9f310da9c6ccdb3b7b17086d"
+   ],
+   "hashed": true,
+   "ranked": [],
+   "ms": 250.12916699051857
+  },
+  {
+   "id": "django__django-16819",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "heldout",
+   "gold": [
+    "6a90a27392d9fcde626b4965f274ffdbc485699da0f1c2b781129cc4c3e6337e"
+   ],
+   "hashed": true,
+   "ranked": [
+    "django/db/models/expressions.py",
+    "django/utils/datastructures.py",
+    "django/contrib/contenttypes/fields.py",
+    "django/db/models/fields/__init__.py",
+    "django/db/models/fields/related.py",
+    "django/template/defaultfilters.py",
+    "django/db/models/deletion.py",
+    "django/core/cache/backends/base.py",
+    "django/contrib/gis/db/models/fields.py",
+    "django/db/migrations/operations/base.py",
+    "django/db/models/fields/files.py",
+    "django/contrib/postgres/search.py",
+    "django/db/models/fields/related_descriptors.py",
+    "django/core/cache/backends/locmem.py",
+    "django/contrib/messages/storage/base.py",
+    "django/db/models/fields/json.py",
+    "django/db/migrations/migration.py",
+    "django/contrib/postgres/fields/array.py",
+    "django/db/migrations/operations/models.py",
+    "django/db/migrations/recorder.py"
+   ],
+   "ms": 50.55162496864796
+  },
+  {
+   "id": "django__django-16899",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "heldout",
+   "gold": [
+    "62567589a31d0f30952dcc2d447901442f0d12bc56fe105f5cd94ca58786aa6e"
+   ],
+   "hashed": true,
+   "ranked": [
+    "django/utils/functional.py",
+    "django/db/utils.py",
+    "django/core/exceptions.py",
+    "django/apps/config.py",
+    "django/urls/resolvers.py",
+    "django/db/models/expressions.py",
+    "django/core/management/base.py",
+    "django/template/base.py",
+    "django/contrib/auth/models.py",
+    "django/contrib/contenttypes/fields.py",
+    "django/db/models/fields/__init__.py",
+    "django/contrib/contenttypes/models.py",
+    "django/urls/conf.py",
+    "django/db/models/fields/related.py",
+    "django/db/models/query_utils.py",
+    "django/core/checks/messages.py",
+    "django/core/files/base.py",
+    "django/forms/fields.py"
+   ],
+   "ms": 225.67525005433708
+  },
+  {
+   "id": "django__django-16901",
+   "set": "swebench",
+   "corpus": "django",
+   "split": "heldout",
+   "gold": [
+    "884a57022f0f34ea899e6637e80994562aa0b6bc6261053c40365e905ea96579"
+   ],
+   "hashed": true,
+   "ranked": [],
+   "ms": 555.9496670030057
+  }
+ ]
+}
