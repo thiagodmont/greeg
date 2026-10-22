@@ -54,5 +54,13 @@ python3 bench/scip_headroom.py GREEG tokio django TypeScript-5.9 --n 100 --outpu
   in 24 runs: they read the receiver's type or the hierarchy. The headroom is
   in greeg's answers, which agents then correct by reading.
 
+**Decision (2026-10-22): the SCIP sidecar prototype is shelved.**
+- It would only help users who supply a SCIP index matching their tree.
+- The measured gap is in greeg's answers, which agents already correct by
+  reading.
+
+Revisit it, or the cheaper per-definition `refs` and `callers` from greeg's
+own import graph, when an agent run shows wrong-definition failures.
+
 `scip-headroom-2026-10-22.json` holds every row: the name, its ambiguity, the
 listed lines by binding, and the use and verdict for `def`.
