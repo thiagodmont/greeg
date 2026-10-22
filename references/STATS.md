@@ -22,7 +22,7 @@ Once it's on, the hook records every `rg`/`grep` call it rewrote, and every
 greeg run records its wall time and output size. A replay could not rerun two
 kinds of rewrite as they ran, so they are not recorded: one that runs after a
 command the hook left unchanged (a `cd`, for one; `rg a; rg b` records both),
-and one piped into `head`. `greeg stats replay` runs the
+and one piped into another command. `greeg stats replay` runs the
 original `rg`/`grep` commands and their greeg rewrites side by side, same
 machine, same tree. Then `greeg stats` leads with the savings:
 

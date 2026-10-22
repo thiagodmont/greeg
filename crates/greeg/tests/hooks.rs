@@ -183,7 +183,7 @@ fn explain_reports_the_rewrite_or_the_decline_reason() {
         explain("rg needle | sort", false),
         (
             Some(1),
-            "declined: pipeline (only `| head [-n N]` is kept)\n".into()
+            "declined: pipeline: only grep -r's lines go to another reader\n".into()
         )
     );
     let (code, out) = explain("rg needle", true);
@@ -412,6 +412,80 @@ fn rewritten_greps_find_the_lines_grep_finds() {
             "{command} → {rewritten}"
         );
     }
+}
+
+/// On a tree with no ignored, hidden or binary files, a rewritten `grep -r`
+/// gives another reader the lines grep gives it.
+#[test]
+fn readers_of_a_rewritten_grep_get_grep_s_lines() {
+    let f = Fixture::new();
+    let tree = f.0.join("tree");
+    fs::create_dir_all(tree.join("src/deep")).unwrap();
+    fs::create_dir_all(tree.join("lib")).unwrap();
+    let lines: String = (0..40)
+        .map(|i| format!("let needle_{i} = {i};\nother\n"))
+        .collect();
+    fs::write(tree.join("src/a.rs"), &lines).unwrap();
+    fs::write(tree.join("src/deep/b.rs"), "needle\nx\nneedle again\n").unwrap();
+    fs::write(tree.join("lib/c.py"), "NEEDLE = 1\n").unwrap();
+    let bin = f.0.join("bin");
+    fs::create_dir_all(&bin).unwrap();
+    std::os::unix::fs::symlink(BIN, bin.join("greeg")).unwrap();
+    let path = format!("{}:/usr/bin:/bin", bin.display());
+    let run = |command: &str| {
+        f.command("/bin/sh")
+            .args(["-c", command])
+            .env("PATH", &path)
+            .stdin(Stdio::null())
+            .output()
+            .unwrap()
+    };
+    for command in [
+        "grep -rn needle src | sort",
+        "grep -rni needle src lib | sort",
+        "grep -rln needle src lib | sort",
+        "grep -rn needle src | grep -v again | sort",
+        "grep -rn -A1 'needle_1\\>' src | sort",
+        "grep -rn needle src | wc -l",
+        "grep -rn needle src | cut -d: -f1 | sort | uniq -c",
+        "cd src && grep -rn needle deep | sort",
+        "grep -rn missing src | sort",
+    ] {
+        let rewritten = f.rewrite("claude", command);
+        assert!(
+            rewritten.contains("greeg --matching exact --budget 0 "),
+            "{command}: {rewritten}"
+        );
+        let (grep, greeg) = (run(command), run(&rewritten));
+        assert_eq!(
+            (greeg.status.code(), String::from_utf8_lossy(&greeg.stdout)),
+            (grep.status.code(), String::from_utf8_lossy(&grep.stdout)),
+            "{command} → {rewritten}"
+        );
+    }
+    // a NUL past the first read buffer stops the file after a match: the
+    // warning rg prints there goes to stderr, out of the reader's lines
+    let mut tail = b"needle first\n".to_vec();
+    tail.extend(b"x\n".repeat(200_000));
+    tail.extend(b"\0needle after\n");
+    fs::write(tree.join("src/deep/tail.txt"), tail).unwrap();
+    let out = run(&f.rewrite("claude", "grep -rn needle src/deep | cat"));
+    let (stdout, stderr) = (
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr),
+    );
+    assert!(
+        stdout.contains("src/deep/tail.txt:1:needle first"),
+        "{stdout}"
+    );
+    assert!(
+        stdout.lines().all(|l| l.starts_with("src/deep/")),
+        "{stdout}"
+    );
+    assert!(
+        stderr.contains("src/deep/tail.txt: stopped searching binary file"),
+        "{stderr}"
+    );
 }
 
 /// A rewritten `grep -r` picks files as rg does, and says so: ignored,

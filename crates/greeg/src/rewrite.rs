@@ -336,25 +336,57 @@ fn other_program(first: &str) -> &'static str {
 fn rewrite_words(seg: &str) -> Result<Part, String> {
     let (words, unquoted_glob) = split_words(seg)?;
     let first = words.first().ok_or("empty command")?;
-    let (rewritten, regex) = match first.as_str() {
-        "rg" => (rewrite_rg(&words)?, None),
+    let (rewritten, regex, reader) = match first.as_str() {
+        "rg" => (
+            rewrite_rg(&words)?,
+            None,
+            Err("only grep -r's lines go to another reader".into()),
+        ),
         "grep" | "egrep" | "fgrep" => rewrite_grep(&words)?,
         _ => return Err(other_program(first).into()),
     };
-    let command = rewritten
-        .iter()
-        .map(|w| quote(w))
-        .collect::<Vec<_>>()
-        .join(" ");
     Ok(Part {
         original: words,
+        command: command_of(&rewritten),
         rewritten,
-        command,
         after_other: false,
         piped: false,
         unquoted_glob,
         regex,
+        reader,
+        lone_operand: None,
+        cds: Some(Vec::new()),
     })
+}
+
+fn command_of(words: &[String]) -> String {
+    words.iter().map(|w| quote(w)).collect::<Vec<_>>().join(" ")
+}
+
+/// A recursive grep's lines for another reader than `head`: every match, in
+/// grep's format. `p.reader` says whether greeg's lines are grep's here.
+fn into_reader(mut p: Part, redirections: &str) -> Result<Part, String> {
+    let lone = std::mem::replace(&mut p.reader, Ok(None))?;
+    if redirections.contains("2>&1") {
+        return Err("`2>&1` would send greeg's notes to the reader".into());
+    }
+    // after `greeg --matching exact`
+    p.rewritten
+        .splice(3..3, ["--budget".to_string(), "0".to_string()]);
+    p.command = command_of(&p.rewritten);
+    p.piped = true;
+    p.lone_operand = lone;
+    Ok(p)
+}
+
+/// greeg prints the paths under `operand` as grep does: as written, with no
+/// `./` or `//` to drop.
+fn printed_as_written(operand: &str) -> bool {
+    operand != "."
+        && !operand.starts_with("./")
+        && !operand.ends_with("/.")
+        && !operand.contains("/./")
+        && !operand.contains("//")
 }
 
 /// `greeg --matching exact` with no file-size limit, the given flags, then the
@@ -428,7 +460,7 @@ fn rewrite_rg(words: &[String]) -> Result<Vec<String>, String> {
 /// translated from POSIX syntax, `--include`/`--exclude`/`--exclude-dir` as
 /// globs. Ignore rules apply, as in rg; greeg says so on stderr
 /// (`--from-grep`). Flags with no exact greeg meaning decline.
-fn rewrite_grep(words: &[String]) -> Result<(Vec<String>, Option<String>), String> {
+fn rewrite_grep(words: &[String]) -> Result<GrepRewrite, String> {
     // grep refuses two different matchers (`-E -F`, `egrep -F`)
     let mut matcher = match words[0].as_str() {
         "egrep" => Some('E'),
@@ -443,6 +475,7 @@ fn rewrite_grep(words: &[String]) -> Result<(Vec<String>, Option<String>), Strin
         }
     };
     let mut recursive = false;
+    let (mut numbered, mut colored) = (false, false);
     let mut flags: Vec<String> = Vec::new();
     let (mut include, mut exclude) = (Vec::new(), Vec::new());
     let mut patterns = Vec::new();
@@ -507,8 +540,10 @@ fn rewrite_grep(words: &[String]) -> Result<(Vec<String>, Option<String>), Strin
             match name {
                 "recursive" => recursive = true,
                 "dereference-recursive" => return Err("grep -R follows symlinks".into()),
-                "line-number" | "with-filename" => {}
-                "color" | "colour" if matches!(v.as_str(), "" | "auto" | "always" | "never") => {}
+                "line-number" => numbered = true,
+                "with-filename" => {}
+                "color" | "colour" if matches!(v.as_str(), "" | "auto" | "never") => {}
+                "color" | "colour" if v == "always" => colored = true,
                 "color" | "colour" => return Err(format!("`{flag}={v}` is not a color mode")),
                 "no-messages" => {
                     return Err("grep -s would hide greeg's note on the files it skips".into());
@@ -538,7 +573,8 @@ fn rewrite_grep(words: &[String]) -> Result<(Vec<String>, Option<String>), Strin
             match c {
                 'r' => recursive = true,
                 'R' => return Err("grep -R follows symlinks".into()),
-                'n' | 'H' | 'I' => {}
+                'n' => numbered = true,
+                'H' | 'I' => {}
                 's' => return Err("grep -s would hide greeg's note on the files it skips".into()),
                 'i' | 'w' | 'x' | 'l' => flags.push(format!("-{c}")),
                 'E' | 'G' | 'F' => set_matcher(c)?,
@@ -579,6 +615,20 @@ fn rewrite_grep(words: &[String]) -> Result<(Vec<String>, Option<String>), Strin
             positional.remove(0)
         }
     };
+    let listed = flags.iter().any(|f| f == "-l");
+    let reader = if !numbered && !listed {
+        Err("greeg numbers the lines grep prints without -n".to_string())
+    } else if colored {
+        Err("`--color=always` colors grep's lines".to_string())
+    } else if positional.is_empty() {
+        Err("grep -r with no path prints `./` before its paths on some systems".to_string())
+    } else if let Some((w, _)) = positional.iter().find(|(w, _)| !printed_as_written(w)) {
+        Err(format!(
+            "greeg prints the paths under `{w}` without its `./` or `//`"
+        ))
+    } else {
+        Ok((positional.len() == 1).then(|| positional[0].0.clone()))
+    };
     let (extended, fixed) = (matcher == Some('E'), matcher == Some('F'));
     let regex = (!fixed)
         .then(|| posix_regex(&pattern, extended))
@@ -600,8 +650,16 @@ fn rewrite_grep(words: &[String]) -> Result<(Vec<String>, Option<String>), Strin
     for g in include.into_iter().chain(exclude) {
         all.extend(["-g".to_string(), g]);
     }
-    Ok((greeg_words(all, (pattern, dd), positional, None)?, regex))
+    Ok((
+        greeg_words(all, (pattern, dd), positional, None)?,
+        regex,
+        reader,
+    ))
 }
+
+/// A recursive grep's greeg words, its translated regex, and whether its
+/// lines can go to another reader (with the lone operand to check).
+type GrepRewrite = (Vec<String>, Option<String>, Result<Option<String>, String>);
 
 /// A POSIX basic (grep's default) or extended (`-E`) regular expression as
 /// the Rust regex that matches the same lines. GNU's extensions are kept
@@ -953,6 +1011,19 @@ fn split_redirections(seg: &str) -> (&str, &str) {
     (search, &seg[search.len()..])
 }
 
+/// The path of a `cd PATH` alone, written without expansions.
+fn cd_path(stages: &[std::ops::Range<usize>], body: &str) -> Option<String> {
+    if stages.len() != 1 {
+        return None;
+    }
+    match &shell_words(body).ok()?[..] {
+        [cd, path] if cd == "cd" && !path.is_empty() && !path.starts_with(['-', '~']) => {
+            Some(path.clone())
+        }
+        _ => None,
+    }
+}
+
 /// A command that can change what a later command in its line sees: the
 /// environment (`RIPGREP_CONFIG_PATH`, for one), aliases or shell options.
 fn changes_environment(seg: &str) -> bool {
@@ -996,11 +1067,21 @@ pub struct Part {
     /// Another command runs before it in the line (a `cd`, for one), so its
     /// stats record could not be replayed as it ran.
     pub after_other: bool,
-    /// Its output goes to `head`, which the stats record would not replay.
+    /// Its output goes to a pipe, which the stats record would not replay.
     pub piped: bool,
     /// An unquoted `--include=*.rs`-style word: the caller checks that no
     /// file in the working directory is named so.
     pub unquoted_glob: bool,
+    /// Whether its lines, every match, are grep's for another reader; with
+    /// its only operand.
+    reader: Result<Option<String>, String>,
+    /// Its lines go to another reader and it names one path: the caller
+    /// checks it is a directory (grep prints a lone file's lines with or
+    /// without its name, by system).
+    pub lone_operand: Option<String>,
+    /// The `cd` paths run before it in the line, in order, or `None` when
+    /// another command may have changed its directory.
+    pub cds: Option<Vec<String>>,
 }
 
 /// A rewritten Bash command line.
@@ -1014,15 +1095,19 @@ pub struct Rewrite {
 /// A simple rg or recursive grep command, or each one of a `;`/`&&`/`||`
 /// list, becomes greeg; every other byte of the line is kept. Exit statuses
 /// agree (0 found, 1 not, 2 error), so the list's control flow is unchanged.
-/// A search piped into `head` keeps it (head shows greeg's best lines);
-/// other pipelines and compound syntax are declined: a consumer may expect
-/// the original tool's output.
+/// A search piped into `head` keeps it (head shows greeg's best lines); a
+/// recursive grep piped into another reader gives it every match in grep's
+/// format. Other pipelines and compound syntax are declined: a consumer may
+/// expect the original tool's output.
 pub fn rewrite_full(cmd: &str) -> Result<Rewrite, String> {
     let segments = list_segments(cmd)?;
     let mut command = String::with_capacity(cmd.len() + 64);
     let mut parts: Vec<Part> = Vec::new();
     let mut why = None;
     let mut env = false;
+    // another program reads a rewritten search's output
+    let mut readers = false;
+    let mut cds = Some(Vec::new());
     let mut at = 0;
     for seg in segments {
         let (lead, body) = trim_blanks(&cmd[seg.stages[0].clone()]);
@@ -1036,7 +1121,10 @@ pub fn rewrite_full(cmd: &str) -> Result<Rewrite, String> {
                 p.piped = true;
                 p
             }),
-            _ => Err("pipeline (only `| head [-n N]` is kept)".into()),
+            _ => rewrite_words(search)
+                .and_then(|p| into_reader(p, redirections))
+                .inspect(|_| readers = true)
+                .map_err(|e| format!("pipeline: {e}")),
         }
         .and_then(|p| {
             let quiet = [
@@ -1063,6 +1151,7 @@ pub fn rewrite_full(cmd: &str) -> Result<Rewrite, String> {
         match rewritten {
             Ok(mut p) => {
                 p.after_other = why.is_some();
+                p.cds = cds.clone();
                 let from = seg.stages[0].start + lead;
                 command.push_str(&cmd[at..from]);
                 command.push_str(&p.command);
@@ -1071,6 +1160,10 @@ pub fn rewrite_full(cmd: &str) -> Result<Rewrite, String> {
             }
             // left as it is; a search's reason says more than another's
             Err(e) => {
+                cds = cds.and_then(|mut cds| {
+                    cds.push(cd_path(&seg.stages, body)?);
+                    Some(cds)
+                });
                 env |= seg
                     .stages
                     .iter()
@@ -1084,6 +1177,13 @@ pub fn rewrite_full(cmd: &str) -> Result<Rewrite, String> {
                 }
             }
         }
+        // a later command runs in the `cd`s' directory only if each of them
+        // succeeded: every separator after one is `&&`
+        let end = seg.stages.last().map_or(0, |r| r.end);
+        let and = cmd[end..].trim_start_matches([' ', '\t']).starts_with("&&");
+        if !and && cds.as_ref().is_some_and(|c| !c.is_empty()) {
+            cds = None;
+        }
     }
     if parts.is_empty() {
         return Err(why.map_or_else(|| "not an rg or grep command".into(), |(_, e)| e));
@@ -1092,7 +1192,7 @@ pub fn rewrite_full(cmd: &str) -> Result<Rewrite, String> {
         return Err("another command in the line can change the environment".into());
     }
     command.push_str(&cmd[at..]);
-    let whole = why.is_none();
+    let whole = why.is_none() && !readers;
     Ok(Rewrite {
         command,
         parts,

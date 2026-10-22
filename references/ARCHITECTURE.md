@@ -317,8 +317,8 @@ remaining symbol-verb and selection inconsistencies.
 
 ### Agent hook contract
 
-The hook accepts a simple `rg` or `grep -r` invocation (alone, in a list or
-piped into `head`) and emits `greeg --matching exact`
+The hook accepts a simple `rg` or `grep -r` invocation (alone, in a list,
+piped into `head`, or a `grep -rn`/`-rl` piped into another reader) and emits `greeg --matching exact`
 with an explicit `--max-filesize`: the supplied byte limit, or `18446744073709551615`
 when no limit was requested. This prevents the native 4 MiB default from omitting
 large files. Explicit zero retains its zero-byte meaning. Reading larger files
@@ -339,7 +339,8 @@ Direct `greeg` calls retain the exact/discovery defaults described above.
 | Paths such as `./rg` or `/usr/bin/rg`, wrappers, assignments | Decline; do not substitute another executable |
 | `;`, `&&`, `\|\|` and newline lists (`cd src && rg …`) | Rewrite each eligible search command (`rg`, `grep -r`) on its own; keep every other byte. Exit statuses agree (0/1/2), so the list's control flow is unchanged. For Codex, only a list of rewritten commands: Codex runs an allowed rewrite without asking, so another command in it would skip its approval |
 | A search piped into `head`, `head -N`, `head -n N`, `head -nN` or `head --lines=N` | Rewrite the search, keep the `head`: it shows greeg's best lines and may cut its closing summary. For Codex too: that `head` reads only its stdin. Not recorded for stats (a replay would compare rg's whole output) |
-| Other pipelines (`\| grep`, `\| wc`, `\| xargs`, `head -c`, a search reading stdin) | Leave that pipeline as it is: its reader may parse the original tool's lines |
+| `grep -rn` or `grep -rl` (also `egrep -r`, `fgrep -r`) piped into another reader (`\| grep`, `\| sort`, `\| wc`, `\| cut`, a `head` after another reader) | Rewrite the search as `--budget 0`: every match, as `path:line:text` (or a path per `-l`), context lines as grep prints them, in path order instead of grep's walk order; the readers are kept. A binary tail's warning goes to stderr (`--from-grep`), where rg prints it on stdout. Only when greeg's lines are grep's: `-n` or `-l` given, no `--color=always`, no `2>&1` into the pipe (greeg's notes would reach the reader), every path printed as written (not `.`, `./x`, `x/.`, `x//y`, nor none), and a lone path a directory where the search runs (BSD grep names a lone file's lines, GNU grep does not), checked after the line's literal `cd PATH`s when each is followed by `&&` (so the search runs only where they succeeded), declined after any other command. Files are picked as for any rewritten `grep -r`. Not for Codex (the readers are other programs) or stats |
+| Other pipelines (`rg \| …`, `head -c`, a search reading stdin) | Leave that pipeline as it is: its reader may parse the original tool's lines |
 | `\|&`, a pipe continued on the next line, background jobs, subshells/groups, substitutions, here-documents, `$'…'`/`$"…"` quoting | Decline the entire command |
 | `2>/dev/null`, `2> /dev/null`, `2>>/dev/null`, `2>> /dev/null`, `2>&1` after a search's last word and a blank; `</dev/null`, `< /dev/null` after it, with or without a blank | Keep them byte for byte after the rewrite (stdout is unchanged). Not for `grep -r` with stderr to `/dev/null`: it would hide greeg's note that ignored, hidden and binary files are skipped |
 | Other redirections (stdout, stderr to a file, `&>`, one before a word) | Leave that command as it is |

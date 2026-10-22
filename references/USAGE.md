@@ -237,11 +237,18 @@ environment (an assignment, `export`, `source`, `alias`, `set`, …) is left
 alone. A search piped into `head`, `head -N`, `head -n N`, `head -nN` or
 `head --lines=N` keeps the `head`, which then shows greeg's best lines instead
 of the first ones found, and may cut greeg's closing summary; other `head`
-options (`-c`, a negative count, a file) and any other reader leave the
-pipeline as it is. A `grep -r`, `egrep -r` or `fgrep -r` with stderr sent to `/dev/null` is left alone: it would
+options (`-c`, a negative count, a file) leave the pipeline as it is. A
+`grep -rn` or `grep -rl` (also `egrep -r`, `fgrep -r`) piped into another
+reader (`| grep -v test`, `| sort`, `| wc -l`) gives it every match in grep's
+format, in path order; a binary file's warning goes to stderr. It is declined
+whenever greeg's lines could differ from grep's, for example: no `-n`/`-l`,
+`--color=always`, `2>&1`, no path, a path greeg prints otherwise (`.`, `./x`,
+`x/.`, `x//y`), a lone path that is not a directory, or a `cd` before it that
+may not have run (one not followed by `&&`). An `rg` piped into another reader
+stays as it is. A `grep -r`, `egrep -r` or `fgrep -r` with stderr sent to `/dev/null` is left alone: it would
 hide greeg's note on the files it skips. For Codex, which runs a rewrite without asking, a line is
 rewritten only when every command in it is one the hook rewrites, a search
-piped into such a `head` included (`cd src && rg foo` runs unchanged). A
+piped into such a `head` included (`cd src && rg foo` and `grep -rn foo src | sort` run unchanged). A
 nonempty inherited `RIPGREP_CONFIG_PATH` also disables rewriting.
 `greeg hook explain 'rg -l foo src'`
 shows the rewrite, or why a command is left alone. See the
