@@ -30,7 +30,7 @@ pub enum Agent {
 
 const SKILL: &str = "---
 name: greeg
-description: Code search for agents. Use `greeg` instead of rg/grep: ranked, syntax-aware, budgeted results, plus symbol verbs (def, refs, callers, impls, outline, map, impact) and `find` for questions in plain words.
+description: Code search for agents. Use `greeg` instead of rg/grep: ranked, syntax-aware, budgeted results, plus symbol verbs (def, refs, callers, impls, outline, map, impact), `impact --diff` for what uncommitted changes affect, and `find` for questions in plain words.
 ---
 
 # greeg
@@ -69,6 +69,10 @@ Symbol questions are cheaper than searches:
     greeg impact --diff [REV]   definitions changed since REV (default HEAD, staged,
                                 unstaged and untracked) and every use to update
     greeg find WORDS            files for a question in plain words, when no name is known
+
+When a checkout has changes (yours or the user's), start with `greeg impact --diff`:
+one call lists the changed definitions and the uses to update or recheck, instead of
+`git diff` followed by a search per name.
 
 To read a definition's body, `greeg show FILE:LINE` prints the whole definition around a
 hit and `greeg def NAME --mode block` prints every definition of NAME with its body, both
