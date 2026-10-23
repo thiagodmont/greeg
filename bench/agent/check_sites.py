@@ -6,7 +6,8 @@ or the context a pack task asks for.
     check_sites.py TASK [ANSWER] --score   print recall, traps and extras as JSON
 
 A citation is a line of the answer in the asked form, `name at path:line`
-(bulleted or in backticks; a path suffix such as `checks.py:963` is enough),
+(bulleted or in backticks, after a label such as `Definition:`, with a note
+in parentheses after the name; a path suffix such as `checks.py:963` is enough),
 within two lines of the verified one. A site may list alternatives,
 `path:line|path:line`, such as a call and the function that makes it. Prose
 that mentions a place, such as what was left out and why, cites nothing. The
@@ -20,7 +21,9 @@ import json, re, sys, tomllib
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-CITE = re.compile(r"^[\s>*+\d.)-]*[\w.:<>*$]+(?:\(\))?\s+at\s+([\w./-]*\w\.(?:py|pyi|rs|ts|tsx|js|kt|kts)):(\d+)", re.M)
+CITE = re.compile(r"^[\s>*+\d.)-]*(?:[A-Za-z][\w -]*:\s+)?[\w.:<>*$@]+(?:\(\))?"
+                  r"(?:\s+\((?:[^()\n]|\([^()\n]*\))*\))?"
+                  r"\s+at\s+([\w./-]*\w\.(?:py|pyi|rs|ts|tsx|js|kt|kts)):(\d+)", re.M)
 NEAR = 2
 EXTRAS = 2
 
