@@ -1,0 +1,73 @@
+README.md
+  s_eefb2647553a67::t_7bc35c1b55dcd4 144
+bench/agent/README.md
+  s_eefb2647553a67::t_55c11176fe2447 294-340
+bench/agent/results/diff-2026-10-23-hint-setup.json
+  s_eefb2647553a67::t_31f16898d59cd4 1-75
+bench/agent/results/diff-2026-10-23-hint.json
+  s_eefb2647553a67::t_25148af351646f 1-1688
+bench/agent/results/diff-2026-10-23-hint.txt
+  s_eefb2647553a67::t_3b7d89a01fa78a 1-55
+bench/agent/results/diff-2026-10-23-skill-before-setup.json
+  s_eefb2647553a67::t_71bec8b1d763c5 1-76
+bench/agent/results/diff-2026-10-23-skill-before.json
+  s_eefb2647553a67::t_02f710e6832125 1-1686
+bench/agent/results/diff-2026-10-23-skill-before.txt
+  s_eefb2647553a67::t_320750af0890c4 1-53
+bench/agent/results/diff-2026-10-23-skill-setup.json
+  s_eefb2647553a67::t_4193ca382d6b94 1-76
+bench/agent/results/diff-2026-10-23-skill.json
+  s_eefb2647553a67::t_d913f03bdbf626 1-1687
+bench/agent/results/diff-2026-10-23-skill.txt
+  s_eefb2647553a67::t_3e6c0bff3b6b26 1-53
+bench/agent/results/impact-diff-offline-2026-10-23.json
+  s_eefb2647553a67::t_a6ecbc5e0e5ec1 1-192
+bench/impact_diff.py
+  s_eefb2647553a67::t_68e04ff1f7c03b 1-110
+crates/greeg-index/src/ignores.rs
+  s_eefb2647553a67::t_0c5217beaac175 15-16,19-20,24-36,80-83,92-93,118,275-297
+crates/greeg-lang/src/defs.rs
+  s_eefb2647553a67::t_0c13449935311f 138,670,713-714,717,719-722,731,744-803,830-834,840-841,846-852,860,881-889,894,913,922-925,1088-1131
+crates/greeg-query/src/change.rs
+  s_eefb2647553a67::t_7655e186c85b4b 1-873
+crates/greeg-query/src/impact_diff.rs
+  s_eefb2647553a67::t_8433abe3a2f40f 1-324
+crates/greeg-query/src/indexed.rs
+  s_eefb2647553a67::t_b41bab8232844f 291-313
+crates/greeg-query/src/lib.rs
+  s_eefb2647553a67::t_f0653bc87aa6c7 4,6
+crates/greeg-query/src/verbs.rs
+  s_eefb2647553a67::t_4ed45efd9280bb 771-791,798-801,1849-1850,1853-1854
+crates/greeg/src/hook.rs
+  s_eefb2647553a67::t_b07ea733a2bc2c 33,69-70,73-76
+crates/greeg/src/json_native.rs
+  s_eefb2647553a67::t_9dab18af97cf30 920-1091
+crates/greeg/src/main.rs
+  s_eefb2647553a67::t_09340cad12bc6d 38,480-490,1149-1157
+crates/greeg/src/verbs_out.rs
+  s_eefb2647553a67::t_8d38647dd9af34 9-10,1822-2164
+crates/greeg/tests/cli.rs
+  s_eefb2647553a67::t_2a1830db72edb4 3598-3878
+references/ARCHITECTURE.md
+  s_eefb2647553a67::t_bdd02a62aa909c 566-570,594-598,693-710
+references/JSON.md
+  s_eefb2647553a67::t_8b452a3f54650e 201-216
+references/USAGE.md
+  s_eefb2647553a67::t_a6ff1489cb6020 38,49-81
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e1f1d2431913a085e165fc71578ca055813cb9cf",
+  "prompts": {},
+  "sessions": {
+    "s_eefb2647553a67": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9fff36d3-3b5f-4343-be78-7893a6fe3965",
+        "model": "unknown"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
