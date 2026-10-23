@@ -182,7 +182,7 @@ def run_cell(a, out, task, arm, n, order):
     env["PATH"] = f"{tool_bin(out, arm, a.greeg)}:/usr/bin:/bin:/usr/sbin:/sbin"
     settings = d / "settings.json"
     settings.write_text(json.dumps({} if arm == "A" else HOOK))
-    prompt = ("Use greeg for code search. " if arm == "C" else "") + task["prompt"]
+    prompt = (a.c_prefix if arm == "C" else "") + task["prompt"]
     skill = ["--append-system-prompt", skill_text(out, a.greeg)] if arm == "S" else []
     cmd = [a.claude, "-p", prompt, *skill, "--model", a.model, "--max-turns", str(a.max_turns),
            "--max-budget-usd", str(a.max_budget_usd), "--output-format", "stream-json", "--verbose",
@@ -272,6 +272,8 @@ def main():
     ap.add_argument("--max-budget-usd", type=float, default=2.0)
     ap.add_argument("--timeout", type=int, default=900, help="seconds per run")
     ap.add_argument("--seed", type=int, default=7)
+    ap.add_argument("--c-prefix", default="Use greeg for code search. ",
+                    help="what arm C's prompt starts with")
     ap.add_argument("--claude", default=shutil.which("claude"))
     ap.add_argument("--recheck", action="store_true", help="only score saved answers again")
     a = ap.parse_args()
