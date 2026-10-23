@@ -366,3 +366,45 @@ fail to pass (A 4, S 1); no diff-task verdict changed.
 
 A pack can only save the follow-up reads: the body, and the values it reads.
 
+## Context-pack feature runs (2026-10-23)
+
+`def --mode block` now lists, under each body, the constants and module-level
+variables it names (`reads`), with the line that defines each. The skill says
+to run `greeg def NAME --mode block; greeg callers NAME` before changing a
+function. Two S runs on the eight context-pack tasks, 2 repeats each, Claude
+Code 2.1.309 on Sonnet, sharing the baseline's arm-A runs:
+
+- **reads:** this branch with #130 applied (`0.13.0+0574af41d`);
+  `results/pack-2026-10-23-reads*`, 16 runs, $0.35.
+- **skill only:** the same binary and skill with the `reads` lines switched
+  off (`.dirty`), to tell the two changes apart;
+  `results/pack-2026-10-23-skill-only*`, 16 runs, $0.42.
+  `results/pack-2026-10-23-skill-only-vs-reads*` pairs the two S arms: there
+  arm A is the skill-only run.
+
+Success is 16/16 in every arm. Every S run of both used `def --mode block`;
+the 6 runs on the three tasks whose function reads a setting or constant got
+`reads` lines.
+
+Held-out tasks (95 % intervals over pairs | over tasks):
+
+| comparison | turns | search calls | tool output ch | output tokens | cost $ | wall time s |
+|---|---|---|---|---|---|---|
+| skill only vs baseline S | +0.1 [−0.3, +0.5] | −0.1 | −680 | +157 | +0.00 | +2.2 |
+| reads vs skill only | −0.9 [−1.0, −0.6] \| [−1.0, −0.6] | −1.5 [−2.4, −0.8] | −747 [−1158, −316] | −327 [−444, −194] | −0.01 [−0.01, −0.00] | −4.5 [−8.1, −1.1] |
+| reads vs A | −3.6 [−6.0, −1.5] | −2.1 [−3.3, −1.1] | −2,806 | −154 | −0.02 [−0.02, −0.01] | −9.4 [−14.0, −5.0] |
+
+The skill sentence alone changes nothing. The reads-vs-skill-only row's
+intervals exclude zero, but they overstate what is known. The two held-out
+tasks whose function reads a value (`django-pack-new-csrf-string`,
+`ts-pack-validate-locale`) took 1.0 turn fewer each with `reads`; the two
+that got no `reads` line (`ktor-pack-is-websocket`, `tokio-pack-num-cpus`)
+took 0.5 and 1.0 fewer too, though their output was the same in both arms.
+That is run-to-run variance, and four tasks × 2 repeats cannot separate it
+from the effect. On the development tasks the difference is −0.4 turns
+[−1.4, +0.6]. What the runs do show: agents take the `reads` lines instead of
+looking the values up. On the three tasks that got them, search calls fell
+from 3.5 to 2.0, 5.5 to 3.0 and 4.0 to 2.0 a run; on the other five they
+moved by up to one either way. Showing a turn saving would need more tasks
+with values to read.
+

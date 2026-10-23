@@ -1459,6 +1459,130 @@ fn relocate(
 
 /// Read one indexed file for bodies, below the root without following a
 /// symlink.
+/// A constant or module-level variable that a definition's body names.
+#[derive(Clone, Debug)]
+pub struct Read {
+    pub name: String,
+    /// Root-relative path bytes (`greeg_index::rel`).
+    pub rel: Vec<u8>,
+    pub line: u32,
+    pub kind: DefKind,
+}
+
+/// Values listed per body; more are left out.
+pub const READS: usize = 12;
+/// Definitions a name may have elsewhere and still be listed.
+const READ_DEFS: usize = 3;
+
+/// A body asked about in [`reads`]: its file, the file's flags, the
+/// definition's own name, and the body.
+pub type BodyOf<'a> = (&'a [u8], FileFlags, &'a str, &'a Body);
+
+/// For each body, the constants and module-level variables it names, from
+/// the index (none without one). A name counts when it is defined in the
+/// body's own file; from another file, when it is written as a constant
+/// (`SECRET_KEY`) and has at most [`READ_DEFS`] definitions, all of them
+/// such values, so a common word does not pull in unrelated ones.
+/// Definitions in test, generated and vendored files count only for a body
+/// in one, and declaration files (`.d.ts`) define no values.
+pub fn reads(o: &Options, bodies: &[Option<BodyOf>]) -> Result<Vec<Vec<Read>>> {
+    let mut out = vec![Vec::new(); bodies.len()];
+    if !o.use_index || bodies.iter().all(Option::is_none) {
+        return Ok(out);
+    }
+    let threads = if o.threads == 0 {
+        crate::default_threads()
+    } else {
+        o.threads
+    };
+    // the definitions were just read from a fresh index
+    let mut ro = o.clone();
+    ro.fresh = greeg_index::fresh::Mode::None;
+    let Some(op) = indexed::open_fresh(&ro, threads)? else {
+        return Ok(out);
+    };
+    let idx = &op.idx;
+    if !idx.has_symbols() {
+        return Ok(out);
+    }
+    for (b, found) in bodies.iter().zip(&mut out) {
+        let Some((rel, flags, own, body)) = b else {
+            continue;
+        };
+        let aside = flags.has(ASIDE);
+        let mut seen: Vec<&[u8]> = Vec::new();
+        for line in &body.lines {
+            for word in identifiers(line) {
+                if found.len() >= READS {
+                    break;
+                }
+                if word == own.as_bytes() || seen.contains(&word) {
+                    continue;
+                }
+                seen.push(word);
+                let Ok(name) = std::str::from_utf8(word) else {
+                    continue;
+                };
+                found.extend(values_named(idx, name, rel, aside));
+            }
+        }
+        found.truncate(READS);
+    }
+    Ok(out)
+}
+
+fn constant_style(name: &str) -> bool {
+    name.bytes().any(|c| c.is_ascii_uppercase()) && !name.bytes().any(|c| c.is_ascii_lowercase())
+}
+
+fn identifiers(line: &[u8]) -> impl Iterator<Item = &[u8]> {
+    line.split(|c| !(c.is_ascii_alphanumeric() || *c == b'_'))
+        .filter(|w| w.len() >= 2 && !w[0].is_ascii_digit())
+}
+
+/// Files whose values count only for a body in one of them.
+const ASIDE: u16 = FileFlags::TEST | FileFlags::GENERATED | FileFlags::VENDORED;
+
+fn values_named(idx: &Index, name: &str, rel: &[u8], aside: bool) -> Vec<Read> {
+    let mut syms = idx.lookup(name);
+    syms.retain(|&s| {
+        let f = idx.sym_file(s);
+        !idx.path(f).unwrap_or_default().ends_with(b".d.ts")
+            && (aside || idx.rec(f).is_some_and(|r| !FileFlags(r.flags).has(ASIDE)))
+    });
+    let value = |s: SymId| {
+        let chain = idx.sym_chain(s);
+        let Some(&(kind, _)) = chain.last() else {
+            return false;
+        };
+        matches!(kind_from_code(kind), DefKind::Constant | DefKind::Variable)
+            && chain[..chain.len() - 1]
+                .iter()
+                .all(|&(k, _)| matches!(kind_from_code(k), DefKind::Module | DefKind::Object))
+    };
+    let values: Vec<SymId> = syms.iter().copied().filter(|&s| value(s)).collect();
+    let at = |s: SymId| idx.path(idx.sym_file(s)).unwrap_or_default();
+    let local: Vec<SymId> = values.iter().copied().filter(|&s| at(s) == rel).collect();
+    let keep = if !local.is_empty() {
+        local
+    } else if constant_style(name) && values.len() == syms.len() && values.len() <= READ_DEFS {
+        values
+    } else {
+        Vec::new()
+    };
+    keep.into_iter()
+        .filter_map(|s| {
+            let r = idx.sym(s)?;
+            Some(Read {
+                name: name.to_string(),
+                rel: at(s).to_vec(),
+                line: r.line,
+                kind: kind_from_code(r.kind),
+            })
+        })
+        .collect()
+}
+
 pub fn source_of(o: &Options, rel: &[u8]) -> Result<crate::Source> {
     let mut bytes = Tree::open(&o.root)
         .and_then(|t| t.read(rel))

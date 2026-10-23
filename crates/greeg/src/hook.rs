@@ -77,7 +77,10 @@ one call lists the changed definitions and the uses to update or recheck, instea
 To read a definition's body, `greeg show FILE:LINE` prints the whole definition around a
 hit and `greeg def NAME --mode block` prints every definition of NAME with its body, both
 dedented and bounded by the definition's span (`--mode block` on a search does the same
-for its definition hits). Prefer them to guessing a `sed -n 'A,Bp'` range; `-A/-B/-C N`
+for its definition hits). Under each body, `reads` lines give the constants and settings
+it names, where each is defined. Before changing a function, run
+`greeg def NAME --mode block; greeg callers NAME`: its body, what it reads, and every
+caller, tests marked, in one call. Prefer them to guessing a `sed -n 'A,Bp'` range; `-A/-B/-C N`
 give fixed context around hits. Answers are rows only: `N hits · M files` means complete.
 
 Use `-e PATTERN` when the pattern is a verb name (`greeg -e def src`). When the pattern
