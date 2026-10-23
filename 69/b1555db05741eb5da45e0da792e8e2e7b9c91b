@@ -1,0 +1,25 @@
+bench/agent/results/diff-2026-10-23-baseline.json
+  s_eefb2647553a67::t_b9047b440cb312 1-1686
+bench/agent/results/diff-2026-10-23-baseline.txt
+  s_eefb2647553a67::t_b9047b440cb312 1-53
+bench/agent/results/diff-2026-10-23-baseline-setup.json
+  s_eefb2647553a67::t_b9047b440cb312 1-76
+bench/agent/README.md
+  s_eefb2647553a67::t_fbbbe994ddfccf 5-6,12-17,28,53-57,75-81,263-286
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "69b1555db05741eb5da45e0da792e8e2e7b9c91b",
+  "prompts": {},
+  "sessions": {
+    "s_eefb2647553a67": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9fff36d3-3b5f-4343-be78-7893a6fe3965",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
