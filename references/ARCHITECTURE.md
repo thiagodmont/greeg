@@ -589,7 +589,11 @@ A search that finds changes **answers first**. It drops the stale versions from
 its candidates, reads the changed files directly, prints the answer, and only
 then spawns a detached process to extract them and publish a delta segment.
 You still get the working tree as it was at query time. The tree-sitter work is
-what moved off the critical path.
+what moved off the critical path. A verb that reads the index more than once
+(`refs` looks definitions up after its search, `impact` adds the import graph
+and the callers) applies the delta before its first read instead, since only
+the read that ran the check knows which files changed; when the index cannot
+answer, every read scans.
 
 Some changes need a full rebuild, which greeg spawns while it answers the
 query with a scan:
