@@ -1,0 +1,49 @@
+arm A search calls decided by: hook 61, output 0, intent 0
+arm S search calls decided by: hook 50, output 0, intent 0
+== development tasks: 4 tasks
+
+task                                 A ok     A $  A turns   S ok     S $  S turns
+coroutines-pack-dispatch-with-context   2/2    0.024      2.5   2/2    0.026      2.5
+django-pack-get-cookie-signer        2/2    0.017      3.0   2/2    0.014      2.0
+ktor-pack-parse-and-sort-header      2/2    0.020      3.0   2/2    0.021      4.0
+tokio-pack-has-budget-remaining      2/2    0.034      5.0   2/2    0.027      3.5
+
+success A: 8/8 (100 %, 95 % Wilson [68, 100])
+success S: 8/8 (100 %, 95 % Wilson [68, 100])
+
+metric                  A          S   paired difference vs A (95 % bootstrap: over pairs | over tasks)
+success rate         1.00       1.00   S: +0.00 [+0.00, +0.00] | [+0.00, +0.00] n=8 tasks=4
+turns                3.38       3.00   S: -0.38 [-1.38, +0.62] | [-1.25, +0.50] n=8 tasks=4
+search calls         3.00       3.12   S: +0.12 [-0.88, +1.25] | [-0.88, +1.00] n=8 tasks=4
+greeg find           0.00       0.00   S: +0.00 [+0.00, +0.00] | [+0.00, +0.00] n=8 tasks=4
+tool output ch    2503.50    2248.62   S: -254.88 [-917.38, +529.25] | [-995.62, +451.25] n=8 tasks=4
+output tokens      345.50     193.00   S: -152.50 [-338.12, +71.62] | [-362.00, +83.25] n=8 tasks=4
+input tokens         9.50       8.75   S: -0.75 [-3.25, +1.75] | [-3.00, +1.50] n=8 tasks=4
+cache writes      4640.25    4164.75   S: -475.50 [-1704.75, +744.88] | [-1837.88, +853.12] n=8 tasks=4
+cache reads      37198.12   34243.00   S: -2955.12 [-13878.62, +7881.88] | [-12887.00, +6976.75] n=8 tasks=4
+cost USD             0.02       0.02   S: -0.00 [-0.01, +0.00] | [-0.00, +0.00] n=8 tasks=4
+wall time s         12.99      10.67   S: -2.33 [-6.67, +1.38] | [-4.69, +0.52] n=8 tasks=4
+
+== held-out tasks: 4 tasks
+
+task                                 A ok     A $  A turns   S ok     S $  S turns
+django-pack-new-csrf-string          2/2    0.025      3.0   2/2    0.021      2.0
+ktor-pack-is-websocket               2/2    0.025      3.5   2/2    0.024      3.0
+tokio-pack-num-cpus                  2/2    0.023      4.5   2/2    0.019      3.5
+ts-pack-validate-locale              2/2    0.039      3.0   2/2    0.026      2.0
+
+success A: 8/8 (100 %, 95 % Wilson [68, 100])
+success S: 8/8 (100 %, 95 % Wilson [68, 100])
+
+metric                  A          S   paired difference vs A (95 % bootstrap: over pairs | over tasks)
+success rate         1.00       1.00   S: +0.00 [+0.00, +0.00] | [+0.00, +0.00] n=8 tasks=4
+turns                3.50       2.62   S: -0.88 [-1.00, -0.62] | [-1.00, -0.62] n=8 tasks=4
+search calls         4.62       3.12   S: -1.50 [-2.38, -0.75] | [-2.25, -0.75] n=8 tasks=4
+greeg find           0.00       0.00   S: +0.00 [+0.00, +0.00] | [+0.00, +0.00] n=8 tasks=4
+tool output ch    3595.12    2848.00   S: -747.12 [-1158.38, -316.38] | [-1257.75, -236.50] n=8 tasks=4
+output tokens      433.38     106.88   S: -326.50 [-444.38, -193.75] | [-480.12, -132.12] n=8 tasks=4
+input tokens         9.50       8.00   S: -1.50 [-2.50, -0.50] | [-2.00, -1.00] n=8 tasks=4
+cache writes      5840.62    4859.50   S: -981.12 [-2464.12, -31.38] | [-2491.88, -70.50] n=8 tasks=4
+cache reads      36732.62   30423.38   S: -6309.25 [-10525.25, -2560.38] | [-8015.75, -4602.75] n=8 tasks=4
+cost USD             0.03       0.02   S: -0.01 [-0.01, -0.00] | [-0.01, -0.00] n=8 tasks=4
+wall time s         13.28       8.82   S: -4.45 [-8.14, -1.14] | [-10.24, -0.62] n=8 tasks=4
