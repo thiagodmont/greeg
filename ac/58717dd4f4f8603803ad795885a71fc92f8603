@@ -1,0 +1,27 @@
+references/USAGE.md
+  s_eefb2647553a67::t_54f8207fbe0df5 44-46
+  s_eefb2647553a67::t_621631baad5352 47-50
+crates/greeg-query/src/verbs.rs
+  s_eefb2647553a67::t_13e91e78516512 1476-1479
+  s_eefb2647553a67::t_481aac23c370dd 1455-1458,1466
+  s_eefb2647553a67::t_41bedec3fdaa1c 1501-1503
+crates/greeg/tests/cli.rs
+  s_eefb2647553a67::t_4ae0d2e1eeefc5 3598-3602,3607-3635
+  s_eefb2647553a67::t_41bedec3fdaa1c 3603-3606
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "ac58717dd4f4f8603803ad795885a71fc92f8603",
+  "prompts": {},
+  "sessions": {
+    "s_eefb2647553a67": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9fff36d3-3b5f-4343-be78-7893a6fe3965",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
