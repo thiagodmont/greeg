@@ -35,6 +35,7 @@ greeg refs Semaphore                # references grouped by kind (call, type, im
 greeg callers spawn_blocking        # which functions call it (not which lines)
 greeg impls Future                  # implementations and subclasses
 greeg impact get_queryset           # files using it, by evidence: LIKELY AFFECTED / POSSIBLE / REVIEW
+greeg impact --diff                 # definitions the checkout changed, and the uses of each
 greeg outline src/sync/oneshot.rs   # the shape of a file
 greeg show src/sync/oneshot.rs:340  # the whole definition enclosing that line
 greeg map tokio/src/sync            # important files and directories, by PageRank
@@ -50,6 +51,39 @@ most three definitions, all of them values; definitions in test, generated and
 vendored files count only for a body in one. Every verb takes
 the search flags (`--budget`, `--json`, `--no-tests`, `--root`) and answers in a
 few milliseconds from the index.
+
+### What a change touches
+
+`greeg impact --diff` compares the checkout with a git base: `HEAD` by
+default, `--diff REV` for another revision, `--diff REV...` for the merge base
+of REV and HEAD. It counts staged, unstaged and untracked files; `--staged`
+counts only what is staged. Each changed file lists its changed definitions
+(added, removed, renamed, signature changed, body changed), read from both
+sides with the same parser `outline` uses; the old side comes from git, with
+nothing checked out.
+
+For each removed, renamed or re-signed definition it lists the uses of the
+old name outside the changed lines: calls, imports and type uses to update,
+then other uses (an import a new signature leaves valid, a member access
+that may be a same-named field). A body change lists a few callers to
+recheck. Uses are found by name, so a definition with the same name
+elsewhere is listed (`also defined:`) rather than told apart:
+
+```text
+impact --diff HEAD (ea91b33ca57f)  1 file · 1 definition changed · staged, unstaged and untracked · index
+tokio/src/runtime/time/handle.rs  modified
+  method Handle.clock_source:12  renamed from time_source
+    13 uses of time_source in 6 files to update
+    tokio/src/runtime/time/entry.rs
+      482  call  let tick = self.driver().time_source().deadline_to_tick(deadline);  ‹ TimerEntry.init
+    …
+    5 other uses of time_source (member): a member access may be of a same-named field
+    …
+    also defined: tokio/src/runtime/time/handle.rs:6 (field) — a use may be of one of these
+```
+
+At most 16 changed definitions are searched per answer, breaking changes
+first; `greeg impact NAME` covers the rest. Exit 1 means nothing changed.
 
 ### Questions in plain words
 

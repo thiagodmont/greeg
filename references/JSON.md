@@ -198,6 +198,22 @@ an index without symbols): `likely` is then empty. The budget cuts the groups
 and `definitions` as text cuts them. Footer: `name`, `definitions_total`,
 `files`, `callers_total`, `total_hits`, `elapsed_ms`, `outcome`.
 
+**`impact --diff`**: a **`file`** record per changed file (`path`, `status`:
+added, modified, deleted, renamed or untracked, `old_path`, `binary`,
+`parsed`), then a **`change`** record per changed definition: `path`,
+`kind`, `name`, `parents`, `line`, `change` (added, removed, renamed,
+signature, body), `from` (a renamed definition's old name),
+`signature_old`, `signature_new`, `searched`, `uses_total`, `use_files`,
+`edited` (uses on the changed lines, left out), `uses`,
+`other_definitions` (`[path, line, kind]`), `other_definitions_total` and
+`uses_as_for` (`[path, line]` of the change whose record lists the same
+old name's uses). Each use has `path`, `line`, `kind`, `direct` (the
+change breaks or may break it), `text`, `container` and `file_flags`. The
+budget cuts the uses, a few at a time from every change. Footer: `base`,
+`commit`, `merge_base`, `staged_only`, `files`, `definitions`,
+`unsearched`, `elapsed_ms`, `outcome` (`total` counts changed files and
+uses).
+
 **`show`** records: `path`, `line` (as asked), `symbol` (the enclosing
 definition or null), `start_line`, `end_line`, `shown_to`, `clipped`, `text`
 (`Text`, the lines joined by `\n`). Footer: `elapsed_ms`, `outcome`.

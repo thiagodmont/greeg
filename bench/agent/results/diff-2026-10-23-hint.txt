@@ -1,0 +1,55 @@
+left out: tokio-diff-multi C #1: 1 hook responses could belong to more than one call
+left out: tokio-diff-multi A #1: a run it pairs with is invalid
+arm A search calls decided by: hook 0, output 0, intent 81
+arm C search calls decided by: hook 89, output 0, intent 0
+== development tasks: 4 tasks
+
+task                                 A ok     A $  A turns   C ok     C $  C turns
+coroutines-diff-to-debug-string      2/2    0.025      4.0   2/2    0.033      5.0
+django-diff-fields-from-path         2/2    0.018      4.0   2/2    0.020      3.0
+ktor-diff-decode-url-part            2/2    0.030      4.0   2/2    0.033      4.5
+tokio-diff-time-source               2/2    0.049      9.5   2/2    0.023      3.0
+
+success A: 8/8 (100 %, 95 % Wilson [68, 100])
+success C: 8/8 (100 %, 95 % Wilson [68, 100])
+
+metric                  A          C   paired difference vs A (95 % bootstrap: over pairs | over tasks)
+success rate         1.00       1.00   C: +0.00 [+0.00, +0.00] | [+0.00, +0.00] n=8 tasks=4
+turns                5.38       3.88   C: -1.50 [-3.88, +0.38] | [-4.75, +0.75] n=8 tasks=4
+search calls         3.50       3.62   C: +0.12 [-0.88, +1.00] | [-0.25, +0.50] n=8 tasks=4
+greeg find           0.00       0.00   C: +0.00 [+0.00, +0.00] | [+0.00, +0.00] n=8 tasks=4
+tool output ch    4390.38    4560.12   C: +169.75 [-1436.38, +1570.38] | [-2219.38, +1788.38] n=8 tasks=4
+output tokens      146.38     341.50   C: +195.12 [-17.00, +432.38] | [+5.25, +385.00] n=8 tasks=4
+input tokens        13.25      10.00   C: -3.25 [-9.50, +1.75] | [-12.25, +2.00] n=8 tasks=4
+cache writes      6346.25    6342.88   C: -3.38 [-3593.00, +3172.38] | [-5449.88, +4019.00] n=8 tasks=4
+cache reads      43677.88   31344.50   C: -12333.38 [-34273.50, +6027.88] | [-45648.50, +6441.00] n=8 tasks=4
+cost USD             0.03       0.03   C: -0.00 [-0.01, +0.01] | [-0.02, +0.01] n=8 tasks=4
+wall time s         13.90      11.79   C: -2.11 [-7.64, +1.86] | [-9.29, +1.78] n=8 tasks=4
+
+== held-out tasks: 8 tasks
+
+task                                 A ok     A $  A turns   C ok     C $  C turns
+django-diff-multi                    2/2    0.030      4.0   2/2    0.035      4.0
+django-diff-timezone-name            2/2    0.017      3.5   2/2    0.022      3.5
+ktor-diff-multi                      2/2    0.047      4.5   2/2    0.052      4.5
+tokio-diff-budget-has-remaining      2/2    0.016      4.0   2/2    0.016      3.0
+tokio-diff-multi                     0/1    0.031      3.0   1/1    0.030      4.0
+ts-diff-multi                        2/2    0.027      3.0   2/2    0.023      2.0
+ts-diff-remove-get-full-width        2/2    0.019      4.0   2/2    0.023      3.0
+ts-diff-update-class-declaration     2/2    0.071     15.0   2/2    0.036      4.5
+
+success A: 14/15 (93 %, 95 % Wilson [70, 99])
+success C: 15/15 (100 %, 95 % Wilson [80, 100])
+
+metric                  A          C   paired difference vs A (95 % bootstrap: over pairs | over tasks)
+success rate         0.93       1.00   C: +0.07 [+0.00, +0.20] | [+0.00, +0.23] n=15 tasks=8
+turns                5.27       3.53   C: -1.73 [-3.73, -0.20] | [-4.50, -0.08] n=15 tasks=8
+search calls         3.07       3.73   C: +0.67 [-0.67, +2.13] | [-0.88, +2.29] n=15 tasks=8
+greeg find           0.00       0.00   C: +0.00 [+0.00, +0.00] | [+0.00, +0.00] n=15 tasks=8
+tool output ch    5023.53    6083.80   C: +1060.27 [-73.93, +2106.47] | [-382.81, +2424.08] n=15 tasks=8
+output tokens      298.53     218.80   C: -79.73 [-288.07, +116.27] | [-300.80, +142.56] n=15 tasks=8
+input tokens        12.13       9.73   C: -2.40 [-7.20, +1.07] | [-8.93, +1.50] n=15 tasks=8
+cache writes      6590.40    7490.93   C: +900.53 [-2147.13, +3239.80] | [-2988.07, +3325.14] n=15 tasks=8
+cache reads      42155.80   31050.13   C: -11105.67 [-31738.80, +4408.33] | [-39903.40, +6523.92] n=15 tasks=8
+cost USD             0.03       0.03   C: -0.00 [-0.01, +0.00] | [-0.01, +0.00] n=15 tasks=8
+wall time s         15.01      12.47   C: -2.54 [-5.67, +0.30] | [-6.58, +0.62] n=15 tasks=8

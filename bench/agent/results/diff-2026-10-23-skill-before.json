@@ -1,0 +1,1686 @@
+[
+ {
+  "tools": {
+   "Bash": 3
+  },
+  "search": {
+   "rg": 0,
+   "grep": 4,
+   "greeg": 0
+  },
+  "search_evidence": {
+   "hook": 0,
+   "output": 0,
+   "intent": 4
+  },
+  "denied": 0,
+  "greeg_find": 0,
+  "tool_output_chars": 4703,
+  "input_tokens": 10,
+  "output_tokens": 66,
+  "cache_creation": 3198,
+  "cache_read": 35854,
+  "turns": 4,
+  "duration_ms": 8537,
+  "cost_usd": 0.019345599999999998,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 0,
+  "success": true,
+  "unhooked": 4,
+  "writes": 0,
+  "task": "coroutines-diff-to-debug-string",
+  "arm": "A",
+  "run": "1",
+  "invalid": []
+ },
+ {
+  "tools": {
+   "Bash": 3
+  },
+  "search": {
+   "rg": 0,
+   "grep": 3,
+   "greeg": 0
+  },
+  "search_evidence": {
+   "hook": 0,
+   "output": 0,
+   "intent": 3
+  },
+  "denied": 0,
+  "greeg_find": 0,
+  "tool_output_chars": 4703,
+  "input_tokens": 10,
+  "output_tokens": 62,
+  "cache_creation": 6242,
+  "cache_read": 32777,
+  "turns": 4,
+  "duration_ms": 10433,
+  "cost_usd": 0.0303093,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 0,
+  "success": true,
+  "unhooked": 3,
+  "writes": 0,
+  "task": "coroutines-diff-to-debug-string",
+  "arm": "A",
+  "run": "2",
+  "invalid": []
+ },
+ {
+  "tools": {
+   "Bash": 3
+  },
+  "search": {
+   "rg": 0,
+   "grep": 2,
+   "greeg": 1
+  },
+  "search_evidence": {
+   "hook": 3,
+   "output": 0,
+   "intent": 0
+  },
+  "denied": 0,
+  "greeg_find": 0,
+  "tool_output_chars": 4720,
+  "input_tokens": 10,
+  "output_tokens": 62,
+  "cache_creation": 3132,
+  "cache_read": 45402,
+  "turns": 4,
+  "duration_ms": 21429,
+  "cost_usd": 0.0190735,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 0,
+  "success": true,
+  "unhooked": 0,
+  "writes": 0,
+  "task": "coroutines-diff-to-debug-string",
+  "arm": "S",
+  "run": "1",
+  "invalid": []
+ },
+ {
+  "tools": {
+   "Bash": 2
+  },
+  "search": {
+   "rg": 0,
+   "grep": 0,
+   "greeg": 1
+  },
+  "search_evidence": {
+   "hook": 1,
+   "output": 0,
+   "intent": 0
+  },
+  "denied": 0,
+  "greeg_find": 0,
+  "tool_output_chars": 4678,
+  "input_tokens": 8,
+  "output_tokens": 50,
+  "cache_creation": 7969,
+  "cache_read": 30366,
+  "turns": 3,
+  "duration_ms": 6642,
+  "cost_usd": 0.03602,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 0,
+  "success": true,
+  "unhooked": 0,
+  "writes": 0,
+  "task": "coroutines-diff-to-debug-string",
+  "arm": "S",
+  "run": "2",
+  "invalid": []
+ },
+ {
+  "tools": {
+   "Bash": 3
+  },
+  "search": {
+   "rg": 0,
+   "grep": 3,
+   "greeg": 0
+  },
+  "search_evidence": {
+   "hook": 0,
+   "output": 0,
+   "intent": 3
+  },
+  "denied": 0,
+  "greeg_find": 0,
+  "tool_output_chars": 2083,
+  "input_tokens": 8,
+  "output_tokens": 241,
+  "cache_creation": 4276,
+  "cache_read": 21967,
+  "turns": 4,
+  "duration_ms": 6993,
+  "cost_usd": 0.023756700000000006,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 0,
+  "success": true,
+  "unhooked": 3,
+  "writes": 0,
+  "task": "django-diff-fields-from-path",
+  "arm": "A",
+  "run": "1",
+  "invalid": []
+ },
+ {
+  "tools": {
+   "Bash": 3
+  },
+  "search": {
+   "rg": 0,
+   "grep": 3,
+   "greeg": 0
+  },
+  "search_evidence": {
+   "hook": 0,
+   "output": 0,
+   "intent": 3
+  },
+  "denied": 0,
+  "greeg_find": 0,
+  "tool_output_chars": 2083,
+  "input_tokens": 8,
+  "output_tokens": 241,
+  "cache_creation": 1266,
+  "cache_read": 24936,
+  "turns": 4,
+  "duration_ms": 8685,
+  "cost_usd": 0.0119036,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 0,
+  "success": true,
+  "unhooked": 3,
+  "writes": 0,
+  "task": "django-diff-fields-from-path",
+  "arm": "A",
+  "run": "2",
+  "invalid": []
+ },
+ {
+  "tools": {
+   "Bash": 4
+  },
+  "search": {
+   "rg": 0,
+   "grep": 2,
+   "greeg": 2
+  },
+  "search_evidence": {
+   "hook": 4,
+   "output": 0,
+   "intent": 0
+  },
+  "denied": 0,
+  "greeg_find": 0,
+  "tool_output_chars": 2291,
+  "input_tokens": 10,
+  "output_tokens": 257,
+  "cache_creation": 6332,
+  "cache_read": 36778,
+  "turns": 5,
+  "duration_ms": 12396,
+  "cost_usd": 0.0336958,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 0,
+  "success": true,
+  "unhooked": 0,
+  "writes": 0,
+  "task": "django-diff-fields-from-path",
+  "arm": "S",
+  "run": "1",
+  "invalid": []
+ },
+ {
+  "tools": {
+   "Bash": 3
+  },
+  "search": {
+   "rg": 0,
+   "grep": 4,
+   "greeg": 1
+  },
+  "search_evidence": {
+   "hook": 5,
+   "output": 0,
+   "intent": 0
+  },
+  "denied": 0,
+  "greeg_find": 0,
+  "tool_output_chars": 3232,
+  "input_tokens": 10,
+  "output_tokens": 354,
+  "cache_creation": 2533,
+  "cache_read": 41447,
+  "turns": 4,
+  "duration_ms": 8969,
+  "cost_usd": 0.0166501,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 0,
+  "success": true,
+  "unhooked": 0,
+  "writes": 0,
+  "task": "django-diff-fields-from-path",
+  "arm": "S",
+  "run": "2",
+  "invalid": []
+ },
+ {
+  "tools": {
+   "Bash": 3
+  },
+  "search": {
+   "rg": 0,
+   "grep": 5,
+   "greeg": 0
+  },
+  "search_evidence": {
+   "hook": 0,
+   "output": 0,
+   "intent": 5
+  },
+  "denied": 0,
+  "greeg_find": 0,
+  "tool_output_chars": 6070,
+  "input_tokens": 10,
+  "output_tokens": 66,
+  "cache_creation": 7458,
+  "cache_read": 31285,
+  "turns": 4,
+  "duration_ms": 12983,
+  "cost_usd": 0.036524299999999996,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 0,
+  "success": true,
+  "unhooked": 5,
+  "writes": 0,
+  "task": "django-diff-multi",
+  "arm": "A",
+  "run": "1",
+  "invalid": []
+ },
+ {
+  "tools": {
+   "Bash": 3
+  },
+  "search": {
+   "rg": 0,
+   "grep": 3,
+   "greeg": 0
+  },
+  "search_evidence": {
+   "hook": 0,
+   "output": 0,
+   "intent": 3
+  },
+  "denied": 0,
+  "greeg_find": 0,
+  "tool_output_chars": 5822,
+  "input_tokens": 10,
+  "output_tokens": 56,
+  "cache_creation": 4185,
+  "cache_read": 34264,
+  "turns": 4,
+  "duration_ms": 12049,
+  "cost_usd": 0.0237956,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 0,
+  "success": true,
+  "unhooked": 3,
+  "writes": 0,
+  "task": "django-diff-multi",
+  "arm": "A",
+  "run": "2",
+  "invalid": []
+ },
+ {
+  "tools": {
+   "Bash": 4
+  },
+  "search": {
+   "rg": 0,
+   "grep": 3,
+   "greeg": 1
+  },
+  "search_evidence": {
+   "hook": 4,
+   "output": 0,
+   "intent": 0
+  },
+  "denied": 0,
+  "greeg_find": 0,
+  "tool_output_chars": 7220,
+  "input_tokens": 12,
+  "output_tokens": 793,
+  "cache_creation": 10497,
+  "cache_read": 50095,
+  "turns": 5,
+  "duration_ms": 16895,
+  "cost_usd": 0.050005,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 0,
+  "success": true,
+  "unhooked": 0,
+  "writes": 0,
+  "task": "django-diff-multi",
+  "arm": "S",
+  "run": "1",
+  "invalid": []
+ },
+ {
+  "tools": {
+   "Bash": 4
+  },
+  "search": {
+   "rg": 0,
+   "grep": 3,
+   "greeg": 2
+  },
+  "search_evidence": {
+   "hook": 5,
+   "output": 0,
+   "intent": 0
+  },
+  "denied": 0,
+  "greeg_find": 0,
+  "tool_output_chars": 7562,
+  "input_tokens": 12,
+  "output_tokens": 813,
+  "cache_creation": 5743,
+  "cache_read": 54980,
+  "turns": 5,
+  "duration_ms": 16212,
+  "cost_usd": 0.031900200000000004,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 0,
+  "success": true,
+  "unhooked": 0,
+  "writes": 0,
+  "task": "django-diff-multi",
+  "arm": "S",
+  "run": "2",
+  "invalid": []
+ },
+ {
+  "tools": {
+   "Bash": 3
+  },
+  "search": {
+   "rg": 0,
+   "grep": 2,
+   "greeg": 0
+  },
+  "search_evidence": {
+   "hook": 0,
+   "output": 0,
+   "intent": 2
+  },
+  "denied": 0,
+  "greeg_find": 0,
+  "tool_output_chars": 2043,
+  "input_tokens": 8,
+  "output_tokens": 297,
+  "cache_creation": 4203,
+  "cache_read": 22058,
+  "turns": 4,
+  "duration_ms": 9451,
+  "cost_usd": 0.0236038,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 0,
+  "success": true,
+  "unhooked": 2,
+  "writes": 0,
+  "task": "django-diff-timezone-name",
+  "arm": "A",
+  "run": "1",
+  "invalid": []
+ },
+ {
+  "tools": {
+   "Bash": 2
+  },
+  "search": {
+   "rg": 0,
+   "grep": 2,
+   "greeg": 0
+  },
+  "search_evidence": {
+   "hook": 0,
+   "output": 0,
+   "intent": 2
+  },
+  "denied": 0,
+  "greeg_find": 0,
+  "tool_output_chars": 2004,
+  "input_tokens": 6,
+  "output_tokens": 281,
+  "cache_creation": 1091,
+  "cache_read": 18388,
+  "turns": 3,
+  "duration_ms": 8441,
+  "cost_usd": 0.010234799999999999,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 0,
+  "success": true,
+  "unhooked": 2,
+  "writes": 0,
+  "task": "django-diff-timezone-name",
+  "arm": "A",
+  "run": "2",
+  "invalid": []
+ },
+ {
+  "tools": {
+   "Bash": 2
+  },
+  "search": {
+   "rg": 0,
+   "grep": 0,
+   "greeg": 1
+  },
+  "search_evidence": {
+   "hook": 1,
+   "output": 0,
+   "intent": 0
+  },
+  "denied": 0,
+  "greeg_find": 0,
+  "tool_output_chars": 2516,
+  "input_tokens": 6,
+  "output_tokens": 281,
+  "cache_creation": 1359,
+  "cache_read": 24125,
+  "turns": 3,
+  "duration_ms": 8854,
+  "cost_usd": 0.011790499999999999,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 0,
+  "success": true,
+  "unhooked": 0,
+  "writes": 0,
+  "task": "django-diff-timezone-name",
+  "arm": "S",
+  "run": "1",
+  "invalid": []
+ },
+ {
+  "tools": {
+   "Bash": 2
+  },
+  "search": {
+   "rg": 0,
+   "grep": 0,
+   "greeg": 1
+  },
+  "search_evidence": {
+   "hook": 1,
+   "output": 0,
+   "intent": 0
+  },
+  "denied": 0,
+  "greeg_find": 0,
+  "tool_output_chars": 2516,
+  "input_tokens": 6,
+  "output_tokens": 281,
+  "cache_creation": 6243,
+  "cache_read": 19232,
+  "turns": 3,
+  "duration_ms": 24755,
+  "cost_usd": 0.030837200000000002,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 0,
+  "success": true,
+  "unhooked": 0,
+  "writes": 0,
+  "task": "django-diff-timezone-name",
+  "arm": "S",
+  "run": "2",
+  "invalid": []
+ },
+ {
+  "tools": {
+   "Bash": 3
+  },
+  "search": {
+   "rg": 0,
+   "grep": 4,
+   "greeg": 0
+  },
+  "search_evidence": {
+   "hook": 0,
+   "output": 0,
+   "intent": 4
+  },
+  "denied": 0,
+  "greeg_find": 0,
+  "tool_output_chars": 4017,
+  "input_tokens": 10,
+  "output_tokens": 62,
+  "cache_creation": 3893,
+  "cache_read": 32159,
+  "turns": 4,
+  "duration_ms": 12339,
+  "cost_usd": 0.024053700000000004,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 0,
+  "success": true,
+  "unhooked": 4,
+  "writes": 0,
+  "task": "ktor-diff-decode-url-part",
+  "arm": "A",
+  "run": "1",
+  "invalid": []
+ },
+ {
+  "tools": {
+   "Bash": 3
+  },
+  "search": {
+   "rg": 0,
+   "grep": 4,
+   "greeg": 0
+  },
+  "search_evidence": {
+   "hook": 0,
+   "output": 0,
+   "intent": 4
+  },
+  "denied": 0,
+  "greeg_find": 0,
+  "tool_output_chars": 4017,
+  "input_tokens": 10,
+  "output_tokens": 54,
+  "cache_creation": 6894,
+  "cache_read": 29154,
+  "turns": 4,
+  "duration_ms": 15858,
+  "cost_usd": 0.0359952,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 0,
+  "success": true,
+  "unhooked": 4,
+  "writes": 0,
+  "task": "ktor-diff-decode-url-part",
+  "arm": "A",
+  "run": "2",
+  "invalid": []
+ },
+ {
+  "tools": {
+   "Bash": 3
+  },
+  "search": {
+   "rg": 0,
+   "grep": 2,
+   "greeg": 1
+  },
+  "search_evidence": {
+   "hook": 3,
+   "output": 0,
+   "intent": 0
+  },
+  "denied": 0,
+  "greeg_find": 0,
+  "tool_output_chars": 4098,
+  "input_tokens": 10,
+  "output_tokens": 55,
+  "cache_creation": 3943,
+  "cache_read": 41725,
+  "turns": 4,
+  "duration_ms": 12926,
+  "cost_usd": 0.0246006,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 0,
+  "success": true,
+  "unhooked": 0,
+  "writes": 0,
+  "task": "ktor-diff-decode-url-part",
+  "arm": "S",
+  "run": "1",
+  "invalid": []
+ },
+ {
+  "tools": {
+   "Bash": 5
+  },
+  "search": {
+   "rg": 0,
+   "grep": 7,
+   "greeg": 1
+  },
+  "search_evidence": {
+   "hook": 8,
+   "output": 0,
+   "intent": 0
+  },
+  "denied": 0,
+  "greeg_find": 0,
+  "tool_output_chars": 4713,
+  "input_tokens": 18,
+  "output_tokens": 68,
+  "cache_creation": 10575,
+  "cache_read": 78296,
+  "turns": 6,
+  "duration_ms": 25318,
+  "cost_usd": 0.05468789999999999,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 0,
+  "success": true,
+  "unhooked": 0,
+  "writes": 0,
+  "task": "ktor-diff-decode-url-part",
+  "arm": "S",
+  "run": "2",
+  "invalid": []
+ },
+ {
+  "tools": {
+   "Bash": 4
+  },
+  "search": {
+   "rg": 0,
+   "grep": 7,
+   "greeg": 0
+  },
+  "search_evidence": {
+   "hook": 0,
+   "output": 0,
+   "intent": 7
+  },
+  "denied": 0,
+  "greeg_find": 0,
+  "tool_output_chars": 6615,
+  "input_tokens": 12,
+  "output_tokens": 1089,
+  "cache_creation": 6365,
+  "cache_read": 43278,
+  "turns": 5,
+  "duration_ms": 29789,
+  "cost_usd": 0.042769100000000004,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 0,
+  "success": true,
+  "unhooked": 7,
+  "writes": 0,
+  "task": "ktor-diff-multi",
+  "arm": "A",
+  "run": "1",
+  "invalid": []
+ },
+ {
+  "tools": {
+   "Bash": 3
+  },
+  "search": {
+   "rg": 0,
+   "grep": 3,
+   "greeg": 0
+  },
+  "search_evidence": {
+   "hook": 0,
+   "output": 0,
+   "intent": 3
+  },
+  "denied": 0,
+  "greeg_find": 0,
+  "tool_output_chars": 6584,
+  "input_tokens": 10,
+  "output_tokens": 54,
+  "cache_creation": 9252,
+  "cache_read": 31017,
+  "turns": 4,
+  "duration_ms": 19283,
+  "cost_usd": 0.0515539,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 0,
+  "success": true,
+  "unhooked": 3,
+  "writes": 0,
+  "task": "ktor-diff-multi",
+  "arm": "A",
+  "run": "2",
+  "invalid": []
+ },
+ {
+  "tools": {
+   "Bash": 3
+  },
+  "search": {
+   "rg": 0,
+   "grep": 2,
+   "greeg": 2
+  },
+  "search_evidence": {
+   "hook": 4,
+   "output": 0,
+   "intent": 0
+  },
+  "denied": 0,
+  "greeg_find": 0,
+  "tool_output_chars": 8581,
+  "input_tokens": 10,
+  "output_tokens": 54,
+  "cache_creation": 8159,
+  "cache_read": 43141,
+  "turns": 4,
+  "duration_ms": 14735,
+  "cost_usd": 0.0418007,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 0,
+  "success": true,
+  "unhooked": 0,
+  "writes": 0,
+  "task": "ktor-diff-multi",
+  "arm": "S",
+  "run": "1",
+  "invalid": []
+ },
+ {
+  "tools": {
+   "Bash": 3
+  },
+  "search": {
+   "rg": 0,
+   "grep": 0,
+   "greeg": 3
+  },
+  "search_evidence": {
+   "hook": 3,
+   "output": 0,
+   "intent": 0
+  },
+  "denied": 0,
+  "greeg_find": 0,
+  "tool_output_chars": 7022,
+  "input_tokens": 12,
+  "output_tokens": 48,
+  "cache_creation": 11750,
+  "cache_read": 51960,
+  "turns": 4,
+  "duration_ms": 22200,
+  "cost_usd": 0.0584038,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 0,
+  "success": true,
+  "unhooked": 0,
+  "writes": 0,
+  "task": "ktor-diff-multi",
+  "arm": "S",
+  "run": "2",
+  "invalid": []
+ },
+ {
+  "tools": {
+   "Bash": 3
+  },
+  "search": {
+   "rg": 0,
+   "grep": 3,
+   "greeg": 0
+  },
+  "search_evidence": {
+   "hook": 0,
+   "output": 0,
+   "intent": 3
+  },
+  "denied": 0,
+  "greeg_find": 0,
+  "tool_output_chars": 1441,
+  "input_tokens": 10,
+  "output_tokens": 56,
+  "cache_creation": 4680,
+  "cache_read": 27979,
+  "turns": 4,
+  "duration_ms": 18802,
+  "cost_usd": 0.0226225,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 0,
+  "success": true,
+  "unhooked": 3,
+  "writes": 0,
+  "task": "tokio-diff-budget-has-remaining",
+  "arm": "A",
+  "run": "1",
+  "invalid": []
+ },
+ {
+  "tools": {
+   "Bash": 3
+  },
+  "search": {
+   "rg": 0,
+   "grep": 2,
+   "greeg": 0
+  },
+  "search_evidence": {
+   "hook": 0,
+   "output": 0,
+   "intent": 2
+  },
+  "denied": 0,
+  "greeg_find": 0,
+  "tool_output_chars": 1441,
+  "input_tokens": 8,
+  "output_tokens": 219,
+  "cache_creation": 1074,
+  "cache_read": 24527,
+  "turns": 4,
+  "duration_ms": 6742,
+  "cost_usd": 0.0102947,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 0,
+  "success": true,
+  "unhooked": 2,
+  "writes": 0,
+  "task": "tokio-diff-budget-has-remaining",
+  "arm": "A",
+  "run": "2",
+  "invalid": []
+ },
+ {
+  "tools": {
+   "Bash": 3
+  },
+  "search": {
+   "rg": 0,
+   "grep": 2,
+   "greeg": 1
+  },
+  "search_evidence": {
+   "hook": 3,
+   "output": 0,
+   "intent": 0
+  },
+  "denied": 0,
+  "greeg_find": 0,
+  "tool_output_chars": 1459,
+  "input_tokens": 8,
+  "output_tokens": 74,
+  "cache_creation": 5961,
+  "cache_read": 27301,
+  "turns": 4,
+  "duration_ms": 8898,
+  "cost_usd": 0.0286801,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 0,
+  "success": true,
+  "unhooked": 0,
+  "writes": 0,
+  "task": "tokio-diff-budget-has-remaining",
+  "arm": "S",
+  "run": "1",
+  "invalid": []
+ },
+ {
+  "tools": {
+   "Bash": 3
+  },
+  "search": {
+   "rg": 0,
+   "grep": 2,
+   "greeg": 1
+  },
+  "search_evidence": {
+   "hook": 3,
+   "output": 0,
+   "intent": 0
+  },
+  "denied": 0,
+  "greeg_find": 0,
+  "tool_output_chars": 1459,
+  "input_tokens": 8,
+  "output_tokens": 94,
+  "cache_creation": 1081,
+  "cache_read": 32181,
+  "turns": 4,
+  "duration_ms": 8098,
+  "cost_usd": 0.0098481,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 0,
+  "success": true,
+  "unhooked": 0,
+  "writes": 0,
+  "task": "tokio-diff-budget-has-remaining",
+  "arm": "S",
+  "run": "2",
+  "invalid": []
+ },
+ {
+  "tools": {
+   "Bash": 4
+  },
+  "search": {
+   "rg": 0,
+   "grep": 7,
+   "greeg": 0
+  },
+  "search_evidence": {
+   "hook": 0,
+   "output": 0,
+   "intent": 7
+  },
+  "denied": 0,
+  "greeg_find": 0,
+  "tool_output_chars": 6135,
+  "input_tokens": 14,
+  "output_tokens": 64,
+  "cache_creation": 6669,
+  "cache_read": 51920,
+  "turns": 5,
+  "duration_ms": 16946,
+  "cost_usd": 0.036665500000000004,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 0,
+  "success": true,
+  "unhooked": 7,
+  "writes": 0,
+  "task": "tokio-diff-multi",
+  "arm": "A",
+  "run": "1",
+  "invalid": []
+ },
+ {
+  "tools": {
+   "Bash": 2
+  },
+  "search": {
+   "rg": 0,
+   "grep": 0,
+   "greeg": 0
+  },
+  "search_evidence": {
+   "hook": 0,
+   "output": 0,
+   "intent": 0
+  },
+  "denied": 1,
+  "greeg_find": 0,
+  "tool_output_chars": 3199,
+  "input_tokens": 8,
+  "output_tokens": 42,
+  "cache_creation": 5330,
+  "cache_read": 23472,
+  "turns": 3,
+  "duration_ms": 12771,
+  "cost_usd": 0.030577,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 0,
+  "success": false,
+  "unhooked": 0,
+  "writes": 0,
+  "task": "tokio-diff-multi",
+  "arm": "A",
+  "run": "2",
+  "invalid": []
+ },
+ {
+  "tools": {
+   "Bash": 7
+  },
+  "search": {
+   "rg": 0,
+   "grep": 0,
+   "greeg": 5
+  },
+  "search_evidence": {
+   "hook": 5,
+   "output": 0,
+   "intent": 0
+  },
+  "denied": 1,
+  "greeg_find": 0,
+  "tool_output_chars": 6925,
+  "input_tokens": 26,
+  "output_tokens": 754,
+  "cache_creation": 14333,
+  "cache_read": 124161,
+  "turns": 8,
+  "duration_ms": 25532,
+  "cost_usd": 0.059340800000000006,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 0,
+  "success": true,
+  "unhooked": 0,
+  "writes": 0,
+  "task": "tokio-diff-multi",
+  "arm": "S",
+  "run": "1",
+  "invalid": []
+ },
+ {
+  "tools": {
+   "Bash": 3
+  },
+  "search": {
+   "rg": 0,
+   "grep": 0,
+   "greeg": 1
+  },
+  "search_evidence": {
+   "hook": 1,
+   "output": 0,
+   "intent": 0
+  },
+  "denied": 1,
+  "greeg_find": 0,
+  "tool_output_chars": 5048,
+  "input_tokens": 12,
+  "output_tokens": 54,
+  "cache_creation": 4087,
+  "cache_read": 52900,
+  "turns": 4,
+  "duration_ms": 15700,
+  "cost_usd": 0.024439500000000003,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 0,
+  "success": true,
+  "unhooked": 0,
+  "writes": 0,
+  "task": "tokio-diff-multi",
+  "arm": "S",
+  "run": "2",
+  "invalid": []
+ },
+ {
+  "tools": {
+   "Bash": 4,
+   "Read": 4
+  },
+  "search": {
+   "rg": 0,
+   "grep": 4,
+   "greeg": 0
+  },
+  "search_evidence": {
+   "hook": 0,
+   "output": 0,
+   "intent": 4
+  },
+  "denied": 1,
+  "greeg_find": 0,
+  "tool_output_chars": 7296,
+  "input_tokens": 24,
+  "output_tokens": 207,
+  "cache_creation": 10854,
+  "cache_read": 86656,
+  "turns": 9,
+  "duration_ms": 21382,
+  "cost_usd": 0.0424942,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 0,
+  "success": true,
+  "unhooked": 4,
+  "writes": 0,
+  "task": "tokio-diff-time-source",
+  "arm": "A",
+  "run": "1",
+  "invalid": []
+ },
+ {
+  "tools": {
+   "Bash": 4,
+   "Read": 5
+  },
+  "search": {
+   "rg": 0,
+   "grep": 3,
+   "greeg": 0
+  },
+  "search_evidence": {
+   "hook": 0,
+   "output": 0,
+   "intent": 3
+  },
+  "denied": 1,
+  "greeg_find": 0,
+  "tool_output_chars": 6221,
+  "input_tokens": 26,
+  "output_tokens": 238,
+  "cache_creation": 14147,
+  "cache_read": 85920,
+  "turns": 10,
+  "duration_ms": 26961,
+  "cost_usd": 0.055479,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 0,
+  "success": true,
+  "unhooked": 3,
+  "writes": 0,
+  "task": "tokio-diff-time-source",
+  "arm": "A",
+  "run": "2",
+  "invalid": []
+ },
+ {
+  "tools": {
+   "Bash": 6
+  },
+  "search": {
+   "rg": 0,
+   "grep": 8,
+   "greeg": 2
+  },
+  "search_evidence": {
+   "hook": 10,
+   "output": 0,
+   "intent": 0
+  },
+  "denied": 0,
+  "greeg_find": 0,
+  "tool_output_chars": 6271,
+  "input_tokens": 24,
+  "output_tokens": 101,
+  "cache_creation": 8371,
+  "cache_read": 115038,
+  "turns": 7,
+  "duration_ms": 19771,
+  "cost_usd": 0.0368038,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 0,
+  "success": true,
+  "unhooked": 0,
+  "writes": 0,
+  "task": "tokio-diff-time-source",
+  "arm": "S",
+  "run": "1",
+  "invalid": []
+ },
+ {
+  "tools": {
+   "Bash": 5
+  },
+  "search": {
+   "rg": 0,
+   "grep": 4,
+   "greeg": 5
+  },
+  "search_evidence": {
+   "hook": 9,
+   "output": 0,
+   "intent": 0
+  },
+  "denied": 0,
+  "greeg_find": 0,
+  "tool_output_chars": 6625,
+  "input_tokens": 18,
+  "output_tokens": 82,
+  "cache_creation": 12727,
+  "cache_read": 76083,
+  "turns": 6,
+  "duration_ms": 22631,
+  "cost_usd": 0.05339700000000001,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 0,
+  "success": true,
+  "unhooked": 0,
+  "writes": 0,
+  "task": "tokio-diff-time-source",
+  "arm": "S",
+  "run": "2",
+  "invalid": []
+ },
+ {
+  "tools": {
+   "Bash": 2
+  },
+  "search": {
+   "rg": 0,
+   "grep": 3,
+   "greeg": 0
+  },
+  "search_evidence": {
+   "hook": 0,
+   "output": 0,
+   "intent": 3
+  },
+  "denied": 0,
+  "greeg_find": 0,
+  "tool_output_chars": 5140,
+  "input_tokens": 6,
+  "output_tokens": 574,
+  "cache_creation": 2696,
+  "cache_read": 19009,
+  "turns": 3,
+  "duration_ms": 9165,
+  "cost_usd": 0.0214169,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 0,
+  "success": true,
+  "unhooked": 3,
+  "writes": 0,
+  "task": "ts-diff-multi",
+  "arm": "A",
+  "run": "1",
+  "invalid": []
+ },
+ {
+  "tools": {
+   "Bash": 2
+  },
+  "search": {
+   "rg": 0,
+   "grep": 4,
+   "greeg": 0
+  },
+  "search_evidence": {
+   "hook": 0,
+   "output": 0,
+   "intent": 4
+  },
+  "denied": 0,
+  "greeg_find": 0,
+  "tool_output_chars": 5140,
+  "input_tokens": 6,
+  "output_tokens": 574,
+  "cache_creation": 5568,
+  "cache_read": 16164,
+  "turns": 3,
+  "duration_ms": 10133,
+  "cost_usd": 0.0329504,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 0,
+  "success": true,
+  "unhooked": 4,
+  "writes": 0,
+  "task": "ts-diff-multi",
+  "arm": "A",
+  "run": "2",
+  "invalid": []
+ },
+ {
+  "tools": {
+   "Bash": 2
+  },
+  "search": {
+   "rg": 0,
+   "grep": 2,
+   "greeg": 0
+  },
+  "search_evidence": {
+   "hook": 2,
+   "output": 0,
+   "intent": 0
+  },
+  "denied": 0,
+  "greeg_find": 0,
+  "tool_output_chars": 5140,
+  "input_tokens": 6,
+  "output_tokens": 691,
+  "cache_creation": 2525,
+  "cache_read": 24647,
+  "turns": 3,
+  "duration_ms": 7826,
+  "cost_usd": 0.0207567,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 0,
+  "success": true,
+  "unhooked": 0,
+  "writes": 0,
+  "task": "ts-diff-multi",
+  "arm": "S",
+  "run": "1",
+  "invalid": []
+ },
+ {
+  "tools": {
+   "Bash": 3
+  },
+  "search": {
+   "rg": 0,
+   "grep": 1,
+   "greeg": 2
+  },
+  "search_evidence": {
+   "hook": 3,
+   "output": 0,
+   "intent": 0
+  },
+  "denied": 0,
+  "greeg_find": 0,
+  "tool_output_chars": 6227,
+  "input_tokens": 10,
+  "output_tokens": 757,
+  "cache_creation": 9080,
+  "cache_read": 39440,
+  "turns": 4,
+  "duration_ms": 12739,
+  "cost_usd": 0.0450583,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 0,
+  "success": true,
+  "unhooked": 0,
+  "writes": 0,
+  "task": "ts-diff-multi",
+  "arm": "S",
+  "run": "2",
+  "invalid": []
+ },
+ {
+  "tools": {
+   "Bash": 3
+  },
+  "search": {
+   "rg": 0,
+   "grep": 3,
+   "greeg": 0
+  },
+  "search_evidence": {
+   "hook": 0,
+   "output": 0,
+   "intent": 3
+  },
+  "denied": 0,
+  "greeg_find": 0,
+  "tool_output_chars": 3187,
+  "input_tokens": 8,
+  "output_tokens": 214,
+  "cache_creation": 1717,
+  "cache_read": 24875,
+  "turns": 4,
+  "duration_ms": 8291,
+  "cost_usd": 0.0129715,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 0,
+  "success": true,
+  "unhooked": 3,
+  "writes": 0,
+  "task": "ts-diff-remove-get-full-width",
+  "arm": "A",
+  "run": "1",
+  "invalid": []
+ },
+ {
+  "tools": {
+   "Bash": 3
+  },
+  "search": {
+   "rg": 0,
+   "grep": 3,
+   "greeg": 0
+  },
+  "search_evidence": {
+   "hook": 0,
+   "output": 0,
+   "intent": 3
+  },
+  "denied": 0,
+  "greeg_find": 0,
+  "tool_output_chars": 3270,
+  "input_tokens": 8,
+  "output_tokens": 171,
+  "cache_creation": 4623,
+  "cache_read": 22052,
+  "turns": 4,
+  "duration_ms": 12013,
+  "cost_usd": 0.024153200000000003,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 0,
+  "success": true,
+  "unhooked": 3,
+  "writes": 0,
+  "task": "ts-diff-remove-get-full-width",
+  "arm": "A",
+  "run": "2",
+  "invalid": []
+ },
+ {
+  "tools": {
+   "Bash": 2
+  },
+  "search": {
+   "rg": 0,
+   "grep": 1,
+   "greeg": 1
+  },
+  "search_evidence": {
+   "hook": 2,
+   "output": 0,
+   "intent": 0
+  },
+  "denied": 0,
+  "greeg_find": 0,
+  "tool_output_chars": 3295,
+  "input_tokens": 6,
+  "output_tokens": 144,
+  "cache_creation": 6407,
+  "cache_read": 19143,
+  "turns": 3,
+  "duration_ms": 8167,
+  "cost_usd": 0.0302543,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 0,
+  "success": true,
+  "unhooked": 0,
+  "writes": 0,
+  "task": "ts-diff-remove-get-full-width",
+  "arm": "S",
+  "run": "1",
+  "invalid": []
+ },
+ {
+  "tools": {
+   "Bash": 2
+  },
+  "search": {
+   "rg": 0,
+   "grep": 1,
+   "greeg": 1
+  },
+  "search_evidence": {
+   "hook": 2,
+   "output": 0,
+   "intent": 0
+  },
+  "denied": 0,
+  "greeg_find": 0,
+  "tool_output_chars": 3295,
+  "input_tokens": 6,
+  "output_tokens": 165,
+  "cache_creation": 1665,
+  "cache_read": 23879,
+  "turns": 3,
+  "duration_ms": 10995,
+  "cost_usd": 0.0118799,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 0,
+  "success": true,
+  "unhooked": 0,
+  "writes": 0,
+  "task": "ts-diff-remove-get-full-width",
+  "arm": "S",
+  "run": "2",
+  "invalid": []
+ },
+ {
+  "tools": {
+   "Bash": 4,
+   "Read": 10
+  },
+  "search": {
+   "rg": 0,
+   "grep": 3,
+   "greeg": 0
+  },
+  "search_evidence": {
+   "hook": 0,
+   "output": 0,
+   "intent": 3
+  },
+  "denied": 1,
+  "greeg_find": 0,
+  "tool_output_chars": 11734,
+  "input_tokens": 36,
+  "output_tokens": 396,
+  "cache_creation": 22273,
+  "cache_read": 145701,
+  "turns": 15,
+  "duration_ms": 26809,
+  "cost_usd": 0.077724,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 0,
+  "success": true,
+  "unhooked": 3,
+  "writes": 0,
+  "task": "ts-diff-update-class-declaration",
+  "arm": "A",
+  "run": "1",
+  "invalid": []
+ },
+ {
+  "tools": {
+   "Bash": 4,
+   "Read": 10
+  },
+  "search": {
+   "rg": 0,
+   "grep": 3,
+   "greeg": 0
+  },
+  "search_evidence": {
+   "hook": 0,
+   "output": 0,
+   "intent": 3
+  },
+  "denied": 1,
+  "greeg_find": 0,
+  "tool_output_chars": 11663,
+  "input_tokens": 36,
+  "output_tokens": 389,
+  "cache_creation": 18341,
+  "cache_read": 148268,
+  "turns": 15,
+  "duration_ms": 28431,
+  "cost_usd": 0.0646819,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 0,
+  "success": true,
+  "unhooked": 3,
+  "writes": 0,
+  "task": "ts-diff-update-class-declaration",
+  "arm": "A",
+  "run": "2",
+  "invalid": []
+ },
+ {
+  "tools": {
+   "Bash": 2
+  },
+  "search": {
+   "rg": 0,
+   "grep": 1,
+   "greeg": 1
+  },
+  "search_evidence": {
+   "hook": 2,
+   "output": 0,
+   "intent": 0
+  },
+  "denied": 0,
+  "greeg_find": 0,
+  "tool_output_chars": 5855,
+  "input_tokens": 8,
+  "output_tokens": 44,
+  "cache_creation": 3696,
+  "cache_read": 34168,
+  "turns": 3,
+  "duration_ms": 17026,
+  "cost_usd": 0.020978,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 0,
+  "success": true,
+  "unhooked": 0,
+  "writes": 0,
+  "task": "ts-diff-update-class-declaration",
+  "arm": "S",
+  "run": "1",
+  "invalid": []
+ },
+ {
+  "tools": {
+   "Bash": 2
+  },
+  "search": {
+   "rg": 0,
+   "grep": 2,
+   "greeg": 1
+  },
+  "search_evidence": {
+   "hook": 3,
+   "output": 0,
+   "intent": 0
+  },
+  "denied": 0,
+  "greeg_find": 0,
+  "tool_output_chars": 6873,
+  "input_tokens": 8,
+  "output_tokens": 48,
+  "cache_creation": 9577,
+  "cache_read": 29415,
+  "turns": 3,
+  "duration_ms": 10876,
+  "cost_usd": 0.0421707,
+  "model": "claude-sonnet-5-5",
+  "result": "success",
+  "ambiguous_hooks": 0,
+  "success": true,
+  "unhooked": 0,
+  "writes": 0,
+  "task": "ts-diff-update-class-declaration",
+  "arm": "S",
+  "run": "2",
+  "invalid": []
+ }
+]

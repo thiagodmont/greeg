@@ -918,6 +918,178 @@ pub(crate) fn find(
 }
 
 #[derive(Serialize)]
+struct ChangedFileRec<'a> {
+    path: Text<'a>,
+    status: &'static str,
+    old_path: Option<Text<'a>>,
+    binary: bool,
+    /// Its definitions were compared (the file has a grammar).
+    parsed: bool,
+}
+
+#[derive(Serialize)]
+struct SiteRec<'a> {
+    path: Text<'a>,
+    line: u32,
+    kind: &'static str,
+    /// The change breaks or may break it (an import of a changed signature,
+    /// a member access of a callable, do not count).
+    direct: bool,
+    text: Text<'a>,
+    container: Option<String>,
+    file_flags: Vec<&'static str>,
+}
+
+#[derive(Serialize)]
+struct ChangeRec<'a> {
+    path: Text<'a>,
+    kind: &'static str,
+    name: &'a str,
+    parents: &'a [String],
+    line: u32,
+    change: &'static str,
+    /// A renamed definition's old name.
+    from: Option<&'a str>,
+    signature_old: Option<&'a str>,
+    signature_new: Option<&'a str>,
+    /// Whether its uses were searched.
+    searched: bool,
+    uses_total: usize,
+    use_files: usize,
+    /// Uses on lines the change edited, left out.
+    edited: usize,
+    uses: Vec<SiteRec<'a>>,
+    other_definitions: Vec<(Text<'a>, u32, &'static str)>,
+    other_definitions_total: usize,
+    /// Another changed definition with the same old name, whose record
+    /// lists the uses: (path, line).
+    uses_as_for: Option<(Text<'a>, u32)>,
+}
+
+#[derive(Serialize)]
+struct DiffFooter<'a> {
+    base: &'a str,
+    commit: &'a str,
+    merge_base: bool,
+    staged_only: bool,
+    files: usize,
+    definitions: usize,
+    unsearched: usize,
+    elapsed_ms: f64,
+    outcome: OutcomeRec,
+}
+
+/// `impact --diff`: a `file` record per changed file, a `change` record per
+/// changed definition (with the first `caps[i]` uses of the i-th searched
+/// one), then the footer.
+pub(crate) fn impact_diff(
+    w: &mut dyn Write,
+    r: &greeg_query::impact_diff::DiffImpactResult,
+    caps: &[usize],
+    oc: &Outcome,
+) -> Result<()> {
+    use greeg_query::change::DefChange;
+    header(w, "impact")?;
+    for f in &r.changes.files {
+        put(
+            w,
+            "file",
+            &ChangedFileRec {
+                path: Text::of(&f.rel),
+                status: f.status.name(),
+                old_path: f.old_rel.as_deref().map(Text::of),
+                binary: f.binary,
+                parsed: f.parsed,
+            },
+        )?;
+    }
+    for (fi, f) in r.changes.files.iter().enumerate() {
+        for (di, d) in f.defs.iter().enumerate() {
+            let found = r
+                .impacts
+                .iter()
+                .enumerate()
+                .find(|(_, i)| i.file == fi && i.def == di);
+            let (sig_old, sig_new) = match &d.change {
+                DefChange::Signature { old, new } => (Some(old.as_str()), Some(new.as_str())),
+                _ => (None, None),
+            };
+            let uses = found
+                .map(|(k, i)| {
+                    i.sites[..caps[k].min(i.sites.len())]
+                        .iter()
+                        .map(|s| SiteRec {
+                            path: Text::of(&s.rel),
+                            line: s.line,
+                            kind: s.kind.name(),
+                            direct: greeg_query::impact_diff::direct(d, s.kind),
+                            text: Text::of(&s.text),
+                            container: (!s.chain.is_empty()).then(|| chain_str(&s.chain)),
+                            file_flags: s.flags.names(),
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            let imp = found.map(|(_, i)| i);
+            put(
+                w,
+                "change",
+                &ChangeRec {
+                    path: Text::of(&f.rel),
+                    kind: d.kind.name(),
+                    name: &d.name,
+                    parents: &d.parents,
+                    line: d.line,
+                    change: d.change.name(),
+                    from: match &d.change {
+                        DefChange::Renamed { from } => Some(from),
+                        _ => None,
+                    },
+                    signature_old: sig_old,
+                    signature_new: sig_new,
+                    searched: imp.is_some(),
+                    uses_total: imp.map_or(0, |i| i.sites_total),
+                    use_files: imp.map_or(0, |i| i.files_total),
+                    edited: imp.map_or(0, |i| i.edited),
+                    uses,
+                    other_definitions: imp
+                        .map(|i| {
+                            i.others
+                                .iter()
+                                .map(|(rel, line, kind)| (Text::of(rel), *line, kind.name()))
+                                .collect()
+                        })
+                        .unwrap_or_default(),
+                    other_definitions_total: imp.map_or(0, |i| i.others_total),
+                    uses_as_for: imp.and_then(|i| i.same_as).map(|k| {
+                        let first = &r.impacts[k];
+                        (
+                            Text::of(&r.changes.files[first.file].rel),
+                            r.def(first).line,
+                        )
+                    }),
+                },
+            )?;
+        }
+    }
+    put(
+        w,
+        "footer",
+        &DiffFooter {
+            base: &r.changes.base,
+            commit: &r.changes.commit,
+            merge_base: r.changes.merge_base,
+            staged_only: r.changes.staged,
+            files: r.changes.files.len(),
+            definitions: r.defs_total(),
+            unsearched: r.unsearched,
+            elapsed_ms: r3(r.elapsed_ms),
+            outcome: OutcomeRec::of(oc),
+        },
+    )
+}
+
+#[derive(Serialize)]
 struct ImpactFileRec<'a> {
     path: Text<'a>,
     hits: usize,

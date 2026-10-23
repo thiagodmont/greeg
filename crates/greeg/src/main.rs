@@ -35,6 +35,7 @@ Examples:
   greeg show src/lib.rs:120         the definition enclosing a line, whole (def NAME --mode block: bodies)
   greeg map src/                    important files by import PageRank
   greeg impact get_queryset         files that use it, graded by evidence
+  greeg impact --diff               what the uncommitted changes touch, and where it is used
   greeg find where retries back off files for a question in plain words
   greeg -e def --kind def           a pattern that looks like a verb
 
@@ -476,8 +477,17 @@ enum Cmd {
         #[arg(default_value = "")]
         dir: String,
     },
-    /// Files that use NAME, graded by evidence (likely affected, possible, review), plus callers by name
-    Impact { name: String },
+    /// Files that use NAME, graded by evidence (likely affected, possible, review), plus callers by name; --diff [REV]: the definitions changed since REV and the uses of each
+    Impact {
+        #[arg(required_unless_present = "diff", conflicts_with = "diff")]
+        name: Option<String>,
+        /// Changes since REV (default HEAD; `REV...`: since its merge base with HEAD): staged, unstaged and untracked files
+        #[arg(long, value_name = "REV", num_args = 0..=1, default_missing_value = "HEAD")]
+        diff: Option<String>,
+        /// With --diff: only the staged changes
+        #[arg(long, requires = "diff")]
+        staged: bool,
+    },
     /// Files ranked for a question in plain words, from the index (no names needed)
     Find {
         #[arg(required = true, num_args = 1..)]
@@ -1136,8 +1146,15 @@ fn run() -> Result<()> {
             Cmd::Map { dir } => {
                 verbs_out::run_map(c, &build_options(c, String::new(), vec![])?, &dir)
             }
-            Cmd::Impact { name } => {
-                verbs_out::run_impact(c, &build_options(c, name.clone(), vec![])?, &name)
+            Cmd::Impact {
+                name: Some(name), ..
+            } => verbs_out::run_impact(c, &build_options(c, name.clone(), vec![])?, &name),
+            Cmd::Impact { diff, staged, .. } => {
+                let spec = greeg_query::change::DiffSpec {
+                    base: diff.unwrap_or_else(|| "HEAD".into()),
+                    staged,
+                };
+                verbs_out::run_impact_diff(c, &build_options(c, String::new(), vec![])?, &spec)
             }
             Cmd::Find { words } => {
                 let query = words.join(" ");
