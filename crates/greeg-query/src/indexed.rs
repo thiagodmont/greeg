@@ -288,6 +288,29 @@ pub fn open_fresh(o: &Options, threads: usize) -> Result<Option<Opened>> {
     Ok(open_fresh_with(o, threads, false, &mut || {})?.ok())
 }
 
+/// Options for a verb that reads the index more than once. A search answers
+/// the files the freshness check finds changed from disk, for its own answer
+/// only; a later read that skips the check would see their old spans. So the
+/// check runs here and its deltas are applied: the reads that follow skip it
+/// and still see the changes. Without a usable index they scan. Also returns
+/// the check's method, for the outcome.
+pub fn settled(o: &Options, threads: usize) -> Result<(Options, &'static str)> {
+    let mut s = o.clone();
+    if !o.use_index || o.fresh == Fresh::None {
+        return Ok((s, if o.use_index { "none" } else { "" }));
+    }
+    match open_fresh(o, threads)? {
+        Some(op) => {
+            s.fresh = Fresh::None;
+            Ok((s, op.fresh_method))
+        }
+        None => {
+            s.use_index = false;
+            Ok((s, ""))
+        }
+    }
+}
+
 /// `open_fresh` for a search (answer first), with the reason when the index
 /// cannot answer: changes below
 /// the rebuild threshold are returned in `pending` instead of being applied,

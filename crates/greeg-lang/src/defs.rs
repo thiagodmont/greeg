@@ -135,7 +135,7 @@ static KT: LazyLock<LangRes> = LazyLock::new(|| LangRes {
     // leading annotations (`@Composable fun`, `@Inject constructor`, `@get:Rule val`) are
     // skipped; one level of parentheses inside annotation arguments is allowed
     re: build(
-        r"(?m)^(?P<indent>[ \t]*)(?:@[\w.:]+(?:\((?:[^()\n]|\([^()\n]*\))*\))?\s+)*(?:(?:public|private|protected|internal|open|abstract|final|sealed|data|annotation|inner|inline|value|suspend|operator|infix|override|external|tailrec|actual|expect|lateinit|const|vararg|crossinline|noinline|context\([^)]*\))\s+)*(?:(?P<fun>fun)(?:\s*<[^>]*>)?\s+(?:[\w.<>?*, ]+?\.)??(?P<name>[A-Za-z_]\w*|`[^`]+`)\s*(?:<|\()|(?P<iface>(?:fun\s+)?interface)\s+(?P<name11>[A-Za-z_]\w*)|(?P<enum>enum\s+class)\s+(?P<name12>[A-Za-z_]\w*)|(?P<class>class)\s+(?P<name2>[A-Za-z_]\w*)|(?P<object>object)\s+(?P<name3>[A-Za-z_]\w*)|(?P<companion>companion)\s+object\b\s*(?P<name4>[A-Za-z_]\w*)?|(?P<val>val|var)\s+(?:<[^>]*>\s*)?(?:[\w.<>?]+\.)?(?P<name5>[A-Za-z_]\w*|`[^`]+`)|(?P<typealias>typealias)\s+(?P<name6>[A-Za-z_]\w*))",
+        r"(?m)^(?P<indent>[ \t]*)(?:@[\w.:]+(?:\((?:[^()\n]|\([^()\n]*\))*\))?\s+)*(?:(?:public|private|protected|internal|open|abstract|final|sealed|data|annotation|inner|inline|value|suspend|operator|infix|override|external|tailrec|actual|expect|lateinit|const|vararg|crossinline|noinline|context\([^)]*\))\s+)*(?:(?P<fun>fun)(?:\s*<(?:[^<>]|<[^<>]*>)*>)?\s+(?:[\w.<>?*, ]+?\.)??(?P<name>[A-Za-z_]\w*|`[^`]+`)\s*\(|(?P<iface>(?:fun\s+)?interface)\s+(?P<name11>[A-Za-z_]\w*)|(?P<enum>enum\s+class)\s+(?P<name12>[A-Za-z_]\w*)|(?P<class>class)\s+(?P<name2>[A-Za-z_]\w*)|(?P<object>object)\s+(?P<name3>[A-Za-z_]\w*)|(?P<companion>companion)\s+object\b\s*(?P<name4>[A-Za-z_]\w*)?|(?P<val>val|var)\s+(?:<[^>]*>\s*)?(?:[\w.<>?]+\.)?(?P<name5>[A-Za-z_]\w*|`[^`]+`)|(?P<typealias>typealias)\s+(?P<name6>[A-Za-z_]\w*))",
     ),
     kinds: vec![
         ("fun", DefKind::Function),
@@ -667,7 +667,7 @@ pub fn outline(lang: Lang, src: &[u8], lexed: &Lexed) -> Outline {
     if lang.indent_scoped() {
         compute_ends_indent(src, &mut defs);
     } else {
-        compute_ends_brace(src, lexed, &mut defs);
+        compute_ends_brace(src, lexed, lang == Lang::Kotlin, &mut defs);
     }
     // parents by containment
     let mut stack: Vec<usize> = Vec::new();
@@ -710,13 +710,16 @@ pub fn outline(lang: Lang, src: &[u8], lexed: &Lexed) -> Outline {
             })
             .collect();
         if keep.iter().any(|k| !k) {
-            let mut remap = vec![u32::MAX; defs.len()];
+            // a definition inside a dropped local belongs to the local's parent
+            let mut remap: Vec<Option<u32>> = vec![None; defs.len()];
             let mut n = 0u32;
             for (i, &k) in keep.iter().enumerate() {
-                if k {
-                    remap[i] = n;
+                remap[i] = if k {
                     n += 1;
-                }
+                    Some(n - 1)
+                } else {
+                    defs[i].parent.and_then(|p| remap[p as usize])
+                };
             }
             let mut i = 0;
             defs.retain(|_| {
@@ -725,7 +728,7 @@ pub fn outline(lang: Lang, src: &[u8], lexed: &Lexed) -> Outline {
                 k
             });
             for d in &mut defs {
-                d.parent = d.parent.map(|p| remap[p as usize]);
+                d.parent = d.parent.and_then(|p| remap[p as usize]);
             }
         }
     }
@@ -736,6 +739,66 @@ fn line_end(src: &[u8], off: usize) -> usize {
     memchr::memchr(b'\n', &src[off..])
         .map(|k| off + k + 1)
         .unwrap_or(src.len())
+}
+
+/// A lone `=` (not `==`, `!=`, `<=`, `>=`, `=>`).
+fn assignment(src: &[u8], j: usize) -> bool {
+    !matches!(src.get(j + 1), Some(b'=' | b'>'))
+        && !matches!(
+            j.checked_sub(1).map(|k| src[k]),
+            Some(b'=' | b'!' | b'<' | b'>')
+        )
+}
+
+/// Where a property's initializer starts on its line: its `=` or `by`.
+fn initializer(src: &[u8], lexed: &Lexed, from: usize, to: usize) -> Option<usize> {
+    let mut j = from;
+    let mut paren = 0i32;
+    while j < to {
+        if let Some(sp) = lexed.span_at(j as u32) {
+            j = sp.end as usize;
+            continue;
+        }
+        match src[j] {
+            b'(' | b'[' | b'<' => paren += 1,
+            b')' | b']' | b'>' => paren -= 1,
+            b'=' if paren <= 0 && assignment(src, j) => return Some(j),
+            b'b' if paren <= 0
+                && src[j..to].starts_with(b"by")
+                && !src[j - 1].is_ascii_alphanumeric()
+                && src.get(j + 2).is_some_and(|c| c.is_ascii_whitespace()) =>
+            {
+                return Some(j);
+            }
+            _ => {}
+        }
+        j += 1;
+    }
+    None
+}
+
+/// End of an expression starting at `eq`: its line, then the following lines
+/// indented deeper than the definition's line (blank lines among them too).
+fn expression_end(src: &[u8], def_start: usize, eq: usize) -> usize {
+    let ls = src[..def_start]
+        .iter()
+        .rposition(|&b| b == b'\n')
+        .map_or(0, |k| k + 1);
+    let indent = crate::indent_of(&src[ls..]);
+    let mut end = line_end(src, eq);
+    let mut next = end;
+    while next < src.len() {
+        let le = line_end(src, next);
+        let line = &src[next..le];
+        if !line.trim_ascii().is_empty() {
+            if crate::indent_of(line) <= indent {
+                break;
+            }
+            end = le;
+        }
+        next = le;
+    }
+    end
 }
 
 fn compute_ends_indent(src: &[u8], defs: &mut [Def]) {
@@ -764,18 +827,29 @@ fn compute_ends_indent(src: &[u8], defs: &mut [Def]) {
     }
 }
 
-fn compute_ends_brace(src: &[u8], lexed: &Lexed, defs: &mut [Def]) {
+/// `expr_bodies` (Kotlin): a function's `=` before any brace starts an
+/// expression body, which runs on over the lines indented deeper than its
+/// own (and to the brace that closes one opened before its line ends), as a
+/// property's initializer does.
+fn compute_ends_brace(src: &[u8], lexed: &Lexed, expr_bodies: bool, defs: &mut [Def]) {
     let n = defs.len();
     for i in 0..n {
         let d = &defs[i];
         let start = d.start as usize;
         let le = line_end(src, start);
+        // a Kotlin property's initializer (`=` or `by`) ends as an expression body does
+        let mut expr_at = None;
         if matches!(
             d.kind,
             DefKind::Constant | DefKind::Variable | DefKind::TypeAlias
         ) {
-            defs[i].end = le as u32;
-            continue;
+            expr_at = (expr_bodies && d.kind == DefKind::Variable)
+                .then(|| initializer(src, lexed, d.name_end as usize, le))
+                .flatten();
+            if expr_at.is_none() {
+                defs[i].end = le as u32;
+                continue;
+            }
         }
         let limit = if i + 1 < n {
             (defs[i + 1].start as usize).min(start + 4096)
@@ -783,7 +857,7 @@ fn compute_ends_brace(src: &[u8], lexed: &Lexed, defs: &mut [Def]) {
             (start + 4096).min(src.len())
         };
         // find first '{' or ';' outside noncode at paren depth 0 before `limit`
-        let mut j = d.name_end as usize;
+        let mut j = expr_at.unwrap_or(d.name_end as usize);
         let mut paren = 0i32;
         let mut body_open: Option<usize> = None;
         let mut terminated = false;
@@ -804,11 +878,20 @@ fn compute_ends_brace(src: &[u8], lexed: &Lexed, defs: &mut [Def]) {
                     terminated = true;
                     break;
                 }
+                b'=' if expr_bodies
+                    && expr_at.is_none()
+                    && paren <= 0
+                    && d.kind == DefKind::Function
+                    && assignment(src, j) =>
+                {
+                    expr_at = Some(j);
+                }
+                b'\n' if expr_at.is_some() && paren <= 0 => break,
                 _ => {}
             }
             j += 1;
         }
-        let end = match body_open {
+        let braced = match body_open {
             Some(open) => {
                 // walk brace events from `open`
                 let bi = lexed.braces.partition_point(|b| (b.off as usize) < open);
@@ -827,6 +910,7 @@ fn compute_ends_brace(src: &[u8], lexed: &Lexed, defs: &mut [Def]) {
                 }
                 e
             }
+            None if expr_at.is_some() => 0,
             None => {
                 if terminated {
                     j + 1
@@ -834,6 +918,10 @@ fn compute_ends_brace(src: &[u8], lexed: &Lexed, defs: &mut [Def]) {
                     le.max(d.name_end as usize)
                 }
             }
+        };
+        let end = match expr_at {
+            Some(eq) => braced.max(expression_end(src, start, eq)),
+            None => braced,
         };
         defs[i].end = end as u32;
     }
@@ -995,6 +1083,50 @@ mod tests {
                 ("top", "fn", None)
             ]
         );
+    }
+
+    #[test]
+    fn kotlin_generic_receivers_and_expression_bodies() {
+        let src = b"internal fun <T> Result<T>.toState(c: Int): Any? =\n    target(1)\n\nfun <T, R> ScopeCoroutine<T>.start(\n    a: Boolean,\n): Int {\n    return target(2)\n}\npublic fun List<Pair<String, String?>>.encodeTo(out: Int) =\n    run {\n        target(3)\n    }\nfun one() = target(4)\nfun lambda() = run {\n    a()\n\n    target(7)\n}\nfun args() = test(\n    a = 1\n) {\n    target(8)\n}\nclass P {\n    val p: Int\n        get() = target(9)\n}\nfun <T : Comparable<T>> maxOf(a: T) = a\nval after = target(5)\nprivate val multi =\n    target(6)\nval lazyOne by lazy {\n    a()\n\n    target(10)\n}\nval plugin = create(\n    \"x\"\n) {\n    target(11)\n}\n";
+        let v = names(Lang::Kotlin, src);
+        let n: Vec<_> = v.iter().map(|x| x.0.as_str()).collect();
+        assert_eq!(
+            n,
+            [
+                "toState", "start", "encodeTo", "one", "lambda", "args", "P", "p", "maxOf",
+                "after", "multi", "lazyOne", "plugin"
+            ]
+        );
+        let ol = outline(Lang::Kotlin, src, &crate::lexer::lex(Lang::Kotlin, src));
+        let at = |call: &str| {
+            let off = src
+                .windows(call.len())
+                .position(|w| w == call.as_bytes())
+                .unwrap();
+            ol.enclosing(off as u32).map(|d| {
+                let d = &ol.defs[d as usize];
+                std::str::from_utf8(&src[d.name_start as usize..d.name_end as usize]).unwrap()
+            })
+        };
+        assert_eq!(at("target(1)"), Some("toState"));
+        assert_eq!(at("target(2)"), Some("start"));
+        assert_eq!(at("target(3)"), Some("encodeTo"));
+        assert_eq!(at("target(4)"), Some("one"));
+        assert_eq!(at("target(5)"), Some("after"));
+        assert_eq!(at("target(6)"), Some("multi"));
+        assert_eq!(at("target(7)"), Some("lambda"));
+        assert_eq!(at("target(8)"), Some("args"));
+        assert_eq!(at("target(9)"), Some("P"));
+        assert_eq!(at("target(10)"), Some("lazyOne"));
+        assert_eq!(at("target(11)"), Some("plugin"));
+    }
+
+    #[test]
+    fn kotlin_definitions_inside_a_dropped_local() {
+        let src = b"fun g() {\n    val x = object : Runnable { override fun run() { target() } }\n    val y = object : Runnable {\n        override fun run() {}\n    }\n}\n";
+        let v = names(Lang::Kotlin, src);
+        let n: Vec<_> = v.iter().map(|x| (x.0.as_str(), x.2)).collect();
+        assert_eq!(n, [("g", None), ("run", Some(0)), ("run", Some(0))]);
     }
 
     #[test]

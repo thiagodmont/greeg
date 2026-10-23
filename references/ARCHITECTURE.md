@@ -563,9 +563,11 @@ Ignore files inside the tree are tracked like files. Ignore inputs outside
 it (ancestor ignore files, the repository's `info/exclude`, the global git
 excludes file and the git configuration that names it) are recorded as a
 digest of their identity and timestamps in the manifest; a different digest
-rebuilds the index and the query scans meanwhile. An index built before this
-digest existed has none and is not checked until its next full build
-(`greeg index` forces one).
+rebuilds the index and the query scans meanwhile. The repository directory
+counts by identity only: git writes in it on every `add`, `commit` or index
+refresh, and none of that changes which files are ignored. An index built
+before this digest existed has none and is not checked until its next full
+build (`greeg index` forces one).
 
 A file's stamp is taken from the open descriptor before it is read, and
 checked again after: a file that changed during the read, or since the walk
@@ -589,7 +591,11 @@ A search that finds changes **answers first**. It drops the stale versions from
 its candidates, reads the changed files directly, prints the answer, and only
 then spawns a detached process to extract them and publish a delta segment.
 You still get the working tree as it was at query time. The tree-sitter work is
-what moved off the critical path.
+what moved off the critical path. A verb that reads the index more than once
+(`refs` looks definitions up after its search, `impact` adds the import graph
+and the callers) applies the delta before its first read instead, since only
+the read that ran the check knows which files changed; when the index cannot
+answer, every read scans.
 
 Some changes need a full rebuild, which greeg spawns while it answers the
 query with a scan:
