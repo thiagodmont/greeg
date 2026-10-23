@@ -1,0 +1,29 @@
+crates/greeg-index/src/ignores.rs
+  s_eefb2647553a67::t_277c42279e126a 15-16,19-20,24-36,80-83,92-93,118,275-297
+crates/greeg-lang/src/defs.rs
+  s_eefb2647553a67::t_7301ba51b08d61 138,670,713-714,717,719-722,731,744-803,830-834,840-841,846-852,860,881-889,894,913,922-925,1088-1131
+crates/greeg-query/src/indexed.rs
+  s_eefb2647553a67::t_6e0bdba55d77f0 291-313
+crates/greeg-query/src/verbs.rs
+  s_eefb2647553a67::t_c19c232ac3a964 771-791,798-801,1849-1850,1853-1854
+crates/greeg/tests/cli.rs
+  s_eefb2647553a67::t_804874b886a54c 3837-3878
+references/ARCHITECTURE.md
+  s_eefb2647553a67::t_b79d1729a763a0 566-570,594-598
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "ef258993c68ac67b6b5ce82e303807db9e35189e",
+  "prompts": {},
+  "sessions": {
+    "s_eefb2647553a67": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9fff36d3-3b5f-4343-be78-7893a6fe3965",
+        "model": "unknown"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
