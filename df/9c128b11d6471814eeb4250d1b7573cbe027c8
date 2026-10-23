@@ -1,0 +1,19 @@
+crates/greeg-lang/src/defs.rs
+  s_eefb2647553a67::t_a1bf2ef2aa59cd 138,670,713-714,717,719-722,731,744-803,830-834,840-841,846-852,860,881-889,894,913,922-925,1088-1131
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "df9c128b11d6471814eeb4250d1b7573cbe027c8",
+  "prompts": {},
+  "sessions": {
+    "s_eefb2647553a67": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9fff36d3-3b5f-4343-be78-7893a6fe3965",
+        "model": "unknown"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
