@@ -287,3 +287,51 @@ verb would fix.
 
 There is no correctness headroom: the agents find every use with `git diff`
 and a search per name. A diff verb can only save turns and time.
+
+## Diff-impact feature runs (2026-10-23)
+
+The same twelve tasks with `greeg impact --diff` available (this branch with
+#130 applied, `0.13.0+3c647b390`), Claude Code 2.1.309 on Sonnet, 2 repeats.
+The three runs share one set of 24 arm-A runs, so only the second arm was run
+each time. `results/diff-2026-10-23-{skill-before,hint,skill}` hold the
+records (`.json`), the analysis (`.txt`) and the setup (`-setup.json`). The
+72 new runs cost $2.17.
+
+Held-out tasks, second arm against A (95 % intervals over pairs):
+
+| run | second arm | used `impact --diff` | success A / second | turns | search calls | wall time s |
+|---|---|---|---|---|---|---|
+| skill-before | S, the skill lists the verb | 0 of 24 runs | 15/16 / 16/16 | −1.3 [−3.6, +0.4] | −0.6 [−1.1, +0.0] | −0.8 [−4.9, +3.2] |
+| hint | C, prompt starts "Start with `greeg impact --diff`, which lists the changed definitions and the uses of each." | 24 of 24 | 14/15 / 15/15 | −1.7 [−3.7, −0.2] | +0.7 [−0.7, +2.1] | −2.5 [−5.7, +0.3] |
+| skill | S, the skill also says to start with it when a checkout has changes | 24 of 24 | 15/16 / 16/16 | −2.6 [−4.4, −1.2] | −1.3 [−2.4, −0.3] | −4.0 [−6.6, −1.5] |
+
+- **Over tasks**, the revised skill's intervals also exclude zero: turns
+  [−5.1, −0.9], search calls [−2.4, −0.2], wall time [−7.0, −1.1].
+- **Cost and tokens:** no difference in any run (about $0.03 a run). Cache
+  reads fall by 12.8k with the revised skill, interval [−28.8k, +0.3k].
+- **Failures:** every failed check in these runs comes from a denied command,
+  not a missed site. The permission rules deny `cd …;` chains, `for` loops
+  and an argument after a redirection, in both arms; an agent whose only
+  search is denied answers with no sites. Arm A's 14 turns on
+  `ts-diff-update-class-declaration` are its `for` loops being denied.
+  Without that task, held-out turns are −1.4 [−1.8, −0.9] with the revised
+  skill, −0.4 [−0.9, +0.1] with the hint, and +0.2 with the old skill.
+- **Discovery:** listing a verb in the skill is not enough; saying when to use
+  it is. The skill's sentence was written after the development runs. The
+  task prompts say the checkout has uncommitted changes, which is the
+  condition it names; a real session may state it less plainly.
+
+**Offline**, `impact --diff` alone (`bench/impact_diff.py`, the same binary,
+10 warm runs a task; `results/impact-diff-offline-2026-10-23.json`):
+- **Recall:** development 36/36 sites, held out 115/115.
+- **Precision:** no extras. The uses it marks direct include 2 (development)
+  and 14 (held out) trap uses, uses of another definition with the same name.
+  They are listed, with the other definitions named, not resolved.
+- **Latency:** median 78–506 ms a task (p95 at most 609 ms). The first run
+  after the edits applies them to the index, at most 583 ms.
+
+**Verdict:** with the revised skill, agents use `impact --diff` unprompted and
+finish held-out diff tasks in fewer turns and less time, with every interval
+excluding zero. Success is at the ceiling in every arm, and total tokens and
+cost show no difference.
+

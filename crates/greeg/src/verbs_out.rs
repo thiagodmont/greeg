@@ -6,6 +6,8 @@ use crate::{Common, chain_str, container_of, fmt_n};
 use anyhow::Result;
 use greeg_lang::sym::{SYM_EXPORTED, SYM_HAS_DOC, SYM_TEST};
 use greeg_lang::{DefKind, FileFlags};
+use greeg_query::change::{DefChange, DiffSpec};
+use greeg_query::impact_diff::{DefImpact, DiffImpactResult, Site, direct, impact_diff};
 use greeg_query::indexed::answered;
 use greeg_query::outcome::Outcome;
 use greeg_query::verbs::{self, DefEntry};
@@ -1815,6 +1817,349 @@ pub fn run_impact(c: &Common, o: &Options, name: &str) -> Result<()> {
     };
     let fitted = fit(c.json(), o, per_group, render)?;
     finish_fit(c, o, w, "impact", ex.as_ref(), fitted)
+}
+
+/// Uses a body-only change shows unless the budget is lifted: its callers
+/// need rechecking, not editing.
+const BODY_SITES: usize = 5;
+
+/// Sites shown per changed definition for an allowance of `rows`: one each
+/// in turn, so every definition shows its first uses before any shows many.
+fn site_caps(r: &DiffImpactResult, rows: usize, unlimited: bool) -> Vec<usize> {
+    let sizes: Vec<usize> = r
+        .impacts
+        .iter()
+        .map(|i| match r.def(i).change {
+            DefChange::Body if !unlimited => i.sites.len().min(BODY_SITES),
+            _ => i.sites.len(),
+        })
+        .collect();
+    if rows >= sizes.iter().sum::<usize>() {
+        return sizes;
+    }
+    let mut caps = vec![0; sizes.len()];
+    let mut left = rows;
+    while left > 0 {
+        let mut gave = false;
+        for (cap, &size) in caps.iter_mut().zip(&sizes) {
+            if left > 0 && *cap < size {
+                *cap += 1;
+                left -= 1;
+                gave = true;
+            }
+        }
+        if !gave {
+            break;
+        }
+    }
+    caps
+}
+
+fn diff_outcome(r: &DiffImpactResult, shown_sites: usize) -> Outcome {
+    let files = r.changes.files.len();
+    let sites: usize = r.impacts.iter().map(|i| i.sites_total).sum();
+    Outcome {
+        total: files + sites,
+        shown: files + shown_sites,
+        rung: greeg_query::Rung::Exact,
+        source: r.source,
+        fresh: r.fresh,
+        deferred: 0,
+        byte_cut: false,
+    }
+}
+
+/// `impact --diff`: each changed file, its changed definitions, and the uses
+/// of each definition's old name outside the changed lines.
+pub fn run_impact_diff(c: &Common, o: &Options, spec: &DiffSpec) -> Result<()> {
+    let r = impact_diff(o, spec)?;
+    let ex = c.explain.then(|| {
+        crate::explain::VerbExplain::new(json!({"base": r.changes.base, "commit": r.changes.commit, "files": r.changes.files.len(), "definitions": r.defs_total(), "searched": r.impacts.len(), "unsearched": r.unsearched}))
+    });
+    let w = out();
+    let max: usize = site_caps(&r, usize::MAX, o.budget == 0).iter().sum();
+    if c.json() {
+        let render = |cut: Cut| -> Result<(Vec<u8>, Outcome)> {
+            let caps = site_caps(&r, cut.rows, o.budget == 0);
+            let oc = cut.mark(diff_outcome(&r, caps.iter().sum()));
+            let mut w = Vec::new();
+            crate::json_native::impact_diff(&mut w, &r, &caps, &oc)?;
+            Ok((w, oc))
+        };
+        let fitted = fit(true, o, max, render)?;
+        return finish_fit(c, o, w, "impact", ex.as_ref(), fitted);
+    }
+    let ch = &r.changes;
+    let scope = if ch.staged {
+        "staged only"
+    } else {
+        "staged, unstaged and untracked"
+    };
+    let base = if ch.merge_base {
+        format!("{} (merge base {})", ch.base, ch.commit)
+    } else {
+        format!("{} ({})", ch.base, ch.commit)
+    };
+    let render = |cut: Cut| -> Result<(Vec<u8>, Outcome)> {
+        let caps = site_caps(&r, cut.rows, o.budget == 0);
+        let shown: usize = caps.iter().sum();
+        let oc = cut.mark(diff_outcome(&r, shown));
+        let mut w = Vec::new();
+        let n = ch.files.len();
+        writeln!(
+            w,
+            "impact --diff {base}  {} file{} · {} definition{} changed · {scope} · {}{}",
+            n,
+            if n == 1 { "" } else { "s" },
+            r.defs_total(),
+            if r.defs_total() == 1 { "" } else { "s" },
+            r.source,
+            ms(c, r.elapsed_ms)
+        )?;
+        if n == 0 {
+            writeln!(w, "no changes")?;
+        }
+        for (fi, f) in ch.files.iter().enumerate() {
+            let mut status = f.status.name().to_string();
+            if let Some(old) = &f.old_rel {
+                status = format!("renamed from {}", path_text(old));
+            }
+            if f.binary {
+                status.push_str(" (binary)");
+            }
+            writeln!(w, "{}  {status}", path_text(&f.rel))?;
+            let added: Vec<&str> = f
+                .defs
+                .iter()
+                .filter(|d| d.change == DefChange::Added)
+                .map(|d| d.name.as_str())
+                .collect();
+            if !added.is_empty() {
+                let more = added.len().saturating_sub(8);
+                writeln!(
+                    w,
+                    "  added: {}{}",
+                    added[..added.len() - more].join(", "),
+                    if more > 0 {
+                        format!(" +{more} more")
+                    } else {
+                        String::new()
+                    }
+                )?;
+            }
+            for (k, imp) in r.impacts.iter().enumerate().filter(|(_, i)| i.file == fi) {
+                write_def_impact(&mut w, c, &r, imp, caps[k])?;
+            }
+            let unsearched: Vec<String> = f
+                .defs
+                .iter()
+                .enumerate()
+                .filter(|(di, d)| {
+                    d.change != DefChange::Added
+                        && !r.impacts.iter().any(|i| i.file == fi && i.def == *di)
+                })
+                .map(|(_, d)| {
+                    format!(
+                        "{} {}:{} ({})",
+                        d.kind.name(),
+                        d.name,
+                        d.line,
+                        d.change.name()
+                    )
+                })
+                .collect();
+            if !unsearched.is_empty() {
+                writeln!(w, "  not searched: {}", unsearched.join(", "))?;
+            }
+        }
+        outcome_line(
+            &mut w,
+            &[(shown, r.impacts.iter().map(|i| i.sites_total).sum(), "uses")],
+            &oc,
+            cut.more(),
+        )?;
+        if r.unsearched > 0 {
+            writeln!(
+                w,
+                "uses of {} more changed definitions not searched (at most {} per answer): impact NAME",
+                r.unsearched,
+                greeg_query::impact_diff::MAX_NAMES
+            )?;
+        }
+        Ok((w, oc))
+    };
+    let fitted = fit(false, o, max, render)?;
+    finish_fit(c, o, w, "impact", ex.as_ref(), fitted)
+}
+
+/// Sites grouped by file, in the order their files first appear.
+fn write_sites(w: &mut Vec<u8>, c: &Common, shown: &[&Site]) -> Result<()> {
+    let mut order: Vec<&[u8]> = Vec::new();
+    for s in shown {
+        if !order.contains(&s.rel.as_slice()) {
+            order.push(&s.rel);
+        }
+    }
+    for rel in order {
+        let rows: Vec<&&Site> = shown.iter().filter(|s| s.rel == rel).collect();
+        writeln!(
+            w,
+            "    {}{}",
+            path_text(rel),
+            file_flag_suffix(rel, rows[0].flags)
+        )?;
+        let lw = rows.iter().map(|s| digits(s.line)).max().unwrap_or(1);
+        for s in rows {
+            let within = if s.chain.is_empty() {
+                String::new()
+            } else {
+                format!("  ‹ {}", container_of(&s.chain, false, c.chain))
+            };
+            writeln!(
+                w,
+                "      {:>lw$}  {}  {}{within}",
+                s.line,
+                s.kind.name(),
+                String::from_utf8_lossy(&s.text).trim()
+            )?;
+        }
+    }
+    Ok(())
+}
+
+fn write_def_impact(
+    w: &mut Vec<u8>,
+    c: &Common,
+    r: &DiffImpactResult,
+    imp: &DefImpact,
+    cap: usize,
+) -> Result<()> {
+    let d = r.def(imp);
+    let what = match &d.change {
+        DefChange::Renamed { from } => format!("renamed from {from}"),
+        DefChange::Signature { .. } => "signature changed".to_string(),
+        DefChange::Body => "body changed".to_string(),
+        DefChange::Removed => "removed".to_string(),
+        DefChange::Added => "added".to_string(),
+    };
+    let owner = if d.parents.is_empty() {
+        String::new()
+    } else {
+        format!("{}.", d.parents.join("."))
+    };
+    writeln!(
+        w,
+        "  {} {owner}{}:{}  {what}",
+        d.kind.name(),
+        d.name,
+        d.line
+    )?;
+    if let DefChange::Signature { old, new } = &d.change {
+        writeln!(w, "    was  {old}")?;
+        writeln!(w, "    now  {new}")?;
+    }
+    let old = d.old_name();
+    if let Some(k) = imp.same_as {
+        let first = r.def(&r.impacts[k]);
+        let at = &r.changes.files[r.impacts[k].file].rel;
+        writeln!(
+            w,
+            "    uses of {old}: as for {}:{} above",
+            path_text(at),
+            first.line
+        )?;
+        return Ok(());
+    }
+    let edited = if imp.edited > 0 {
+        format!(" ({} on the changed lines left out)", imp.edited)
+    } else {
+        String::new()
+    };
+    let files = |direct_only: bool| {
+        let set: std::collections::HashSet<&[u8]> = imp
+            .sites
+            .iter()
+            .filter(|s| !direct_only || direct(d, s.kind))
+            .map(|s| s.rel.as_slice())
+            .collect();
+        set.len()
+    };
+    let plural = |n: usize| if n == 1 { "" } else { "s" };
+    if imp.sites_total == 0 {
+        writeln!(w, "    no uses of {old} outside the changed lines{edited}")?;
+    } else if d.change == DefChange::Body {
+        let n = imp.files_total;
+        writeln!(
+            w,
+            "    {} uses of {old} in {n} file{} to recheck{edited}",
+            fmt_n(imp.sites_total),
+            plural(n)
+        )?;
+    } else if imp.direct_total > 0 {
+        let n = files(true);
+        writeln!(
+            w,
+            "    {} uses of {old} in {n}{} file{} to update{edited}",
+            fmt_n(imp.direct_total),
+            if imp.direct_total > imp.sites.len() {
+                "+"
+            } else {
+                ""
+            },
+            plural(n)
+        )?;
+    } else {
+        writeln!(w, "    no use of {old} to update{edited}")?;
+    }
+    let shown = &imp.sites[..cap.min(imp.sites.len())];
+    let (strong, weak): (Vec<&Site>, Vec<&Site>) = if d.change == DefChange::Body {
+        (shown.iter().collect(), Vec::new())
+    } else {
+        shown.iter().partition(|s| direct(d, s.kind))
+    };
+    write_sites(w, c, &strong)?;
+    if !weak.is_empty() {
+        let other = imp.sites_total - imp.direct_total;
+        let mut kinds: Vec<&str> = weak.iter().map(|s| s.kind.name()).collect();
+        kinds.sort_unstable();
+        kinds.dedup();
+        let why = if kinds == ["import"] {
+            "still valid"
+        } else {
+            "a member access may be of a same-named field"
+        };
+        writeln!(
+            w,
+            "    {} other use{} of {old} ({}): {why}",
+            fmt_n(other),
+            plural(other),
+            kinds.join(", ")
+        )?;
+        write_sites(w, c, &weak)?;
+    }
+    if imp.sites_total > shown.len() {
+        writeln!(w, "    +{} more", imp.sites_total - shown.len())?;
+    }
+    if imp.others_total > 0 {
+        let list: Vec<String> = imp
+            .others
+            .iter()
+            .take(4)
+            .map(|(rel, line, kind)| format!("{}:{line} ({})", path_text(rel), kind.name()))
+            .collect();
+        let more = imp.others_total.saturating_sub(list.len());
+        writeln!(
+            w,
+            "    also defined: {}{} — a use may be of one of these",
+            list.join(", "),
+            if more > 0 {
+                format!(" +{more} more")
+            } else {
+                String::new()
+            }
+        )?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]
