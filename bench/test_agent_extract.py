@@ -126,12 +126,13 @@ class AgentExtractTests(unittest.TestCase):
     def test_commands_that_could_write_are_seen(self):
         for cmd in ("cat a > out", "grep x f >> log", "grep x f &>log", "find . -name x -exec rm {} \\;",
                     "find . -delete", "sed -i s/a/b/ f", "sed -e s/a/b/ -ni f", "sort -o x f",
-                    "cd src && rm x", "command tee f", "git diff --output=p HEAD"):
+                    "cd src && rm x", "command tee f", "git diff --output=p HEAD",
+                    "git diff HEAD --out=p", "git log --outp p", "git grep -Ovim x"):
             with self.subTest(cmd):
                 self.assertTrue(writes_in(cmd))
         for cmd in ("rg -n foo src 2>/dev/null | head", "rg x 2>&1 | head", 'grep -rn "a > b" .',
                     "grep -E '=>' f", "sed -n 1,5p f", "sort -u f | uniq -c", "find . -name '*.rs'",
-                    "git diff --cached --stat", "git show HEAD:src/a.rs"):
+                    "git diff --cached --stat", "git show HEAD:src/a.rs", "git log --oneline -3"):
             with self.subTest(cmd):
                 self.assertFalse(writes_in(cmd))
 

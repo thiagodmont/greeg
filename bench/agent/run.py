@@ -50,11 +50,14 @@ def corpus_path(name):
 ALLOWED = ["Read"] + [f"Bash({c}:*)" for c in (
     "rg", "greeg", "grep", "find", "ls", "cat", "head", "tail", "sed", "wc",
     "sort", "uniq", "cut", "tr", "git status", "git diff", "git show", "git log",
-    "git ls-files", "git blame", "git grep", "git rev-parse", "git merge-base")]
-# the allowed commands' common ways to write; the clone and the index
-# template are also checked after every run
-DENIED = [f"Bash({c}:*)" for c in ("sed -i", "sed --in-place", "sort -o", "sort --output",
-                                     "git diff --output", "git show --output", "git log --output")]
+    "git ls-files", "git blame", "git rev-parse", "git merge-base")]
+# the allowed commands' common ways to write (git takes any unambiguous
+# abbreviation of `--output`); the clone and the index template are also
+# checked after every run, and extract.py leaves out a run whose commands
+# could write. `git grep` is not allowed: `-O` runs a command.
+DENIED = [f"Bash({c}:*)" for c in ("sed -i", "sed --in-place", "sort -o", "sort --output")] + [
+    f"Bash(git {sub} {opt}:*)" for sub in ("diff", "show", "log")
+    for opt in ("--ou", "--out", "--outp", "--outpu", "--output")]
 HOOK = {"hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "greeg hook run"}]}]}}
 
 
