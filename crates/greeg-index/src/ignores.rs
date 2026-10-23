@@ -12,11 +12,27 @@ use std::path::{Path, PathBuf};
 
 /// Digest of every input's path and identity: device, inode, size, mtime and
 /// ctime. Any write or mtime reset moves ctime, so contents need not be read.
+/// The repository directory counts by device and inode only: git writes in
+/// it constantly (`git add`, `status`), which changes no ignore rule.
 pub fn digest(root: &Path) -> String {
     let mut h = blake3::Hasher::new();
-    for p in inputs(root) {
+    let (files, git) = inputs(root);
+    for p in files {
         h.update(p.as_os_str().as_encoded_bytes());
         stamp_into(&mut h, &p);
+    }
+    if let Some(git) = git {
+        h.update(b"\0git\0");
+        h.update(git.as_os_str().as_encoded_bytes());
+        match fs::metadata(&git) {
+            Ok(md) => {
+                h.update(&md.dev().to_le_bytes());
+                h.update(&md.ino().to_le_bytes());
+            }
+            Err(_) => {
+                h.update(&[0]);
+            }
+        }
     }
     let real = fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
     for rel in crate::owned_inside(&real) {
@@ -61,9 +77,10 @@ fn stamp_into(h: &mut blake3::Hasher, p: &Path) {
     }
 }
 
-/// Candidate paths, present or not. A few extra paths only cost a failed
-/// stat; a missing one would leave a stale file set.
-fn inputs(root: &Path) -> Vec<PathBuf> {
+/// Candidate files, present or not, and the repository directory. A few
+/// extra paths only cost a failed stat; a missing one would leave a stale
+/// file set.
+fn inputs(root: &Path) -> (Vec<PathBuf>, Option<PathBuf>) {
     let root = fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
     let mut v = Vec::new();
     for dir in root.ancestors().skip(1) {
@@ -72,8 +89,8 @@ fn inputs(root: &Path) -> Vec<PathBuf> {
         }
     }
     // which repository the root belongs to changes which rules apply at all
-    if let Some(git) = git_dir(&root) {
-        v.push(git.clone());
+    let git = git_dir(&root);
+    if let Some(git) = &git {
         v.push(git.join("info/exclude"));
         if let Some(common) = read_regular(&git.join("commondir")) {
             v.push(git.join(common.trim()).join("info/exclude"));
@@ -98,7 +115,7 @@ fn inputs(root: &Path) -> Vec<PathBuf> {
         }
     }
     v.extend(configs);
-    v
+    (v, git)
 }
 
 /// A regular file's whole text. Symlinks are followed (dotfiles are often
@@ -252,6 +269,29 @@ mod tests {
         let linked = digest(&wt);
         fs::write(&exclude, "c.txt\n").unwrap();
         assert_ne!(linked, digest(&wt));
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    /// git writes inside its directory all the time (`git add` renames
+    /// `index.lock` into place, `status` refreshes the index): none of it
+    /// changes which files are ignored.
+    #[test]
+    fn git_writes_inside_the_repository_directory_keep_the_digest() {
+        let base = own_dir("ignores-git-writes");
+        let repo = base.join("repo");
+        fs::create_dir_all(repo.join(".git/info")).unwrap();
+        fs::write(repo.join(".git/info/exclude"), "a.txt\n").unwrap();
+        let before = digest(&repo);
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        fs::write(repo.join(".git/index.lock"), "x").unwrap();
+        fs::rename(repo.join(".git/index.lock"), repo.join(".git/index")).unwrap();
+        fs::write(repo.join(".git/ORIG_HEAD"), "y").unwrap();
+        assert_eq!(before, digest(&repo));
+        // another repository at the same path does change it
+        fs::remove_dir_all(repo.join(".git")).unwrap();
+        fs::create_dir_all(repo.join(".git/info")).unwrap();
+        fs::write(repo.join(".git/info/exclude"), "a.txt\n").unwrap();
+        assert_ne!(before, digest(&repo));
         let _ = fs::remove_dir_all(&base);
     }
 

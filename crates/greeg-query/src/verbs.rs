@@ -768,18 +768,40 @@ pub struct RefsResult {
 }
 
 pub fn refs(o: &Options, name: &str, kinds: &[HitKind]) -> Result<RefsResult> {
+    let (o, fresh) = settle(o)?;
+    refs_settled(&o, fresh, name, kinds)
+}
+
+/// [`indexed::settled`] with the verb's thread count.
+fn settle(o: &Options) -> Result<(Options, &'static str)> {
+    let threads = if o.threads == 0 {
+        crate::default_threads()
+    } else {
+        o.threads
+    };
+    indexed::settled(o, threads)
+}
+
+/// `refs` on options [`settle`] returned, which ran the check (`fresh`).
+fn refs_settled(
+    o: &Options,
+    fresh: &'static str,
+    name: &str,
+    kinds: &[HitKind],
+) -> Result<RefsResult> {
     let mut so = o.clone();
     so.pattern = name.to_string();
     so.fixed_strings = true;
     so.word = true;
     so.kinds = kinds.to_vec();
     so.mode = Mode::Content;
-    let scan_r = scan(&so)?;
-    // the scan above ran the freshness check; the lookups below reuse its result
+    let mut scan_r = scan(&so)?;
+    if scan_r.stats.source != "scan" {
+        scan_r.stats.fresh_method = fresh;
+    }
     let mut d = o.clone();
     d.matching = crate::MatchingPolicy::Exact;
     d.budget = 400;
-    d.fresh = greeg_index::fresh::Mode::None;
     // a failed lookup must not read as "no definitions": retry it from a scan,
     // whose definitions carry no file ids to classify hits by
     let (found, scanned) = match def(&d, name, &[], None) {
@@ -1948,12 +1970,12 @@ pub struct ImpactResult {
 
 pub fn impact(o: &Options, name: &str) -> Result<ImpactResult> {
     let t0 = Instant::now();
+    // the references, the graph and the callers read the index after one check
+    let (o, fresh) = &settle(o)?;
     let mut so = o.clone();
     so.budget = 0;
-    let r = refs(&so, name, &[])?;
-    // `refs` ran the freshness check
-    let mut io = o.clone();
-    io.fresh = greeg_index::fresh::Mode::None;
+    let r = refs_settled(&so, fresh, name, &[])?;
+    let io = o.clone();
     let graph = if o.use_index && r.scan.stats.source != "scan" {
         indexed::open_fresh(&io, 1)
             .ok()
@@ -2020,7 +2042,6 @@ pub fn impact(o: &Options, name: &str) -> Result<ImpactResult> {
     }
     let mut co = o.clone();
     co.matching = crate::MatchingPolicy::Exact;
-    co.fresh = greeg_index::fresh::Mode::None; // `refs` already ran the check
     let callers = callers(&co, name, 2)?;
     Ok(ImpactResult {
         outcome: Outcome::of_search(&r.scan, 0),
