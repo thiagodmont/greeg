@@ -563,9 +563,11 @@ Ignore files inside the tree are tracked like files. Ignore inputs outside
 it (ancestor ignore files, the repository's `info/exclude`, the global git
 excludes file and the git configuration that names it) are recorded as a
 digest of their identity and timestamps in the manifest; a different digest
-rebuilds the index and the query scans meanwhile. An index built before this
-digest existed has none and is not checked until its next full build
-(`greeg index` forces one).
+rebuilds the index and the query scans meanwhile. The repository directory
+counts by identity only: git writes in it on every `add`, `commit` or index
+refresh, and none of that changes which files are ignored. An index built
+before this digest existed has none and is not checked until its next full
+build (`greeg index` forces one).
 
 A file's stamp is taken from the open descriptor before it is read, and
 checked again after: a file that changed during the read, or since the walk
