@@ -563,9 +563,11 @@ Ignore files inside the tree are tracked like files. Ignore inputs outside
 it (ancestor ignore files, the repository's `info/exclude`, the global git
 excludes file and the git configuration that names it) are recorded as a
 digest of their identity and timestamps in the manifest; a different digest
-rebuilds the index and the query scans meanwhile. An index built before this
-digest existed has none and is not checked until its next full build
-(`greeg index` forces one).
+rebuilds the index and the query scans meanwhile. The repository directory
+counts by identity only: git writes in it on every `add`, `commit` or index
+refresh, and none of that changes which files are ignored. An index built
+before this digest existed has none and is not checked until its next full
+build (`greeg index` forces one).
 
 A file's stamp is taken from the open descriptor before it is read, and
 checked again after: a file that changed during the read, or since the walk
@@ -589,7 +591,11 @@ A search that finds changes **answers first**. It drops the stale versions from
 its candidates, reads the changed files directly, prints the answer, and only
 then spawns a detached process to extract them and publish a delta segment.
 You still get the working tree as it was at query time. The tree-sitter work is
-what moved off the critical path.
+what moved off the critical path. A verb that reads the index more than once
+(`refs` looks definitions up after its search, `impact` adds the import graph
+and the callers) applies the delta before its first read instead, since only
+the read that ran the check knows which files changed; when the index cannot
+answer, every read scans.
 
 Some changes need a full rebuild, which greeg spawns while it answers the
 query with a scan:
@@ -683,6 +689,24 @@ a file that defines the name, not which definition a call binds to: with
 several definitions, a link to any of them counts. A scan has no import
 graph, so nothing is likely affected there, and the header says so. Its
 `callers by name` section matches calls by name.
+
+`impact --diff` starts from git instead of a name (`change.rs`). One
+`git diff -U0 -M --relative` against the base gives the changed files and
+their changed line ranges on both sides; `git ls-files --others` adds the
+untracked files. The old side of each file is read with one
+`git cat-file --batch`, the new side from the working tree (from the git
+index under `--staged`); git runs without optional locks, so nothing in
+`.git` is written. Both sides are parsed by the symbol extractor, each
+changed line is charged to the innermost definition holding it, and the
+definitions are matched by kind, enclosing names and name: one on both
+sides changed its signature (the declaration up to its body) or only its
+body; one on a single side was added or removed, and the only removed and
+the only added definition of a kind in one scope count as a rename.
+`impact_diff.rs` then searches each breaking change's old name with the
+kinds that can depend on its definition, skips the hits on changed lines,
+and lists other definitions of the name: a use found by name may be of any
+of them. A string hit inside an interpolation (`${…}`, a Python f-string's
+`{…}`) counts as code.
 
 `find` answers a question in plain words from the same index, with no
 model and nothing more on disk (`find.rs`). The question's words are cut

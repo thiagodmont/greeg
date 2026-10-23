@@ -1,0 +1,53 @@
+arm A search calls decided by: hook 0, output 0, intent 81
+arm S search calls decided by: hook 48, output 0, intent 0
+== development tasks: 4 tasks
+
+task                                 A ok     A $  A turns   S ok     S $  S turns
+coroutines-diff-to-debug-string      2/2    0.025      4.0   2/2    0.028      3.0
+django-diff-fields-from-path         2/2    0.018      4.0   2/2    0.018      2.0
+ktor-diff-decode-url-part            2/2    0.030      4.0   2/2    0.035      3.0
+tokio-diff-time-source               2/2    0.049      9.5   2/2    0.022      2.0
+
+success A: 8/8 (100 %, 95 % Wilson [68, 100])
+success S: 8/8 (100 %, 95 % Wilson [68, 100])
+
+metric                  A          S   paired difference vs A (95 % bootstrap: over pairs | over tasks)
+success rate         1.00       1.00   S: +0.00 [+0.00, +0.00] | [+0.00, +0.00] n=8 tasks=4
+turns                5.38       2.50   S: -2.88 [-5.12, -1.25] | [-5.88, -1.00] n=8 tasks=4
+search calls         3.50       2.00   S: -1.50 [-2.12, -0.88] | [-2.25, -0.75] n=8 tasks=4
+greeg find           0.00       0.00   S: +0.00 [+0.00, +0.00] | [+0.00, +0.00] n=8 tasks=4
+tool output ch    4390.38    3296.88   S: -1093.50 [-2631.00, +283.38] | [-3437.62, +777.38] n=8 tasks=4
+output tokens      146.38     328.88   S: +182.50 [-88.38, +510.88] | [-136.88, +672.88] n=8 tasks=4
+input tokens        13.25       7.00   S: -6.25 [-12.00, -1.50] | [-14.75, -1.00] n=8 tasks=4
+cache writes      6346.25    5406.38   S: -939.88 [-4104.12, +1613.25] | [-5490.50, +1769.38] n=8 tasks=4
+cache reads      43677.88   26203.62   S: -17474.25 [-39193.25, -76.62] | [-48768.88, +2588.00] n=8 tasks=4
+cost USD             0.03       0.03   S: -0.00 [-0.01, +0.00] | [-0.02, +0.00] n=8 tasks=4
+wall time s         13.90       8.53   S: -5.37 [-10.46, -1.04] | [-13.33, -0.22] n=8 tasks=4
+
+== held-out tasks: 8 tasks
+
+task                                 A ok     A $  A turns   S ok     S $  S turns
+django-diff-multi                    2/2    0.030      4.0   2/2    0.027      2.0
+django-diff-timezone-name            2/2    0.017      3.5   2/2    0.023      3.0
+ktor-diff-multi                      2/2    0.047      4.5   2/2    0.038      2.0
+tokio-diff-budget-has-remaining      2/2    0.016      4.0   2/2    0.024      3.5
+tokio-diff-multi                     1/2    0.034      4.0   2/2    0.029      2.5
+ts-diff-multi                        2/2    0.027      3.0   2/2    0.029      2.5
+ts-diff-remove-get-full-width        2/2    0.019      4.0   2/2    0.023      2.0
+ts-diff-update-class-declaration     2/2    0.071     15.0   2/2    0.045      4.0
+
+success A: 15/16 (94 %, 95 % Wilson [72, 99])
+success S: 16/16 (100 %, 95 % Wilson [81, 100])
+
+metric                  A          S   paired difference vs A (95 % bootstrap: over pairs | over tasks)
+success rate         0.94       1.00   S: +0.06 [+0.00, +0.19] | [+0.00, +0.19] n=16 tasks=8
+turns                5.25       2.69   S: -2.56 [-4.38, -1.19] | [-5.12, -0.94] n=16 tasks=8
+search calls         3.31       2.00   S: -1.31 [-2.38, -0.25] | [-2.44, -0.19] n=16 tasks=8
+greeg find           0.00       0.00   S: +0.00 [+0.00, +0.00] | [+0.00, +0.00] n=16 tasks=8
+tool output ch    5093.00    4756.00   S: -337.00 [-767.44, +116.38] | [-875.19, +233.75] n=16 tasks=8
+output tokens      283.88     247.19   S: -36.69 [-187.12, +145.69] | [-190.44, +145.25] n=16 tasks=8
+input tokens        12.25       7.75   S: -4.50 [-8.38, -1.38] | [-10.25, -0.62] n=16 tasks=8
+cache writes      6595.31    6680.62   S: +85.31 [-2104.25, +2008.25] | [-2382.50, +2027.06] n=16 tasks=8
+cache reads      42766.06   29979.75   S: -12786.31 [-28816.19, +281.44] | [-36063.88, +3619.06] n=16 tasks=8
+cost USD             0.03       0.03   S: -0.00 [-0.01, +0.00] | [-0.01, +0.00] n=16 tasks=8
+wall time s         15.13      11.11   S: -4.02 [-6.55, -1.45] | [-6.97, -1.08] n=16 tasks=8
