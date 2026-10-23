@@ -1,0 +1,78 @@
+bench/agent/diff/tokio-diff-multi/staged.patch
+  s_eefb2647553a67::t_be16b73bf3e0c3 1-13
+bench/agent/diff/django-diff-multi/unstaged.patch
+  s_eefb2647553a67::t_be16b73bf3e0c3 1-73
+bench/agent/tasks.toml
+  s_eefb2647553a67::t_bf328b35979624 417-503
+  s_eefb2647553a67::t_9d48e57dfd3938 504-547
+bench/test_agent_tasks.py
+  s_eefb2647553a67::t_6a748b7baf71ca 3,9,11-13,15,27-44,61-72,86-98
+bench/agent/diff/ts-diff-remove-get-full-width/unstaged.patch
+  s_eefb2647553a67::t_d4b4cee0230ee0 2,5-8,14-20,22-29,32-34
+  s_eefb2647553a67::t_d7a4a5ae7fb3b6 1,3-4,9-13,21,30-31
+bench/agent/run.py
+  s_eefb2647553a67::t_7c3f2154c2bb6b 52-53,56-57,95-100,105-107,111-112,119-125,128,131-133,143,173,217,221,235-241,251
+  s_eefb2647553a67::t_7363792b75a74c 101-104,108-110,113-118,126-127,129-130,136-137,140-142
+bench/agent/diff/ts-diff-update-class-declaration/unstaged.patch
+  s_eefb2647553a67::t_d4b4cee0230ee0 2,5-17,20-22
+  s_eefb2647553a67::t_d7a4a5ae7fb3b6 1,3-4,18-19
+bench/test_agent_extract.py
+  s_eefb2647553a67::t_cef7653d0b8b0c 129,133-134
+bench/agent/diff/django-diff-multi/staged.patch
+  s_eefb2647553a67::t_be16b73bf3e0c3 1-13
+bench/agent/diff/ktor-diff-multi/staged.patch
+  s_eefb2647553a67::t_be16b73bf3e0c3 1-13
+bench/agent/diff/ts-diff-multi/staged.patch
+  s_eefb2647553a67::t_be16b73bf3e0c3 1-31
+bench/agent/diff/ts-diff-multi/unstaged.patch
+  s_eefb2647553a67::t_be16b73bf3e0c3 1-23
+bench/agent/extract.py
+  s_eefb2647553a67::t_c8e1d6b3a46ae5 77-78,91-92
+.gitattributes
+  s_eefb2647553a67::t_cafbaa04e6ddb6 1-2
+bench/agent/diff/ktor-diff-multi/unstaged.patch
+  s_eefb2647553a67::t_be16b73bf3e0c3 1-27
+bench/agent/diff/tokio-diff-multi/unstaged.patch
+  s_eefb2647553a67::t_be16b73bf3e0c3 1-49
+bench/agent/check_sites.py
+  s_eefb2647553a67::t_0327a80b9961fa 7-9,20
+  s_eefb2647553a67::t_c72d92a9966575 10-14
+  s_eefb2647553a67::t_368097e985764c 1-6,15-19,21-70
+bench/agent/diff/ts-diff-update-class-declaration/staged.patch
+  s_eefb2647553a67::t_d4b4cee0230ee0 2,5-8,11-13
+  s_eefb2647553a67::t_d7a4a5ae7fb3b6 1,3-4,9-10
+bench/agent/diff/coroutines-diff-to-debug-string/staged.patch
+  s_eefb2647553a67::t_b78f1010652047 1-11
+bench/agent/diff/coroutines-diff-to-debug-string/unstaged.patch
+  s_eefb2647553a67::t_c6c3e020e1ffd9 1-39
+bench/agent/diff/django-diff-fields-from-path/unstaged.patch
+  s_eefb2647553a67::t_494f22e6aaf497 1-25
+bench/agent/diff/django-diff-timezone-name/staged.patch
+  s_eefb2647553a67::t_a74db5551bc62f 1-22
+bench/agent/diff/django-diff-timezone-name/unstaged.patch
+  s_eefb2647553a67::t_eca16bb60509c4 1-13
+bench/agent/diff/ktor-diff-decode-url-part/staged.patch
+  s_eefb2647553a67::t_cefc640150507d 1-16
+bench/agent/diff/ktor-diff-decode-url-part/unstaged.patch
+  s_eefb2647553a67::t_c69984e0977551 1-17
+bench/agent/diff/tokio-diff-budget-has-remaining/unstaged.patch
+  s_eefb2647553a67::t_8648b18aecc796 1-15
+bench/agent/diff/tokio-diff-time-source/staged.patch
+  s_eefb2647553a67::t_c2a24c6571c055 1-13
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "5b34a3e434b94737035ce3401c83a3a7985080bc",
+  "prompts": {},
+  "sessions": {
+    "s_eefb2647553a67": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9fff36d3-3b5f-4343-be78-7893a6fe3965",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
