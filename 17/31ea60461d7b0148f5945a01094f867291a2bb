@@ -1,0 +1,21 @@
+crates/greeg-index/src/ignores.rs
+  s_eefb2647553a67::t_10d4b4e5f1bce9 15-16,19-20,24-36,80-83,92-93,118,275-297
+references/ARCHITECTURE.md
+  s_eefb2647553a67::t_ef038ae8b67f4f 566-570
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "1731ea60461d7b0148f5945a01094f867291a2bb",
+  "prompts": {},
+  "sessions": {
+    "s_eefb2647553a67": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9fff36d3-3b5f-4343-be78-7893a6fe3965",
+        "model": "unknown"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
