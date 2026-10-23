@@ -1,0 +1,17 @@
+diff --git a/ktor-http/common/src/io/ktor/http/UrlPathSegments.kt b/ktor-http/common/src/io/ktor/http/UrlPathSegments.kt
+new file mode 100644
+index 000000000..71466987a
+--- /dev/null
++++ b/ktor-http/common/src/io/ktor/http/UrlPathSegments.kt
+@@ -0,0 +1,11 @@
++/*
++ * Copyright 2014-2026 JetBrains s.r.o and contributors. Use of this source code is governed by the Apache 2.0 license.
++ */
++
++package io.ktor.http
++
++/**
++ * Splits an encoded path into its decoded segments.
++ */
++public fun String.decodedPathSegments(): List<String> =
++    split('/').filter { it.isNotEmpty() }.map { it.decodeUrlPart() }

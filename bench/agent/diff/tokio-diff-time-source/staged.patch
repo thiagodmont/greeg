@@ -1,0 +1,13 @@
+diff --git a/tokio/src/runtime/time/handle.rs b/tokio/src/runtime/time/handle.rs
+index 33319031..c5790323 100644
+--- a/tokio/src/runtime/time/handle.rs
++++ b/tokio/src/runtime/time/handle.rs
+@@ -9,7 +9,7 @@ pub(crate) struct Handle {
+ 
+ impl Handle {
+     /// Returns the time source associated with this handle.
+-    pub(crate) fn time_source(&self) -> &TimeSource {
++    pub(crate) fn clock_source(&self) -> &TimeSource {
+         &self.time_source
+     }
+ 

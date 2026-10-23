@@ -1,0 +1,49 @@
+diff --git a/tokio/src/runtime/scheduler/multi_thread/queue.rs b/tokio/src/runtime/scheduler/multi_thread/queue.rs
+index 46cd0a54..ecd2afa0 100644
+--- a/tokio/src/runtime/scheduler/multi_thread/queue.rs
++++ b/tokio/src/runtime/scheduler/multi_thread/queue.rs
+@@ -410,7 +410,7 @@ impl<T> Steal<T> {
+     /// Return true if the queue is empty,
+     /// false if there are any entries in the queue
+     pub(crate) fn is_empty(&self) -> bool {
+-        self.len() == 0
++        matches!(self.len(), 0)
+     }
+ 
+     /// Steals half the tasks from self and place them into `dst`.
+diff --git a/tokio/src/sync/task/atomic_waker.rs b/tokio/src/sync/task/atomic_waker.rs
+index a13e27ea..035cdd96 100644
+--- a/tokio/src/sync/task/atomic_waker.rs
++++ b/tokio/src/sync/task/atomic_waker.rs
+@@ -6,7 +6,7 @@ use crate::loom::sync::atomic::AtomicUsize;
+ 
+ use std::fmt;
+ use std::panic::{resume_unwind, AssertUnwindSafe, RefUnwindSafe, UnwindSafe};
+-use std::sync::atomic::Ordering::{AcqRel, Acquire, Release};
++use std::sync::atomic::Ordering::{self, AcqRel, Acquire, Release};
+ use std::task::Waker;
+ 
+ /// A synchronization primitive for task waking.
+@@ -301,7 +301,7 @@ impl AtomicWaker {
+     ///
+     /// If `register` has not been called yet, then this does nothing.
+     pub(crate) fn wake(&self) {
+-        if let Some(waker) = self.take_waker() {
++        if let Some(waker) = self.take_waker(AcqRel) {
+             // If wake panics, we've consumed the waker which is a legitimate
+             // outcome.
+             waker.wake();
+@@ -310,11 +310,11 @@ impl AtomicWaker {
+ 
+     /// Attempts to take the `Waker` value out of the `AtomicWaker` with the
+     /// intention that the caller will wake the task later.
+-    pub(crate) fn take_waker(&self) -> Option<Waker> {
++    pub(crate) fn take_waker(&self, order: Ordering) -> Option<Waker> {
+         // AcqRel ordering is used in order to acquire the value of the `waker`
+         // cell as well as to establish a `release` ordering with whatever
+         // memory the `AtomicWaker` is associated with.
+-        match self.state.fetch_or(WAKING, AcqRel) {
++        match self.state.fetch_or(WAKING, order) {
+             WAITING => {
+                 // SAFETY: the waking lock has been acquired.
+                 let waker = unsafe { self.waker.with_mut(|t| (*t).take()) };

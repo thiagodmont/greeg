@@ -1,0 +1,11 @@
+diff --git a/kotlinx-coroutines-core/common/src/CoroutineContext.common.kt b/kotlinx-coroutines-core/common/src/CoroutineContext.common.kt
+index 2414f09a2..b7280b776 100644
+--- a/kotlinx-coroutines-core/common/src/CoroutineContext.common.kt
++++ b/kotlinx-coroutines-core/common/src/CoroutineContext.common.kt
+@@ -32,5 +32,5 @@ internal expect val DefaultDelay: Delay
+ // countOrElement -- pre-cached value for ThreadContext.kt
+ internal expect inline fun <T> withCoroutineContext(context: CoroutineContext, countOrElement: Any?, block: () -> T): T
+ internal expect inline fun <T> withContinuationContext(continuation: Continuation<*>, countOrElement: Any?, block: () -> T): T
+-internal expect fun Continuation<*>.toDebugString(): String
++internal expect fun Continuation<*>.toDebugInfo(): String
+ internal expect val CoroutineContext.coroutineName: String?

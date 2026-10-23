@@ -1,0 +1,27 @@
+diff --git a/ktor-utils/common/src/io/ktor/util/Text.kt b/ktor-utils/common/src/io/ktor/util/Text.kt
+index 8004f5a41..c902bc64b 100644
+--- a/ktor-utils/common/src/io/ktor/util/Text.kt
++++ b/ktor-utils/common/src/io/ktor/util/Text.kt
+@@ -48,9 +48,9 @@ public inline fun String.chomp(
+  * Does the same as the regular [toLowerCase] except that locale-specific rules are not applied to ASCII characters
+  * so latin characters are converted by the original english rules.
+  *
+- * [Report a problem](https://ktor.io/feedback/?fqname=io.ktor.util.toLowerCasePreservingASCIIRules)
++ * [Report a problem](https://ktor.io/feedback/?fqname=io.ktor.util.toLowerCaseAsciiOnly)
+  */
+-public fun String.toLowerCasePreservingASCIIRules(): String {
++public fun String.toLowerCaseAsciiOnly(): String {
+     val firstIndex = indexOfFirst {
+         toLowerCasePreservingASCII(it) != it
+     }
+@@ -76,8 +76,8 @@ public fun String.toLowerCasePreservingASCIIRules(): String {
+  * [Report a problem](https://ktor.io/feedback/?fqname=io.ktor.util.toUpperCasePreservingASCIIRules)
+  */
+ public fun String.toUpperCasePreservingASCIIRules(): String {
+-    val firstIndex = indexOfFirst {
+-        toUpperCasePreservingASCII(it) != it
++    val firstIndex = indexOfFirst { ch ->
++        toUpperCasePreservingASCII(ch) != ch
+     }
+ 
+     if (firstIndex == -1) {

@@ -1,0 +1,73 @@
+diff --git a/django/db/models/options.py b/django/db/models/options.py
+index 1fcb37a470..d91a63881d 100644
+--- a/django/db/models/options.py
++++ b/django/db/models/options.py
+@@ -61,28 +61,6 @@ DEFAULT_NAMES = (
+ )
+ 
+ 
+-def normalize_together(option_together):
+-    """
+-    option_together can be either a tuple of tuples, or a single
+-    tuple of two strings. Normalize it to a tuple of tuples, so that
+-    calling code can uniformly expect that.
+-    """
+-    try:
+-        if not option_together:
+-            return ()
+-        if not isinstance(option_together, (tuple, list)):
+-            raise TypeError
+-        first_element = option_together[0]
+-        if not isinstance(first_element, (tuple, list)):
+-            option_together = (option_together,)
+-        # Normalize everything to tuples
+-        return tuple(tuple(ot) for ot in option_together)
+-    except TypeError:
+-        # If the value of option_together isn't valid, return it
+-        # verbatim; this will be picked up by the check framework later.
+-        return option_together
+-
+-
+ def make_immutable_fields_list(name, data):
+     return ImmutableList(data, warning=IMMUTABLE_WARNING % name)
+ 
+diff --git a/django/utils/text.py b/django/utils/text.py
+index d1306f9c6f..19ff527f13 100644
+--- a/django/utils/text.py
++++ b/django/utils/text.py
+@@ -27,9 +27,8 @@ def capfirst(x):
+     """Capitalize the first letter of a string."""
+     if not x:
+         return x
+-    if not isinstance(x, str):
+-        x = str(x)
+-    return x[0].upper() + x[1:]
++    text = x if isinstance(x, str) else str(x)
++    return text[0].upper() + text[1:]
+ 
+ 
+ # Set up regular expressions
+@@ -279,17 +278,17 @@ def get_valid_filename(name):
+ 
+ 
+ @keep_lazy_text
+-def get_text_list(list_, last_word=gettext_lazy("or")):
++def join_text_list(list_, last_word=gettext_lazy("or")):
+     """
+-    >>> get_text_list(['a', 'b', 'c', 'd'])
++    >>> join_text_list(['a', 'b', 'c', 'd'])
+     'a, b, c or d'
+-    >>> get_text_list(['a', 'b', 'c'], 'and')
++    >>> join_text_list(['a', 'b', 'c'], 'and')
+     'a, b and c'
+-    >>> get_text_list(['a', 'b'], 'and')
++    >>> join_text_list(['a', 'b'], 'and')
+     'a and b'
+-    >>> get_text_list(['a'])
++    >>> join_text_list(['a'])
+     'a'
+-    >>> get_text_list([])
++    >>> join_text_list([])
+     ''
+     """
+     if not list_:

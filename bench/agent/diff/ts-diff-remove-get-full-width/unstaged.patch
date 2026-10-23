@@ -1,0 +1,34 @@
+diff --git a/src/compiler/utilities.ts b/src/compiler/utilities.ts
+index 4687bb879..01a4d09d9 100644
+--- a/src/compiler/utilities.ts
++++ b/src/compiler/utilities.ts
+@@ -790,11 +790,6 @@ export function usingSingleLineStringWriter(action: (writer: EmitTextWriter) =>
+     }
+ }
+ 
+-/** @internal */
+-export function getFullWidth(node: Node): number {
+-    return node.end - node.pos;
+-}
+-
+ /** @internal */
+ export function projectReferenceIsEqualTo(oldRef: ProjectReference, newRef: ProjectReference): boolean {
+     return oldRef.path === newRef.path &&
+@@ -2294,7 +2289,7 @@ export function forEachEnclosingBlockScopeContainer(node: Node, cb: (container:
+ // text of the expression in the computed property.
+ /** @internal */
+ export function declarationNameToString(name: DeclarationName | QualifiedName | undefined): string {
+-    return !name || getFullWidth(name) === 0 ? "(Missing)" : getTextOfNode(name);
++    return !name || name.end === name.pos ? "(Missing)" : getTextOfNode(name);
+ }
+ 
+ /** @internal */
+@@ -2340,7 +2335,7 @@ export function entityNameToString(name: EntityNameOrEntityNameExpression | JSDo
+             return "this";
+         case SyntaxKind.PrivateIdentifier:
+         case SyntaxKind.Identifier:
+-            return getFullWidth(name) === 0 ? idText(name) : getTextOfNode(name);
++            return name.end === name.pos ? idText(name) : getTextOfNode(name);
+         case SyntaxKind.QualifiedName:
+             return entityNameToString(name.left) + "." + entityNameToString(name.right);
+         case SyntaxKind.PropertyAccessExpression:

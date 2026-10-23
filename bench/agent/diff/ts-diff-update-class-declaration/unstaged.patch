@@ -1,0 +1,22 @@
+diff --git a/src/compiler/factory/nodeFactory.ts b/src/compiler/factory/nodeFactory.ts
+index c7286dc33..89a0c9961 100644
+--- a/src/compiler/factory/nodeFactory.ts
++++ b/src/compiler/factory/nodeFactory.ts
+@@ -4419,16 +4419,14 @@ export function createNodeFactory(flags: NodeFactoryFlags, baseFactory: BaseNode
+         node: ClassDeclaration,
+         modifiers: readonly ModifierLike[] | undefined,
+         name: Identifier | undefined,
+-        typeParameters: readonly TypeParameterDeclaration[] | undefined,
+         heritageClauses: readonly HeritageClause[] | undefined,
+         members: readonly ClassElement[],
+     ) {
+         return node.modifiers !== modifiers
+                 || node.name !== name
+-                || node.typeParameters !== typeParameters
+                 || node.heritageClauses !== heritageClauses
+                 || node.members !== members
+-            ? update(createClassDeclaration(modifiers, name, typeParameters, heritageClauses, members), node)
++            ? update(createClassDeclaration(modifiers, name, node.typeParameters, heritageClauses, members), node)
+             : node;
+     }
+ 

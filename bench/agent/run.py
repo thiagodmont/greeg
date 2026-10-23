@@ -49,10 +49,12 @@ def corpus_path(name):
 
 ALLOWED = ["Read"] + [f"Bash({c}:*)" for c in (
     "rg", "greeg", "grep", "find", "ls", "cat", "head", "tail", "sed", "wc",
-    "sort", "uniq", "cut", "tr")]
+    "sort", "uniq", "cut", "tr", "git status", "git diff", "git show", "git log",
+    "git ls-files", "git blame", "git grep", "git rev-parse", "git merge-base")]
 # the allowed commands' common ways to write; the clone and the index
 # template are also checked after every run
-DENIED = [f"Bash({c}:*)" for c in ("sed -i", "sed --in-place", "sort -o", "sort --output")]
+DENIED = [f"Bash({c}:*)" for c in ("sed -i", "sed --in-place", "sort -o", "sort --output",
+                                     "git diff --output", "git show --output", "git log --output")]
 HOOK = {"hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "greeg hook run"}]}]}}
 
 
@@ -90,21 +92,56 @@ def greeg_env(index_dir, stats_dir):
     return env
 
 
-def prepare(out, corpus, greeg):
-    """The corpus clone, its `git status` when cloned, and its prebuilt
-    index. A clone an interrupted run left changed is made again."""
-    work = out / "work" / corpus
-    baseline = out / "work" / f"{corpus}.status"
-    template = out / "index" / corpus
+def patches(task):
+    """A diff task's patches, staged first: the checkout it asks about."""
+    d = HERE / "diff" / task["id"]
+    return [(d / f, f == "staged.patch") for f in ("staged.patch", "unstaged.patch") if (d / f).exists()]
+
+
+def exclude_untracked(work):
+    """Exclude the files the corpus setup left untracked, so a task's patch
+    is the only change `git status` shows. Before indexing: the exclude file
+    is one of greeg's ignore inputs."""
+    untracked = [l[3:] for l in sh(["git", "status", "--porcelain"], cwd=work).splitlines() if l.startswith("?? ")]
+    with open(work / ".git" / "info" / "exclude", "a") as fh:
+        fh.writelines(f"/{f}\n" for f in untracked)
+
+
+def apply_patches(work, task):
+    for patch, staged in patches(task):
+        sh(["git", "apply", *(["--index"] if staged else []), str(patch)], cwd=work)
+
+
+def build_template(greeg, work, template, out):
+    shutil.rmtree(template, ignore_errors=True)
+    env = greeg_env(template, out / "stats")
+    subprocess.run([greeg, "index"], cwd=work, env=env, check=True, capture_output=True)
+
+
+def prepare(out, task, greeg):
+    """The task's clone, its `git status` when made, and its prebuilt
+    index. Tasks share their corpus's clone, except a diff task, whose clone
+    carries its patch, applied after the index was built (the edits an agent
+    is asked about are newer than the index). A clone an interrupted run left
+    changed is made again, and so is its index: an index is tied to the
+    files it was built from."""
+    corpus = task["corpus"]
+    diff = bool(patches(task))
+    key = task["id"] if diff else corpus
+    work = out / "work" / key
+    baseline = out / "work" / f"{key}.status"
+    template = out / "index" / key
     if work.exists() and (not baseline.exists() or status(work) != baseline.read_text()):
         shutil.rmtree(work)
-    if not work.exists():
+    if not work.exists() or not template.exists():
+        shutil.rmtree(work, ignore_errors=True)
         work.parent.mkdir(parents=True, exist_ok=True)
         clone(corpus_path(corpus), work)
+        if diff:
+            exclude_untracked(work)
+        build_template(greeg, work, template, out)
+        apply_patches(work, task)
         baseline.write_text(sh(STATUS, cwd=work))
-    if not template.exists():
-        env = greeg_env(template, out / "stats")
-        subprocess.run([greeg, "index"], cwd=work, env=env, check=True, capture_output=True)
     return work, baseline.read_text(), template
 
 
@@ -133,7 +170,7 @@ def run_cell(a, out, task, arm, n, order):
     if (d / "meta.json").exists():
         return json.loads((d / "meta.json").read_text())
     d.mkdir(parents=True, exist_ok=True)
-    work, before, template = prepare(out, task["corpus"], a.greeg)
+    work, before, template = prepare(out, task, a.greeg)
     template_before = tree_state(template)
     index = d / "index"
     shutil.rmtree(index, ignore_errors=True)
@@ -177,12 +214,12 @@ def run_cell(a, out, task, arm, n, order):
         if j.get("type") == "result":
             answer = j.get("result") or ""
     (d / "answer.txt").write_text(answer)
-    check = subprocess.run(["sh", "-c", task["check"]], cwd=d).returncode
+    check = run_check(task, d)
     (d / "check.txt").write_text(f"{check}\n")
     dirty = status(work) != before
     if dirty:
+        # made again, with its patch, by the next run on it
         shutil.rmtree(work)
-        clone(corpus_path(task["corpus"]), work)
     if tree_state(template) != template_before:
         sys.exit(f"{task['id']} {arm} #{n} changed the index template {template}; "
                  "delete it and the run, then resume")
@@ -195,6 +232,13 @@ def run_cell(a, out, task, arm, n, order):
     return meta
 
 
+def run_check(task, d):
+    """The task's check on the answer in `d`; a check may call the scripts
+    here through $AGENT_DIR."""
+    env = {**os.environ, "AGENT_DIR": str(HERE)}
+    return subprocess.run(["sh", "-c", task["check"]], cwd=d, env=env).returncode
+
+
 def recheck(out, tasks):
     """Score every saved answer again with the task's current check."""
     by_id = {t["id"]: t for t in tasks}
@@ -204,7 +248,7 @@ def recheck(out, tasks):
         if meta["task"] not in by_id:
             print(f"{meta['task']} {meta['arm']} #{meta['run']}: no such task now, left as it was")
             continue
-        check = subprocess.run(["sh", "-c", by_id[meta["task"]]["check"]], cwd=d).returncode
+        check = run_check(by_id[meta["task"]], d)
         if check != meta["check"]:
             print(f"{meta['task']} {meta['arm']} #{meta['run']}: check {meta['check']} -> {check}")
             meta.setdefault("first_check", meta["check"])

@@ -74,7 +74,8 @@ FIND_WRITES = {"-exec", "-execdir", "-ok", "-okdir", "-delete", "-fprint", "-fpr
 
 def writes_in(cmd):
     """Whether a shell command could write files: a redirect to a file, or a
-    write form of a command (`find -exec`, `sed -i`, `sort -o`, `rm`, …)."""
+    write form of a command (`find -exec`, `sed -i`, `sort -o`, `git diff
+    --output`, `rm`, …)."""
     bare = QUOTED.sub("''", cmd or "")
     if any(m.group(1) not in ("", "/dev/null") for m in REDIRECT.finditer(bare)):
         return True
@@ -87,7 +88,8 @@ def writes_in(cmd):
         name, args = os.path.basename(words[0]), words[1:]
         if (name in WRITERS or name == "find" and FIND_WRITES & set(args)
                 or name == "sed" and any(re.match(r"-[a-zA-Z]*i|--in-place", a) for a in args)
-                or name == "sort" and any(re.match(r"-[a-zA-Z]*o|--output", a) for a in args)):
+                or name == "sort" and any(re.match(r"-[a-zA-Z]*o|--output", a) for a in args)
+                or name == "git" and any(a.startswith("--output") for a in args)):
             return True
     return False
 

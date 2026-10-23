@@ -1,0 +1,2 @@
+# task patches keep their corpus files' line endings byte for byte
+bench/agent/diff/** -text

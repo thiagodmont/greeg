@@ -1,0 +1,31 @@
+diff --git a/src/services/codefixes/importFixes.ts b/src/services/codefixes/importFixes.ts
+index 6034c9dfc..dc2b84745 100644
+--- a/src/services/codefixes/importFixes.ts
++++ b/src/services/codefixes/importFixes.ts
+@@ -228,7 +228,7 @@ export type ImportOrRequireAliasDeclaration = ImportEqualsDeclaration | ImportCl
+  * @internal
+  */
+ export interface ImportAdder {
+-    hasFixes(): boolean;
++    hasPendingFixes(): boolean;
+     addImportFromDiagnostic: (diagnostic: DiagnosticWithLocation, context: CodeFixContextBase) => void;
+     addImportFromExportedSymbol: (exportedSymbol: Symbol, isValidTypeOnlyUseSite?: boolean, referenceImport?: ImportOrRequireAliasDeclaration) => void;
+     addImportForNonExistentExport: (exportName: string, exportingFileName: string, exportKind: ExportKind, exportedMeanings: SymbolFlags, isImportUsageValidAsTypeOnly: boolean) => void;
+@@ -262,7 +262,7 @@ function createImportAdderWorker(sourceFile: SourceFile | FutureSourceFile, prog
+     type NewImportsKey = `${0 | 1}|${string}`;
+     /** Use `getNewImportEntry` for access */
+     const newImports = new Map<NewImportsKey, Mutable<ImportsCollection & { useRequire: boolean; }>>();
+-    return { addImportFromDiagnostic, addImportFromExportedSymbol, addImportForModuleSymbol, writeFixes, hasFixes, addImportForUnresolvedIdentifier, addImportForNonExistentExport, removeExistingImport, addVerbatimImport };
++    return { addImportFromDiagnostic, addImportFromExportedSymbol, addImportForModuleSymbol, writeFixes, hasPendingFixes, addImportForUnresolvedIdentifier, addImportForNonExistentExport, removeExistingImport, addVerbatimImport };
+ 
+     function addVerbatimImport(declaration: AnyImportOrRequireStatement | ImportOrRequireAliasDeclaration) {
+         verbatimImports.add(declaration);
+@@ -766,7 +766,7 @@ function createImportAdderWorker(sourceFile: SourceFile | FutureSourceFile, prog
+         ];
+     }
+ 
+-    function hasFixes() {
++    function hasPendingFixes() {
+         return addToNamespace.length > 0 || importType.length > 0 || addToExisting.size > 0 || newImports.size > 0 || verbatimImports.size > 0 || removeExisting.size > 0;
+     }
+ }
