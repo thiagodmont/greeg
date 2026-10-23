@@ -66,6 +66,8 @@ Symbol questions are cheaper than searches:
     greeg show FILE:LINE        the definition enclosing a line, whole and dedented
     greeg map DIR               important files by import PageRank
     greeg impact NAME           files using NAME: likely affected / possible / review
+    greeg impact --diff [REV]   definitions changed since REV (default HEAD, staged,
+                                unstaged and untracked) and every use to update
     greeg find WORDS            files for a question in plain words, when no name is known
 
 To read a definition's body, `greeg show FILE:LINE` prints the whole definition around a

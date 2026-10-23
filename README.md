@@ -141,6 +141,7 @@ greeg refs Semaphore                # references grouped by kind
 greeg callers spawn_blocking        # the functions that call it
 greeg impls Future                  # implementations and subclasses
 greeg impact get_queryset           # files likely affected by a change
+greeg impact --diff                 # what your uncommitted changes touch, and every use to update
 greeg show src/sync/oneshot.rs:340  # the whole definition around a line
 greeg outline src/sync/oneshot.rs   # the shape of a file
 greeg map tokio/src/sync            # the most important files, by import graph

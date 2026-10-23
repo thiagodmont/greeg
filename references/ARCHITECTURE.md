@@ -684,6 +684,24 @@ several definitions, a link to any of them counts. A scan has no import
 graph, so nothing is likely affected there, and the header says so. Its
 `callers by name` section matches calls by name.
 
+`impact --diff` starts from git instead of a name (`change.rs`). One
+`git diff -U0 -M --relative` against the base gives the changed files and
+their changed line ranges on both sides; `git ls-files --others` adds the
+untracked files. The old side of each file is read with one
+`git cat-file --batch`, the new side from the working tree (from the git
+index under `--staged`); git runs without optional locks, so nothing in
+`.git` is written. Both sides are parsed by the symbol extractor, each
+changed line is charged to the innermost definition holding it, and the
+definitions are matched by kind, enclosing names and name: one on both
+sides changed its signature (the declaration up to its body) or only its
+body; one on a single side was added or removed, and the only removed and
+the only added definition of a kind in one scope count as a rename.
+`impact_diff.rs` then searches each breaking change's old name with the
+kinds that can depend on its definition, skips the hits on changed lines,
+and lists other definitions of the name: a use found by name may be of any
+of them. A string hit inside an interpolation (`${…}`, a Python f-string's
+`{…}`) counts as code.
+
 `find` answers a question in plain words from the same index, with no
 model and nothing more on disk (`find.rs`). The question's words are cut
 into identifier pieces, as `split_tokens` cuts names. One pass over every

@@ -3595,3 +3595,242 @@ fn find_ranks_files_for_a_question_in_plain_words() {
     assert_eq!(o.status.code(), Some(2));
     assert!(String::from_utf8_lossy(&o.stderr).contains("`find` needs words"));
 }
+
+/// git in the fixture's tree, with an identity and no user configuration.
+fn git(f: &Fixture, args: &[&str]) {
+    let o = Command::new("git")
+        .args(args)
+        .current_dir(&f.root)
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_AUTHOR_NAME", "t")
+        .env("GIT_AUTHOR_EMAIL", "t@example.com")
+        .env("GIT_COMMITTER_NAME", "t")
+        .env("GIT_COMMITTER_EMAIL", "t@example.com")
+        .output()
+        .expect("run git");
+    assert!(
+        o.status.success(),
+        "git {args:?}: {}",
+        String::from_utf8_lossy(&o.stderr)
+    );
+}
+
+/// A committed repository: two helpers in one file, their callers in another.
+fn diff_fixture() -> Fixture {
+    let f = empty_fixture();
+    fs::remove_dir_all(f.root.join(".git")).unwrap();
+    w(
+        &f.root.join("src/util.rs"),
+        "pub fn load_config() -> u32 {\n    7\n}\n\npub fn scale(x: u32) -> u32 {\n    x * 2\n}\n\npub fn tidy() -> u32 {\n    1\n}\n",
+    );
+    w(
+        &f.root.join("src/app.rs"),
+        "use crate::util::{load_config, scale};\n\npub fn run() -> u32 {\n    scale(load_config())\n}\n\npub fn tag() -> String {\n    format!(\"{}\", crate::util::tidy())\n}\n",
+    );
+    w(
+        &f.root.join("tests/app.rs"),
+        "#[test]\nfn config_loads() {\n    assert_eq!(load_config(), 7);\n}\n",
+    );
+    git(&f, &["init", "-q", "-b", "main"]);
+    git(&f, &["add", "-A"]);
+    git(&f, &["commit", "-q", "-m", "base"]);
+    f
+}
+
+/// `change` records as (name, change, from, [(path:line, kind, direct)]).
+type Change = (String, String, String, Vec<(String, String, bool)>);
+
+fn changes(out: &str) -> Vec<Change> {
+    json_lines(out)
+        .iter()
+        .filter(|r| r["type"] == "change")
+        .map(|r| {
+            let d = &r["data"];
+            let uses = d["uses"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|u| {
+                    (
+                        format!("{}:{}", u["path"]["text"].as_str().unwrap(), u["line"]),
+                        u["kind"].as_str().unwrap().to_string(),
+                        u["direct"].as_bool().unwrap(),
+                    )
+                })
+                .collect();
+            (
+                d["name"].as_str().unwrap().to_string(),
+                d["change"].as_str().unwrap().to_string(),
+                d["from"].as_str().unwrap_or("").to_string(),
+                uses,
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn impact_diff_lists_changed_definitions_and_the_uses_to_update() {
+    let f = diff_fixture();
+    f.indexed();
+    // staged: a new parameter; unstaged: a rename and a body change; untracked:
+    // a new file that already calls the new name
+    let util = f.root.join("src/util.rs");
+    let text = fs::read_to_string(&util).unwrap();
+    fs::write(
+        &util,
+        text.replace("pub fn scale(x: u32)", "pub fn scale(x: u32, by: u32)"),
+    )
+    .unwrap();
+    git(&f, &["add", "src/util.rs"]);
+    let text = fs::read_to_string(&util).unwrap();
+    fs::write(
+        &util,
+        text.replace("pub fn load_config()", "pub fn read_config()")
+            .replace("    1\n", "    0 + 1\n"),
+    )
+    .unwrap();
+    w(
+        &f.root.join("src/fresh.rs"),
+        "pub fn fresh() -> u32 {\n    crate::util::read_config()\n}\n",
+    );
+
+    for mode in [&["--fresh", "stat"][..], &["--no-index"][..]] {
+        let mut args = vec!["impact", "--diff", "--json=greeg", "--budget", "0"];
+        args.extend_from_slice(mode);
+        let o = f.run(&args);
+        assert_eq!(o.status.code(), Some(0), "{mode:?}");
+        let got = changes(&String::from_utf8_lossy(&o.stdout));
+        let find = |name: &str| {
+            got.iter()
+                .find(|c| c.0 == name)
+                .unwrap_or_else(|| panic!("{name}: {got:?}"))
+        };
+        let read = find("read_config");
+        assert_eq!(
+            (read.1.as_str(), read.2.as_str()),
+            ("renamed", "load_config"),
+            "{mode:?}"
+        );
+        assert_eq!(
+            read.3,
+            [
+                ("src/app.rs:1".into(), "import".into(), true),
+                ("src/app.rs:4".into(), "call".into(), true),
+                ("tests/app.rs:3".into(), "call".into(), true),
+            ],
+            "{mode:?}: the new file's call of the new name is not a use"
+        );
+        let scale = find("scale");
+        assert_eq!(scale.1, "signature");
+        assert!(
+            scale
+                .3
+                .contains(&("src/app.rs:4".into(), "call".into(), true)),
+            "{scale:?}"
+        );
+        assert!(
+            scale
+                .3
+                .contains(&("src/app.rs:1".into(), "import".into(), false)),
+            "an import stays valid: {scale:?}"
+        );
+        let tidy = find("tidy");
+        assert_eq!(tidy.1, "body");
+        assert_eq!(
+            tidy.3,
+            [("src/app.rs:8".into(), "call".into(), false)],
+            "a call in a format string counts; a body change breaks nothing"
+        );
+        assert_eq!(find("fresh").1, "added");
+    }
+
+    // text names each change and the uses to update
+    let text = f.out(&["impact", "--diff"]);
+    assert!(text.contains("renamed from load_config"), "{text}");
+    assert!(
+        text.contains("3 uses of load_config in 2 files to update"),
+        "{text}"
+    );
+    assert!(text.contains("src/fresh.rs  untracked"), "{text}");
+
+    // --staged: only the staged signature change
+    let staged = changes(&f.out(&[
+        "impact",
+        "--diff",
+        "--staged",
+        "--json=greeg",
+        "--budget",
+        "0",
+    ]));
+    assert_eq!(
+        staged.iter().map(|c| c.0.as_str()).collect::<Vec<_>>(),
+        ["scale"]
+    );
+
+    // committed changes against an older revision; nothing against HEAD
+    git(&f, &["add", "-A"]);
+    git(&f, &["commit", "-q", "-m", "change"]);
+    let o = f.run(&["impact", "--diff"]);
+    assert_eq!(o.status.code(), Some(1), "nothing changed since HEAD");
+    assert!(String::from_utf8_lossy(&o.stdout).contains("no changes"));
+    let since = changes(&f.out(&[
+        "impact",
+        "--diff",
+        "HEAD~1",
+        "--json=greeg",
+        "--budget",
+        "0",
+    ]));
+    assert!(
+        since
+            .iter()
+            .any(|c| c.0 == "read_config" && c.1 == "renamed"),
+        "{since:?}"
+    );
+    // a side branch from the base: diffed directly, its own file reads as
+    // deleted; from the merge base, only this branch's changes show
+    git(&f, &["switch", "-q", "-c", "side", "HEAD~1"]);
+    w(&f.root.join("src/side.rs"), "pub fn side_only() {}\n");
+    git(&f, &["add", "-A"]);
+    git(&f, &["commit", "-q", "-m", "side"]);
+    git(&f, &["switch", "-q", "main"]);
+    let files = |rev: &str| -> Vec<(String, String)> {
+        json_lines(&f.out(&["impact", "--diff", rev, "--json=greeg", "--budget", "0"]))
+            .iter()
+            .filter(|r| r["type"] == "file")
+            .map(|r| {
+                (
+                    r["data"]["path"]["text"].as_str().unwrap().to_string(),
+                    r["data"]["status"].as_str().unwrap().to_string(),
+                )
+            })
+            .collect()
+    };
+    assert!(files("side").contains(&("src/side.rs".into(), "deleted".into())));
+    let since_fork = files("side...");
+    assert!(
+        !since_fork.iter().any(|(p, _)| p == "src/side.rs"),
+        "{since_fork:?}"
+    );
+    assert!(
+        since_fork.contains(&("src/util.rs".into(), "modified".into())),
+        "{since_fork:?}"
+    );
+}
+
+#[test]
+fn impact_diff_outside_git_or_with_a_bad_revision_fails() {
+    let f = empty_fixture();
+    fs::remove_dir_all(f.root.join(".git")).unwrap();
+    w(&f.root.join("a.rs"), "fn a() {}\n");
+    let o = f.run(&["impact", "--diff"]);
+    assert_eq!(o.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&o.stderr).contains("not inside a git work tree"));
+    let f = diff_fixture();
+    let o = f.run(&["impact", "--diff", "no-such-rev"]);
+    assert_eq!(o.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&o.stderr).contains("unknown revision no-such-rev"));
+    let o = f.run(&["impact", "--staged"]);
+    assert_eq!(o.status.code(), Some(2), "--staged needs --diff");
+}
