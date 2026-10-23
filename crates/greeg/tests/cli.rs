@@ -3595,3 +3595,45 @@ fn find_ranks_files_for_a_question_in_plain_words() {
     assert_eq!(o.status.code(), Some(2));
     assert!(String::from_utf8_lossy(&o.stderr).contains("`find` needs words"));
 }
+
+/// `refs` and `impact` read the index more than once. After an edit the
+/// first read answers the changed file from disk; the later ones (the
+/// definition lookup, the callers) must see it too, not the index's old
+/// spans, which put `tidy`'s definition inside its old body.
+#[test]
+fn verbs_that_read_the_index_twice_see_an_edited_file() {
+    // with other files the edit is a delta; alone it rebuilds the index and
+    // the verbs scan meanwhile
+    for others in [20, 0] {
+        let f = empty_fixture();
+        for i in 0..others {
+            w(
+                &f.root.join(format!("src/m{i}.rs")),
+                &format!("pub fn m{i}() {{}}\n"),
+            );
+        }
+        w(
+            &f.root.join("src/util.rs"),
+            "pub fn scale(x: u32) -> u32 {\n    x * 2\n}\n\npub fn tidy() -> u32 {\n    1\n}\n\npub fn user() -> u32 {\n    tidy()\n}\n",
+        );
+        f.indexed();
+        // the same lines, shifted by the bytes of a longer signature
+        w(
+            &f.root.join("src/util.rs"),
+            "pub fn scale(x: u32, by: u32, extra: u32) -> u32 {\n    x * 2\n}\n\npub fn tidy() -> u32 {\n    1\n}\n\npub fn user() -> u32 {\n    tidy()\n}\n",
+        );
+        let impact = f.out(&["impact", "tidy", "--fresh", "stat"]);
+        let callers = &impact[impact.find("callers by name").expect(&impact)..];
+        assert!(callers.contains("9  user ×1"), "{others}: {impact}");
+        assert!(
+            !callers.contains("tidy ×1"),
+            "{others}: a definition is not its own caller: {impact}"
+        );
+        assert!(!impact.contains("not checked"), "{others}: {impact}");
+        let refs = f.out(&["refs", "tidy", "--fresh", "stat"]);
+        assert!(
+            refs.contains("defined at  src/util.rs:5"),
+            "{others}: {refs}"
+        );
+    }
+}
