@@ -1,0 +1,37 @@
+bench/agent/results/pack-2026-10-23-skill-only-vs-reads.txt
+  s_eefb2647553a67::t_b23806cf1bb212 1-49
+bench/agent/results/pack-2026-10-23-skill-only.txt
+  s_eefb2647553a67::t_b23806cf1bb212 1-49
+bench/agent/results/pack-2026-10-23-skill-only-vs-reads.json
+  s_eefb2647553a67::t_b23806cf1bb212 1
+bench/agent/results/pack-2026-10-23-skill-only.json
+  s_eefb2647553a67::t_b23806cf1bb212 1-1131
+bench/agent/README.md
+  s_eefb2647553a67::t_a891bf8fc99982 350-360
+  s_eefb2647553a67::t_f85554a6288438 322-349,361
+  s_eefb2647553a67::t_cade4a12101146 362-363
+bench/agent/results/pack-2026-10-23-reads.json
+  s_eefb2647553a67::t_b23806cf1bb212 1-1131
+bench/agent/results/pack-2026-10-23-reads.txt
+  s_eefb2647553a67::t_b23806cf1bb212 1-49
+bench/agent/results/pack-2026-10-23-skill-only-setup.json
+  s_eefb2647553a67::t_b23806cf1bb212 1-72
+bench/agent/results/pack-2026-10-23-reads-setup.json
+  s_eefb2647553a67::t_b23806cf1bb212 1-72
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "2d0704a2a78ef70065a0ee1bb857994d0725aeb0",
+  "prompts": {},
+  "sessions": {
+    "s_eefb2647553a67": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9fff36d3-3b5f-4343-be78-7893a6fe3965",
+        "model": "unknown"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
