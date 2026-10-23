@@ -1,0 +1,15 @@
+diff --git a/tokio/src/task/coop/mod.rs b/tokio/src/task/coop/mod.rs
+index 4a520e6f..cedb5129 100644
+--- a/tokio/src/task/coop/mod.rs
++++ b/tokio/src/task/coop/mod.rs
+@@ -121,8 +121,8 @@ impl Budget {
+         Budget(None)
+     }
+ 
+-    fn has_remaining(self) -> bool {
+-        self.0.map_or(true, |budget| budget > 0)
++    fn is_exhausted(self) -> bool {
++        self.0.is_some_and(|budget| budget == 0)
+     }
+ }
+ 

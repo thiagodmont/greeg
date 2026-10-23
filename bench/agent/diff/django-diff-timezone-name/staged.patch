@@ -1,0 +1,22 @@
+diff --git a/django/utils/timezone.py b/django/utils/timezone.py
+index 6d6cbf6d8f..b3d4a6b315 100644
+--- a/django/utils/timezone.py
++++ b/django/utils/timezone.py
+@@ -16,7 +16,7 @@ __all__ = [
+     "get_default_timezone",
+     "get_default_timezone_name",
+     "get_current_timezone",
+-    "get_current_timezone_name",
++    "current_timezone_name",
+     "activate",
+     "deactivate",
+     "override",
+@@ -66,7 +66,7 @@ def get_current_timezone():
+     return getattr(_active, "value", get_default_timezone())
+ 
+ 
+-def get_current_timezone_name():
++def current_timezone_name():
+     """Return the name of the currently active time zone."""
+     return _get_timezone_name(get_current_timezone())
+ 

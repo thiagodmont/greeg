@@ -2,14 +2,19 @@
 
 Measures whether a coding agent does better with greeg than with ripgrep on
 real tasks. It is run by hand: it spends API credits and needs a Claude Code
-login, so it is not part of CI. Tasks live in `tasks.toml`, forty-eight
-across tokio, django, ktor, TypeScript 5.9 and kotlinx.coroutines:
+login, so it is not part of CI. Tasks live in `tasks.toml`, sixty across
+tokio, django, ktor, TypeScript 5.9 and kotlinx.coroutines:
 - ten single lookups;
 - ten that take several hops (five held out);
 - eight that pick which of many same-named definitions a call site reaches,
   or map the files around one anchor (four held out);
 - twenty questions without a known name (`discover-*`), from the discovery
-  eval's development split. Each has a mechanical check on the agent's final
+  eval's development split;
+- twelve diff-impact tasks (`*-diff-*`, eight held out, four of them with
+  several changes): the checkout has uncommitted changes, and the agent lists
+  every place outside them that must be updated.
+
+Each has a mechanical check on the agent's final
 answer: every item the prompt asks for, with its file:line. An ambiguous-name
 task's `incomplete` answers include one that follows the wrong definition. A check must pass the task's verified `answer`, and fail it without
 its line numbers and each `incomplete` answer.
@@ -20,7 +25,7 @@ its line numbers and each `incomplete` answer.
 |---|---|---|
 | A | ripgrep and grep via Bash, no greeg | greeg not on `PATH`, no hook |
 | B | greeg through the hook | `greeg hook run` as the run's PreToolUse hook; plain `rg` calls are rewritten, `grep` is left alone |
-| C | greeg through the hook, named in the prompt | as B, and the prompt starts with "Use greeg for code search." |
+| C | greeg through the hook, named in the prompt | as B, and the prompt starts with `--c-prefix` (default "Use greeg for code search. ") |
 | S | greeg through the hook, with its skill | as B, and the skill `greeg hook claude` installs is appended to the system prompt (`--append-system-prompt`); its digest is in `setup.json` |
 
 Same model, task prompt (C adds its prefix), turn limit, tools (`Bash`,
@@ -45,6 +50,11 @@ corpus revision is refused. Each run is isolated:
   CLAUDE.md, skills or MCP servers); only the arm's own settings file;
 - **PATH:** a directory with `rg` (and `greeg` in B and C), then the system
   directories; nothing else the user installed;
+- **diff tasks:** the task's `bench/agent/diff/<task>/staged.patch` and
+  `unstaged.patch` are applied after the index is built, so the edits are
+  newer than the index, as an agent finds them. Read-only git commands
+  (`git status`, `diff`, `show`, `log`, …) are allowed in every arm; their
+  `--output` forms are denied;
 - **workspace:** a copy-on-write clone of the corpus, whose
   `git status --ignored` must not change during a run; a run that changed it is
   left out, and the clone is made again (so is a clone an interrupted run left
@@ -61,6 +71,13 @@ corpus revision is refused. Each run is isolated:
 
 `RUN_DIR/setup.json` records the Claude Code and greeg versions, the model,
 the corpora's commits and the allowed and denied commands.
+
+A diff task's check is `check_sites.py`: each line of the answer in the asked
+form, `name at path:line`, cites a place. The answer passes when it cites
+each of the task's verified `sites` (within two lines), none of its `traps`
+(uses of another definition with the same name), and at most two other
+places. Places in the changed files and the task's `neutral` ones (an import
+a signature change leaves valid) never count against it.
 
 A check that turns out to reject a right answer can be fixed in `tasks.toml`.
 `run.py --out RUN_DIR --recheck` then scores every saved answer again with the
@@ -243,3 +260,30 @@ both arms, and agents with the skill seldom choose `find`. This says nothing
 against `find`'s ranking, which held out offline. Showing an agent-level gain
 would need harder questions, where the words do not point at the file, or an
 agent that reaches for `find` first.
+
+## Diff-impact baseline (2026-10-23)
+
+The twelve diff-impact tasks × arms A and S × 2 repeats, with Claude Code
+2.1.309 on Sonnet and greeg at the 0.13.0 release (6a406e6) with #130 applied
+(`git add` no longer rebuilds the index), so no `impact --diff`.
+`results/diff-2026-10-23-baseline.json` holds the records, `.txt` the
+analysis, `-setup.json` the setup. 48 runs, all valid, cost $1.62. It asks
+whether agents miss uses of what a change touched, which a diff-aware impact
+verb would fix.
+
+- **Success:** development 8/8 in both arms; held out A 16/16, S 15/16
+  (Wilson 72–99 %). The failing S run (`ts-diff-multi`) had its only search
+  denied by the permission rules (`grep -rnE … src 2>/dev/null
+  --include=*.ts | head -50`, an argument after a redirection), and answered
+  with no sites; it is not a miss by the search. Six runs, in both arms, had
+  one denied command; the other five recovered. An earlier run of the eight
+  single-change tasks on 0.13.0 was 32/32.
+- **How they work:** both arms start with `git diff`, then search each
+  changed name, and finish in 3 to 8 turns (14 for the TypeScript class
+  declaration task in arm A).
+- **Held out, S against A:** turns −1.3 [−3.3, +0.3] over pairs, wall time
+  −3.6 s [−7.5, −0.3] over pairs, [−8.7, +0.1] over tasks. Cost and tool
+  output show no difference.
+
+There is no correctness headroom: the agents find every use with `git diff`
+and a search per name. A diff verb can only save turns and time.

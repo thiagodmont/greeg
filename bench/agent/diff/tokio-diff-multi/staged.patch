@@ -1,0 +1,13 @@
+diff --git a/tokio/src/runtime/scheduler/multi_thread/queue.rs b/tokio/src/runtime/scheduler/multi_thread/queue.rs
+index 2b47fc86..46cd0a54 100644
+--- a/tokio/src/runtime/scheduler/multi_thread/queue.rs
++++ b/tokio/src/runtime/scheduler/multi_thread/queue.rs
+@@ -414,7 +414,7 @@ impl<T> Steal<T> {
+     }
+ 
+     /// Steals half the tasks from self and place them into `dst`.
+-    pub(crate) fn steal_into(
++    pub(crate) fn steal_batch_into(
+         &self,
+         dst: &mut Local<T>,
+         dst_stats: &mut Stats,

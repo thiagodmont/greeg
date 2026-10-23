@@ -1,0 +1,13 @@
+diff --git a/ktor-server/ktor-server-core/common/src/io/ktor/server/engine/BaseApplicationCall.kt b/ktor-server/ktor-server-core/common/src/io/ktor/server/engine/BaseApplicationCall.kt
+index 838f80775..a8cda5773 100644
+--- a/ktor-server/ktor-server-core/common/src/io/ktor/server/engine/BaseApplicationCall.kt
++++ b/ktor-server/ktor-server-core/common/src/io/ktor/server/engine/BaseApplicationCall.kt
+@@ -23,7 +23,7 @@ public abstract class BaseApplicationCall(final override val application: Applic
+     /**
+      * Put engine response attribute. This is required for base implementation to work properly
+      */
+-    protected fun putResponseAttribute(response: BaseApplicationResponse = this.response) {
++    protected fun putEngineResponse(response: BaseApplicationResponse = this.response) {
+         attributes.put(BaseApplicationResponse.EngineResponseAttributeKey, response)
+     }
+ }
