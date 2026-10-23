@@ -41,7 +41,13 @@ greeg map tokio/src/sync            # important files and directories, by PageRa
 ```
 
 `greeg show FILE:LINE` and `greeg def NAME --mode block` both print a whole
-definition, which beats guessing a `sed -n '340,380p'` range. Every verb takes
+definition, which beats guessing a `sed -n '340,380p'` range. Under each body,
+`def --mode block` adds a `reads` line for each constant or module-level
+variable the body names (a setting such as `SECRET_KEY`, a module constant),
+with the line that defines it. It needs the index. A name counts when it is
+defined in the body's own file, or when it is written as a constant and has at
+most three definitions, all of them values; definitions in test, generated and
+vendored files count only for a body in one. Every verb takes
 the search flags (`--budget`, `--json`, `--no-tests`, `--root`) and answers in a
 few milliseconds from the index.
 

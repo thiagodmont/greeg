@@ -3595,3 +3595,41 @@ fn find_ranks_files_for_a_question_in_plain_words() {
     assert_eq!(o.status.code(), Some(2));
     assert!(String::from_utf8_lossy(&o.stderr).contains("`find` needs words"));
 }
+
+#[test]
+fn a_definitions_body_lists_the_constants_and_settings_it_reads() {
+    let f = empty_fixture();
+    let root = &f.root;
+    w(
+        &root.join("conf/settings.py"),
+        "SECRET_KEY = \"x\"\nTIMEOUT = 5\n",
+    );
+    w(&root.join("tests/settings.py"), "SECRET_KEY = \"test\"\n");
+    w(&root.join("other/opts.py"), "options = 3\n");
+    w(
+        &root.join("app/sign.py"),
+        "from conf import settings\n\
+         LOCAL_SALT = \"salt\"\n\
+         \n\
+         def signer(salt=LOCAL_SALT):\n\
+         \x20   return make(settings.SECRET_KEY, settings.TIMEOUT, options)\n\
+         \n\
+         def make(*a):\n\
+         \x20   return a\n",
+    );
+    f.indexed();
+    let out = f.out(&["def", "signer", "--mode", "block"]);
+    let reads: Vec<&str> = out.lines().filter(|l| l.starts_with("  reads ")).collect();
+    assert_eq!(
+        reads,
+        [
+            "  reads LOCAL_SALT  app/sign.py:2  LOCAL_SALT = \"salt\"",
+            "  reads SECRET_KEY  conf/settings.py:1  SECRET_KEY = \"x\"",
+            "  reads TIMEOUT  conf/settings.py:2  TIMEOUT = 5",
+        ],
+        "{out}"
+    );
+    // without the index nothing is resolved, and nothing is claimed
+    let scanned = f.out(&["def", "signer", "--mode", "block", "--no-index"]);
+    assert!(!scanned.contains("  reads "), "{scanned}");
+}

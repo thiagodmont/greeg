@@ -1452,6 +1452,10 @@ pub const READS: usize = 12;
 /// Definitions a name may have elsewhere and still be listed.
 const READ_DEFS: usize = 3;
 
+/// A body asked about in [`reads`]: its file, the file's flags, the
+/// definition's own name, and the body.
+pub type BodyOf<'a> = (&'a [u8], FileFlags, &'a str, &'a Body);
+
 /// For each body, the constants and module-level variables it names, from
 /// the index (none without one). A name counts when it is defined in the
 /// body's own file; from another file, when it is written as a constant
@@ -1459,11 +1463,7 @@ const READ_DEFS: usize = 3;
 /// such values, so a common word does not pull in unrelated ones.
 /// Definitions in test, generated and vendored files count only for a body
 /// in one, and declaration files (`.d.ts`) define no values.
-/// `bodies` are (file, its flags, the definition's own name, body).
-pub fn reads(
-    o: &Options,
-    bodies: &[Option<(&[u8], FileFlags, &str, &Body)>],
-) -> Result<Vec<Vec<Read>>> {
+pub fn reads(o: &Options, bodies: &[Option<BodyOf>]) -> Result<Vec<Vec<Read>>> {
     let mut out = vec![Vec::new(); bodies.len()];
     if !o.use_index || bodies.iter().all(Option::is_none) {
         return Ok(out);
@@ -1473,7 +1473,10 @@ pub fn reads(
     } else {
         o.threads
     };
-    let Some(op) = indexed::open_fresh(o, threads)? else {
+    // the definitions were just read from a fresh index
+    let mut ro = o.clone();
+    ro.fresh = greeg_index::fresh::Mode::None;
+    let Some(op) = indexed::open_fresh(&ro, threads)? else {
         return Ok(out);
     };
     let idx = &op.idx;
@@ -1495,7 +1498,9 @@ pub fn reads(
                     continue;
                 }
                 seen.push(word);
-                let Ok(name) = std::str::from_utf8(word) else { continue };
+                let Ok(name) = std::str::from_utf8(word) else {
+                    continue;
+                };
                 found.extend(values_named(idx, name, rel, aside));
             }
         }
