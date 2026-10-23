@@ -2,7 +2,7 @@
 
 Measures whether a coding agent does better with greeg than with ripgrep on
 real tasks. It is run by hand: it spends API credits and needs a Claude Code
-login, so it is not part of CI. Tasks live in `tasks.toml`, sixty across
+login, so it is not part of CI. Tasks live in `tasks.toml`, sixty-eight across
 tokio, django, ktor, TypeScript 5.9 and kotlinx.coroutines:
 - ten single lookups;
 - ten that take several hops (five held out);
@@ -12,7 +12,10 @@ tokio, django, ktor, TypeScript 5.9 and kotlinx.coroutines:
   eval's development split;
 - twelve diff-impact tasks (`*-diff-*`, eight held out, four of them with
   several changes): the checkout has uncommitted changes, and the agent lists
-  every place outside them that must be updated.
+  every place outside them that must be updated;
+- eight context-pack tasks (`*-pack-*`, four held out): before changing a
+  function, the agent lists its definition, the settings and constants its
+  body reads, and its direct callers, tests apart.
 
 Each has a mechanical check on the agent's final
 answer: every item the prompt asks for, with its file:line. An ambiguous-name
@@ -72,7 +75,7 @@ corpus revision is refused. Each run is isolated:
 `RUN_DIR/setup.json` records the Claude Code and greeg versions, the model,
 the corpora's commits and the allowed and denied commands.
 
-A diff task's check is `check_sites.py`: each line of the answer in the asked
+A diff or pack task's check is `check_sites.py`: each line of the answer in the asked
 form, `name at path:line`, cites a place. The answer passes when it cites
 each of the task's verified `sites` (within two lines), none of its `traps`
 (uses of another definition with the same name), and at most two other
@@ -334,4 +337,32 @@ Held-out tasks, second arm against A (95 % intervals over pairs):
 finish held-out diff tasks in fewer turns and less time, with every interval
 excluding zero. Success is at the ceiling in every arm, and total tokens and
 cost show no difference.
+
+## Context-pack baseline (2026-10-23)
+
+The eight context-pack tasks × arms A and S × 2 repeats, with Claude Code
+2.1.309 on Sonnet and greeg at the 0.13.0 release with #130 applied.
+`results/pack-2026-10-23-baseline.json` holds the records, `.txt` the
+analysis, `-setup.json` the setup. 32 runs, all valid, cost $1.13. It asks
+whether one answer with a function's body, the values it reads and its
+callers would save an agent follow-up reads.
+
+The checks were fixed after the run, and every saved answer was scored again
+(`--recheck`). A citation may now carry a label (`Definition: f at …`) and a
+note in parentheses after the name (`poll (`Future for Timeout`) at …`); the
+first check took neither, and failed right answers. One site was missing from
+`ts-pack-validate-locale` (`supportedLocaleDirectories`, a constant the body
+reads, cited by all four answers), and the coroutines task's
+`coroutineScheduler` property is neutral now. Five verdicts changed, all from
+fail to pass (A 4, S 1); no diff-task verdict changed.
+
+- **Success:** 16/16 in both arms. No correctness headroom.
+- **How S works:** every run starts with `greeg def NAME; greeg callers NAME;
+  greeg refs NAME` in one call (or two of them). In 14 of 16 runs more calls
+  follow: reading the body, looking up the values it names, or checking the
+  callers with another search.
+- **Held out, S against A:** turns −2.9 [−5.1, −0.9], wall time −7.1 s
+  [−12.5, −2.6], cost −$0.01 [−0.02, −0.00] over pairs.
+
+A pack can only save the follow-up reads: the body, and the values it reads.
 

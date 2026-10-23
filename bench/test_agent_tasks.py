@@ -70,6 +70,15 @@ class AgentTaskTests(unittest.TestCase):
                 self.assertTrue(passes(t["check"], prose))
                 self.assertFalse(passes(t["check"], f"{t['answer']}\n- x at {trap}"))
 
+    def test_a_citation_may_carry_a_label_and_a_note(self):
+        sys.path.insert(0, AGENT)
+        from check_sites import CITE
+        cites = lambda text: [(m.group(1), m.group(2)) for m in CITE.finditer(text)]
+        self.assertEqual(cites("- Definition: f at a/b.py:3"), [("a/b.py", "3")])
+        self.assertEqual(cites("- poll (`Future for Timeout<T>`) at a/t.rs:9"), [("a/t.rs", "9")])
+        self.assertEqual(cites("f (in `g(x)`) at a/b.kt:4"), [("a/b.kt", "4")])
+        self.assertEqual(cites("I left it out; it is at a/b.py:3."), [])
+
     def test_reference_answers_cite_lines_that_exist(self):
         """Each path:line a reference answer cites is in the pinned corpus,
         when the corpus is fetched; the line holds the name cited before it."""

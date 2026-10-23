@@ -1,23 +1,29 @@
 #!/usr/bin/env python3
-"""Check a diff-impact answer: the places that must change after a task's patch.
+"""Check an answer that lists places: those a diff task's patch makes stale,
+or the context a pack task asks for.
 
     check_sites.py TASK [ANSWER]     exit 0 when the answer passes
     check_sites.py TASK [ANSWER] --score   print recall, traps and extras as JSON
 
 A citation is a line of the answer in the asked form, `name at path:line`
-(bulleted or in backticks; a path suffix such as `checks.py:963` is enough),
-within two lines of the verified one; prose that mentions a place, such as
-what was left out and why, cites nothing. The answer passes when it cites
-every one of the task's `sites`, none of its `traps` (a use of another
-definition with the same name), and at most two other places. Places in the
-files the patch changes, and the task's `neutral` ones (an import a signature
-change leaves valid, a local variable), never count against it.
+(bulleted or in backticks, after a label such as `Definition:`, with a note
+in parentheses after the name; a path suffix such as `checks.py:963` is enough),
+within two lines of the verified one. A site may list alternatives,
+`path:line|path:line`, such as a call and the function that makes it. Prose
+that mentions a place, such as what was left out and why, cites nothing. The
+answer passes when it cites every one of the task's `sites`, none of its
+`traps` (a use of another definition with the same name), and at most two
+other places. Places in the files a patch changes, and the task's `neutral`
+ones (an import a signature change leaves valid, a local variable), never
+count against it.
 """
 import json, re, sys, tomllib
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-CITE = re.compile(r"^[\s>*+\d.)-]*[\w.:<>*$]+(?:\(\))?\s+at\s+([\w./-]*\w\.(?:py|pyi|rs|ts|tsx|js|kt|kts)):(\d+)", re.M)
+CITE = re.compile(r"^[\s>*+\d.)-]*(?:[A-Za-z][\w -]*:\s+)?[\w.:<>*$@]+(?:\(\))?"
+                  r"(?:\s+\((?:[^()\n]|\([^()\n]*\))*\))?"
+                  r"\s+at\s+([\w./-]*\w\.(?:py|pyi|rs|ts|tsx|js|kt|kts)):(\d+)", re.M)
 NEAR = 2
 EXTRAS = 2
 
@@ -39,8 +45,11 @@ def same_file(cited, path):
 
 
 def at(cited, place):
-    path, line = place.rsplit(":", 1)
-    return same_file(cited[0], path) and abs(cited[1] - int(line)) <= NEAR
+    for alt in place.split("|"):
+        path, line = alt.rsplit(":", 1)
+        if same_file(cited[0], path) and abs(cited[1] - int(line)) <= NEAR:
+            return True
+    return False
 
 
 def score(t, answer):
