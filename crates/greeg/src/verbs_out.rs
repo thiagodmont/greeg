@@ -448,7 +448,13 @@ fn write_body(w: &mut impl Write, b: &verbs::Body, lw: usize, more: &str) -> Res
     Ok(())
 }
 
-/// `bodies`, when given, runs parallel to `entries` (`def --mode block`).
+/// A value a body names, with its definition's line.
+struct ReadRow {
+    read: verbs::Read,
+    text: String,
+}
+
+/// `bodies` and `reads`, when given, run parallel to `entries` (`def --mode block`).
 fn write_def_groups(
     w: &mut impl Write,
     entries: &[&DefEntry],
@@ -456,6 +462,7 @@ fn write_def_groups(
     show_reach: bool,
     full_chain: bool,
     bodies: Option<(&[Option<verbs::Body>], &str)>,
+    reads: &[Vec<ReadRow>],
 ) -> Result<()> {
     let mut order: Vec<&[u8]> = Vec::new();
     for e in entries {
@@ -543,6 +550,16 @@ fn write_def_groups(
             }
             if let Some((b, more)) = bodies.and_then(|(bs, more)| Some((bs[i].as_ref()?, more))) {
                 write_body(w, b, lw, more)?;
+            }
+            for r in reads.get(i).into_iter().flatten() {
+                writeln!(
+                    w,
+                    "  reads {}  {}:{}  {}",
+                    r.read.name,
+                    path_text(&r.read.rel),
+                    r.read.line,
+                    r.text
+                )?;
             }
         }
     }
@@ -662,6 +679,10 @@ pub fn run_def(
     } else {
         None
     };
+    let reads = match &bodies {
+        Some(bs) => read_rows(o, &entries, bs)?,
+        None => Vec::new(),
+    };
     let render = |cut: Cut| -> Result<(Vec<u8>, Outcome)> {
         let limit = cut.rows;
         let mut w = Vec::new();
@@ -687,6 +708,7 @@ pub fn run_def(
             explicit_from,
             c.chain,
             bodies.as_deref().map(|b| (&b[..shown], cut.more())),
+            &reads,
         )?;
         if r.total > shown {
             writeln!(w, "  +{} more", r.total - shown)?;
@@ -705,6 +727,45 @@ pub fn run_def(
     };
     let fitted = fit(c.json(), o, entries.len(), render)?;
     finish_fit(c, o, w, "def", ex.as_ref(), fitted)
+}
+
+/// The values each shown body names, with the line that defines each.
+fn read_rows(
+    o: &Options,
+    entries: &[&DefEntry],
+    bodies: &[Option<verbs::Body>],
+) -> Result<Vec<Vec<ReadRow>>> {
+    let asked: Vec<_> = entries
+        .iter()
+        .zip(bodies)
+        .map(|(e, b)| Some((e.rel.as_slice(), e.file_flags, e.name.as_str(), b.as_ref()?)))
+        .collect();
+    let mut sources: std::collections::HashMap<Vec<u8>, greeg_query::Source> = Default::default();
+    let mut rows = Vec::with_capacity(entries.len());
+    for found in verbs::reads(o, &asked)? {
+        let mut v = Vec::with_capacity(found.len());
+        for read in found {
+            if !sources.contains_key(&read.rel)
+                && let Ok(src) = verbs::source_of(o, &read.rel)
+            {
+                sources.insert(read.rel.clone(), src);
+            }
+            let text = sources
+                .get(&read.rel)
+                .and_then(|src| src.line(read.line))
+                .map(|l| {
+                    let t = String::from_utf8_lossy(l.trim_ascii()).into_owned();
+                    match t.char_indices().nth(120) {
+                        Some((i, _)) => format!("{}…", &t[..i]),
+                        None => t,
+                    }
+                })
+                .unwrap_or_default();
+            v.push(ReadRow { read, text });
+        }
+        rows.push(v);
+    }
+    Ok(rows)
 }
 
 pub fn run_show(c: &Common, o: &Options, locs: &[(String, u32)]) -> Result<()> {
@@ -1177,7 +1238,7 @@ pub fn run_impls(c: &Common, o: &Options, name: &str) -> Result<()> {
             r.source,
             ms(c, r.elapsed_ms)
         )?;
-        write_def_groups(&mut w, &direct, true, false, c.chain, None)?;
+        write_def_groups(&mut w, &direct, true, false, c.chain, None, &[])?;
         if r.direct_total > direct.len() {
             writeln!(w, "  +{} more", r.direct_total - direct.len())?;
         }
@@ -1187,7 +1248,7 @@ pub fn run_impls(c: &Common, o: &Options, name: &str) -> Result<()> {
                 "low confidence ({} in type position on definition lines)",
                 r.name
             )?;
-            write_def_groups(&mut w, &extras, true, false, c.chain, None)?;
+            write_def_groups(&mut w, &extras, true, false, c.chain, None, &[])?;
             if r.extras_total > extras.len() {
                 writeln!(w, "  +{} more", r.extras_total - extras.len())?;
             }
@@ -1752,7 +1813,7 @@ pub fn run_impact(c: &Common, o: &Options, name: &str) -> Result<()> {
             ms(c, r.elapsed_ms)
         )?;
         let defs: Vec<&DefEntry> = r.defs.iter().take(per_group.min(3)).collect();
-        write_def_groups(&mut w, &defs, false, false, c.chain, None)?;
+        write_def_groups(&mut w, &defs, false, false, c.chain, None, &[])?;
         write_group(&mut w, "LIKELY AFFECTED", &likely, &r.likely, caps[0])?;
         write_group(&mut w, "POSSIBLE", &possible, &r.possible, caps[1])?;
         write_group(
