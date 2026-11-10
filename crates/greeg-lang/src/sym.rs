@@ -22,6 +22,10 @@ pub const SYM_TEST: u8 = 4;
 /// agent asks for: hits on its name classify as `member`, and `def` ranks it low.
 pub const SYM_OBJ_MEMBER: u8 = 8;
 
+/// The tree-sitter runtime and grammar crates this binary parses with
+/// (`name@version`, space-separated), from the workspace lock file.
+pub const PARSERS: &str = env!("GREEG_PARSERS");
+
 /// Extraction parse budget, in tree-sitter progress reports (one per 100
 /// parser operations). Counted, not timed, so a build does not depend on load.
 pub const PARSE_BUDGET: u32 = 20_000;
@@ -1865,6 +1869,18 @@ mod tests {
             ]
         );
         assert_eq!(ex.imports[0].module, "fs");
+    }
+
+    /// A TypeScript compiler baseline saved as `.js` (CRLF, as written) holds
+    /// its TypeScript source. Since tree-sitter 0.27.2 its `ERROR` nodes stay
+    /// under `MAX_ERROR_RATIO`, so it is parsed as JavaScript and the
+    /// TypeScript-only declarations give no symbols, not the regex fallback's.
+    #[test]
+    fn js_holding_typescript_parses_under_the_error_gate() {
+        let src = b"//// [tests/cases/compiler/inferenceFromDefaultTypeArgumentCall.ts] ////\r\n\r\n//// [inferenceFromDefaultTypeArgumentCall.ts]\r\n// Repro from #12345\n\ntype Pair = {\n    a: (e: string) => void;\n    b: (e: number) => void;\n}\n\ndeclare function g1<T extends keyof Pair = \"a\">(input: Pair[T]): void;\n\ng1(value => { });\ng1<\"a\">(value => { });\ng1<\"b\">(value => { });\n\r\n\r\n//// [inferenceFromDefaultTypeArgumentCall.js]\r\n\"use strict\";\r\n// Repro from #12345\r\ng1(function (value) { });\r\ng1(function (value) { });\r\ng1(function (value) { });\r\n";
+        let ex = extract(Lang::JavaScript, false, src);
+        assert!(ex.tree_sitter && ex.parse_errors, "{ex:?}");
+        assert_eq!(names(&ex, src), vec![]);
     }
 
     #[test]
