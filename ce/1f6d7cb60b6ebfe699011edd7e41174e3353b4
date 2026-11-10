@@ -1,0 +1,21 @@
+crates/greeg/Cargo.toml
+  s_e2aadb8067553a::t_c6ca855b17f593 20
+Cargo.lock
+  s_e2aadb8067553a::t_bd636e6bc5f426 235,237
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "ce1f6d7cb60b6ebfe699011edd7e41174e3353b4",
+  "prompts": {},
+  "sessions": {
+    "s_e2aadb8067553a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8372df48-1202-40f9-bd30-8e5555761588",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
