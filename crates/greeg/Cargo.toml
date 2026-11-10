@@ -17,7 +17,7 @@ greeg-index = { path = "../greeg-index" }
 anyhow.workspace = true
 bstr.workspace = true
 clap.workspace = true
-clap_mangen = "0.2"
+clap_mangen = "0.3"
 ignore.workspace = true
 memchr.workspace = true
 serde.workspace = true

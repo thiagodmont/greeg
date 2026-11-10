@@ -2,11 +2,12 @@
 //! `bench/baselines/kernels-<host>.json`.
 //! `cargo bench -p greeg-index --bench kernels`, then `bench/bench.py gate kernels`.
 
-use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
+use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use greeg_index::gram::{Dedup, fold_buf, literal_keys};
 use greeg_index::plan::plan;
 use greeg_lang::{Lang, lexer, sym};
 use roaring::RoaringBitmap;
+use std::hint::black_box;
 
 const RUST_SNIPPET: &str = r#"
 /// Spawns a new asynchronous task, returning a [`JoinHandle`] for it.
