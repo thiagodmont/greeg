@@ -1790,4 +1790,31 @@ mod tests {
         );
         let _ = fs::remove_dir_all(&d);
     }
+
+    /// Postings are roaring's serialized bytes on disk: a roaring release that
+    /// writes them differently changes the index format.
+    #[test]
+    fn posting_bytes_are_pinned() {
+        let sparse = (0..50).map(|i| i * 997);
+        let dense = ((1 << 16)..(1 << 16) + 45_000).step_by(3);
+        let run = (3 << 16)..(3 << 16) + 60_000;
+        let ids: Vec<u32> = sparse.chain(dense).chain(run).collect();
+        let (count, bytes) = posting_bytes(ids.clone());
+        assert_eq!(count, 75_050);
+        // no run containers: cookie 12346, three containers (key, cardinality - 1), offsets
+        #[rustfmt::skip]
+        let header: [u8; 32] = [
+            58, 48, 0, 0, 3, 0, 0, 0,
+            0, 0, 49, 0, 1, 0, 151, 58, 3, 0, 95, 234,
+            32, 0, 0, 0, 132, 0, 0, 0, 132, 32, 0, 0,
+        ];
+        assert_eq!(bytes[..32], header);
+        assert_eq!(bytes.len(), 16_516);
+        assert_eq!(
+            blake3::hash(&bytes).to_hex().as_str(),
+            "09677b40837fd23e2259efebd5a86d2aef447b51a5a06a08f216502bb968bc34"
+        );
+        let back = RoaringBitmap::deserialize_from(&bytes[..]).unwrap();
+        assert!(back.iter().eq(ids));
+    }
 }
