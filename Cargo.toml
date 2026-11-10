@@ -26,7 +26,7 @@ regex-syntax = "0.8"
 roaring = "0.11"
 memmap2 = "0.9"
 bytemuck = { version = "1", features = ["derive"] }
-hashbrown = "0.15"
+hashbrown = "0.17"
 blake3 = "1"
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
 serde = { version = "1", features = ["derive"] }
