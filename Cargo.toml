@@ -23,7 +23,7 @@ memchr = "2"
 rayon = "1"
 regex = "1"
 regex-syntax = "0.8"
-roaring = "0.11"
+roaring = "0.12"
 memmap2 = "0.9"
 bytemuck = { version = "1", features = ["derive"] }
 hashbrown = "0.17"
