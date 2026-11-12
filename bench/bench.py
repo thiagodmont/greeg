@@ -385,8 +385,8 @@ def speed(args):
         slept = hyperfine([cmd], os.getcwd(), runs=20, warmup=3, prepare=PREPARE_SLEEP)[0]
         wake[label] = {"hot_ms": hot["median"] * 1e3 if hot else None, "prepared_ms": slept["median"] * 1e3 if slept else None}
     result["wakeup"] = wake
-    fmt_ms = lambda x: f"{x:.1f} ms" if x is not None else "n/a"
-    print("wake-up penalty: " + "  ".join(f"{k} --version {fmt_ms(v['hot_ms'])} hot → {fmt_ms(v['prepared_ms'])} after the sleep" for k, v in wake.items()))
+    wake_ms = lambda x: "n/a" if x is None else f"{x:.1f} ms"
+    print("wake-up penalty: " + "  ".join(f"{k} --version {wake_ms(v['hot_ms'])} hot → {wake_ms(v['prepared_ms'])} after the sleep" for k, v in wake.items()))
     prev = load_json(os.path.join(RESULTS, f"speed-{host_key()}.json"))
     if prev and args.corpora and not args.no_splice:
         # a subset run refreshes only its corpora; rows kept from an earlier run are marked when
