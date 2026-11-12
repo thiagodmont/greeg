@@ -265,11 +265,25 @@ def hyperfine(cmds, cwd, runs, warmup, prepare=None, timeout=1800):
         sys.stderr.write(r.stderr.decode("utf8", "replace")[-500:] + "\n")
     data = load_json(path, {"results": []})
     os.unlink(path)
-    out = []
-    for res in data.get("results", []):
-        out.append({"mean": res["mean"], "median": res["median"], "stddev": res.get("stddev") or 0.0, "min": res["min"], "max": res["max"], "user": res["user"], "system": res["system"], "n": len(res.get("times") or [])})
+    out = hyperfine_results(data)
     while len(out) < len(cmds):
         out.append(None)
+    return out
+
+
+def hyperfine_results(data):
+    """Seconds per command from a hyperfine 1.x or 2.x `--export-json`; 2.x also gives the median instruction count."""
+    out = []
+    for res in data.get("results", []):
+        if "summary" not in res:
+            out.append({"mean": res["mean"], "median": res["median"], "stddev": res.get("stddev") or 0.0, "min": res["min"], "max": res["max"], "user": res["user"], "system": res["system"], "n": len(res.get("times") or [])})
+            continue
+        s = res["summary"]
+        wall = s["time_wall_clock"]
+        r = {"mean": wall["mean"], "median": wall["median"], "stddev": wall.get("stddev") or 0.0, "min": wall["min"], "max": wall["max"], "user": s["time_user"]["mean"], "system": s["time_system"]["mean"], "n": wall["count"]}
+        if "instructions" in s:
+            r["instructions"] = s["instructions"]["median"]
+        out.append(r)
     return out
 
 
