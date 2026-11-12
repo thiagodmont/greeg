@@ -37,7 +37,8 @@ rebuilds. An index directory that is the tree itself is refused.
 
 Inside it, each build has its own directory, `v<N>-<key>/` for
 `FORMAT_VERSION` N and the first 16 hex of the blake3 hash of the version, the
-built-in tags queries and the parse budget (`derive::build_key`). It holds the components,
+tree-sitter runtime and grammar versions in `Cargo.lock`, the built-in tags
+queries and the parse budget (`derive::build_key`). It holds the components,
 manifest, lock, markers and an `OWNER` file (`greeg <version> <N>`); sessions
 sit beside them in `session/`. Every change to what a build writes gets a new
 N, and a test pins each N to a digest of a fixture build, so two binaries with

@@ -1,6 +1,6 @@
 //! What an index's symbols, spans and imports were derived with
-//! (ARCHITECTURE.md): the version, the built-in tags queries, the parse
-//! budget and every registered extra language. The manifest records it, and an index derived
+//! (ARCHITECTURE.md): the version, the tree-sitter crates, the built-in tags
+//! queries, the parse budget and every registered extra language. The manifest records it, and an index derived
 //! otherwise is rebuilt; it also names each language code of the file table.
 
 use greeg_lang::extra::{self, ExtraLang};
@@ -8,17 +8,27 @@ use greeg_lang::{BUILTINS, sym};
 use std::os::unix::fs::MetadataExt;
 
 /// What this binary derives with, whatever extra languages are registered:
-/// its version, built-in tags queries and parse budget. It names the index
+/// its version, tree-sitter crates, built-in tags queries and parse budget. It names the index
 /// directory (`format_dir`), so builds that derive differently keep separate
 /// indexes instead of rebuilding each other's.
 pub fn build_key() -> &'static str {
     static K: std::sync::OnceLock<String> = std::sync::OnceLock::new();
-    K.get_or_init(|| key_of(env!("CARGO_PKG_VERSION"), &sym::QUERIES, sym::PARSE_BUDGET))
+    K.get_or_init(|| {
+        key_of(
+            env!("CARGO_PKG_VERSION"),
+            sym::PARSERS,
+            &sym::QUERIES,
+            sym::PARSE_BUDGET,
+        )
+    })
 }
 
-fn key_of(version: &str, queries: &[&str], parse_budget: u32) -> String {
+fn key_of(version: &str, parsers: &str, queries: &[&str], parse_budget: u32) -> String {
     let mut h = blake3::Hasher::new();
     h.update(version.as_bytes());
+    h.update(&[0]);
+    h.update(parsers.as_bytes());
+    h.update(&[0]);
     for q in queries {
         h.update(&(q.len() as u64).to_le_bytes());
         h.update(q.as_bytes());
@@ -102,8 +112,38 @@ mod tests {
     /// extract differently, so they keep separate indexes.
     #[test]
     fn the_parse_budget_is_part_of_the_build_key() {
-        let key = |budget| key_of("1.0.0", &sym::QUERIES, budget);
+        let key = |budget| key_of("1.0.0", sym::PARSERS, &sym::QUERIES, budget);
         assert_eq!(key(sym::PARSE_BUDGET), key(sym::PARSE_BUDGET));
         assert_ne!(key(sym::PARSE_BUDGET), key(sym::PARSE_BUDGET / 2));
+    }
+
+    /// A tree-sitter runtime or grammar update can change parse trees within
+    /// one greeg version.
+    #[test]
+    fn the_parser_versions_are_part_of_the_build_key() {
+        let key = |parsers| key_of("1.0.0", parsers, &sym::QUERIES, sym::PARSE_BUDGET);
+        for c in [
+            "",
+            "-javascript",
+            "-kotlin-sg",
+            "-python",
+            "-rust",
+            "-typescript",
+        ] {
+            let c = format!("tree-sitter{c}@");
+            assert!(
+                sym::PARSERS.split(' ').any(|p| p.starts_with(&c)),
+                "{c} in {}",
+                sym::PARSERS
+            );
+        }
+        assert_ne!(
+            key("tree-sitter@0.27.0 tree-sitter-typescript@0.23.2"),
+            key("tree-sitter@0.27.2 tree-sitter-typescript@0.23.2")
+        );
+        assert_ne!(
+            key("tree-sitter@0.27.2 tree-sitter-typescript@0.23.2"),
+            key("tree-sitter@0.27.2 tree-sitter-typescript@0.23.3")
+        );
     }
 }
