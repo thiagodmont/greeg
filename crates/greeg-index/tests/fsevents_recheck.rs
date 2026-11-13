@@ -14,8 +14,17 @@ use std::time::{Duration, SystemTime};
 fn fsevents_lists_again_a_directory_listed_too_soon() {
     // SAFETY: the only test in this binary, and no thread has started yet.
     unsafe { std::env::set_var("GREEG_DEBUG_FSEVENTS_CUTOFF_MS", "15000") };
-    let base = std::env::temp_dir().join(format!("greeg-fsevents-recheck-{}", std::process::id()));
-    let _ = fs::remove_dir_all(&base);
+    // a directory this run creates itself, so it never removes another's
+    let base = (0..)
+        .map(|n| {
+            std::env::temp_dir().join(format!("greeg-fsevents-recheck-{}-{n}", std::process::id()))
+        })
+        .find(|b| match fs::create_dir(b) {
+            Ok(()) => true,
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => false,
+            Err(e) => panic!("create {}: {e}", b.display()),
+        })
+        .unwrap();
     let (root, dir) = (base.join("tree"), base.join("index"));
     let lib = root.join("lib");
     fs::create_dir_all(&lib).unwrap();
