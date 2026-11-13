@@ -4590,13 +4590,23 @@ fn a_failed_background_build_is_recorded_and_not_respawned_per_query() {
 }
 
 /// An index whose phase 2 never ran (its builder died between the two
-/// publications) is finished by the next query, not left at phase 1.
+/// publications) is finished by the next query, not left at phase 1; one
+/// built with `--phase1` is left as asked.
 #[test]
 fn an_index_left_at_phase_1_is_finished_by_the_next_query() {
     let f = fixture();
     settle(&f.root);
     let o = f.run(&["index", "--phase1", "--quiet"]);
     assert!(o.status.success(), "{o:?}");
+    let asked = f.run(&["map"]);
+    assert_eq!(asked.status.code(), Some(2), "{asked:?}");
+    assert!(String::from_utf8_lossy(&asked.stderr).contains("--phase1"));
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    let layout = greeg_index::format_dir(&f.index);
+    let mut m = greeg_index::read_manifest(&layout).unwrap();
+    assert!(m.phase1_only && !m.phase2, "a build was started");
+    m.phase1_only = false;
+    greeg_index::write_manifest(&layout, &m).unwrap();
     let phase2 = || -> bool {
         let o = f.run(&["--json", "index", "--status"]);
         serde_json::Deserializer::from_slice(&o.stdout)

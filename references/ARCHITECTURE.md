@@ -199,8 +199,9 @@ Between the two phases, queries already prune candidates with the grams, and
 fall back to a regex definition extractor for kinds. A builder that dies
 between its two publications (killed, out of memory) leaves an index at
 phase 1 with no build marker held: the next query that opens it starts a
-build (unless a failed one backs off), and `map` and `find`, which need the
-symbols, say it is being finished.
+build (unless a failed one backs off, or under `--no-persist`), and `map` and
+`find`, which need the symbols, say it is being finished. An index built
+with `greeg index --phase1` records it (`phase1_only`) and is left as asked.
 
 Publication writes new files under new names, then renames the manifest over
 the old one. Writers take an exclusive lock; **readers never lock**. A reader

@@ -1040,6 +1040,7 @@ pub fn build(root: &Path, dir: &Path, opts: &BuildOpts) -> Result<Manifest> {
         roots,
         phase1: true,
         phase2: false,
+        phase1_only: opts.phase1_only,
         symbols: 0,
         edges: 0,
         parse_fallbacks: 0,

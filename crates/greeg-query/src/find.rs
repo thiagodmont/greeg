@@ -155,7 +155,7 @@ pub fn find(o: &Options, query: &str) -> Result<FindResult> {
     if !idx.has_symbols() {
         bail!(
             "`find` needs the symbol table: {}",
-            indexed::without_symbols(o)
+            indexed::without_symbols(o, idx)
         );
     }
     let sel = Selection::new(o, Vec::new())?;

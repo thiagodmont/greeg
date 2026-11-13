@@ -25,10 +25,19 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering::Relaxed};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-/// Queued background work: (root, index dir, refresh). `refresh` is the
-/// detached delta publish of an answer-first query; a full build wins when
-/// both are queued.
-static PENDING_BUILD: Mutex<Option<(PathBuf, PathBuf, bool)>> = Mutex::new(None);
+/// Queued background work: (root, index dir, what). A full build wins over
+/// the others when more than one is queued.
+static PENDING_BUILD: Mutex<Option<(PathBuf, PathBuf, Queued)>> = Mutex::new(None);
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Queued {
+    Build,
+    /// A build for an index without symbols, unless one has published them
+    /// by the time it would start.
+    Symbols,
+    /// The detached delta publish of an answer-first query.
+    Refresh,
+}
 
 /// Queue a background build; it is started by `flush_pending_build` after the
 /// answer is written, so the build's twelve threads never compete with the
@@ -40,7 +49,20 @@ pub fn spawn_build(root: &Path, dir: &Path) {
     }
     note_failed_build(root, dir);
     if let Ok(mut g) = PENDING_BUILD.lock() {
-        *g = Some((root.to_path_buf(), dir.to_path_buf(), false));
+        *g = Some((root.to_path_buf(), dir.to_path_buf(), Queued::Build));
+    }
+}
+
+/// Queue a build that adds the symbols an index at phase 1 lacks.
+fn spawn_symbols(root: &Path, dir: &Path) {
+    if !persist::allowed() {
+        return;
+    }
+    note_failed_build(root, dir);
+    if let Ok(mut g) = PENDING_BUILD.lock()
+        && !matches!(&*g, Some((_, _, Queued::Build)))
+    {
+        *g = Some((root.to_path_buf(), dir.to_path_buf(), Queued::Symbols));
     }
 }
 
@@ -70,18 +92,19 @@ fn note_failed_build(root: &Path, dir: &Path) {
     );
 }
 
-/// Why an index that answers has no symbols yet, for the verbs that need
-/// them: phase 2 is running, is being started by this query, or waits on a
-/// failed build.
-pub fn without_symbols(o: &Options) -> &'static str {
-    use greeg_index::lock;
+/// Why an index that answers has no symbols, for the verbs that need them:
+/// it was built without them, a build is running, this query started one,
+/// or one waits on a failed build.
+pub fn without_symbols(o: &Options, idx: &Index) -> &'static str {
     let Ok(dir) = greeg_index::index_dir(&o.root, o.index_dir.as_deref()) else {
         return "the index has no symbols yet; run `greeg index`";
     };
-    if !persist::allowed() {
+    if idx.manifest.phase1_only {
+        "the index was built with `--phase1`; `greeg index` adds them"
+    } else if !persist::allowed() {
         "the index build never finished its symbols, and --no-persist leaves it as it is; run `greeg index`"
     } else if lock::marker_held(&dir, lock::Work::Build) {
-        "the index build is adding its symbols now; retry in a moment"
+        "an index build is running in its directory; retry when it finishes"
     } else if backing_off(&o.root, &dir) {
         "the index has no symbols and its last build failed; `greeg doctor` shows why, `greeg index` builds now"
     } else {
@@ -105,18 +128,27 @@ pub fn spawn_refresh(root: &Path, dir: &Path) {
         return;
     }
     if let Ok(mut g) = PENDING_BUILD.lock()
-        && !matches!(&*g, Some((_, _, false)))
+        && !matches!(&*g, Some((_, _, Queued::Build | Queued::Symbols)))
     {
-        *g = Some((root.to_path_buf(), dir.to_path_buf(), true));
+        *g = Some((root.to_path_buf(), dir.to_path_buf(), Queued::Refresh));
     }
 }
 
 /// Start the queued build or refresh, if any (call once, after output is flushed).
 pub fn flush_pending_build() {
     let pending = PENDING_BUILD.lock().ok().and_then(|mut g| g.take());
-    if let Some((root, dir, refresh)) = pending {
-        spawn_build_now(&root, &dir, refresh);
+    let Some((root, dir, what)) = pending else {
+        return;
+    };
+    // a build drops its marker after it publishes, so a manifest read after
+    // the marker is seen free shows the symbols a build added meanwhile
+    if what == Queued::Symbols
+        && (lock::marker_held(&dir, lock::Work::Build)
+            || read_manifest(&dir).is_some_and(|m| m.phase2))
+    {
+        return;
     }
+    spawn_build_now(&root, &dir, what == Queued::Refresh);
 }
 
 /// Spawn `greeg index --root ROOT [--refresh]` detached, unless the same work
@@ -659,8 +691,8 @@ fn open_fresh_with(
     }
     // a builder that died between its two publications left no symbols, and
     // nothing else would finish them (a running build holds the marker)
-    if !idx.manifest.phase2 {
-        spawn_build(&o.root, &dir);
+    if !idx.manifest.phase2 && !idx.manifest.phase1_only {
+        spawn_symbols(&o.root, &dir);
     }
     *OPENED.lock().unwrap_or_else(|e| e.into_inner()) = Some(idx.manifest.snapshot());
     // a phase-1-only index answers gram queries; symbols arrive when the build finishes

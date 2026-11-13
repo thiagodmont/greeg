@@ -1829,7 +1829,7 @@ pub fn map(o: &Options, dir: &str) -> Result<MapResult> {
     if !idx.has_symbols() {
         bail!(
             "`map` needs the symbol table: {}",
-            indexed::without_symbols(o)
+            indexed::without_symbols(o, idx)
         );
     }
     let sel = Selection::new(o, Vec::new())?;
