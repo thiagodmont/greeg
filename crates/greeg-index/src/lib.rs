@@ -8,6 +8,7 @@ pub mod build;
 pub mod commit;
 pub mod derive;
 pub mod external;
+pub mod failure;
 pub mod format;
 pub mod fresh;
 pub mod gram;

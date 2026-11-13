@@ -780,7 +780,17 @@ fn run_index(
     if threads > 0 {
         opts.reader_threads = threads;
     }
-    let r = greeg_index::build::build(&root, &dir, &opts);
+    let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        greeg_index::build::build(&root, &dir, &opts)
+    }))
+    .unwrap_or_else(|_| Err(anyhow::anyhow!("the build panicked")));
+    // recorded before the marker goes, so a query that sees it free sees why
+    match &r {
+        Ok(_) => greeg_index::failure::clear(&dir),
+        Err(e) => {
+            let _ = greeg_index::failure::record(&dir, &format!("{e:#}"));
+        }
+    }
     drop(marker);
     let m = r?;
     if !quiet {

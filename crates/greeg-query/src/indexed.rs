@@ -38,9 +38,27 @@ pub fn spawn_build(root: &Path, dir: &Path) {
     if !persist::allowed() {
         return;
     }
+    note_failed_build(dir);
     if let Ok(mut g) = PENDING_BUILD.lock() {
         *g = Some((root.to_path_buf(), dir.to_path_buf(), false));
     }
+}
+
+/// Say once, on stderr, that the last background build failed: queries scan
+/// until one succeeds.
+fn note_failed_build(dir: &Path) {
+    let Some(f) = greeg_index::failure::read(dir).filter(|f| !f.reported) else {
+        return;
+    };
+    let wait = f
+        .retry_at()
+        .saturating_sub(greeg_index::now_ms())
+        .div_ceil(1000);
+    eprintln!(
+        "greeg: the background index build failed ({}); queries scan until one succeeds, the next in {wait}s; `greeg doctor` has more",
+        f.error
+    );
+    greeg_index::failure::mark_reported(dir, &f);
 }
 
 /// Queue a detached `greeg index --refresh`: this query
@@ -75,6 +93,12 @@ pub fn spawn_build_now(root: &Path, dir: &Path, refresh: bool) {
     }
     let _ = greeg_index::create_private_dir(dir);
     if marker_held(dir, Work::Build) || refresh && marker_held(dir, Work::Refresh) {
+        return;
+    }
+    // a build that failed is not started again on every query
+    if !refresh
+        && greeg_index::failure::read(dir).is_some_and(|f| f.backing_off(greeg_index::now_ms()))
+    {
         return;
     }
     let Ok(exe) = std::env::current_exe() else {

@@ -58,7 +58,7 @@ pub fn run(c: &Common) -> Result<()> {
                 dir.display(),
                 if building { " (build in progress)" } else { "" }
             )?;
-            if !building {
+            if !building && greeg_index::failure::read(&dir).is_none() {
                 advice.push("no index yet: the first query builds it in the background, or run `greeg index` now".into());
             }
         }
@@ -208,6 +208,24 @@ pub fn run(c: &Common) -> Result<()> {
                 writeln!(w, "languages {}", parts.join(" · "))?;
             }
         }
+    }
+    if let Some(f) = greeg_index::failure::read(&dir) {
+        let now = greeg_index::now_ms();
+        let next = if f.backing_off(now) {
+            format!("in {} s", (f.retry_at() - now).div_ceil(1000))
+        } else {
+            "on the next query".into()
+        };
+        writeln!(
+            w,
+            "build     failed {} time(s) in a row, last {}: {}; background builds resume {next}",
+            f.attempts,
+            ago(f.at_unix_ms),
+            f.error
+        )?;
+        advice.push(
+            "the background build fails: fix its cause, then run `greeg index` to build now".into(),
+        );
     }
     // extra languages
     let reg = extra::registry();

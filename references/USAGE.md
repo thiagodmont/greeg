@@ -231,6 +231,11 @@ so does an edit to a file import resolution reads (`tsconfig.json`,
 `package.json`, `Cargo.toml`, ...), since it moves the edges of unchanged
 files.
 
+When a background build fails (out of file descriptors, a full disk), greeg
+says so once on stderr, keeps answering from a scan, and waits before trying
+again: 30 s after the first failure, doubling up to an hour. `greeg doctor`
+shows the error; `greeg index` builds at once.
+
 ```bash
 greeg index                 # build now instead of on first query
 greeg index --status        # manifest: files, generation, deltas, build peak RSS
