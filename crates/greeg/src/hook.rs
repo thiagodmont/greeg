@@ -1088,7 +1088,7 @@ mod tests {
             ("grep -rn a | sort", "no path"),
             ("grep -rn --color=always a src | cat", "colors"),
             ("grep -rn a src 2>&1 | sort", "`2>&1`"),
-            ("grep -rn a src 2>/dev/null | sort", "hide that greeg skips"),
+            ("grep -rn a src 2>/dev/null | sort", "hide greeg's note"),
             ("rg -n a src | sort", "only grep -r"),
             ("grep -n a f.rs | sort", "searches the files it names"),
         ] {
@@ -1202,9 +1202,9 @@ mod tests {
             ("rg a2>&1", "redirection"),
             ("rg 'a'2>/dev/null", "redirection"),
             ("2>&1", "redirection"),
-            ("grep -rn a . 2>/dev/null", "hide that greeg skips"),
-            ("grep -rl a . 2> /dev/null | head", "hide that greeg skips"),
-            ("grep -rl a . 2>> /dev/null", "hide that greeg skips"),
+            ("grep -rn a . 2>/dev/null", "hide greeg's note"),
+            ("grep -rl a . 2> /dev/null | head", "hide greeg's note"),
+            ("grep -rl a . 2>> /dev/null", "hide greeg's note"),
         ] {
             let got = rewrite_full(cmd).err().unwrap_or_default();
             assert!(got.contains(why), "{cmd:?}: {got:?}");
