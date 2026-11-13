@@ -52,6 +52,8 @@ pub struct Changes {
     /// FSEvents id captured *before* the check ran, so edits made while the
     /// check was running are replayed by the next check (C15).
     pub fsevents_id: u64,
+    /// The event database that id belongs to, read with it (`fsevents_uuid`).
+    pub fsevents_uuid: String,
     /// When the check began to read the tree (unix ms): the manifest is
     /// verified as of then, so the TTL never covers a change made during it.
     pub checked_ms: u64,
@@ -435,11 +437,12 @@ fn check_stat_with(idx: &Index, root: &Path, lookup: Option<Lookup>, threads: us
     let unopened = matches!(&tree, Err(e) if !gone(e));
     let tree = tree.ok();
     let lookup = lookup.unwrap_or_else(|| tree.as_ref().map_or(Lookup::Refusing, Lookup::of));
-    let fsevents_id = current_fsevents_id();
+    let (fsevents_id, fsevents_uuid) = fsevents_cursor(root);
     let k = known(idx);
     let mut ch = Changes {
         method: "stat",
         fsevents_id,
+        fsevents_uuid,
         checked_ms,
         unreliable: unopened,
         ..Default::default()
@@ -630,12 +633,19 @@ impl Drop for Cookie {
 /// FSEvents-scoped check (macOS). Returns None when the log is unusable.
 #[cfg(target_os = "macos")]
 pub fn check_fsevents(idx: &Index, root: &Path, threads: usize) -> Option<Changes> {
-    if idx.manifest.fsevents_id == 0 {
+    let m = &idx.manifest;
+    // an id from another event database, or one it has not given yet (a
+    // copied or restored index, a reset database), names no events
+    let (fsevents_id, fsevents_uuid) = fsevents_cursor(root);
+    if m.fsevents_id == 0
+        || m.fsevents_id > fsevents_id
+        || m.fsevents_uuid.is_empty()
+        || m.fsevents_uuid != fsevents_uuid
+    {
         return None;
     }
     let t = Instant::now();
     let checked_ms = now_ms();
-    let fsevents_id = current_fsevents_id();
     let abs_root = std::fs::canonicalize(root).ok()?;
     // a root that is not UTF-8 cannot be named to FSEvents: the stat pass runs
     let root_s = abs_root.to_str()?;
@@ -654,6 +664,7 @@ pub fn check_fsevents(idx: &Index, root: &Path, threads: usize) -> Option<Change
     let mut ch = Changes {
         method: "fsevents",
         fsevents_id,
+        fsevents_uuid,
         checked_ms,
         ..Default::default()
     };
@@ -1075,15 +1086,21 @@ pub fn apply(idx: &Index, root: &Path, ch: &Changes) -> Result<usize> {
     if ch.unreliable {
         return Ok(0);
     }
-    let fsid = if ch.fsevents_id != 0 {
-        ch.fsevents_id
+    let (fsid, uuid) = if ch.fsevents_id != 0 {
+        (ch.fsevents_id, ch.fsevents_uuid.clone())
     } else {
-        current_fsevents_id()
+        fsevents_cursor(root)
     };
+    // a stored id the FSEvents check refuses is replaced at once
+    let m0 = &idx.manifest;
+    let cursor_moves = fsid != 0 && (m0.fsevents_id > fsid || m0.fsevents_uuid != uuid);
     if ch.is_empty() {
         let now = now_ms();
         // nothing to publish: refresh the TTL stamp, at most once per second
-        if !ch.no_ino && verified_within(idx.manifest.verified_unix_ms, now, VERIFY_WRITE_MS) {
+        if !ch.no_ino
+            && !cursor_moves
+            && verified_within(idx.manifest.verified_unix_ms, now, VERIFY_WRITE_MS)
+        {
             return Ok(0);
         }
         let _lock = crate::lock::writer(&idx.dir)?;
@@ -1097,6 +1114,7 @@ pub fn apply(idx: &Index, root: &Path, ch: &Changes) -> Result<usize> {
         m.verified_unix_ms = m.verified_unix_ms.max(ch.checked_ms).min(now);
         if fsid != 0 {
             m.fsevents_id = fsid;
+            m.fsevents_uuid = uuid;
         }
         if ch.no_ino {
             m.stamp_mode = crate::STAMP_NO_INO.into();
@@ -1193,6 +1211,7 @@ pub fn apply(idx: &Index, root: &Path, ch: &Changes) -> Result<usize> {
     m.verified_unix_ms = ch.checked_ms.min(now_ms());
     if fsid != 0 {
         m.fsevents_id = fsid;
+        m.fsevents_uuid = uuid;
     }
     write_manifest(&idx.dir, &m)?;
     crate::snapshot::clean(&idx.dir, &m, &due, false, now);
@@ -1200,14 +1219,23 @@ pub fn apply(idx: &Index, root: &Path, ch: &Changes) -> Result<usize> {
     Ok(files.len())
 }
 
-fn current_fsevents_id() -> u64 {
+/// The current FSEvents id and the UUID of the event database of `root`'s
+/// device, which ids belong to; `(0, "")` off macOS, and the UUID is empty
+/// when the device has none.
+pub(crate) fn fsevents_cursor(root: &Path) -> (u64, String) {
     #[cfg(target_os = "macos")]
     {
-        greeg_fsevents::current_id()
+        use std::os::unix::fs::MetadataExt;
+        let uuid = std::fs::metadata(root)
+            .ok()
+            .and_then(|m| greeg_fsevents::device_uuid(m.dev()))
+            .unwrap_or_default();
+        (greeg_fsevents::current_id(), uuid)
     }
     #[cfg(not(target_os = "macos"))]
     {
-        0
+        let _ = root;
+        (0, String::new())
     }
 }
 

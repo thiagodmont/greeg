@@ -182,6 +182,55 @@ fn fsevents_finds_what_a_directory_stamp_hides() {
         );
     }
 
+    // a stored event id the log cannot have given (a restored or copied index
+    // directory, a reset event database), or one recorded for another event
+    // database: the stat pass answers
+    for (what, id, uuid) in [
+        ("id ahead of the system's", Some(u64::MAX / 2), None),
+        ("no event database recorded", None, Some("")),
+        (
+            "another event database",
+            None,
+            Some("00000000-0000-0000-0000-000000000000"),
+        ),
+    ] {
+        let t = tree();
+        settle();
+        build_index(&t);
+        fs::write(lib_of(&t).join("new.py"), "x = 1\n").unwrap();
+        settle();
+        let mut m = greeg_index::read_manifest(&t.dir).unwrap();
+        if let Some(id) = id {
+            m.fsevents_id = id;
+        }
+        if let Some(uuid) = uuid {
+            m.fsevents_uuid = uuid.into();
+        }
+        greeg_index::write_manifest(&t.dir, &m).unwrap();
+        let idx = Index::open(&t.dir).unwrap();
+        let ch = fresh::check(&idx, &t.root, Mode::FsEvents, 2).unwrap();
+        assert_eq!(ch.method, "stat", "{what}");
+        assert_eq!(
+            rels(ch.added.iter().map(|w| w.rel.clone())),
+            ["lib/new.py"],
+            "{what}"
+        );
+        fresh::apply(&idx, &t.root, &ch).unwrap();
+        drop(idx);
+        // a check that found nothing replaces a refused id at once, not only
+        // once the stamp is a second old
+        let mut m = greeg_index::read_manifest(&t.dir).unwrap();
+        m.fsevents_id = u64::MAX / 2;
+        greeg_index::write_manifest(&t.dir, &m).unwrap();
+        let idx = Index::open(&t.dir).unwrap();
+        let ch = fresh::check(&idx, &t.root, Mode::FsEvents, 2).unwrap();
+        assert!(ch.is_empty(), "{what}: {ch:?}");
+        fresh::apply(&idx, &t.root, &ch).unwrap();
+        let m = greeg_index::read_manifest(&t.dir).unwrap();
+        assert!(m.fsevents_id <= greeg_fsevents::current_id(), "{what}");
+        assert_eq!(m.fsevents_uuid.len(), 36, "{what}");
+    }
+
     // a directory listed too soon, named by an event though its stamp did not move
     let t = tree();
     settle();

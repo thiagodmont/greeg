@@ -537,11 +537,14 @@ to keep it there.
   event: events arrive in order, so every earlier change has arrived too.
   Without it, an edit made just before a query was missed (3 of 10 queries a
   second after an edit on a 9,000-file tree). When the cookie cannot be
-  written (`--no-persist`, a read-only index directory), the log reports
-  dropped events, an event names a directory that is neither the root as given
-  nor below it (a root spelled through `/System/Volumes/Data`, which FSEvents
-  reports by its short name; the cookie's own directory is expected), or the read passes its 40 ms cutoff, the stat
-  pass below answers.
+  written (`--no-persist`, a read-only index directory), the stored id is
+  ahead of the system's (a reset event database) or was recorded for another
+  one (the manifest keeps the root device's FSEvents UUID beside it: an index
+  directory copied from another disk or machine), the log reports dropped
+  events, an event names a directory that is neither the root as given nor
+  below it (a root spelled through `/System/Volumes/Data`, which FSEvents
+  reports by its short name; the cookie's own directory is expected), or the
+  read passes its 40 ms cutoff, the stat pass below answers.
 * **Everywhere else**: a parallel `lstat` of every known file, comparing its
   whole stamp (size, mtime, ctime, inode and device), plus each directory's
   mtime, ctime, inode and device to catch additions and deletions. The
