@@ -1,0 +1,23 @@
+crates/greeg-index/src/index.rs
+  s_e2aadb8067553a::t_1b92737b03f101 1228-1229
+crates/greeg/tests/cli.rs
+  s_e2aadb8067553a::t_16e6bdea620000 4123-4138
+crates/greeg-index/tests/index.rs
+  s_e2aadb8067553a::t_16e6bdea620000 642-672
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "939098b4f3c987fad0398d79c006a6e4868b25df",
+  "prompts": {},
+  "sessions": {
+    "s_e2aadb8067553a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8372df48-1202-40f9-bd30-8e5555761588",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
