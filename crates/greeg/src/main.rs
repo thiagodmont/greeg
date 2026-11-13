@@ -533,7 +533,7 @@ enum Cmd {
         #[arg(required = true, num_args = 1..)]
         words: Vec<String>,
     },
-    /// Index health, freshness mode, language coverage, disk use
+    /// Index health, freshness mode, language coverage, disk use, installed skill state
     Doctor,
     /// Remove greeg's indexes, sessions and statistics: every repository in
     /// the cache, or what `--index-dir` holds (lists them unless --yes)

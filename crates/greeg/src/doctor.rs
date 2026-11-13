@@ -1,4 +1,4 @@
-//! `greeg doctor`: index health, freshness mode, language coverage, disk use.
+//! `greeg doctor`: index health, freshness mode, language coverage, disk use, installed skill state.
 //! `greeg lang check DIR`: validate runtime-loaded languages and measure coverage.
 
 use crate::{Common, fmt_n, fmt_size};
