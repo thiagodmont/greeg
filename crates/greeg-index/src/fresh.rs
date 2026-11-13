@@ -679,14 +679,9 @@ pub fn check_fsevents(idx: &Index, root: &Path, threads: usize) -> Option<Change
     // relative dir set
     let mut rels: HashSet<Vec<u8>> = HashSet::new();
     for d in &dirs {
-        let mut d = d.as_slice();
-        while let [rest @ .., b'/'] = d {
-            d = rest;
-        }
-        let mut r: &[u8] = d.get(root_s.len()..).unwrap_or_default();
-        while let [b'/', rest @ ..] = r {
-            r = rest;
-        }
+        // another spelling of the root (`/System/Volumes/Data/…`): the stat
+        // pass answers, and the event id stays where it was
+        let r = event_rel(root_s.as_bytes(), d)?;
         // events on paths outside the index (ignored dirs) still matter when they are
         // new: their parent appears too, so only known dirs and the root are listed.
         rels.insert(r.to_vec());
@@ -749,6 +744,23 @@ pub fn check_fsevents(idx: &Index, root: &Path, threads: usize) -> Option<Change
     relist_dirs(root, &k, &changed_dirs, &mut ch);
     ch.ms = t.elapsed().as_secs_f64() * 1e3;
     Some(ch)
+}
+
+/// `path`, a directory an event names, relative to `root`; `None` when it is
+/// neither the root nor below it.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn event_rel<'a>(root: &[u8], path: &'a [u8]) -> Option<&'a [u8]> {
+    fn trim(mut p: &[u8]) -> &[u8] {
+        while let [rest @ .., b'/'] = p {
+            p = rest;
+        }
+        p
+    }
+    match trim(path).strip_prefix(trim(root))? {
+        [] => Some(&[]),
+        [b'/', rest @ ..] => Some(rest),
+        _ => None,
+    }
 }
 
 /// The check to run when `Auto` must not trust the TTL stamp: a retry after
@@ -1217,6 +1229,24 @@ pub fn rebuild_reason(idx: &Index, ch: &Changes) -> Option<RebuildReason> {
 mod tests {
     use super::*;
     use std::fs;
+
+    #[test]
+    fn an_event_path_is_relative_to_the_root_only_below_it() {
+        fn rel<'a>(root: &str, path: &'a str) -> Option<&'a [u8]> {
+            event_rel(root.as_bytes(), path.as_bytes())
+        }
+        assert_eq!(rel("/r/tree", "/r/tree/a/b/"), Some(&b"a/b"[..]));
+        assert_eq!(rel("/r/tree", "/r/tree/"), Some(&b""[..]));
+        assert_eq!(rel("/r/tree", "/r/tree"), Some(&b""[..]));
+        assert_eq!(rel("/", "/a/"), Some(&b"a"[..]));
+        assert_eq!(rel("/r/tree", "/r/treehouse/a/"), None);
+        assert_eq!(rel("/r/tree", "/r/"), None);
+        // FSEvents names the short spelling of a root given through the Data volume
+        assert_eq!(
+            rel("/System/Volumes/Data/Users/u/p", "/Users/u/p/src/"),
+            None
+        );
+    }
 
     #[test]
     fn only_not_found_errors_mean_a_file_is_gone() {

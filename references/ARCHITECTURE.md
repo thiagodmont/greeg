@@ -538,8 +538,10 @@ to keep it there.
   Without it, an edit made just before a query was missed (3 of 10 queries a
   second after an edit on a 9,000-file tree). When the cookie cannot be
   written (`--no-persist`, a read-only index directory), the log reports
-  dropped events, or the read passes its 40 ms cutoff, the stat pass below
-  answers.
+  dropped events, an event names a directory that is not below the root as
+  given (a root spelled through `/System/Volumes/Data`, which FSEvents
+  reports by its short name), or the read passes its 40 ms cutoff, the stat
+  pass below answers.
 * **Everywhere else**: a parallel `lstat` of every known file, comparing its
   whole stamp (size, mtime, ctime, inode and device), plus each directory's
   mtime, ctime, inode and device to catch additions and deletions. The
