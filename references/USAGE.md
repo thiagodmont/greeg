@@ -186,9 +186,11 @@ through 0.10, was removed in 0.12.1 and exits 2. See
 statistic; also `GREEG_NO_PERSIST=1`)
 
 **Languages with full syntax support**: Python, TypeScript/TSX, JavaScript,
-Rust, Kotlin. Everything else gets a regex-based definition extractor, so
-search, ranking and budgeting still work. You just lose the precise symbol
-kinds. You can add a language yourself by dropping a tree-sitter grammar and a
+Rust, Kotlin. A file in any other language is searched, ranked and budgeted
+as text: its hits carry no kind (`ident` in JSON) and no enclosing symbol, and
+the symbol verbs find no definitions, callers or implementations in it
+(`def` answers `no definition found`; `outline` prints `0 symbols`, or exits
+`2` with `no grammar for this file type` when it scans). You can add a language yourself by dropping a tree-sitter grammar and a
 `tags.scm` into `~/.config/greeg/lang/<name>/`; `greeg lang check DIR` validates
 it. See [`references/ARCHITECTURE.md`](ARCHITECTURE.md).
 
@@ -201,7 +203,7 @@ search streams its output, so a failed check after output has started can't
 fall back: greeg stops with `the index failed a check after output started;
 output is incomplete (the index will be rebuilt)` and exits `2`. Otherwise
 you get a correct answer either way. Writers hold a lock and publish
-atomically; readers never lock.
+atomically; readers never wait on it.
 
 **When output can't be written**: an answer greeg could not deliver never
 exits `0`. A write error exits `2` with the reason on stderr. A reader that
@@ -236,14 +238,6 @@ says so once on stderr and waits before trying again: 30 s after the first
 failure, doubling up to an hour. Searches and the verbs that can scan answer
 from a scan meanwhile; `map` and `find`, which need the index, exit 2.
 `greeg doctor` shows the error; `greeg index` builds at once.
-
-```bash
-greeg index                 # build now instead of on first query
-greeg index --status        # manifest: files, generation, deltas, build peak RSS
-greeg --no-index PATTERN    # scan the tree like ripgrep, ignore the index
-greeg purge                 # list every index, session and statistic greeg keeps
-greeg purge --yes           # remove them (what is in use is kept)
-```
 
 ## Session memory
 
@@ -346,6 +340,27 @@ about 33 MB per file kind, never leave the machine, and `greeg stats clear`
 deletes them. Replay runs only a ripgrep found on an absolute `PATH` entry, or the
 one you pass with `--rg /absolute/path`. See [`references/STATS.md`](STATS.md) for per-session
 breakdowns and build-to-build comparisons.
+
+## Environment variables
+
+| Variable | Effect | Default |
+|---|---|---|
+| `GREEG_BUDGET` | token budget of ranked searches and symbol verbs run without `--budget`: a level name or a token count (`-l`, `-c` and `--json=rg` are never budgeted) | the level `greeg budget` saved, else 2000 |
+| `GREEG_CONFIG_DIR` | directory of `config.toml` (saved budget, statistics switch) | `~/.config/greeg` |
+| `GREEG_INDEX_DIR` | directory for this repository's index and sessions, as `--index-dir` | under the cache directory, one per repository |
+| `GREEG_LANG_DIR` | directory of the extra languages | `~/.config/greeg/lang` |
+| `GREEG_NO_PERSIST` | `1` writes nothing to disk, as `--no-persist` | off |
+| `GREEG_SESSION` | session id, as `--session`; empty means unset | the agent's parent process |
+| `GREEG_STATS` | `1` or `0` turns statistics on or off for one shell, over the config file | the config file, else off |
+| `GREEG_STATS_DIR` | directory of the statistics records | `stats/` under the cache directory |
+| `GREEG_BUILD_BUDGET_MB` | size the postings an index build buffers may reach before they spill to disk, in MiB; not a limit on the build's memory | 192 |
+| `GREEG_BUILD_BLOCK_KIB` | size of an index component's verified blocks, in KiB | 16 |
+
+`GREEG_INDEX_DIR` holds one repository's index. Two repositories that share
+it still get correct answers, but each rebuilds the index over the other's
+and scans meanwhile: give each repository its own.
+Variables starting with `GREEG_DEBUG` exist for greeg's tests; they inject
+faults or print internals, and can change between releases.
 
 ## Verifying a release archive
 

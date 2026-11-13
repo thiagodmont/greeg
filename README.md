@@ -64,7 +64,8 @@ search above. A narrow one-file search costs about the same as grep, a few
 tokens more for the path and symbol context. You can
 [measure it on your own work](#is-it-actually-helping).
 
-Protocols, raw data and caveats: [`references/BENCH.md`](references/BENCH.md).
+The speed and accuracy tables were measured with greeg 0.3.0. Protocols, raw
+data and caveats: [`references/BENCH.md`](references/BENCH.md).
 
 ## Install
 
@@ -167,8 +168,9 @@ matching rules.
   macOS) and reads changed files directly, so answers include your latest edits.
 - **Understands code.** Every hit is classified from syntax (definition, call,
   import, type, comment, …) and tagged with the symbol it sits in. Python,
-  TypeScript/JavaScript, Rust and Kotlin get full syntax support; other
-  languages get regex-based definitions, and you can add a tree-sitter grammar.
+  TypeScript/JavaScript, Rust and Kotlin get full syntax support. Other
+  languages get text search, ranking and budgets, but no definitions or
+  symbol commands, until you add a tree-sitter grammar.
 - **Ranks, then budgets.** Definitions outrank calls, source outranks tests,
   central files outrank leaves. Tests and generated files are demoted, never
   hidden, and the footer always says what was cut.
@@ -204,7 +206,7 @@ about the same. More in [`references/STATS.md`](references/STATS.md).
 
 ## Documentation
 
-- [Usage guide](references/USAGE.md): every flag, budgets, JSON, the index, sessions, the hook
+- [Usage guide](references/USAGE.md): every flag, budgets, JSON, the index, sessions, the hook, environment variables
 - [JSON output](references/JSON.md): `--json`, `--json=rg`, `--capabilities`, `--explain`
 - [Architecture](references/ARCHITECTURE.md): how the index, ranking and freshness work
 - [Benchmarks](references/BENCH.md): every measurement, with protocol and raw data
