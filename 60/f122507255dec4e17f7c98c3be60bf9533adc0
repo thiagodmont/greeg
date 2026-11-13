@@ -1,0 +1,41 @@
+references/ARCHITECTURE.md
+  s_e2aadb8067553a::t_9784bd1c3ca5b7 569-570,577-584
+  s_e2aadb8067553a::t_54271096e568ea 585
+crates/greeg/tests/cli.rs
+  s_e2aadb8067553a::t_376f38fd0f3590 4500-4503
+  s_e2aadb8067553a::t_11120cb4d6f2b4 4492-4499,4504-4539
+crates/greeg-index/src/fresh.rs
+  s_e2aadb8067553a::t_376f38fd0f3590 5,287-288,298,304-310,319-327,334-335,339,357,362-377,399,401-402,612-613
+  s_e2aadb8067553a::t_d734899d58844c 283-285,289
+crates/greeg-index/src/skipped.rs
+  s_e2aadb8067553a::t_cf5e1705b61862 323-331
+  s_e2aadb8067553a::t_bca1cdd36041a8 167-168,174,184-192
+  s_e2aadb8067553a::t_f36b09c06b7a0c 305,340
+crates/greeg-index/src/build.rs
+  s_e2aadb8067553a::t_f36b09c06b7a0c 447-453,496,535
+  s_e2aadb8067553a::t_69bdb84cfa341d 1912-1919,1925-1943
+  s_e2aadb8067553a::t_d734899d58844c 240,319-321,327
+  s_e2aadb8067553a::t_bca1cdd36041a8 224-239,241-277,291,309,311-313,322-326,329,358-360,362-363,366-369,371-373,389-395,413
+  s_e2aadb8067553a::t_6443b3296d7fff 426-427,822,875-878,917,919,932,934-935,942,1488-1490,1502
+  s_e2aadb8067553a::t_5f09790025a2f5 1920-1924
+  s_e2aadb8067553a::t_001e6df57505b9 422-424,428-446,454-457,483-492,500-504,506-507,510,516,525-532,645,651-654,661,675,688,1123
+  s_e2aadb8067553a::t_376f38fd0f3590 350,361,370
+  s_e2aadb8067553a::t_3500cf294429c4 1944-1975
+  s_e2aadb8067553a::t_e8d82f7222a124 425,493
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "60f122507255dec4e17f7c98c3be60bf9533adc0",
+  "prompts": {},
+  "sessions": {
+    "s_e2aadb8067553a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8372df48-1202-40f9-bd30-8e5555761588",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
