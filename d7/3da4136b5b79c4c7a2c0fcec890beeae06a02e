@@ -1,0 +1,21 @@
+references/ARCHITECTURE.md
+  s_e2aadb8067553a::t_a240e21fd3687e 169-170
+crates/greeg-index/src/failure.rs
+  s_e2aadb8067553a::t_a240e21fd3687e 50-51,91-92,98,102-107
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "d73da4136b5b79c4c7a2c0fcec890beeae06a02e",
+  "prompts": {},
+  "sessions": {
+    "s_e2aadb8067553a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8372df48-1202-40f9-bd30-8e5555761588",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
