@@ -692,3 +692,35 @@ fn module_lookup_finds_a_name_overlapping_a_straddling_hit() {
         assert_eq!(found, [b"aa.rs".as_slice()]);
     }
 }
+
+/// A verification stamp from the future (the clock stepped back) is no reason
+/// to skip the check, and a check that finds nothing stamps the present.
+#[test]
+fn a_stamp_from_the_future_is_not_trusted() {
+    let t = tree();
+    build(&t.root, &t.dir, &opts()).unwrap();
+    let future = |dir: &Path| {
+        let mut m = read_manifest(dir).unwrap();
+        m.verified_unix_ms = greeg_index::now_ms() + 3_600_000;
+        greeg_index::write_manifest(dir, &m).unwrap();
+    };
+    future(&t.dir);
+    let idx = Index::open(&t.dir).unwrap();
+    let ch = fresh::check(&idx, &t.root, Mode::Auto, 2).expect("an Auto check ran");
+    assert!(ch.is_empty(), "{:?}", ch.count());
+    fresh::apply(&idx, &t.root, &ch).unwrap();
+    drop(idx);
+    assert!(read_manifest(&t.dir).unwrap().verified_unix_ms <= greeg_index::now_ms());
+
+    future(&t.dir);
+    fs::write(
+        t.root.join("src/main.rs"),
+        "fn main() {\n    helper_alpha();\n    helper_alpha();\n}\n",
+    )
+    .unwrap();
+    fs::write(t.root.join("src/new.rs"), "pub fn fresh_omega() {}\n").unwrap();
+    let idx = Index::open(&t.dir).unwrap();
+    let ch = fresh::check(&idx, &t.root, Mode::Auto, 2).expect("an Auto check ran");
+    assert_eq!(ch.modified.len(), 1);
+    assert_eq!(ch.added.len(), 1);
+}

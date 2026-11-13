@@ -921,7 +921,7 @@ fn check_tree(idx: &Index, root: &Path, mode: Mode, threads: usize) -> Option<Ch
             check_fsevents(idx, root, threads).or_else(|| Some(check_stat(idx, root, threads)))
         }
         Mode::Auto => {
-            if now_ms().saturating_sub(idx.manifest.verified_unix_ms) < TTL_MS {
+            if verified_within(idx.manifest.verified_unix_ms, now_ms(), TTL_MS) {
                 return None;
             }
             // FSEvents costs ~10 ms of stream setup regardless of tree size; the
@@ -935,6 +935,12 @@ fn check_tree(idx: &Index, root: &Path, mode: Mode, threads: usize) -> Option<Ch
             Some(check_stat(idx, root, threads))
         }
     }
+}
+
+/// Was the index verified within `window` ms before `now`? A stamp from the
+/// future, left by a clock that stepped back, was not.
+fn verified_within(verified: u64, now: u64, window: u64) -> bool {
+    verified <= now && now - verified < window
 }
 
 /// Does the on-disk manifest still describe the index `idx` was opened from?
@@ -956,7 +962,7 @@ pub fn apply(idx: &Index, root: &Path, ch: &Changes) -> Result<usize> {
     if ch.is_empty() {
         let now = now_ms();
         // nothing to publish: refresh the TTL stamp, at most once per second
-        if !ch.no_ino && now.saturating_sub(idx.manifest.verified_unix_ms) < VERIFY_WRITE_MS {
+        if !ch.no_ino && verified_within(idx.manifest.verified_unix_ms, now, VERIFY_WRITE_MS) {
             return Ok(0);
         }
         let _lock = crate::lock::writer(&idx.dir)?;
@@ -966,7 +972,8 @@ pub fn apply(idx: &Index, root: &Path, ch: &Changes) -> Result<usize> {
         if !same_index(idx, &m) {
             return Ok(0);
         }
-        m.verified_unix_ms = m.verified_unix_ms.max(ch.checked_ms);
+        // a stamp from the future (the clock stepped back) gives way to the present
+        m.verified_unix_ms = m.verified_unix_ms.min(now).max(ch.checked_ms);
         if fsid != 0 {
             m.fsevents_id = fsid;
         }

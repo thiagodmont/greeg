@@ -4212,3 +4212,28 @@ fn timeless(text: &str) -> String {
     }
     out
 }
+
+/// A verification stamp from the future (the wall clock stepped back) does not
+/// let the index answer unchecked: an edit and a new file are found, as a scan
+/// finds them.
+#[test]
+fn a_verification_stamp_from_the_future_is_not_trusted() {
+    let f = fixture();
+    f.indexed();
+    let layout = greeg_index::format_dir(&f.index);
+    let mut m = greeg_index::read_manifest(&layout).unwrap();
+    m.verified_unix_ms = greeg_index::now_ms() + 3_600_000;
+    greeg_index::write_manifest(&layout, &m).unwrap();
+    w(
+        &f.root.join("src/util.rs"),
+        "pub fn load_config() -> u32 {\n    marker_zeta()\n}\n",
+    );
+    w(
+        &f.root.join("src/new.rs"),
+        "pub fn marker_zeta() -> u32 {\n    7\n}\n",
+    );
+    let scanned = pairs(&f.out(&["--no-index", "--budget", "0", "marker_zeta"]));
+    assert_eq!(scanned.len(), 2);
+    let args = ["--fresh", "auto", "--budget", "0", "marker_zeta"];
+    assert_eq!(pairs(&f.out(&args)), scanned);
+}
