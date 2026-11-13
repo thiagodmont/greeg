@@ -1159,7 +1159,11 @@ pub fn apply(idx: &Index, root: &Path, ch: &Changes) -> Result<usize> {
         {
             return Ok(0);
         }
-        let _lock = crate::lock::writer(&idx.dir)?;
+        // readers never wait on a writer: a busy lock leaves the stamp to a
+        // later check
+        let Some(_lock) = crate::lock::try_writer(&idx.dir)? else {
+            return Ok(0);
+        };
         let Some(mut m) = read_manifest(&idx.dir) else {
             return Ok(0);
         };

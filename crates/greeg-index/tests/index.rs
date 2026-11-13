@@ -778,6 +778,38 @@ fn a_stamp_from_the_future_is_not_trusted() {
     assert_eq!(ch.added.len(), 1);
 }
 
+/// A query with nothing to publish never waits on a writer: with the writer
+/// lock held (a build publishing), refreshing the verification stamp is
+/// skipped at once and left to a later check.
+#[test]
+fn a_stamp_refresh_does_not_wait_for_the_writer_lock() {
+    let t = tree();
+    build(&t.root, &t.dir, &opts()).unwrap();
+    let mut m = read_manifest(&t.dir).unwrap();
+    m.verified_unix_ms -= 60_000;
+    greeg_index::write_manifest(&t.dir, &m).unwrap();
+    let idx = Index::open(&t.dir).unwrap();
+    let ch = check(&idx, &t.root);
+    assert!(ch.is_empty(), "{ch:?}");
+    let held = greeg_index::lock::writer(&t.dir).unwrap();
+    let (tx, rx) = std::sync::mpsc::channel();
+    let (root, dir) = (t.root.clone(), t.dir.clone());
+    let applier = std::thread::spawn(move || {
+        let idx = Index::open(&dir).unwrap();
+        tx.send(fresh::apply(&idx, &root, &ch).map_err(|e| e.to_string()))
+            .unwrap();
+    });
+    let got = rx.recv_timeout(std::time::Duration::from_secs(5));
+    drop(held);
+    applier.join().unwrap();
+    assert_eq!(got.expect("apply waited for the writer lock"), Ok(0));
+    assert_eq!(
+        read_manifest(&t.dir).unwrap().verified_unix_ms,
+        m.verified_unix_ms,
+        "the stamp is left to a later check"
+    );
+}
+
 /// A directory whose stamp changed is listed again, and once a listing
 /// comes late enough for its stamp to be trusted, no more. An mtime set
 /// ahead of the clock does not keep it listed.
