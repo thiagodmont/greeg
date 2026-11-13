@@ -1419,7 +1419,7 @@ pub fn run_outline(c: &Common, o: &Options, file: &str, imports: bool) -> Result
 }
 
 pub fn run_map(c: &Common, o: &Options, dir: &str) -> Result<()> {
-    let r = match verbs::map(o, dir) {
+    let r = match greeg_query::indexed::index_only(o, || verbs::map(o, dir)) {
         Ok(r) => r,
         Err(e) => {
             if c.json()
@@ -1572,7 +1572,7 @@ pub fn run_map(c: &Common, o: &Options, dir: &str) -> Result<()> {
 }
 
 pub fn run_find(c: &Common, o: &Options, query: &str) -> Result<()> {
-    let r = match greeg_query::find::find(o, query) {
+    let r = match greeg_query::indexed::index_only(o, || greeg_query::find::find(o, query)) {
         Ok(r) => r,
         Err(e) => {
             if c.json()
@@ -1933,7 +1933,7 @@ fn diff_outcome(r: &DiffImpactResult, shown_sites: usize) -> Outcome {
 /// `impact --diff`: each changed file, its changed definitions, and the uses
 /// of each definition's old name outside the changed lines.
 pub fn run_impact_diff(c: &Common, o: &Options, spec: &DiffSpec) -> Result<()> {
-    let r = impact_diff(o, spec)?;
+    let r = answered(o, |o| impact_diff(o, spec))?;
     let ex = c.explain.then(|| {
         crate::explain::VerbExplain::new(json!({"base": r.changes.base, "commit": r.changes.commit, "files": r.changes.files.len(), "definitions": r.defs_total(), "searched": r.impacts.len(), "unsearched": r.unsearched}))
     });

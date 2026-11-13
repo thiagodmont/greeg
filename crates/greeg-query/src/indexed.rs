@@ -199,12 +199,23 @@ fn note_corruption(o: &Options) {
 /// its check meanwhile (`integrity::failed`), anything read from it may be
 /// wrong: queue a rebuild and answer again without the index, before any
 /// output.
+///
+/// A panic in the index path answers from a scan too, as search does.
 pub fn answered<T>(o: &Options, f: impl Fn(&Options) -> Result<T>) -> Result<T> {
     debug_assert!(
         !greeg_index::commit::committed(),
         "a verb answered after output started"
     );
-    let r = f(o);
+    let r = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(o))) {
+        Ok(r) => r,
+        Err(p) if !o.use_index => std::panic::resume_unwind(p),
+        Err(_) => {
+            note_panic(o, "answering from a scan");
+            let mut so = o.clone();
+            so.use_index = false;
+            return f(&so);
+        }
+    };
     if !o.use_index || !greeg_index::integrity::failed() {
         return r;
     }
@@ -212,6 +223,33 @@ pub fn answered<T>(o: &Options, f: impl Fn(&Options) -> Result<T>) -> Result<T> 
     let mut so = o.clone();
     so.use_index = false;
     f(&so)
+}
+
+/// For a verb that has no answer without the index: a panic in the index
+/// path is a [`Rebuilding`] error, not a crash.
+pub fn index_only<T>(o: &Options, f: impl FnOnce() -> Result<T>) -> Result<T> {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)).unwrap_or_else(|_| {
+        note_panic(o, "no answer without it");
+        Err(Rebuilding {
+            reason: "corrupt",
+            estimate_ms: None,
+            generation: 0,
+        }
+        .into())
+    })
+}
+
+/// Say that the index path panicked, and queue a rebuild.
+pub fn note_panic(o: &Options, then: &str) {
+    eprintln!(
+        "greeg: internal error in the index path; {then}{}",
+        if persist::allowed() {
+            " and rebuilding the index"
+        } else {
+            ""
+        }
+    );
+    mark_corrupt(o);
 }
 
 /// For a verb that has no answer without the index: when a check failed,

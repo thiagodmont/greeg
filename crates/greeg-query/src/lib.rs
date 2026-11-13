@@ -2501,10 +2501,7 @@ fn scan_once(o: &Options, bounds: &ScanBounds, out: Option<FileSink>) -> Result<
                 anyhow::bail!(INCOMPLETE);
             }
             Err(_) => {
-                eprintln!(
-                    "greeg: internal error in the index path; answering from a scan and rebuilding the index"
-                );
-                indexed::mark_corrupt(o);
+                indexed::note_panic(o, "answering from a scan");
                 "internal error".into()
             }
         }

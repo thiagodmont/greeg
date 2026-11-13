@@ -194,7 +194,8 @@ it. See [`references/ARCHITECTURE.md`](ARCHITECTURE.md).
 
 **When something goes wrong**: a panic in the index path, a corrupt component
 or a truncated file all fall back to a scan-mode answer plus a background
-rebuild. Every component carries a digest per block, checked as it is read,
+rebuild (`map` and `find`, which need the index, exit `2` and ask you to
+retry). Every component carries a digest per block, checked as it is read,
 so a changed byte is found before it can change an answer. A `--budget 0`
 search streams its output, so a failed check after output has started can't
 fall back: greeg stops with `the index failed a check after output started;
