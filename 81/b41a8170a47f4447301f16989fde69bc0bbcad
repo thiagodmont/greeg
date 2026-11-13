@@ -1,0 +1,23 @@
+crates/greeg-index/src/fresh.rs
+  s_e2aadb8067553a::t_4284008523e9c9 753,758,1235-1237,1245-1248
+  s_e2aadb8067553a::t_e1997ef102c08f 682-684,749-752,754-757,759-765,1233-1234,1238-1244,1249
+  s_e2aadb8067553a::t_4a5226fbf6da5f 1250
+references/ARCHITECTURE.md
+  s_e2aadb8067553a::t_2c96f66d8af51c 541-544
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "81b41a8170a47f4447301f16989fde69bc0bbcad",
+  "prompts": {},
+  "sessions": {
+    "s_e2aadb8067553a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8372df48-1202-40f9-bd30-8e5555761588",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
