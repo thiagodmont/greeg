@@ -656,8 +656,7 @@ pub fn build(root: &Path, dir: &Path, opts: &BuildOpts) -> Result<Manifest> {
     // before the walk: a root replaced during the build must not match it
     let root_id = crate::RootId::of(root).context("root identity")?;
     let tree = Tree::open(root).context("open the root")?;
-    let fsevents_id = greeg_fsevents_id();
-    let fsevents_uuid = crate::fresh::fsevents_uuid(root);
+    let (fsevents_id, fsevents_uuid) = crate::fresh::fsevents_cursor(root);
     // before the walk, so a change made during it shows up at the next check
     let ignore_inputs = crate::ignores::digest(root);
     let walked_ns = now_ns();
@@ -1258,17 +1257,6 @@ fn phase2(
         );
     }
     Ok(())
-}
-
-fn greeg_fsevents_id() -> u64 {
-    #[cfg(target_os = "macos")]
-    {
-        greeg_fsevents::current_id()
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        0
-    }
 }
 
 /// Build a delta segment for `files` (absolute ids assigned by the caller,

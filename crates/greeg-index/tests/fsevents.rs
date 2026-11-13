@@ -198,6 +198,7 @@ fn fsevents_finds_what_a_directory_stamp_hides() {
         settle();
         build_index(&t);
         fs::write(lib_of(&t).join("new.py"), "x = 1\n").unwrap();
+        settle();
         let mut m = greeg_index::read_manifest(&t.dir).unwrap();
         if let Some(id) = id {
             m.fsevents_id = id;
@@ -214,6 +215,20 @@ fn fsevents_finds_what_a_directory_stamp_hides() {
             ["lib/new.py"],
             "{what}"
         );
+        fresh::apply(&idx, &t.root, &ch).unwrap();
+        drop(idx);
+        // a check that found nothing replaces a refused id at once, not only
+        // once the stamp is a second old
+        let mut m = greeg_index::read_manifest(&t.dir).unwrap();
+        m.fsevents_id = u64::MAX / 2;
+        greeg_index::write_manifest(&t.dir, &m).unwrap();
+        let idx = Index::open(&t.dir).unwrap();
+        let ch = fresh::check(&idx, &t.root, Mode::FsEvents, 2).unwrap();
+        assert!(ch.is_empty(), "{what}: {ch:?}");
+        fresh::apply(&idx, &t.root, &ch).unwrap();
+        let m = greeg_index::read_manifest(&t.dir).unwrap();
+        assert!(m.fsevents_id <= greeg_fsevents::current_id(), "{what}");
+        assert_eq!(m.fsevents_uuid.len(), 36, "{what}");
     }
 
     // a directory listed too soon, named by an event though its stamp did not move

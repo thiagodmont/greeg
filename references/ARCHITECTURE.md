@@ -538,9 +538,9 @@ to keep it there.
   Without it, an edit made just before a query was missed (3 of 10 queries a
   second after an edit on a 9,000-file tree). When the cookie cannot be
   written (`--no-persist`, a read-only index directory), the stored id is
-  ahead of the system's or was recorded for another event database (the
-  manifest keeps the root device's FSEvents UUID beside it: a copied or
-  restored index directory, a reset database), the log reports dropped
+  ahead of the system's (a reset event database) or was recorded for another
+  one (the manifest keeps the root device's FSEvents UUID beside it: an index
+  directory copied from another disk or machine), the log reports dropped
   events, an event names a directory that is neither the root as given nor
   below it (a root spelled through `/System/Volumes/Data`, which FSEvents
   reports by its short name; the cookie's own directory is expected), or the
