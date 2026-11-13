@@ -285,7 +285,7 @@ type Listed = Vec<(Vec<u8>, bool, Stamp)>;
 
 /// List a directory with ignore rules (one level), returning (name, is_dir,
 /// stamp) for subdirectories and regular files, what it skipped, and whether
-/// it ran out of descriptors or memory.
+/// it may have missed entries it cannot name (`WalkErrors::lost`).
 fn list_dir(root: &Path, dir: &[u8]) -> (Listed, skipped::Children, bool) {
     let abs = if dir.is_empty() {
         root.to_path_buf()
@@ -625,8 +625,8 @@ fn relist_dirs(root: &Path, k: &Known, changed_dirs: &[(Vec<u8>, Stamp)], ch: &m
         });
         let known_kids = kids.get(dir.as_slice());
         let dir_id = *dir_ids.get(dir.as_slice()).unwrap_or(&0);
-        let (listed, skipped, exhausted) = list_dir(root, dir);
-        ch.unreliable |= exhausted;
+        let (listed, skipped, lost) = list_dir(root, dir);
+        ch.unreliable |= lost;
         ch.skipped.push((dir.clone(), skipped));
         for (name, is_dir, stamp) in listed {
             if known_kids.map(|s| s.contains(&name[..])).unwrap_or(false) {
