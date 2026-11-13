@@ -290,7 +290,8 @@ operations; `--dry-run` previews both and writes neither.
 The hook preserves supported search arguments and requests exact matching; text
 results still use greeg's ranking and token budget. An explicit file-size flag
 preserves ripgrep's requested limit (unlimited by default), so files over 4 MiB
-are not silently omitted. A recursive `grep -r` (or `egrep -r`, `fgrep -r`) is
+are not silently omitted. The pattern and paths follow `--`, so a path named
+like a subcommand (`rg foo index`) is searched, not run. A recursive `grep -r` (or `egrep -r`, `fgrep -r`) is
 rewritten too: its pattern is translated from grep's syntax, and files are
 selected as rg selects them: ignored, hidden and binary files are skipped,
 where grep searches them (greeg says so on stderr; `-uu` searches ignored and

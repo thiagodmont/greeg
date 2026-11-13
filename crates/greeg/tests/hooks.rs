@@ -176,7 +176,7 @@ fn explain_reports_the_rewrite_or_the_decline_reason() {
     let (code, out) = explain("rg -l needle .", false);
     assert_eq!(code, Some(0));
     assert!(
-        out.starts_with("greeg --matching exact ") && out.ends_with("-l needle .\n"),
+        out.starts_with("greeg --matching exact ") && out.ends_with("-l -- needle .\n"),
         "{out}"
     );
     assert_eq!(
@@ -226,6 +226,62 @@ fn rewritten_queries_keep_exact_hits_and_misses_on_both_backends() {
         assert_eq!(v["original"][0], "rg");
         assert_eq!(v["rewritten"][1], "--matching");
         assert_eq!(v["rewritten"][2], "exact");
+    }
+}
+
+/// A path named like a subcommand is searched, not run: `rg foo budget none`
+/// used to write `budget = 0` to the config.
+#[test]
+fn rewritten_paths_named_like_subcommands_are_searched() {
+    let f = Fixture::new();
+    for dir in ["index", "stats", "budget"] {
+        fs::create_dir_all(f.0.join("tree").join(dir)).unwrap();
+        fs::write(f.0.join("tree").join(dir).join("a.txt"), "foo here\n").unwrap();
+    }
+    // greeg refuses a missing path, so the second operands exist too
+    for dir in ["enable", "clear", "none"] {
+        fs::create_dir_all(f.0.join("tree").join(dir)).unwrap();
+    }
+    let config = f.0.join("config-dir");
+    fs::create_dir_all(&config).unwrap();
+    let bin = f.0.join("bin");
+    fs::create_dir_all(&bin).unwrap();
+    std::os::unix::fs::symlink(BIN, bin.join("greeg")).unwrap();
+    let path = format!("{}:/usr/bin:/bin", bin.display());
+    for agent in ["claude", "codex"] {
+        for (command, hit) in [
+            ("rg foo index", "index/a.txt"),
+            ("rg -l foo index", "index/a.txt"),
+            ("rg foo stats enable", "stats/a.txt"),
+            ("rg foo stats clear", "stats/a.txt"),
+            ("rg foo budget none", "budget/a.txt"),
+            ("grep -rn foo index", "index/a.txt"),
+        ] {
+            let rewritten = f.rewrite(agent, command);
+            let out = f
+                .command("/bin/sh")
+                .args(["-c", &rewritten])
+                .env("PATH", &path)
+                .env("GREEG_CONFIG_DIR", &config)
+                .output()
+                .unwrap();
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            assert!(
+                out.status.success() && stdout.contains(hit),
+                "{command} → {rewritten}: {out:?}"
+            );
+            for other in ["index/a.txt", "stats/a.txt", "budget/a.txt"] {
+                assert!(
+                    other == hit || !stdout.contains(other),
+                    "{command}: {stdout}"
+                );
+            }
+            assert_eq!(
+                fs::read_dir(&config).unwrap().count(),
+                0,
+                "{command} → {rewritten}"
+            );
+        }
     }
 }
 
@@ -583,8 +639,10 @@ fn shell_receives_literal_arguments_without_side_effects() {
         assert!(out.status.success());
         assert_eq!(
             out.stdout,
-            format!("--matching\0exact\0--max-filesize\018446744073709551615\0{pattern}\0a b\0")
-                .as_bytes()
+            format!(
+                "--matching\0exact\0--max-filesize\018446744073709551615\0--\0{pattern}\0a b\0"
+            )
+            .as_bytes()
         );
     }
     assert!(!f.0.join("tree/sentinel").exists());

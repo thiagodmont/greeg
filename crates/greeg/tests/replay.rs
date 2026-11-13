@@ -77,6 +77,10 @@ impl Fixture {
 
     /// Record a hook rewrite of `rg needle` and the greeg run it produced.
     fn record(&self) {
+        self.record_command("rg needle");
+    }
+
+    fn record_command(&self, command: &str) {
         let mut hook = self
             .command()
             .args(["hook", "run"])
@@ -84,7 +88,7 @@ impl Fixture {
             .stdout(Stdio::piped())
             .spawn()
             .unwrap();
-        let payload = json!({"tool_name": "Bash", "tool_input": {"command": "rg needle"}, "cwd": self.0.join("tree")});
+        let payload = json!({"tool_name": "Bash", "tool_input": {"command": command}, "cwd": self.0.join("tree")});
         hook.stdin
             .take()
             .unwrap()
@@ -190,4 +194,27 @@ fn nothing_to_replay_needs_no_ripgrep() {
         out.status.success() && stderr.contains("nothing to replay"),
         "{stderr}"
     );
+}
+
+/// Replay's own flags go before the recorded arguments: after a `--` in the
+/// rewrite, an appended flag would be read as a path.
+#[test]
+fn a_rewrite_with_a_double_dash_replays_with_rg_s_status() {
+    let f = Fixture::new();
+    fs::write(f.0.join("tree/dash.txt"), "a -needle b\n").unwrap();
+    f.record_command("rg -e -needle");
+    assert!(
+        f.last_hook()["rewritten"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|w| w == "--")
+    );
+    let rg = f.0.join("bin/rg");
+    let out = f.replay(&["--rg", rg.to_str().unwrap()], None);
+    assert!(out.status.success(), "{out:?}");
+    let replay = fs::read_to_string(f.0.join("stats/replay.jsonl")).unwrap();
+    let v: Value = serde_json::from_str(replay.lines().last().unwrap()).unwrap();
+    assert_eq!(v["rg_exit"], 0, "{replay}");
+    assert_eq!(v["greeg_exit"], v["rg_exit"], "{replay}");
 }
