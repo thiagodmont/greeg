@@ -972,8 +972,8 @@ pub fn apply(idx: &Index, root: &Path, ch: &Changes) -> Result<usize> {
         if !same_index(idx, &m) {
             return Ok(0);
         }
-        // a stamp from the future (the clock stepped back) gives way to the present
-        m.verified_unix_ms = m.verified_unix_ms.min(now).max(ch.checked_ms);
+        // never a stamp from the future, even if the clock stepped back
+        m.verified_unix_ms = m.verified_unix_ms.max(ch.checked_ms).min(now);
         if fsid != 0 {
             m.fsevents_id = fsid;
         }
@@ -1067,7 +1067,7 @@ pub fn apply(idx: &Index, root: &Path, ch: &Changes) -> Result<usize> {
     if ch.no_ino {
         m.stamp_mode = crate::STAMP_NO_INO.into();
     }
-    m.verified_unix_ms = ch.checked_ms;
+    m.verified_unix_ms = ch.checked_ms.min(now_ms());
     if fsid != 0 {
         m.fsevents_id = fsid;
     }
