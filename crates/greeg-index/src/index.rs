@@ -1205,7 +1205,11 @@ impl Index {
                 Cow::Borrowed(fv.arena())
             };
             let arena = &arena[..];
-            for h in finder.find_iter(arena) {
+            // overlapping hits: one straddling two paths must not hide a real one
+            let mut from = 0;
+            while let Some(off) = finder.find(&arena[from..]) {
+                let h = from + off;
+                from = h + 1;
                 let after = h + nb.len();
                 let Some(&sep) = arena.get(after) else {
                     continue;
