@@ -27,9 +27,34 @@ fn digest(block: &[u8]) -> [u8; DIGEST] {
 
 /// The trailer of `body`: one digest per block.
 pub fn trailer(body: &[u8], block: usize) -> Vec<u8> {
-    let mut t = Vec::with_capacity(body.len().div_ceil(block) * DIGEST);
-    for b in body.chunks(block) {
-        t.extend_from_slice(&digest(b));
+    trailer_of_pieces(&[body], block)
+}
+
+/// [`trailer`] of the body the `pieces` make one after another, without
+/// joining them: a block may span pieces.
+pub fn trailer_of_pieces(pieces: &[&[u8]], block: usize) -> Vec<u8> {
+    let len: usize = pieces.iter().map(|p| p.len()).sum();
+    let mut t = Vec::with_capacity(len.div_ceil(block) * DIGEST);
+    let mut carry: Vec<u8> = Vec::new();
+    for mut p in pieces.iter().copied() {
+        if !carry.is_empty() {
+            let n = (block - carry.len()).min(p.len());
+            carry.extend_from_slice(&p[..n]);
+            p = &p[n..];
+            if carry.len() < block {
+                continue;
+            }
+            t.extend_from_slice(&digest(&carry));
+            carry.clear();
+        }
+        let whole = p.len() - p.len() % block;
+        for b in p[..whole].chunks(block) {
+            t.extend_from_slice(&digest(b));
+        }
+        carry.extend_from_slice(&p[whole..]);
+    }
+    if !carry.is_empty() {
+        t.extend_from_slice(&digest(&carry));
     }
     t
 }
@@ -187,6 +212,25 @@ pub fn ok<T>(blocks: &Option<Arc<Blocks>>, s: &[T]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_trailer_of_pieces_is_the_trailer_of_their_join() {
+        let body: Vec<u8> = (0..1000u32).map(|i| (i * 7 % 251) as u8).collect();
+        for cuts in [&[][..], &[0, 0], &[1, 63, 64, 65, 500], &[999, 1000]] {
+            let mut pieces = Vec::new();
+            let mut at = 0;
+            for &c in cuts {
+                pieces.push(&body[at..c]);
+                at = c;
+            }
+            pieces.push(&body[at..]);
+            assert_eq!(
+                trailer_of_pieces(&pieces, 64),
+                trailer(&body, 64),
+                "{cuts:?}"
+            );
+        }
+    }
 
     fn leak(v: Vec<u8>) -> &'static [u8] {
         Box::leak(v.into_boxed_slice())

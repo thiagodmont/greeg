@@ -11,6 +11,7 @@
 //! and the candidate set is a superset; a query word with other bytes, or
 //! under `-i`, keeps the trigram plan.
 
+use crate::format::{Chunked, Section};
 use crate::integrity::{Blocks, ok};
 use anyhow::{Context, Result, bail};
 use std::sync::Arc;
@@ -49,14 +50,7 @@ pub fn for_each_word(src: &[u8], mut f: impl FnMut(&[u8])) {
     }
 }
 
-fn pad8(v: &mut Vec<u8>) {
-    while !v.len().is_multiple_of(8) {
-        v.push(0);
-    }
-}
-
-/// Serialize a word section from (word, document count, serialized bitmap)
-/// entries sorted by word:
+/// A word section written entry by entry, in ascending word order:
 ///
 /// ```text
 /// u32 n_words, u32 arena_len, u64 postings_len
@@ -66,39 +60,73 @@ fn pad8(v: &mut Vec<u8>) {
 /// u64 offsets[n_words + 1]    into postings
 /// postings                    roaring bitmap per word, padded to 8
 /// ```
+#[derive(Default)]
+pub struct WordsBuilder {
+    word_off: Chunked,
+    arena: Chunked,
+    counts: Chunked,
+    offsets: Chunked,
+    postings: Chunked,
+    n: usize,
+}
+
+impl WordsBuilder {
+    pub fn push(&mut self, word: &[u8], count: u32, bitmap: &[u8]) {
+        self.word_off
+            .extend(&(self.arena.len() as u32).to_le_bytes());
+        self.arena.extend(word);
+        self.counts.extend(&count.to_le_bytes());
+        self.offsets
+            .extend(&(self.postings.len() as u64).to_le_bytes());
+        self.postings.extend(bitmap);
+        self.n += 1;
+    }
+
+    pub fn len(&self) -> usize {
+        self.n
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.n == 0
+    }
+
+    /// The section, as buffers to write one after another.
+    pub fn finish(mut self) -> Section {
+        let arena_len = self.arena.len();
+        let plen = self.postings.len() as u64;
+        self.word_off.extend(&(arena_len as u32).to_le_bytes());
+        self.offsets.extend(&plen.to_le_bytes());
+        let mut head = Vec::with_capacity(16);
+        head.extend_from_slice(&(self.n as u32).to_le_bytes());
+        head.extend_from_slice(&(arena_len as u32).to_le_bytes());
+        head.extend_from_slice(&plen.to_le_bytes());
+        let mut at = 16 + self.word_off.len();
+        self.arena.pad8_from(at);
+        at += self.arena.len();
+        self.counts.pad8_from(at);
+        at += self.counts.len() + self.offsets.len();
+        self.postings.pad8_from(at);
+        Section::new(
+            head,
+            vec![
+                self.word_off,
+                self.arena,
+                self.counts,
+                self.offsets,
+                self.postings,
+            ],
+        )
+    }
+}
+
+/// Serialize a word section from (word, document count, serialized bitmap)
+/// entries sorted by word ([`WordsBuilder`] has the layout).
 pub fn serialize(entries: &[(Vec<u8>, u32, Vec<u8>)]) -> Vec<u8> {
-    let n = entries.len();
-    let arena_len: usize = entries.iter().map(|(w, _, _)| w.len()).sum();
-    let postings_len: u64 = entries.iter().map(|(_, _, b)| b.len() as u64).sum();
-    let mut body = Vec::with_capacity(32 + n * 20 + arena_len + postings_len as usize);
-    body.extend_from_slice(&(n as u32).to_le_bytes());
-    body.extend_from_slice(&(arena_len as u32).to_le_bytes());
-    body.extend_from_slice(&postings_len.to_le_bytes());
-    let mut off = 0u32;
-    for (w, _, _) in entries {
-        body.extend_from_slice(&off.to_le_bytes());
-        off += w.len() as u32;
+    let mut b = WordsBuilder::default();
+    for (w, c, bm) in entries {
+        b.push(w, *c, bm);
     }
-    body.extend_from_slice(&off.to_le_bytes());
-    for (w, _, _) in entries {
-        body.extend_from_slice(w);
-    }
-    pad8(&mut body);
-    for (_, c, _) in entries {
-        body.extend_from_slice(&c.to_le_bytes());
-    }
-    pad8(&mut body);
-    let mut off = 0u64;
-    for (_, _, b) in entries {
-        body.extend_from_slice(&off.to_le_bytes());
-        off += b.len() as u64;
-    }
-    body.extend_from_slice(&off.to_le_bytes());
-    for (_, _, b) in entries {
-        body.extend_from_slice(b);
-    }
-    pad8(&mut body);
-    body
+    b.finish().into_vec()
 }
 
 /// Zero-copy view over a serialized word section. Its accessors verify the

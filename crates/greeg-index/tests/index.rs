@@ -126,6 +126,42 @@ fn wide_tree(files: usize) -> Tmp {
     t
 }
 
+/// Many distinct words and few grams: the words reach the budget and spill
+/// while the grams stay in memory, and the manifest says the build spilled.
+#[test]
+fn a_build_whose_words_spill_says_so() {
+    let t = empty_tmp();
+    fs::create_dir_all(&t.root).unwrap();
+    let mut x: u64 = 42;
+    for i in 0..20 {
+        let mut body = String::with_capacity(45_000);
+        for _ in 0..5000 {
+            x = x.wrapping_mul(6364136223846793005).wrapping_add(1);
+            for k in 0..8 {
+                body.push((b'a' + ((x >> (8 + 5 * k)) % 26) as u8) as char);
+            }
+            body.push(' ');
+        }
+        fs::write(t.root.join(format!("f{i:03}.txt")), body).unwrap();
+    }
+    settle(&t.root);
+    let m = build(
+        &t.root,
+        &t.dir,
+        &BuildOpts {
+            reader_threads: 1,
+            quiet: true,
+            phase1_only: true,
+            // 1.5 MiB per chunk of 5 files: about 1 MiB of grams, 2 MiB of
+            // words (25,000 new ones)
+            posting_budget: 6 << 20,
+            block: greeg_index::integrity::BLOCK,
+        },
+    )
+    .unwrap();
+    assert!(m.spilled, "the words spilled");
+}
+
 /// The whole point of the byte budget: a build that spills must publish the
 /// same index as one that does not. Byte-for-byte, so this also pins the
 /// merge's key order and its posting deduplication.

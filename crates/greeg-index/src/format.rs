@@ -496,31 +496,153 @@ impl<'a> FilesView<'a> {
     }
 }
 
-/// Serialized gram section from sorted (key, serialized bitmap) pairs.
+/// A byte buffer grown in chunks of at most [`Chunked::CHUNK`]: growing it
+/// never copies what it holds, so a section as large as the index costs its
+/// size once, not twice while a `Vec` doubles.
+#[derive(Default)]
+pub struct Chunked {
+    chunks: Vec<Vec<u8>>,
+    len: usize,
+}
+
+impl Chunked {
+    pub const CHUNK: usize = 1 << 20;
+
+    #[inline]
+    pub fn extend(&mut self, b: &[u8]) {
+        self.len += b.len();
+        if let Some(c) = self.chunks.last_mut()
+            && c.len() + b.len() <= Self::CHUNK
+        {
+            c.extend_from_slice(b);
+            return;
+        }
+        self.extend_across(b);
+    }
+
+    #[cold]
+    fn extend_across(&mut self, mut b: &[u8]) {
+        while !b.is_empty() {
+            match self.chunks.last_mut() {
+                Some(c) if c.len() < Self::CHUNK => {
+                    let n = (Self::CHUNK - c.len()).min(b.len());
+                    c.extend_from_slice(&b[..n]);
+                    b = &b[n..];
+                }
+                _ => self.chunks.push(Vec::new()),
+            }
+        }
+    }
+
+    /// Zeros up to the next multiple of 8 of `at + self.len()`.
+    pub fn pad8_from(&mut self, at: usize) {
+        let pad = (8 - (at + self.len) % 8) % 8;
+        self.extend(&[0u8; 8][..pad]);
+    }
+
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    pub fn pieces(&self) -> impl Iterator<Item = &[u8]> {
+        self.chunks.iter().map(Vec::as_slice)
+    }
+}
+
+/// A gram section written entry by entry, in ascending key order:
+///
+/// ```text
+/// u32 n, u32 0, u64 postings_len
+/// u32 keys[n], u32 counts[n], u64 offsets[n + 1], postings padded to 8
+/// ```
+#[derive(Default)]
+pub struct GramsBuilder {
+    keys: Chunked,
+    counts: Chunked,
+    offsets: Chunked,
+    postings: Chunked,
+    n: usize,
+}
+
+impl GramsBuilder {
+    pub fn push(&mut self, key: u32, count: u32, bitmap: &[u8]) {
+        self.keys.extend(&key.to_le_bytes());
+        self.counts.extend(&count.to_le_bytes());
+        self.offsets
+            .extend(&(self.postings.len() as u64).to_le_bytes());
+        self.postings.extend(bitmap);
+        self.n += 1;
+    }
+
+    pub fn len(&self) -> usize {
+        self.n
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.n == 0
+    }
+
+    /// The section, as buffers to write one after another.
+    pub fn finish(mut self) -> Section {
+        let plen = self.postings.len() as u64;
+        self.offsets.extend(&plen.to_le_bytes());
+        let mut head = Vec::with_capacity(16);
+        head.extend_from_slice(&(self.n as u32).to_le_bytes());
+        head.extend_from_slice(&0u32.to_le_bytes());
+        head.extend_from_slice(&plen.to_le_bytes());
+        let at = 16 + self.keys.len() + self.counts.len() + self.offsets.len();
+        self.postings.pad8_from(at);
+        Section::new(
+            head,
+            vec![self.keys, self.counts, self.offsets, self.postings],
+        )
+    }
+}
+
+/// A component body in parts, never joined in memory unless asked.
+pub struct Section {
+    head: Vec<u8>,
+    parts: Vec<Chunked>,
+}
+
+impl Section {
+    pub fn new(head: Vec<u8>, parts: Vec<Chunked>) -> Self {
+        Section { head, parts }
+    }
+
+    pub fn pieces(&self) -> Vec<&[u8]> {
+        std::iter::once(self.head.as_slice())
+            .chain(self.parts.iter().flat_map(Chunked::pieces))
+            .collect()
+    }
+
+    /// The body in one buffer, each chunk freed once copied: at most one
+    /// chunk more than the body is held.
+    pub fn into_vec(self) -> Vec<u8> {
+        let len = self.head.len() + self.parts.iter().map(Chunked::len).sum::<usize>();
+        let mut out = Vec::with_capacity(len);
+        out.extend_from_slice(&self.head);
+        for part in self.parts {
+            for c in part.chunks {
+                out.extend_from_slice(&c);
+            }
+        }
+        out
+    }
+}
+
+/// Serialized gram section from sorted (key, document count, serialized
+/// bitmap) entries.
 pub fn serialize_grams(entries: &[(u32, u32, Vec<u8>)]) -> Vec<u8> {
-    let n = entries.len();
-    let postings_len: u64 = entries.iter().map(|(_, _, b)| b.len() as u64).sum();
-    let mut body = Vec::with_capacity(16 + n * 16 + 8 + postings_len as usize);
-    body.extend_from_slice(&(n as u32).to_le_bytes());
-    body.extend_from_slice(&0u32.to_le_bytes());
-    body.extend_from_slice(&postings_len.to_le_bytes());
-    for (k, _, _) in entries {
-        body.extend_from_slice(&k.to_le_bytes());
+    let mut b = GramsBuilder::default();
+    for (k, c, bm) in entries {
+        b.push(*k, *c, bm);
     }
-    for (_, c, _) in entries {
-        body.extend_from_slice(&c.to_le_bytes());
-    }
-    let mut off = 0u64;
-    for (_, _, b) in entries {
-        body.extend_from_slice(&off.to_le_bytes());
-        off += b.len() as u64;
-    }
-    body.extend_from_slice(&off.to_le_bytes());
-    for (_, _, b) in entries {
-        body.extend_from_slice(b);
-    }
-    pad8(&mut body);
-    body
+    b.finish().into_vec()
 }
 
 pub struct GramsView<'a> {
@@ -631,6 +753,18 @@ pub fn write_atomic(path: &Path, comp: u8, id: Ident, body: &[u8], block: usize)
     write_atomic_with(path, comp, id, body, block, true)
 }
 
+/// [`write_atomic`] of the body the `pieces` make one after another, written
+/// without joining them.
+pub fn write_atomic_pieces(
+    path: &Path,
+    comp: u8,
+    id: Ident,
+    pieces: &[&[u8]],
+    block: usize,
+) -> Result<String> {
+    write_pieces(path, comp, id, pieces, block, true)
+}
+
 /// `write_atomic` with the fsync optional. Base components are published
 /// durably (a build is seconds anyway); a delta segment skips it because
 /// `F_FULLFSYNC` costs 4–5 ms of every post-edit query on APFS, and a delta
@@ -643,13 +777,27 @@ pub fn write_atomic_with(
     block: usize,
     durable: bool,
 ) -> Result<String> {
-    let trailer = crate::integrity::trailer(body, block);
+    write_pieces(path, comp, id, &[body], block, durable)
+}
+
+fn write_pieces(
+    path: &Path,
+    comp: u8,
+    id: Ident,
+    pieces: &[&[u8]],
+    block: usize,
+    durable: bool,
+) -> Result<String> {
+    let trailer = crate::integrity::trailer_of_pieces(pieces, block);
+    let len: usize = pieces.iter().map(|p| p.len()).sum();
     let tmp = tmp_path(path);
     {
         let file = crate::create_private(&tmp)?;
         let mut f = std::io::BufWriter::with_capacity(1 << 20, file);
-        write_header(&mut f, comp, id, body.len() as u64, block as u32)?;
-        f.write_all(body)?;
+        write_header(&mut f, comp, id, len as u64, block as u32)?;
+        for p in pieces {
+            f.write_all(p)?;
+        }
         f.write_all(&trailer)?;
         f.flush()?;
         if durable {
