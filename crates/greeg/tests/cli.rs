@@ -3914,3 +3914,68 @@ fn verbs_that_read_the_index_twice_see_an_edited_file() {
         );
     }
 }
+
+/// `greeg foo index` used to build an index and `greeg foo budget none` to
+/// save a config value: a subcommand after a pattern is refused before
+/// anything runs, and both spellings that search a path of that name work.
+#[test]
+fn a_subcommand_after_a_pattern_is_refused_and_writes_nothing() {
+    let f = empty_fixture();
+    for dir in ["index", "stats", "budget", "purge", "man"] {
+        w(&f.root.join(dir).join("a.txt"), "foo here\n");
+    }
+    let (config, stats) = (f.base.join("config"), f.base.join("stats"));
+    fs::create_dir_all(&config).unwrap();
+    let run = |args: &[&str]| {
+        Command::new(BIN)
+            .args(args)
+            .current_dir(&f.root)
+            .env("GREEG_CONFIG_DIR", &config)
+            .env("GREEG_INDEX_DIR", &f.index)
+            .env("GREEG_STATS_DIR", &stats)
+            .env("GREEG_STATS", "1")
+            .env("HOME", f.base.join("home"))
+            .env("XDG_CACHE_HOME", f.base.join("cache"))
+            .env_remove("GREEG_BUDGET")
+            .env_remove("GREEG_SESSION")
+            .env_remove("CLAUDE_CODE_SESSION_ID")
+            .output()
+            .unwrap()
+    };
+    for args in [
+        &["foo", "index"][..],
+        &["foo", "budget", "none"],
+        &["foo", "stats", "enable"],
+        &["foo", "purge", "--yes"],
+        &["foo", "hook", "claude"],
+        &["foo", "man"],
+        &["foo", "def", "x"],
+        &["-l", "foo", "index"],
+    ] {
+        let out = run(args);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        let name = args
+            .iter()
+            .find(|a| !a.starts_with('-') && **a != "foo")
+            .unwrap();
+        assert_eq!(out.status.code(), Some(2), "{args:?}: {out:?}");
+        assert!(out.stdout.is_empty(), "{args:?}: {out:?}");
+        assert!(
+            stderr.contains(&format!("greeg PATTERN -- {name}")),
+            "{args:?}: {stderr}"
+        );
+        assert_eq!(fs::read_dir(&config).unwrap().count(), 0, "{args:?}");
+        assert!(!f.index.exists() && !stats.exists(), "{args:?}");
+    }
+    for args in [
+        &["--no-session", "-l", "foo", "--", "index"][..],
+        &["--no-session", "-l", "foo", "./index"],
+    ] {
+        let out = run(args);
+        assert_eq!(out.status.code(), Some(0), "{args:?}: {out:?}");
+        assert!(
+            String::from_utf8_lossy(&out.stdout).contains("index/a.txt"),
+            "{args:?}: {out:?}"
+        );
+    }
+}

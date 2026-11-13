@@ -399,11 +399,49 @@ where
     I: IntoIterator<Item = T>,
     T: Into<std::ffi::OsString> + Clone,
 {
+    let args: Vec<std::ffi::OsString> = args.into_iter().map(Into::into).collect();
     let mut cmd = parse_command();
-    let m = cmd.try_get_matches_from_mut(args)?;
+    let m = match cmd.try_get_matches_from_mut(&args) {
+        Ok(m) => m,
+        Err(e) if e.use_stderr() => {
+            // `greeg foo def`: the missing NAME is not what went wrong
+            let lenient = parse_command()
+                .ignore_errors(true)
+                .try_get_matches_from(&args);
+            return Err(lenient
+                .ok()
+                .and_then(|m| subcommand_after_pattern(&m))
+                .unwrap_or(e));
+        }
+        Err(e) => return Err(e),
+    };
+    if let Some(e) = subcommand_after_pattern(&m) {
+        return Err(e);
+    }
     let mut cli = Cli::from_arg_matches(&m).map_err(|e| e.format(&mut cmd))?;
     cli.common.keep_last_given(&m);
     Ok(cli)
+}
+
+/// A subcommand name after a search pattern (`greeg foo index`) is almost
+/// always a path: refused, naming the spelling that searches it.
+fn subcommand_after_pattern(m: &clap::ArgMatches) -> Option<clap::Error> {
+    let name = m.subcommand_name()?;
+    let pattern = matches!(
+        m.value_source("pattern"),
+        Some(clap::parser::ValueSource::CommandLine)
+    ) || matches!(
+        m.value_source("regexp"),
+        Some(clap::parser::ValueSource::CommandLine)
+    );
+    pattern.then(|| {
+        clap::Error::raw(
+            clap::error::ErrorKind::ArgumentConflict,
+            format!(
+                "`{name}` after a pattern is the {name} command; to search a path with that name write `greeg PATTERN -- {name}` or `./{name}`\n"
+            ),
+        )
+    })
 }
 
 #[derive(Subcommand, Debug)]
@@ -2939,6 +2977,58 @@ mod tests {
         names.sort();
         verbs.sort();
         assert_eq!(verbs, names);
+    }
+
+    /// `greeg foo index` would build an index: a subcommand after a pattern is
+    /// refused with the spelling that searches a path of that name.
+    #[test]
+    fn a_subcommand_after_a_pattern_is_refused() {
+        let names: Vec<String> = Cli::command()
+            .get_subcommands()
+            .map(|c| c.get_name().to_string())
+            .filter(|n| n != "help")
+            .collect();
+        for name in &names {
+            for args in [
+                vec!["greeg", "foo", name],
+                vec!["greeg", "-e", "foo", name],
+                vec!["greeg", "-i", "foo", name, "x"],
+            ] {
+                let e = parse_cli(&args)
+                    .err()
+                    .unwrap_or_else(|| panic!("{args:?} parsed"));
+                assert_eq!(
+                    e.kind(),
+                    clap::error::ErrorKind::ArgumentConflict,
+                    "{args:?}: {e}"
+                );
+                let msg = e.to_string();
+                assert!(
+                    msg.contains(&format!("`greeg PATTERN -- {name}`"))
+                        && msg.contains(&format!("`./{name}`")),
+                    "{args:?}: {msg}"
+                );
+                assert_eq!(msg.trim_end().lines().count(), 1, "{msg}");
+            }
+            for args in [
+                vec!["greeg", "foo", "--", name],
+                vec!["greeg", "foo", &format!("./{name}")],
+            ] {
+                let cli = parse_cli(&args).unwrap_or_else(|e| panic!("{args:?}: {e}"));
+                assert!(cli.cmd.is_none() && cli.paths.len() == 1, "{args:?}");
+            }
+        }
+        for args in [
+            vec!["greeg", "def", "foo"],
+            vec!["greeg", "-i", "refs", "foo"],
+            vec!["greeg", "--", "index"],
+        ] {
+            parse_cli(&args).unwrap_or_else(|e| panic!("{args:?}: {e}"));
+        }
+        let e = parse_cli(["greeg", "foo", "index", "--help"])
+            .err()
+            .unwrap();
+        assert_eq!(e.kind(), clap::error::ErrorKind::DisplayHelp);
     }
 
     /// A pattern or path named like a subcommand stays a search operand.
