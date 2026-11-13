@@ -4251,7 +4251,7 @@ fn an_entry_added_with_the_directory_mtime_restored_is_found() {
     let f = fixture();
     w(&f.root.join("d/old.txt"), "old\n");
     // past the racy window, so only the change time can tell
-    std::thread::sleep(std::time::Duration::from_millis(50));
+    settle(&f.root.join("d"));
     f.indexed();
     let d = f.root.join("d");
     let r = f.base.join("ref");
@@ -4277,11 +4277,11 @@ fn a_directory_unreadable_at_build_is_indexed_once_readable() {
     w(&d.join("inner.txt"), "needle_lambda\n");
     fs::set_permissions(&d, fs::Permissions::from_mode(0o000)).unwrap();
     if fs::read_dir(&d).is_ok() {
-        // root reads it anyway
         fs::set_permissions(&d, fs::Permissions::from_mode(0o755)).unwrap();
+        eprintln!("skipped: this user reads a mode-000 directory (root)");
         return;
     }
-    std::thread::sleep(std::time::Duration::from_millis(50));
+    settle(&f.root);
     f.indexed();
     fs::set_permissions(&d, fs::Permissions::from_mode(0o755)).unwrap();
     let scanned = pairs(&f.out(&["--no-index", "--budget", "0", "needle_lambda"]));
@@ -4290,21 +4290,21 @@ fn a_directory_unreadable_at_build_is_indexed_once_readable() {
     assert_eq!(pairs(&f.out(&args)), scanned);
 }
 
-/// Files dropped while their directory was unreadable come back once it is
-/// readable again: `chmod` moves its change time, not its mtime.
+/// Files of a directory that was unreadable for a while are found once it is
+/// readable again, whether or not the check in between dropped them.
 #[test]
 fn files_dropped_while_their_directory_was_unreadable_come_back() {
     use std::os::unix::fs::PermissionsExt;
     let f = fixture();
     let d = f.root.join("locked");
     w(&d.join("inner.txt"), "needle_mu\n");
-    std::thread::sleep(std::time::Duration::from_millis(50));
+    settle(&f.root);
     f.indexed();
     let args = ["--fresh", "stat", "--budget", "0", "needle_mu"];
     fs::set_permissions(&d, fs::Permissions::from_mode(0o000)).unwrap();
     if fs::read_dir(&d).is_ok() {
-        // root reads it anyway
         fs::set_permissions(&d, fs::Permissions::from_mode(0o755)).unwrap();
+        eprintln!("skipped: this user reads a mode-000 directory (root)");
         return;
     }
     // a verb applies its check before answering: the file is dropped
@@ -4313,4 +4313,17 @@ fn files_dropped_while_their_directory_was_unreadable_come_back() {
     let scanned = pairs(&f.out(&["--no-index", "--budget", "0", "needle_mu"]));
     assert_eq!(scanned.len(), 1);
     assert_eq!(pairs(&f.out(&args)), scanned);
+}
+
+/// Wait out the racy window of what was just written under `root` (20 ms, or
+/// 2 s where the file system keeps whole seconds), so a build lists its
+/// directories late enough to trust their stamps.
+fn settle(root: &Path) {
+    use std::os::unix::fs::MetadataExt;
+    let whole = fs::metadata(root).unwrap().ctime_nsec() == 0;
+    std::thread::sleep(std::time::Duration::from_millis(if whole {
+        2100
+    } else {
+        50
+    }));
 }

@@ -14,7 +14,7 @@
 //! files.<seq>.bin
 //!   u32 n_files, u32 n_dirs, u32 arena_len, u32 pad
 //!   FileRec[n_files]   (56 bytes each)
-//!   DirRec[n_dirs]     (32 bytes each)
+//!   DirRec[n_dirs]     (40 bytes each)
 //!   arena bytes (paths, relative, '/'-separated), padded to 8
 //!   u32 n_huge, u32 n_hidden, u32 huge[n_huge], u32 hidden[n_hidden]   (segment-local ids, padded to 8)
 //!

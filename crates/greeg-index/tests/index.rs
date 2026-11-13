@@ -750,13 +750,7 @@ fn a_directory_listed_too_soon_is_listed_again() {
     let t = tree();
     let lib = t.root.join("lib");
     let set_mtime = |at: SystemTime| fs::File::open(&lib).unwrap().set_modified(at).unwrap();
-    // past the racy window of what `lib`'s change time just did
-    let settle = || {
-        use std::os::unix::fs::MetadataExt;
-        let whole = fs::metadata(&lib).unwrap().ctime_nsec() == 0;
-        std::thread::sleep(Duration::from_millis(if whole { 2100 } else { 50 }));
-    };
-    settle();
+    settle(&lib);
     // an mtime ahead of the clock: every listing comes too soon after it
     set_mtime(SystemTime::now() + Duration::from_secs(10));
     build(&t.root, &t.dir, &opts()).unwrap();
@@ -772,7 +766,7 @@ fn a_directory_listed_too_soon_is_listed_again() {
     assert_eq!(relisted(), ["lib"], "unchanged, but listed too soon");
     assert_eq!(relisted(), ["lib"]);
     set_mtime(SystemTime::now() - Duration::from_secs(10));
-    settle();
+    settle(&lib);
     assert_eq!(relisted(), ["lib"], "its stamp changed");
     assert!(relisted().is_empty(), "listed late enough: trusted");
 }
