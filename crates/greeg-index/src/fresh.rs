@@ -625,11 +625,23 @@ pub fn check_fsevents(idx: &Index, root: &Path, threads: usize) -> Option<Change
         checked_ms,
         ..Default::default()
     };
-    // no event names a directory a change of access made listable
+    // no event names a directory a change of access made listable, so the
+    // ones the build could not list are tried; before `known`, which is the
+    // cost of the whole index
     let unlisted = idx.unlisted_dirs();
     if dirs.is_empty() && unlisted.is_empty() {
         ch.ms = t.elapsed().as_secs_f64() * 1e3;
         return Some(ch);
+    }
+    let tree = Tree::open(&abs_root).ok()?;
+    let again = listable_again(root, Some(&tree), unlisted);
+    if dirs.is_empty() && again.is_empty() {
+        ch.ms = t.elapsed().as_secs_f64() * 1e3;
+        return Some(ch);
+    }
+    // only the full pass checks the directories on the way for a leaf lookup
+    if Lookup::of(&tree) == Lookup::Leaf {
+        return None;
     }
     let k = known(idx);
     // relative dir set
@@ -651,11 +663,6 @@ pub fn check_fsevents(idx: &Index, root: &Path, threads: usize) -> Option<Change
     // reports only the parent, so every known file below it is re-stat'd too
     let mut changed_dirs = Vec::new();
     let mut moved: HashSet<&[u8]> = HashSet::new();
-    let tree = Tree::open(&abs_root).ok()?;
-    // only the full pass checks the directories on the way for a leaf lookup
-    if Lookup::of(&tree) == Lookup::Leaf {
-        return None;
-    }
     let mut on_way = tree::Dirs::default();
     for r in &rels {
         if let Some((old, recheck)) = k.dirs.get(r.as_slice())
@@ -701,10 +708,7 @@ pub fn check_fsevents(idx: &Index, root: &Path, threads: usize) -> Option<Change
         threads,
     );
     classify_all(&mut ch, idx.no_ino(), &files, st, k.files.len());
-    add_dirs(
-        &mut changed_dirs,
-        listable_again(root, Some(&tree), unlisted),
-    );
+    add_dirs(&mut changed_dirs, again);
     relist_dirs(root, &k, &changed_dirs, &mut ch);
     ch.ms = t.elapsed().as_secs_f64() * 1e3;
     Some(ch)
