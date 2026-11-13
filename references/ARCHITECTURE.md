@@ -181,12 +181,14 @@ and all cores on Linux.
 
 Postings accumulate against a byte budget and spill sorted segments to disk
 when they hit it, so peak memory stops tracking the size of the tree. A k-way
-merge streams them back at publish time, opening at most half the descriptor
-limit (at least 3, at most 256) at once: more segments are merged in passes first. Merged
-batches go straight into the component's section buffers, written piece by
-piece, so the peak holds the budget and the serialized grams and words
-(both are kept until they are published), never every entry beside them. Small repositories never reach the budget and never spill; the
-manifest's `spilled` says whether the grams or the words did.
+merge streams them back at publish time. It opens at once half the
+descriptor limit, clamped to 3–256 (a limit under 6 still gets 3); more
+segments are merged in passes first. Merged batches go straight into the
+component's section buffers, written piece by piece, so the peak holds the
+budget and the serialized grams and words (both are kept until they are
+published), never every entry beside them. Small repositories never reach the
+budget and never spill; the manifest's `spilled` says whether the grams or the
+words did.
 
 **Phase 2** re-reads the files that have a grammar (now warm in the page
 cache), parses them with tree-sitter on all cores, extracts definitions,
