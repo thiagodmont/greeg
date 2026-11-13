@@ -103,7 +103,7 @@ greeg hook codex        # Codex 0.131+  (then run /hooks in Codex to trust it)
 ```
 
 This installs a hook and a skill file; run it again after upgrading greeg, to
-update the skill (`greeg doctor` says when it is outdated). The agent keeps writing `rg` or
+update the skill (`greeg doctor` says when it is outdated; a skill you edited is kept as it is). The agent keeps writing `rg` or
 `grep -r`; the hook sends those searches to greeg (also inside `;`/`&&`
 lists, before `| head`, and a `grep -rn` or `grep -rl` before other readers such as `| sort`), and the skill teaches the agent greeg's symbol commands. **You don't
 change how you prompt.** A rewritten `grep -r` searches hidden files, as grep

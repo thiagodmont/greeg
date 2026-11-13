@@ -291,17 +291,18 @@ pub fn run(c: &Common) -> Result<()> {
             .iter()
             .map(|(agent, state)| {
                 let state = match state {
-                    State::Current => "current",
-                    State::Outdated => "outdated",
-                    State::Edited => "edited (left as it is)",
-                    State::Missing => "none",
+                    Some(State::Current) => "current",
+                    Some(State::Outdated) => "outdated",
+                    Some(State::Edited) => "edited (left as it is)",
+                    Some(State::Missing) => "none",
+                    None => "unreadable (a regular UTF-8 file is required)",
                 };
                 format!("{agent} {state}")
             })
             .collect();
         writeln!(w, "skill     {}", parts.join(" · "))?;
         for (agent, state) in &skills {
-            if *state == State::Outdated {
+            if *state == Some(State::Outdated) {
                 advice.push(format!(
                     "the {agent} skill is from another greeg version: run `greeg hook {agent}` to update it"
                 ));

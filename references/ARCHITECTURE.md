@@ -475,8 +475,8 @@ content does not rewrite the file or change its mode, inode or modification time
 Modified skills produce a preservation message while hook configuration edits
 continue. Move a preserved file aside before reinstalling to regenerate it.
 Dry runs report the same ownership decision without writes. `greeg doctor`
-prints a `skill` line for each agent with a skill file (`current`, `outdated`
-or `edited`) and, for an outdated one, the command that updates it; the skill
+prints a `skill` line for each agent with a skill file (`current`, `outdated`,
+`edited`, or `unreadable` for one the installer would refuse to read) and, for an outdated one, the command that updates it; the skill
 is rewritten only by `greeg hook claude` or `greeg hook codex`, never by a
 search.
 

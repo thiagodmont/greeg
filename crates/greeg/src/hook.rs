@@ -156,9 +156,10 @@ fn skill_path() -> Result<PathBuf> {
     Ok(PathBuf::from(home).join(".claude/skills/greeg/SKILL.md"))
 }
 
-/// Each agent's installed skill against this build's; an agent with no
-/// readable skill file is left out.
-pub fn skill_states() -> Vec<(&'static str, crate::hook_skill::State)> {
+/// Each agent's installed skill against this build's: `None` for one the
+/// installer would refuse to read. An agent with no skill file is left out.
+pub fn skill_states() -> Vec<(&'static str, Option<crate::hook_skill::State>)> {
+    use crate::hook_skill::State;
     let paths = [
         ("claude", Agent::Claude, skill_path().ok()),
         (
@@ -170,10 +171,14 @@ pub fn skill_states() -> Vec<(&'static str, crate::hook_skill::State)> {
     paths
         .into_iter()
         .filter_map(|(name, agent, path)| {
-            let bytes = std::fs::read(path?).ok()?;
-            let state = match std::str::from_utf8(&bytes) {
-                Ok(text) => crate::hook_skill::state(Some(text), &skill_text(agent), agent),
-                Err(_) => crate::hook_skill::State::Edited,
+            let state = match crate::hook_config::Config::read(&path?) {
+                Ok(skill) => {
+                    match crate::hook_skill::state(skill.text(), &skill_text(agent), agent) {
+                        State::Missing => return None,
+                        state => Some(state),
+                    }
+                }
+                Err(_) => None,
             };
             Some((name, state))
         })

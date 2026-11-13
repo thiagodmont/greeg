@@ -1139,6 +1139,15 @@ fn doctor_reports_each_installed_skill_against_this_build() {
         "{report}"
     );
     assert!(!report.contains("greeg hook codex"), "{report}");
+
+    let codex = f.0.join("home/.codex/skills/greeg/SKILL.md");
+    fs::remove_file(&codex).unwrap();
+    std::os::unix::fs::symlink(f.0.join("home/.claude/skills/greeg/SKILL.md"), &codex).unwrap();
+    let report = doctor();
+    assert!(
+        report.contains("· codex unreadable (a regular UTF-8 file is required)\n"),
+        "{report}"
+    );
 }
 
 #[test]
