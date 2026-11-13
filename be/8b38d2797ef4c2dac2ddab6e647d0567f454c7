@@ -1,0 +1,21 @@
+crates/greeg/src/doctor.rs
+  s_d1affe6bf8021e::t_507c5c98c29b63 1
+crates/greeg/src/main.rs
+  s_d1affe6bf8021e::t_507c5c98c29b63 536
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "be8b38d2797ef4c2dac2ddab6e647d0567f454c7",
+  "prompts": {},
+  "sessions": {
+    "s_d1affe6bf8021e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9f35d094-2dfc-48c8-a346-85f6d65b0c73",
+        "model": "claude-fable-5-2"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
