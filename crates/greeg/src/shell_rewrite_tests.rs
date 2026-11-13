@@ -2,9 +2,7 @@
 //! shims named `rg`, `grep` and `greeg` record what each shell hands them;
 //! the rewritten greeg words must parse as a search of the pattern and paths
 //! the original command searched, and no other search program may run.
-//! (A unit test, not one under tests/: the parser is the binary's `Cli`.)
-use crate::Cli;
-use clap::Parser;
+//! (A unit test, not one under tests/: the parser, `parse_cli`, is the binary's.)
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -15,13 +13,18 @@ struct Shims {
 
 impl Shims {
     fn new() -> Self {
-        let dir = std::env::temp_dir().join(format!(
-            "greeg-shell-rewrite-{}-{:?}",
-            std::process::id(),
-            std::thread::current().id()
-        ));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(dir.join("bin")).unwrap();
+        // a directory this run creates itself, so Drop never removes another's
+        let dir = (0..)
+            .map(|n| {
+                std::env::temp_dir().join(format!("greeg-shell-rewrite-{}-{n}", std::process::id()))
+            })
+            .find(|d| match std::fs::create_dir(d) {
+                Ok(()) => true,
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => false,
+                Err(e) => panic!("create {}: {e}", d.display()),
+            })
+            .unwrap();
+        std::fs::create_dir(dir.join("bin")).unwrap();
         for name in ["rg", "grep", "greeg"] {
             let p = dir.join("bin").join(name);
             // one record per run: the program, then each argument NUL-terminated
@@ -148,7 +151,7 @@ fn rewrites_reach_greeg_as_the_search_the_original_ran() {
             assert_eq!(ran.len(), searches.len(), "{shell:?} {rewritten}: {ran:?}");
             for (argv, (pattern, paths)) in ran.iter().zip(searches.iter()) {
                 assert_eq!(argv[0], "greeg", "{shell:?} {rewritten}: only greeg runs");
-                let cli = Cli::try_parse_from(argv)
+                let cli = crate::parse_cli(argv)
                     .unwrap_or_else(|e| panic!("{shell:?} {rewritten}: {argv:?}: {e}"));
                 assert!(cli.cmd.is_none(), "{shell:?} {rewritten}: {argv:?}");
                 let got = cli

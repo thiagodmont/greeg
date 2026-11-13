@@ -63,6 +63,9 @@ TEXT = {
         "head-list": b"rg -n a | head -5; rg b",
         "grep-head": b"grep -rn a . | head -n 3",
         "redirections": b"rg -n a 2>/dev/null | head -5; grep -rl b . 2>&1 </dev/null",
+        "verb_path": b"rg foo index",
+        "equals_word": b"rg '==' src",
+        "short_equals": b"rg -g='*.rs' -e=foo src",
     },
     "lang_extract": {
         "python": b"\x00" + SOURCES["src/util.py"].encode(),
