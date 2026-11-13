@@ -4557,8 +4557,11 @@ fn a_failed_background_build_is_recorded_and_not_respawned_per_query() {
     let first = f.run_env(&["handle_request"], &fail);
     assert_eq!(first.status.code(), Some(0), "{first:?}");
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
-    // a build writes the record as it starts, and its error when it fails
-    while !record().is_some_and(|r| r["error"] != "the build did not finish") {
+    // a build writes the record as it starts, and its error when it fails,
+    // then lets its marker go
+    while !record().is_some_and(|r| r["error"] != "the build did not finish")
+        || f.out(&["doctor"]).contains("build in progress")
+    {
         assert!(std::time::Instant::now() < deadline, "no failure recorded");
         std::thread::sleep(std::time::Duration::from_millis(50));
     }

@@ -10,8 +10,9 @@ use std::io::Write;
 use std::path::Path;
 
 const NAME: &str = "BUILD_FAILED";
-/// The record a query has told the user about, by [`BuildFailure::key`].
-const REPORTED: &str = "BUILD_FAILED.reported";
+/// A query told the user about the record whose [`BuildFailure::key`]
+/// follows: one file per record, made with `create_new`, so one query does.
+const REPORTED: &str = "BUILD_FAILED.reported.";
 /// What a build that has not finished says.
 pub const UNFINISHED: &str = "the build did not finish";
 /// The wait after the first failure, doubled after each one up to [`MAX_MS`].
@@ -46,7 +47,7 @@ impl BuildFailure {
     }
 
     fn key(&self) -> String {
-        format!("{} {}", self.at_unix_ms, self.attempts)
+        format!("{}.{}", self.at_unix_ms, self.attempts)
     }
 }
 
@@ -81,18 +82,40 @@ pub fn fail(dir: &Path, root: &Path, error: &str) -> anyhow::Result<()> {
 /// Remove the record: a build in `dir` succeeded.
 pub fn clear(dir: &Path) {
     let _ = std::fs::remove_file(dir.join(NAME));
-    let _ = std::fs::remove_file(dir.join(REPORTED));
+    remove_claims(dir, None);
 }
 
-/// Has a query told the user about `f`?
-pub fn reported(dir: &Path, f: &BuildFailure) -> bool {
-    std::fs::read_to_string(dir.join(REPORTED)).is_ok_and(|k| k == f.key())
+/// Claim the telling of `f`: true for the one query that should say so. A
+/// file of its own, so this never writes over a record a build has replaced
+/// or removed since. Never under `--no-persist`, which would say it each time.
+pub fn claim_report(dir: &Path, f: &BuildFailure) -> bool {
+    if !persist::allowed() {
+        return false;
+    }
+    let name = format!("{REPORTED}{}", f.key());
+    let made = crate::private_file()
+        .write(true)
+        .create_new(true)
+        .open(dir.join(&name))
+        .is_ok();
+    if made {
+        remove_claims(dir, Some(&name));
+    }
+    made
 }
 
-/// Note that a query has told the user about `f`. A separate file, so this
-/// never writes over a record a build has replaced or removed since.
-pub fn mark_reported(dir: &Path, f: &BuildFailure) {
-    let _ = write_file(dir, REPORTED, f.key().as_bytes());
+/// Remove the claims of records other than `keep`.
+fn remove_claims(dir: &Path, keep: Option<&str>) {
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for e in rd.flatten() {
+        let name = e.file_name();
+        let name = name.to_string_lossy();
+        if name.starts_with(REPORTED) && Some(&*name) != keep {
+            let _ = std::fs::remove_file(e.path());
+        }
+    }
 }
 
 fn write(dir: &Path, root: &Path, error: &str, attempts: u32) -> anyhow::Result<()> {
@@ -162,13 +185,21 @@ mod tests {
         assert_eq!(f.attempts, 2);
         assert!(f.error.len() <= MAX_ERROR + '…'.len_utf8());
         assert!(read(&d, &other).is_none(), "another root's builds");
-        assert!(!reported(&d, &f));
-        mark_reported(&d, &f);
-        assert!(reported(&d, &f));
+        assert!(claim_report(&d, &f));
+        assert!(!claim_report(&d, &f), "told once");
         begin(&d, &root).unwrap();
-        assert!(!reported(&d, &read(&d, &root).unwrap()), "a newer record");
+        assert!(
+            claim_report(&d, &read(&d, &root).unwrap()),
+            "a newer record"
+        );
         clear(&d);
         assert!(read(&d, &root).is_none());
+        assert!(
+            !std::fs::read_dir(&d)
+                .unwrap()
+                .flatten()
+                .any(|e| { e.file_name().to_string_lossy().starts_with(REPORTED) })
+        );
         let _ = std::fs::remove_dir_all(&d);
     }
 }

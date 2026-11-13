@@ -52,9 +52,12 @@ fn note_failed_build(root: &Path, dir: &Path) {
     if lock::marker_held(dir, lock::Work::Build) {
         return;
     }
-    let Some(f) = failure::read(dir, root).filter(|f| !failure::reported(dir, f)) else {
+    let Some(f) = failure::read(dir, root) else {
         return;
     };
+    if !failure::claim_report(dir, &f) {
+        return;
+    }
     let now = greeg_index::now_ms();
     let next = if f.backing_off(now) {
         format!("the next in {} s", (f.retry_at() - now).div_ceil(1000))
@@ -65,12 +68,14 @@ fn note_failed_build(root: &Path, dir: &Path) {
         "greeg: the background index build failed ({}); searches scan until one succeeds, {next}; `greeg doctor` has more",
         f.error
     );
-    failure::mark_reported(dir, &f);
 }
 
 /// The last build of `root` in `dir` failed, and the next waits.
 fn backing_off(root: &Path, dir: &Path) -> bool {
-    greeg_index::failure::read(dir, root).is_some_and(|f| f.backing_off(greeg_index::now_ms()))
+    // while a build runs, the record is that build's, not a failure
+    !greeg_index::lock::marker_held(dir, greeg_index::lock::Work::Build)
+        && greeg_index::failure::read(dir, root)
+            .is_some_and(|f| f.backing_off(greeg_index::now_ms()))
 }
 
 /// Queue a detached `greeg index --refresh`: this query
@@ -450,7 +455,7 @@ pub struct Rebuilding {
 
 impl std::fmt::Display for Rebuilding {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        if self.reason == "build-failed" {
+        if self.reason == "build-failed" && persist::allowed() {
             return f.write_str(
                 "the index cannot answer this: its last build failed (reason: build-failed) and the next waits; `greeg doctor` shows why, `greeg index` builds now",
             );

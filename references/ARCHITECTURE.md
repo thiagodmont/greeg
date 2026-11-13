@@ -160,14 +160,14 @@ runs long keeps its lock however old the file is. The process that takes a marke
 A build writes `BUILD_FAILED` beside its marker as it starts, and its
 error, if it fails (an error, a panic), before it lets the marker go: the
 root, the error, when, and how many builds of that root failed in a row. A
-build killed on the way counts as failed; one that cannot write that small
+build killed after it wrote the record counts as failed; one that cannot write that small
 file fails at once, since it could not publish either, rather than walk the
 tree first. Queries then leave the background build alone for 30 s after
 the first failure, doubling after each one up to an hour, rather than start
 the same failing walk and extraction on every call: searches and the verbs
 that can scan answer from a scan, and `map` and `find` exit 2 without
 waiting. The first query after a failure says so once on stderr (which
-record it reported is kept in a file of its own), and `doctor` shows the
+one query claims the telling, in a file of its own), and `doctor` shows the
 record. A build that succeeds removes it; `greeg index` run by hand never
 waits for the back-off; `--no-persist` writes none.
 
