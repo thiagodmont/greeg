@@ -1,0 +1,20 @@
+references/ARCHITECTURE.md
+  s_e2aadb8067553a::t_b87922e00ecf77 184-185
+  s_e2aadb8067553a::t_f5f646d4b7ff35 186-191
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "ccd89ea3d4da8ad54673d2ae9890aabd519e662b",
+  "prompts": {},
+  "sessions": {
+    "s_e2aadb8067553a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8372df48-1202-40f9-bd30-8e5555761588",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
