@@ -4527,13 +4527,16 @@ fn a_build_short_of_file_descriptors_fails_or_is_complete() {
             });
         }
         let o = c.output().unwrap();
-        let index = f.out(&["--fresh", "none", "-l", "--sort", "path", "needle_omicron"]);
-        if o.status.success() {
-            assert_eq!(index, scanned, "limit {limit}: a subset was published");
-        } else {
+        if !o.status.success() {
             let err = String::from_utf8_lossy(&o.stderr);
             assert!(err.contains("open files"), "limit {limit}: {err}");
+            // before a query, which would queue a build of its own
+            let status = f.out(&["index", "--status"]);
+            assert!(status.starts_with("no index"), "limit {limit}: {status}");
+            continue;
         }
+        let index = f.out(&["--fresh", "none", "-l", "--sort", "path", "needle_omicron"]);
+        assert_eq!(index, scanned, "limit {limit}: a subset was published");
     }
 }
 

@@ -579,9 +579,11 @@ changed or new directory) is recorded as `UNKNOWN`, even when a later
 listing succeeds, so its files are never taken for ignored ones. A file the
 build could not read for a reason that may pass (`EIO`, `ESTALE`) is marked
 for a recheck; one it cannot read as it is (gone, no permission, not a
-regular file) is not, as a scan skips it too. Running out of descriptors or
-memory (`EMFILE`, `ENFILE`, `ENOMEM`) fails a build rather than publish what
-it missed, and makes a check unreliable.
+regular file) is not, as a scan skips it too. An ignore file that cannot be
+read leaves its directory `UNKNOWN`. Running out of descriptors or memory
+(`EMFILE`, `ENFILE`, `ENOMEM`), or a listing error that names no directory,
+fails a build rather than publish what it missed, and makes a check
+unreliable.
 
 A known file that is no longer a regular file (replaced by a symlink, FIFO
 or device) counts as deleted, and added entries are indexed only when they

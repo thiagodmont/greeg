@@ -304,7 +304,7 @@ fn list_dir(root: &Path, dir: &[u8]) -> (Listed, skipped::Children, bool) {
         let e = match e {
             Ok(e) => e,
             Err(err) => {
-                errors.note(root, &err);
+                errors.note(root, &abs, &err);
                 continue;
             }
         };
@@ -336,7 +336,7 @@ fn list_dir(root: &Path, dir: &[u8]) -> (Listed, skipped::Children, bool) {
         .pop()
         .map(|(_, kids)| kids)
         .unwrap_or_default();
-    (out, skipped, errors.exhausted)
+    (out, skipped, errors.lost())
 }
 
 fn noted_rels(root: &Path, noted: &Noted) -> Vec<Vec<u8>> {
@@ -362,7 +362,7 @@ fn walk_new_dir(root: &Path, dir: &[u8], dir_id: u32, ch: &mut Changes) {
         let e = match e {
             Ok(e) => e,
             Err(err) => {
-                errors.note(root, &err);
+                errors.note(root, &abs, &err);
                 continue;
             }
         };
@@ -399,7 +399,7 @@ fn walk_new_dir(root: &Path, dir: &[u8], dir_id: u32, ch: &mut Changes) {
     let unlisted: HashSet<&[u8]> = errors.unlisted.iter().map(Vec::as_slice).collect();
     ch.skipped
         .extend(skipped::list(root, &dirs, &kept, &hidden, &unlisted));
-    ch.unreliable |= errors.exhausted;
+    ch.unreliable |= errors.lost();
 }
 
 /// Record the stat outcome of one known file. A record marked for a recheck
@@ -505,10 +505,12 @@ fn check_stat_with(idx: &Index, root: &Path, lookup: Option<Lookup>, threads: us
             changed_dirs.push((rel.to_vec(), st))
         }
     }
+    let mut exhausted = false;
     add_dirs(
         &mut changed_dirs,
-        listable_again(root, tree, idx.unlisted_dirs()),
+        listable_again(root, tree, idx.unlisted_dirs(), &mut exhausted),
     );
+    ch.unreliable |= exhausted;
     relist_dirs(root, &k, &changed_dirs, &mut ch);
     ch.ms = t.elapsed().as_secs_f64() * 1e3;
     ch
@@ -556,20 +558,31 @@ fn below(dirs: &HashSet<&[u8]>, rel: &[u8]) -> bool {
 /// Nothing an FSEvents check reads names a directory a `chmod` made readable,
 /// and its entries were never indexed; one still unlistable is no change.
 /// `unlisted` is `idx.unlisted_dirs()`; each is looked up through `tree`,
-/// which refuses a symlink on the way, and must list to the end.
+/// which refuses a symlink on the way, and must list to the end. Running out
+/// of descriptors or memory on the way sets `exhausted`: whether one lists
+/// is then unknown.
 fn listable_again(
     root: &Path,
     tree: Option<&Tree>,
     unlisted: Vec<Vec<u8>>,
+    exhausted: &mut bool,
 ) -> Vec<(Vec<u8>, Stamp)> {
     let Some(tree) = tree else {
         return Vec::new();
     };
     let mut on_way = tree::Dirs::default();
+    let mut ok = |r: std::io::Result<()>| match r {
+        Ok(()) => true,
+        Err(e) => {
+            *exhausted |= crate::build::exhausted(&e);
+            false
+        }
+    };
     unlisted
         .into_iter()
         .filter_map(|d| {
-            let st = tree.stat(&d, &mut on_way).ok()?;
+            let st = tree.stat(&d, &mut on_way);
+            let st = st.map_err(|e| ok(Err(e))).ok()?;
             if !tree::is_dir(&st) {
                 return None;
             }
@@ -578,8 +591,11 @@ fn listable_again(
             } else {
                 root.join(as_path(&d))
             };
-            for e in std::fs::read_dir(&abs).ok()? {
-                e.ok()?;
+            let rd = std::fs::read_dir(&abs).map_err(|e| ok(Err(e))).ok()?;
+            for e in rd {
+                if !ok(e.map(drop)) {
+                    return None;
+                }
             }
             Some((d, Stamp::of_stat(&st)))
         })
@@ -715,7 +731,9 @@ pub fn check_fsevents(idx: &Index, root: &Path, threads: usize) -> Option<Change
         return Some(ch);
     }
     let tree = Tree::open(&abs_root).ok()?;
-    let again = listable_again(root, Some(&tree), unlisted);
+    let mut exhausted = false;
+    let again = listable_again(root, Some(&tree), unlisted, &mut exhausted);
+    ch.unreliable |= exhausted;
     if dirs.is_empty() && again.is_empty() {
         ch.ms = t.elapsed().as_secs_f64() * 1e3;
         return Some(ch);

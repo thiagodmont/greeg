@@ -234,17 +234,25 @@ pub(crate) fn exhausted(e: &std::io::Error) -> bool {
 }
 
 /// What a walk below `root` could not read: the directories to list again
-/// (`UNKNOWN` in the skipped record), and whether it ran out of resources.
+/// (`UNKNOWN` in the skipped record), whether it ran out of resources, and
+/// whether an error named no path, so what it missed is unknown.
 #[derive(Default)]
 pub(crate) struct WalkErrors {
     pub unlisted: Unlisted,
     pub exhausted: bool,
+    pub unplaced: bool,
 }
 
 impl WalkErrors {
-    /// An error the walk yielded: for a directory it could not list, or a
-    /// file (an ignore file) it could not read in one.
-    pub(crate) fn note(&mut self, root: &Path, e: &ignore::Error) {
+    /// The walk may have missed files it cannot name: a build must not
+    /// publish it, nor a check its changes.
+    pub(crate) fn lost(&self) -> bool {
+        self.exhausted || self.unplaced
+    }
+
+    /// An error the walk that started at `start` yielded: for a directory
+    /// it could not list, or an ignore file it could not read in one.
+    pub(crate) fn note(&mut self, root: &Path, start: &Path, e: &ignore::Error) {
         fn leaves<'a>(
             e: &'a ignore::Error,
             path: Option<&'a Path>,
@@ -263,7 +271,19 @@ impl WalkErrors {
             if exhausted(io) {
                 self.exhausted = true;
             }
-            let rel = path.map_or_else(Vec::new, |p| crate::rel::of(root, p));
+            // an error partway through a listing names no directory
+            let Some(path) = path else {
+                self.unplaced = true;
+                return;
+            };
+            // ignore inputs outside the walk are tracked by their digest
+            if !path.starts_with(start) {
+                return;
+            }
+            let mut rel = crate::rel::of(root, path);
+            if is_ignore_file(&rel) {
+                rel = crate::rel::parent(&rel).to_vec();
+            }
             self.unlisted.insert(rel);
         });
     }
@@ -358,7 +378,7 @@ fn walk_noting(
             let e = match entry {
                 Ok(e) => e,
                 Err(err) => {
-                    errors_ref.lock().unwrap().note(root, &err);
+                    errors_ref.lock().unwrap().note(root, root, &err);
                     return ignore::WalkState::Continue;
                 }
             };
@@ -390,6 +410,12 @@ fn walk_noting(
     if errors.exhausted {
         bail!(
             "ran out of open files or memory while walking {}: an index would miss files; raise the limit (`ulimit -n`) and retry",
+            root.display()
+        );
+    }
+    if errors.unplaced {
+        bail!(
+            "a directory under {} could not be read to the end: an index would miss files",
             root.display()
         );
     }
@@ -1921,9 +1947,10 @@ mod tests {
             depth: 2,
             err: Box::new(at("/r/a/b", libc::EACCES)),
         };
-        e.note(root, &deep);
+        e.note(root, root, &deep);
         assert!(!e.exhausted);
         e.note(
+            root,
             root,
             &ignore::Error::Partial(vec![at("/r/c", libc::EIO), at("/r/d", libc::EMFILE)]),
         );
@@ -1938,6 +1965,21 @@ mod tests {
             &std::io::Error::from_raw_os_error(libc::ENFILE),
         );
         assert!(e.exhausted && e.unlisted.contains(&b"a"[..]));
+
+        // an ignore file names its directory; an error with no path, none
+        let mut e = WalkErrors::default();
+        e.note(root, root, &at("/r/a/.gitignore", libc::EIO));
+        e.note(root, root, &at("/elsewhere/.gitignore", libc::EIO));
+        assert!(!e.lost());
+        assert_eq!(e.unlisted.iter().collect::<Vec<_>>(), [&b"a".to_vec()]);
+        let unnamed = ignore::Error::WithDepth {
+            depth: 3,
+            err: Box::new(ignore::Error::Io(std::io::Error::from_raw_os_error(
+                libc::EIO,
+            ))),
+        };
+        e.note(root, root, &unnamed);
+        assert!(e.lost() && !e.exhausted);
     }
 
     #[test]
