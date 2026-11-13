@@ -87,13 +87,8 @@ fn opts() -> BuildOpts {
 
 /// A tree big enough that a small budget forces several spills per worker.
 fn wide_tree(files: usize) -> Tmp {
-    let base = std::env::temp_dir().join(format!(
-        "greeg-index-wide-{}-{}",
-        std::process::id(),
-        N.fetch_add(1, Ordering::Relaxed)
-    ));
-    let root = base.join("tree");
-    let dir = base.join("index");
+    let t = empty_tmp();
+    let root = &t.root;
     fs::create_dir_all(root.join("src")).unwrap();
     fs::create_dir_all(root.join(".git")).unwrap();
     // deterministic, varied content: the point is many distinct grams and
@@ -114,7 +109,7 @@ fn wide_tree(files: usize) -> Tmp {
         body.push_str("    0\n}\n");
         fs::write(root.join(format!("src/f{i}.rs")), body).unwrap();
     }
-    Tmp { root, dir, base }
+    t
 }
 
 /// The whole point of the byte budget: a build that spills must publish the
