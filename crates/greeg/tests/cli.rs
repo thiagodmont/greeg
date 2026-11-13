@@ -4103,9 +4103,15 @@ fn impact_diff_scans_for_hidden() {
         &f.root.join("src/util.rs"),
         "pub fn load_config() -> u32 {\n    8\n}\n\npub fn scale(x: u32) -> u32 {\n    x * 2\n}\n\npub fn tidy() -> u32 {\n    1\n}\n",
     );
-    // the first queries after an edit fold it into the index
-    let plain = (0..5)
-        .map(|_| f.out(&["impact", "--diff", "--json=greeg", "--budget", "0"]))
+    // the first queries after an edit fold it into the index, or queue a
+    // rebuild that answers a moment later
+    let plain = (0..100)
+        .map(|i| {
+            if i > 0 {
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+            f.out(&["impact", "--diff", "--json=greeg", "--budget", "0"])
+        })
         .find(|o| o.contains("\"source\":\"index\""))
         .expect("impact --diff never answered from the index");
     assert!(!plain.contains(".tools/use.rs"), "{plain}");
@@ -4211,4 +4217,29 @@ fn timeless(text: &str) -> String {
         out.push_str(p.trim_start_matches(|c: char| c.is_ascii_digit() || c == '.'));
     }
     out
+}
+
+/// A verification stamp from the future (the wall clock stepped back) does not
+/// let the index answer unchecked: an edit and a new file are found, as a scan
+/// finds them.
+#[test]
+fn a_verification_stamp_from_the_future_is_not_trusted() {
+    let f = fixture();
+    f.indexed();
+    let layout = greeg_index::format_dir(&f.index);
+    let mut m = greeg_index::read_manifest(&layout).unwrap();
+    m.verified_unix_ms = greeg_index::now_ms() + 3_600_000;
+    greeg_index::write_manifest(&layout, &m).unwrap();
+    w(
+        &f.root.join("src/util.rs"),
+        "pub fn load_config() -> u32 {\n    marker_zeta()\n}\n",
+    );
+    w(
+        &f.root.join("src/new.rs"),
+        "pub fn marker_zeta() -> u32 {\n    7\n}\n",
+    );
+    let scanned = pairs(&f.out(&["--no-index", "--budget", "0", "marker_zeta"]));
+    assert_eq!(scanned.len(), 2);
+    let args = ["--fresh", "auto", "--budget", "0", "marker_zeta"];
+    assert_eq!(pairs(&f.out(&args)), scanned);
 }
