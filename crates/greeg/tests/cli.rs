@@ -4150,6 +4150,8 @@ fn a_panic_in_the_index_path_never_ends_a_verb_with_101() {
     let panic = [("GREEG_DEBUG_PANIC", std::ffi::OsStr::new("1"))];
     let scanned: &[&[&str]] = &[
         &["load_config"],
+        // no hits: the relaxed rungs read the index's names after the answer
+        &["load_confg"],
         &["def", "load_config"],
         &["refs", "load_config"],
         &["callers", "load_config"],
@@ -4181,6 +4183,12 @@ fn a_panic_in_the_index_path_never_ends_a_verb_with_101() {
         let scan = f.out(&[&args[..], &["--no-index"]].concat());
         assert_eq!(timeless(&stdout), timeless(&scan), "{args:?}");
     }
+    // block mode reads the index again after the answer, for its reads
+    let args = ["def", "load_config", "--mode", "block", "--no-persist"];
+    let out = f.run_env(&args, &panic);
+    assert_eq!(out.status.code(), Some(0), "{out:?}");
+    let scan = f.out(&[&args[..], &["--no-index"]].concat());
+    assert_eq!(String::from_utf8_lossy(&out.stdout), scan);
     for args in [&["map"][..], &["find", "load", "config"]] {
         let args = [args, &["--no-persist", "--json=greeg"][..]].concat();
         let out = f.run_env(&args, &panic);

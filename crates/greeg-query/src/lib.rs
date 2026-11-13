@@ -2914,49 +2914,49 @@ pub fn scan(o: &Options) -> Result<ScanResult> {
         } else {
             o.threads
         };
-        if let Ok(Some(op)) = indexed::open_fresh(o, threads)
-            && op.idx.has_symbols()
-        {
+        let names = indexed::or_on_panic(o, None, || {
+            let op = indexed::open_fresh(o, threads)
+                .ok()
+                .flatten()
+                .filter(|op| op.idx.has_symbols())?;
             let toks = greeg_index::symtab::split_tokens(&o.pattern);
-            let mut alts: Vec<String> = Vec::new();
-            let mut rung = Rung::Exact;
             if toks.len() >= 2 {
-                alts = op.idx.names_with_tokens(&toks, 8);
+                let alts = op.idx.names_with_tokens(&toks, 8);
                 if !alts.is_empty() {
-                    rung = Rung::SplitTokens(alts.clone());
+                    return Some((alts.clone(), Rung::SplitTokens(alts)));
                 }
             }
-            if alts.is_empty() && o.pattern.len() >= 4 {
+            if o.pattern.len() >= 4 {
                 let d = if o.pattern.len() < 8 { 1 } else { 2 };
-                alts = op
+                let alts: Vec<String> = op
                     .idx
                     .fuzzy_names(&o.pattern, d, 6)
                     .into_iter()
                     .map(|(n, _)| n)
                     .collect();
                 if !alts.is_empty() {
-                    rung = Rung::Fuzzy(alts.clone());
+                    return Some((alts.clone(), Rung::Fuzzy(alts)));
                 }
             }
-            drop(op);
-            if !alts.is_empty() {
-                let mut o2 = o.clone();
-                o2.pattern = alts
-                    .iter()
-                    .map(|a| regex_escape(a))
-                    .collect::<Vec<_>>()
-                    .join("|");
-                o2.fixed_strings = false;
-                o2.word = true;
-                o2.case_insensitive = false;
-                let mut r2 = scan_once(&o2, &plain, None)?;
-                elapsed += r2.stats.elapsed_ms;
-                if r2.stats.total_hits > 0 {
-                    r2.rung = rung;
-                    r2.stats.elapsed_ms = elapsed;
-                    r2.opts = o.clone();
-                    return Ok(r2);
-                }
+            None
+        });
+        if let Some((alts, rung)) = names {
+            let mut o2 = o.clone();
+            o2.pattern = alts
+                .iter()
+                .map(|a| regex_escape(a))
+                .collect::<Vec<_>>()
+                .join("|");
+            o2.fixed_strings = false;
+            o2.word = true;
+            o2.case_insensitive = false;
+            let mut r2 = scan_once(&o2, &plain, None)?;
+            elapsed += r2.stats.elapsed_ms;
+            if r2.stats.total_hits > 0 {
+                r2.rung = rung;
+                r2.stats.elapsed_ms = elapsed;
+                r2.opts = o.clone();
+                return Ok(r2);
             }
         }
     }

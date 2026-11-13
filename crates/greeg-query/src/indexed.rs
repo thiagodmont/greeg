@@ -148,6 +148,8 @@ fn refresh_inner(root: &Path, dir: &Path, threads: usize) -> Result<()> {
 static OPENED: Mutex<Option<Snapshot>> = Mutex::new(None);
 /// This process went into the index path: a panic after it may be the index's.
 static ENTERED: AtomicBool = AtomicBool::new(false);
+/// The index path panicked in this run: the index is not opened again.
+static PANICKED: AtomicBool = AtomicBool::new(false);
 
 /// Mark the snapshot unusable so the next query rebuilds (the rebuild retires
 /// its directory), and start that rebuild now. Runs under the writer lock,
@@ -233,6 +235,18 @@ pub fn answered<T>(o: &Options, f: impl Fn(&Options) -> Result<T>) -> Result<T> 
     f(&so)
 }
 
+/// `f`, which reads the index after the answer; a panic in the index path
+/// gives `without`, what `f` gives without the index.
+pub fn or_on_panic<T>(o: &Options, without: T, f: impl FnOnce() -> T) -> T {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)).unwrap_or_else(|p| {
+        if !ENTERED.load(Relaxed) {
+            std::panic::resume_unwind(p);
+        }
+        note_panic(o, "answering without it");
+        without
+    })
+}
+
 /// For a verb that has no answer without the index: a panic once the index
 /// was opened is a [`Rebuilding`] error, not a crash.
 pub fn index_only<T>(o: &Options, f: impl FnOnce() -> Result<T>) -> Result<T> {
@@ -250,8 +264,12 @@ pub fn index_only<T>(o: &Options, f: impl FnOnce() -> Result<T>) -> Result<T> {
     })
 }
 
-/// Say that the index path panicked, and queue a rebuild.
+/// Say that the index path panicked, and queue a rebuild; once a run: the
+/// index is not opened again after it.
 pub fn note_panic(o: &Options, then: &str) {
+    if PANICKED.swap(true, Relaxed) {
+        return;
+    }
     eprintln!(
         "greeg: internal error in the index path; {then}{}",
         if persist::allowed() {
@@ -460,6 +478,13 @@ fn open_fresh_with(
     defer: bool,
     before_apply: &mut dyn FnMut(),
 ) -> Result<std::result::Result<Opened, Rebuilding>> {
+    if PANICKED.load(Relaxed) {
+        return Ok(Err(Rebuilding {
+            reason: "corrupt",
+            estimate_ms: None,
+            generation: 0,
+        }));
+    }
     ENTERED.store(true, Relaxed);
     let dir = greeg_index::index_dir(&o.root, o.index_dir.as_deref())?;
     let mut idx = match Index::open(&dir) {
