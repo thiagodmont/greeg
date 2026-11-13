@@ -142,18 +142,31 @@ impl Stamp {
         self.same(o, true) && !self.same(o, false)
     }
 
-    /// From when a write can no longer keep these timestamps: 20 ms after the
-    /// later of mtime and ctime for sub-second timestamps (coarse kernel
-    /// clocks), 2 s when the file system records whole seconds.
-    pub fn trusted_from(&self) -> i64 {
+    /// From when a write can no longer keep these timestamps, judged at
+    /// `now_ns`, after the stat: 20 ms after the later of mtime and ctime for
+    /// sub-second timestamps (coarse kernel clocks), 2 s when the file system
+    /// records whole seconds. An mtime still ahead of `now_ns` was set, not
+    /// written: a later write stamps the time it happens, which differs, so
+    /// only the ctime counts then.
+    pub fn trusted_from(&self, now_ns: i64) -> i64 {
         let whole = self.mtime_ns % 1_000_000_000 == 0 && self.ctime_ns % 1_000_000_000 == 0;
         let window = if whole { 2_000_000_000 } else { 20_000_000 };
-        self.mtime_ns.max(self.ctime_ns) + window
+        let mtime = if self.mtime_ns > now_ns {
+            self.ctime_ns
+        } else {
+            self.mtime_ns
+        };
+        mtime.max(self.ctime_ns) + window
     }
 
     /// Read at `read_ns`, too soon for a later write to show in the stamp.
     pub fn racy(&self, read_ns: i64) -> bool {
-        read_ns < self.trusted_from()
+        self.racy_at(read_ns, now_ns())
+    }
+
+    /// [`Stamp::racy`], judged at `now_ns`.
+    pub fn racy_at(&self, read_ns: i64, now_ns: i64) -> bool {
+        read_ns < self.trusted_from(now_ns)
     }
 }
 
@@ -613,7 +626,8 @@ pub(crate) fn dir_rec((path_off, path_len): (u32, u16), stamp: &Stamp, listed_ns
 fn settle_racy(tree: &Tree, rel: &[u8], c: &mut Capture, max_wait_ns: i64, buf: &mut Vec<u8>) {
     use std::io::Read;
     let Some(hash) = c.racy else { return };
-    let wait = c.stamp.trusted_from() - now_ns();
+    let now = now_ns();
+    let wait = c.stamp.trusted_from(now) - now;
     if wait > max_wait_ns {
         return;
     }
@@ -1825,15 +1839,34 @@ mod tests {
             ctime_ns: 5_000_000_456,
             ..Default::default()
         };
-        assert!(fine.racy(5_010_000_000));
-        assert!(!fine.racy(5_030_000_000));
+        assert!(fine.racy_at(5_010_000_000, 5_010_000_000));
+        assert!(!fine.racy_at(5_030_000_000, 5_030_000_000));
         let whole = Stamp {
             mtime_ns: 5_000_000_000,
             ctime_ns: 5_000_000_000,
             ..Default::default()
         };
-        assert!(whole.racy(6_500_000_000));
-        assert!(!whole.racy(7_000_000_001));
+        assert!(whole.racy_at(6_500_000_000, 6_500_000_000));
+        assert!(!whole.racy_at(7_000_000_001, 7_000_000_001));
+        // `touch -t` into the future: the ctime says when it was set
+        let ahead = Stamp {
+            mtime_ns: 90_000_000_000,
+            ..fine
+        };
+        assert!(ahead.racy_at(5_010_000_000, 5_010_000_000));
+        assert!(!ahead.racy_at(5_030_000_000, 5_030_000_000));
+        // a write between the read and the stat is not taken for a set mtime
+        assert!(ahead.racy_at(5_030_000_000, 90_000_000_000));
+        // a ctime ahead is a clock that stepped back: nothing to trust yet
+        let back = Stamp {
+            ctime_ns: 90_000_000_123,
+            ..fine
+        };
+        assert!(back.racy_at(5_030_000_000, 5_030_000_000));
+        assert_eq!(
+            dir_rec((0, 0), &fine, 5_010_000_000).flags,
+            format::STAMP_RECHECK as u16
+        );
     }
 
     #[test]
@@ -1844,21 +1877,12 @@ mod tests {
         let mut buf = Vec::new();
         for (edit, changed) in [(false, false), (true, true)] {
             fs::write(&p, "alpha\n").unwrap();
-            // a sub-second stamp is trusted 20 ms after the write: stamp it
-            // ahead, so the read is racy however late it starts (whole
-            // seconds leave 2 s, and ahead would outlast the build's wait)
-            if Stamp::of(&fs::symlink_metadata(&p).unwrap()).mtime_ns % 1_000_000_000 != 0 {
-                let ahead = std::time::SystemTime::now() + std::time::Duration::from_millis(500);
-                fs::File::options()
-                    .write(true)
-                    .open(&p)
-                    .unwrap()
-                    .set_modified(ahead)
-                    .unwrap();
-            }
             let walk = Stamp::of(&fs::symlink_metadata(&p).unwrap());
             let mut c = read_file(&tree, b"a.txt", &walk, &mut buf).unwrap();
-            assert!(c.racy.is_some() && !c.changed, "just written");
+            assert!(!c.changed);
+            // racy if the read started within 20 ms of the write; a slow
+            // machine may start it later
+            c.racy = Some(blake3::hash(&buf));
             if edit {
                 // same size, stamps put back: only the bytes tell
                 let mt = fs::metadata(&p).unwrap().modified().unwrap();

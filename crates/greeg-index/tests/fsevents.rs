@@ -231,14 +231,30 @@ fn fsevents_finds_what_a_directory_stamp_hides() {
         assert_eq!(m.fsevents_uuid.len(), 36, "{what}");
     }
 
-    // a directory listed too soon, named by an event though its stamp did not move
+    // a directory listed too soon, named by an event though its stamp did not
+    // move: within 20 ms of its change, which one of a few builds reaches
     let t = tree();
     settle();
-    fs::File::open(lib_of(&t))
-        .unwrap()
-        .set_modified(SystemTime::now() + Duration::from_secs(10))
-        .unwrap();
-    build_index(&t);
+    let listed_too_soon = (0..50).any(|_| {
+        fs::File::open(lib_of(&t))
+            .unwrap()
+            .set_modified(SystemTime::now())
+            .unwrap();
+        build_index(&t);
+        let idx = Index::open(&t.dir).unwrap();
+        let fv = idx.base.files();
+        fv.dirs()
+            .iter()
+            .any(|d| fv.dir_path(d) == b"lib" && d.recheck())
+    });
+    if !listed_too_soon {
+        assert!(
+            std::env::var_os("CI").is_none(),
+            "no build listed lib within its racy window"
+        );
+        eprintln!("skipped: no build listed lib within its racy window");
+        return;
+    }
     fs::write(
         lib_of(&t).join("thing.py"),
         "def thing_beta():\n    return 'b'\n",

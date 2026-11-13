@@ -4634,6 +4634,52 @@ fn an_index_left_at_phase_1_is_finished_by_the_next_query() {
     assert_eq!(map.status.code(), Some(0), "{map:?}");
 }
 
+/// A file stamped a day ahead (`touch -t`, an unpacked archive) is not
+/// re-extracted by every query: a check finds no change, ten queries leave
+/// the index as built, and an edit to it is still found.
+#[test]
+fn a_file_stamped_in_the_future_is_not_reindexed_per_query() {
+    let f = fixture();
+    let p = f.root.join("src/ahead.rs");
+    w(&p, "pub fn needle_ahead() {}\n");
+    let ahead = std::time::SystemTime::now() + std::time::Duration::from_secs(86_400);
+    fs::File::open(&p).unwrap().set_modified(ahead).unwrap();
+    settle(&f.root);
+    f.indexed();
+    let layout = greeg_index::format_dir(&f.index);
+    let built = || {
+        let m = greeg_index::read_manifest(&layout).unwrap();
+        (m.generation, m.deltas)
+    };
+    let before = built();
+    let check = f.run(&["index", "--check", "--fresh", "stat"]);
+    let said = String::from_utf8_lossy(&check.stdout) + String::from_utf8_lossy(&check.stderr);
+    assert!(said.contains("modified 0"), "{said}");
+    for _ in 0..10 {
+        let found = pairs(&f.out(&["--fresh", "stat", "--budget", "0", "needle_ahead"]));
+        assert_eq!(found.len(), 1, "{found:?}");
+        // the detached delta of an answer-first query
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    for work in [
+        greeg_index::lock::Work::Refresh,
+        greeg_index::lock::Work::Build,
+    ] {
+        while greeg_index::lock::marker_held(&layout, work) {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "background work still held"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+    }
+    assert_eq!(built(), before);
+    w(&p, "pub fn needle_behind() {}\n");
+    let found = pairs(&f.out(&["--fresh", "stat", "--budget", "0", "needle_behind"]));
+    assert_eq!(found.len(), 1, "{found:?}");
+}
+
 /// Wait out the racy window of what was just written under `root` (20 ms, or
 /// 2 s where the file system keeps whole seconds), so a build lists its
 /// directories late enough to trust their stamps.
