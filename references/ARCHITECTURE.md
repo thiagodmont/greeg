@@ -737,9 +737,13 @@ Definitions come from tree-sitter queries written for greeg, modelled on
 Sourcegraph's tag queries. The upstream `tags.scm` files are too coarse to tell
 a method from a field.
 
-A file that fails to parse, or whose language has no grammar, falls back to
-anchored regexes per language. `def` and `refs` still work everywhere; you lose
-the precise kinds and nothing else.
+A file that fails to parse falls back to anchored regexes for its language.
+They find declarations (functions, classes, types) but not every name the
+grammar does: an enum variant or a field, for example, is missed. `def`
+answered by a scan (before the index exists, or with `--no-index`) matches
+definitions by regex too, and misses the same names. A file whose language
+has no grammar gives no symbols at all: the symbol verbs find nothing in it,
+and `refs` lists its matches as `ident`.
 
 A parse stops, and the file falls back, after a budget of parser work: 20,000
 tree-sitter progress reports, about 2 MB of ordinary source. The budget counts
@@ -969,9 +973,11 @@ so `a/x` comes before `a-b/x`.
 ## Languages
 
 Python, TypeScript/TSX, JavaScript, Rust and Kotlin ship compiled in with
-tree-sitter grammars. Every other language gets the regex extractor, the
-byte-level comment/string lexer, and full search, ranking and budgeting. What
-it loses is precise symbol kinds and import resolution.
+tree-sitter grammars. Every other language gets text search, ranking and
+budgeting only: no symbols, no hit kinds (each hit is an `ident`), no
+enclosing symbol and no import edges. `def`, `callers` and `impls` answer
+"none" for a name defined only in such files, and `outline` prints
+`0 symbols` (from a scan it exits `2`, `no grammar for this file type`).
 
 You can add one without rebuilding greeg. Drop `spec.toml`, a compiled
 `grammar.so`/`.dylib` and a `tags.scm` using greeg's capture names into

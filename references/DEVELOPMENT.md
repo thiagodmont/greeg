@@ -2,8 +2,9 @@
 
 ```bash
 cargo build --release
-cargo test --workspace                                   # unit + CLI contract tests, no network
-cargo clippy --all-targets -- -D warnings
+cargo test --workspace --locked                          # unit + CLI contract tests, no network
+cargo fmt --all --check
+cargo clippy --workspace --all-targets --locked -- -D warnings
 
 python3 bench/bench.py fetch tokio ktor django           # pinned corpora
 python3 bench/parity.py "${GREEG_BENCH_CACHE:-$HOME/.cache/greeg-bench/corpora}" target/release/greeg   # rg parity
@@ -20,7 +21,8 @@ code joins it), and in the release workflow, before it packages the two macOS
 binaries. A manual run of the ci workflow with the
 `macos` input runs it on demand. The nightly workflow adds the large-corpus
 benchmarks, the accuracy oracle and a randomized soak
-(`bench/soak.py MINUTES GREEG CORPUS… --seed SEED`).
+(`bench/soak.py MINUTES GREEG CORPUS… --seed SEED`); its schedule is off, so
+it runs only when started from the Actions tab.
 
 The dependencies workflow (pull requests, `main`, weekly) runs
 `cargo deny --locked check advisories licenses sources` against `deny.toml`, in
