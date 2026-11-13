@@ -70,6 +70,25 @@ fn note_failed_build(root: &Path, dir: &Path) {
     );
 }
 
+/// Why an index that answers has no symbols yet, for the verbs that need
+/// them: phase 2 is running, is being started by this query, or waits on a
+/// failed build.
+pub fn without_symbols(o: &Options) -> &'static str {
+    use greeg_index::lock;
+    let Ok(dir) = greeg_index::index_dir(&o.root, o.index_dir.as_deref()) else {
+        return "the index has no symbols yet; run `greeg index`";
+    };
+    if !persist::allowed() {
+        "the index build never finished its symbols, and --no-persist leaves it as it is; run `greeg index`"
+    } else if lock::marker_held(&dir, lock::Work::Build) {
+        "the index build is adding its symbols now; retry in a moment"
+    } else if backing_off(&o.root, &dir) {
+        "the index has no symbols and its last build failed; `greeg doctor` shows why, `greeg index` builds now"
+    } else {
+        "the index has no symbols yet; a build is finishing it now, retry in a moment"
+    }
+}
+
 /// The last build of `root` in `dir` failed, and the next waits.
 fn backing_off(root: &Path, dir: &Path) -> bool {
     // while a build runs, the record is that build's, not a failure
@@ -637,6 +656,11 @@ fn open_fresh_with(
             break;
         }
         mode = retry_mode(&idx, mode);
+    }
+    // a builder that died between its two publications left no symbols, and
+    // nothing else would finish them (a running build holds the marker)
+    if !idx.manifest.phase2 {
+        spawn_build(&o.root, &dir);
     }
     *OPENED.lock().unwrap_or_else(|e| e.into_inner()) = Some(idx.manifest.snapshot());
     // a phase-1-only index answers gram queries; symbols arrive when the build finishes

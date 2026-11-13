@@ -4509,7 +4509,7 @@ fn a_build_short_of_file_descriptors_fails_or_is_complete() {
     for limit in [14, 20] {
         let _ = fs::remove_dir_all(&f.index);
         let mut c = greeg();
-        c.args(["index", "--phase1", "--quiet", "--index-dir"])
+        c.args(["index", "--quiet", "--index-dir"])
             .arg(&f.index)
             .current_dir(&f.root)
             .env("GREEG_STATS", "0");
@@ -4587,6 +4587,37 @@ fn a_failed_background_build_is_recorded_and_not_respawned_per_query() {
         record().is_none(),
         "a build that succeeds clears the record"
     );
+}
+
+/// An index whose phase 2 never ran (its builder died between the two
+/// publications) is finished by the next query, not left at phase 1.
+#[test]
+fn an_index_left_at_phase_1_is_finished_by_the_next_query() {
+    let f = fixture();
+    settle(&f.root);
+    let o = f.run(&["index", "--phase1", "--quiet"]);
+    assert!(o.status.success(), "{o:?}");
+    let phase2 = || -> bool {
+        let o = f.run(&["--json", "index", "--status"]);
+        serde_json::Deserializer::from_slice(&o.stdout)
+            .into_iter::<serde_json::Value>()
+            .next()
+            .unwrap()
+            .unwrap()["phase2"]
+            == true
+    };
+    assert!(!phase2());
+    let first = f.run(&["map"]);
+    assert_eq!(first.status.code(), Some(2), "{first:?}");
+    let err = String::from_utf8_lossy(&first.stderr);
+    assert!(err.contains("finishing"), "{err}");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    while !phase2() {
+        assert!(std::time::Instant::now() < deadline, "phase 2 never ran");
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    let map = f.run(&["map"]);
+    assert_eq!(map.status.code(), Some(0), "{map:?}");
 }
 
 /// Wait out the racy window of what was just written under `root` (20 ms, or
