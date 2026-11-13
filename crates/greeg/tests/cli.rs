@@ -4067,3 +4067,22 @@ fn hidden_searches_use_the_index_and_match_a_scan() {
     w(&f.root.join(".newdir/y.txt"), "needle\n");
     compare(&f, "edited");
 }
+
+/// The symbol verbs keep the scan for `--hidden`: hidden files have no
+/// symbols in the index, and their text-search fallback must not take the
+/// index path that `--hidden` searches now use.
+#[test]
+fn symbol_verbs_scan_for_hidden() {
+    let f = hidden_fixture();
+    f.indexed();
+    for verb in [
+        ["def", "needle"],
+        ["refs", "needle"],
+        ["callers", "needle"],
+        ["impls", "needle"],
+        ["impact", "needle"],
+    ] {
+        let out = f.out(&[verb[0], verb[1], "--hidden", "--json"]);
+        assert!(out.contains("\"source\":\"scan\""), "{verb:?}: {out}");
+    }
+}

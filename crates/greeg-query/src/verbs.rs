@@ -689,6 +689,8 @@ fn scan_defs(
     want_kind: Option<DefKind>,
 ) -> Result<(Vec<DefEntry>, Rung, &'static str)> {
     let mut so = o.clone();
+    // hidden files hold no symbols: the verbs scan for --hidden
+    so.use_index &= !o.hidden;
     so.use_index &= name.is_ascii();
     so.pattern = name.to_string();
     so.fixed_strings = true;
@@ -790,6 +792,7 @@ fn refs_settled(
     kinds: &[HitKind],
 ) -> Result<RefsResult> {
     let mut so = o.clone();
+    so.use_index &= !o.hidden;
     so.pattern = name.to_string();
     so.fixed_strings = true;
     so.word = true;
@@ -868,6 +871,7 @@ pub struct CallersResult {
 pub fn callers(o: &Options, name: &str, depth: usize) -> Result<CallersResult> {
     let t0 = Instant::now();
     let mut so = o.clone();
+    so.use_index &= !o.hidden;
     so.pattern = name.to_string();
     so.fixed_strings = true;
     so.word = true;
@@ -1202,6 +1206,7 @@ pub fn impls(o: &Options, name: &str) -> Result<ImplsResult> {
     // a scan reads implementations from the files that mention the name;
     // both backends list type-position hits on definition lines as extras
     let mut so = o.clone();
+    so.use_index &= !o.hidden;
     so.pattern = name.to_string();
     so.fixed_strings = true;
     so.word = true;
@@ -1973,6 +1978,7 @@ pub fn impact(o: &Options, name: &str) -> Result<ImpactResult> {
     // the references, the graph and the callers read the index after one check
     let (o, fresh) = &settle(o)?;
     let mut so = o.clone();
+    so.use_index &= !o.hidden;
     so.budget = 0;
     let r = refs_settled(&so, fresh, name, &[])?;
     let io = o.clone();
