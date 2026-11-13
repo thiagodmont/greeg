@@ -4103,6 +4103,8 @@ fn hidden_searches_use_the_index_and_match_a_scan() {
     w(&f.root.join(".github/new.txt"), "needle\n");
     fs::remove_file(f.root.join(".github/.nested/.deeper/x.txt")).unwrap();
     w(&f.root.join(".newdir/y.txt"), "needle\n");
+    // past the 100 ms within which a just verified index is trusted
+    std::thread::sleep(std::time::Duration::from_millis(150));
     compare(&f, "edited");
 }
 
