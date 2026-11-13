@@ -206,6 +206,8 @@ fn rewritten_queries_keep_exact_hits_and_misses_on_both_backends() {
                 ("rg -w -c needl", "", 1),
                 ("rg -i -l NEEDLE", "file.rs\n", 0),
                 ("rg -l -F 'needle()'", "file.rs\n", 0),
+                ("rg -l -g='*.rs' needle", "file.rs\n", 0),
+                ("rg -l -e=needle", "file.rs\n", 0),
             ] {
                 let rewritten = f.rewrite(agent, command);
                 let out = f.search(&rewritten, indexed);
@@ -220,7 +222,7 @@ fn rewritten_queries_keep_exact_hits_and_misses_on_both_backends() {
         }
     }
     let events = fs::read_to_string(f.0.join("stats/events.jsonl")).unwrap();
-    assert_eq!(events.lines().count(), 28);
+    assert_eq!(events.lines().count(), 36);
     for event in events.lines() {
         let v: Value = serde_json::from_str(event).unwrap();
         assert_eq!(v["original"][0], "rg");
