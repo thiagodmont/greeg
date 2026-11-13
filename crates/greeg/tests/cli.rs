@@ -4103,9 +4103,15 @@ fn impact_diff_scans_for_hidden() {
         &f.root.join("src/util.rs"),
         "pub fn load_config() -> u32 {\n    8\n}\n\npub fn scale(x: u32) -> u32 {\n    x * 2\n}\n\npub fn tidy() -> u32 {\n    1\n}\n",
     );
-    // the first queries after an edit fold it into the index
-    let plain = (0..5)
-        .map(|_| f.out(&["impact", "--diff", "--json=greeg", "--budget", "0"]))
+    // the first queries after an edit fold it into the index, or queue a
+    // rebuild that answers a moment later
+    let plain = (0..100)
+        .map(|i| {
+            if i > 0 {
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+            f.out(&["impact", "--diff", "--json=greeg", "--budget", "0"])
+        })
         .find(|o| o.contains("\"source\":\"index\""))
         .expect("impact --diff never answered from the index");
     assert!(!plain.contains(".tools/use.rs"), "{plain}");
