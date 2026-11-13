@@ -25,14 +25,31 @@ impl Drop for Tmp {
 
 static N: AtomicU32 = AtomicU32::new(0);
 
+/// An empty tree in a directory this run creates itself, so `Drop` never
+/// removes one left behind by another run.
+fn empty_tmp() -> Tmp {
+    let base = loop {
+        let base = std::env::temp_dir().join(format!(
+            "greeg-index-test-{}-{}",
+            std::process::id(),
+            N.fetch_add(1, Ordering::Relaxed)
+        ));
+        match fs::create_dir(&base) {
+            Ok(()) => break base,
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => panic!("create fixture: {e}"),
+        }
+    };
+    Tmp {
+        root: base.join("tree"),
+        dir: base.join("index"),
+        base,
+    }
+}
+
 fn tree() -> Tmp {
-    let base = std::env::temp_dir().join(format!(
-        "greeg-index-test-{}-{}",
-        std::process::id(),
-        N.fetch_add(1, Ordering::Relaxed)
-    ));
-    let root = base.join("tree");
-    let dir = base.join("index");
+    let t = empty_tmp();
+    let root = &t.root;
     fs::create_dir_all(root.join("src/util")).unwrap();
     fs::create_dir_all(root.join("lib")).unwrap();
     fs::create_dir_all(root.join("build")).unwrap();
@@ -56,7 +73,7 @@ fn tree() -> Tmp {
     fs::write(root.join("build/out.txt"), "generated_gamma\n").unwrap();
     fs::write(root.join("README.md"), "readme_delta\n").unwrap();
     fs::write(root.join(".gitignore"), "build/\n").unwrap();
-    Tmp { root, dir, base }
+    t
 }
 
 fn opts() -> BuildOpts {
@@ -70,13 +87,8 @@ fn opts() -> BuildOpts {
 
 /// A tree big enough that a small budget forces several spills per worker.
 fn wide_tree(files: usize) -> Tmp {
-    let base = std::env::temp_dir().join(format!(
-        "greeg-index-wide-{}-{}",
-        std::process::id(),
-        N.fetch_add(1, Ordering::Relaxed)
-    ));
-    let root = base.join("tree");
-    let dir = base.join("index");
+    let t = empty_tmp();
+    let root = &t.root;
     fs::create_dir_all(root.join("src")).unwrap();
     fs::create_dir_all(root.join(".git")).unwrap();
     // deterministic, varied content: the point is many distinct grams and
@@ -97,7 +109,7 @@ fn wide_tree(files: usize) -> Tmp {
         body.push_str("    0\n}\n");
         fs::write(root.join(format!("src/f{i}.rs")), body).unwrap();
     }
-    Tmp { root, dir, base }
+    t
 }
 
 /// The whole point of the byte budget: a build that spills must publish the
@@ -638,4 +650,45 @@ fn apply_skips_when_manifest_moved() {
 
 fn text(b: &[u8]) -> &str {
     std::str::from_utf8(b).unwrap()
+}
+
+/// A name match that ends one path and runs into the next one in the arena
+/// (`a/foo`, then `bar.rs`) is no module file, and does not panic.
+#[test]
+fn module_lookup_ignores_a_match_across_two_paths() {
+    let t = empty_tmp();
+    fs::create_dir_all(t.root.join("a")).unwrap();
+    fs::create_dir_all(t.root.join("src")).unwrap();
+    fs::write(t.root.join("a/foo"), "x\n").unwrap();
+    fs::write(t.root.join("bar.rs"), "fn z() {}\n").unwrap();
+    fs::write(t.root.join("src/foo.rs"), "fn y() {}\n").unwrap();
+    build(&t.root, &t.dir, &opts()).unwrap();
+    let idx = Index::open(&t.dir).unwrap();
+    assert!(idx.module_files("foobar", 10).is_empty());
+    assert!(idx.module_files_folded("FOOBAR", 10).is_empty());
+    let found: Vec<_> = idx
+        .module_files("foo", 10)
+        .into_iter()
+        .filter_map(|id| idx.path(id))
+        .collect();
+    assert_eq!(found, [b"src/foo.rs".as_slice()]);
+}
+
+/// A name that overlaps itself: the hit straddling `a/xa` and `aa.rs` must
+/// not hide the real one starting a byte later.
+#[test]
+fn module_lookup_finds_a_name_overlapping_a_straddling_hit() {
+    let t = empty_tmp();
+    fs::create_dir_all(t.root.join("a")).unwrap();
+    fs::write(t.root.join("a/xa"), "x\n").unwrap();
+    fs::write(t.root.join("aa.rs"), "fn z() {}\n").unwrap();
+    build(&t.root, &t.dir, &opts()).unwrap();
+    let idx = Index::open(&t.dir).unwrap();
+    for found in [
+        idx.module_files("aa", 10),
+        idx.module_files_folded("aa", 10),
+    ] {
+        let found: Vec<_> = found.into_iter().filter_map(|id| idx.path(id)).collect();
+        assert_eq!(found, [b"aa.rs".as_slice()]);
+    }
 }
