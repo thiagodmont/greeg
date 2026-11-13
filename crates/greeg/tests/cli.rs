@@ -4603,6 +4603,10 @@ fn an_index_left_at_phase_1_is_finished_by_the_next_query() {
     assert!(String::from_utf8_lossy(&asked.stderr).contains("--phase1"));
     std::thread::sleep(std::time::Duration::from_millis(500));
     let layout = greeg_index::format_dir(&f.index);
+    assert!(
+        !greeg_index::lock::marker_held(&layout, greeg_index::lock::Work::Build),
+        "a build is running"
+    );
     let mut m = greeg_index::read_manifest(&layout).unwrap();
     assert!(m.phase1_only && !m.phase2, "a build was started");
     m.phase1_only = false;

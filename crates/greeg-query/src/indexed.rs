@@ -141,10 +141,10 @@ pub fn flush_pending_build() {
         return;
     };
     // a build drops its marker after it publishes, so a manifest read after
-    // the marker is seen free shows the symbols a build added meanwhile
+    // the marker is seen free shows what a build published meanwhile
     if what == Queued::Symbols
         && (lock::marker_held(&dir, lock::Work::Build)
-            || read_manifest(&dir).is_some_and(|m| m.phase2))
+            || read_manifest(&dir).is_some_and(|m| m.phase2 || m.phase1_only))
     {
         return;
     }
