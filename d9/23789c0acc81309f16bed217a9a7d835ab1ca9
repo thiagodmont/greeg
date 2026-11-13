@@ -1,0 +1,22 @@
+crates/greeg/src/rewrite.rs
+  s_e2aadb8067553a::t_fb88c9d59d2bbc 316-317
+  s_e2aadb8067553a::t_3ba8a5c0e65c82 1259-1277
+crates/greeg/tests/hooks.rs
+  s_e2aadb8067553a::t_3ba8a5c0e65c82 209-210,225
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "d923789c0acc81309f16bed217a9a7d835ab1ca9",
+  "prompts": {},
+  "sessions": {
+    "s_e2aadb8067553a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8372df48-1202-40f9-bd30-8e5555761588",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
