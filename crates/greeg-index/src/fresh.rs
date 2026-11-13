@@ -676,12 +676,19 @@ pub fn check_fsevents(idx: &Index, root: &Path, threads: usize) -> Option<Change
         return None;
     }
     let k = known(idx);
+    // the cookie's directory is named when a cookie comes or goes
+    let cookie_dir = cookie.0.parent().map(|p| p.as_os_str().as_bytes());
     // relative dir set
     let mut rels: HashSet<Vec<u8>> = HashSet::new();
     for d in &dirs {
-        // another spelling of the root (`/System/Volumes/Data/…`): the stat
-        // pass answers, and the event id stays where it was
-        let r = event_rel(root_s.as_bytes(), d)?;
+        let Some(r) = event_rel(root_s.as_bytes(), d) else {
+            if cookie_dir.is_some_and(|c| event_rel(c, d) == Some(&[])) {
+                continue;
+            }
+            // another spelling of the root (`/System/Volumes/Data/…`): the
+            // stat pass answers, and the event id stays where it was
+            return None;
+        };
         // events on paths outside the index (ignored dirs) still matter when they are
         // new: their parent appears too, so only known dirs and the root are listed.
         rels.insert(r.to_vec());

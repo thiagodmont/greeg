@@ -149,8 +149,8 @@ fn fsevents_finds_what_a_directory_stamp_hides() {
     }
 
     // a directory made unreadable after an edit in it: its files are not
-    // deleted (the stat pass is held to more in index.rs, since the event
-    // log need not name the directory)
+    // deleted. The event log need not name the directory, so that the check
+    // also reports itself unreliable is tested on the stat pass (index.rs).
     let t = tree();
     let locked = t.root.join("locked");
     fs::create_dir(&locked).unwrap();
