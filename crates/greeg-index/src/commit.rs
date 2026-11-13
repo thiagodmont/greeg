@@ -49,6 +49,15 @@ pub fn assert_open() {
     );
 }
 
+/// Fault injection for the panic recovery tests: with `GREEG_DEBUG_PANIC`
+/// set, opening an index panics.
+pub fn inject_panic() {
+    static ON: OnceLock<bool> = OnceLock::new();
+    if *ON.get_or_init(|| std::env::var_os("GREEG_DEBUG_PANIC").is_some()) {
+        panic!("GREEG_DEBUG_PANIC");
+    }
+}
+
 /// Fault injection for the recovery tests: `GREEG_DEBUG_SIGBUS` names where
 /// to raise SIGBUS, `after-output`, `after-stdin` or `every-run`; any other
 /// value raises it when an index is opened (`index`).

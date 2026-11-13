@@ -375,6 +375,7 @@ impl Index {
     pub fn open_with(dir: &Path, between: &mut dyn FnMut()) -> Result<Index> {
         crate::commit::assert_open();
         crate::commit::inject("index");
+        crate::commit::inject_panic();
         let mut attempt = 0;
         loop {
             let manifest = read_manifest(dir).context("no usable index manifest")?;

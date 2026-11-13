@@ -146,6 +146,10 @@ fn refresh_inner(root: &Path, dir: &Path, threads: usize) -> Result<()> {
 /// The snapshot this process last opened through `open_fresh`, so
 /// `mark_corrupt` can tell the one that failed from one published since.
 static OPENED: Mutex<Option<Snapshot>> = Mutex::new(None);
+/// This process went into the index path: a panic after it may be the index's.
+static ENTERED: AtomicBool = AtomicBool::new(false);
+/// The index path panicked in this run: the index is not opened again.
+static PANICKED: AtomicBool = AtomicBool::new(false);
 
 /// Mark the snapshot unusable so the next query rebuilds (the rebuild retires
 /// its directory), and start that rebuild now. Runs under the writer lock,
@@ -199,12 +203,29 @@ fn note_corruption(o: &Options) {
 /// its check meanwhile (`integrity::failed`), anything read from it may be
 /// wrong: queue a rebuild and answer again without the index, before any
 /// output.
+///
+/// A panic in the index path answers from a scan too, as search does.
 pub fn answered<T>(o: &Options, f: impl Fn(&Options) -> Result<T>) -> Result<T> {
     debug_assert!(
         !greeg_index::commit::committed(),
         "a verb answered after output started"
     );
-    let r = f(o);
+    let r = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(o))) {
+        Ok(r) => r,
+        Err(p) if !o.use_index || !ENTERED.load(Relaxed) => std::panic::resume_unwind(p),
+        Err(p) => {
+            let mut so = o.clone();
+            so.use_index = false;
+            // a panic in the scan too is the verb's, not the index's; only a
+            // scan that answers shows the index was at fault
+            let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(&so)))
+                .unwrap_or_else(|_| std::panic::resume_unwind(p));
+            if r.is_ok() {
+                note_panic(o, "answering from a scan");
+            }
+            return r;
+        }
+    };
     if !o.use_index || !greeg_index::integrity::failed() {
         return r;
     }
@@ -212,6 +233,52 @@ pub fn answered<T>(o: &Options, f: impl Fn(&Options) -> Result<T>) -> Result<T> 
     let mut so = o.clone();
     so.use_index = false;
     f(&so)
+}
+
+/// `f`, which reads the index after the answer; a panic in the index path
+/// gives `without`, what `f` gives without the index.
+pub fn or_on_panic<T>(o: &Options, without: T, f: impl FnOnce() -> T) -> T {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)).unwrap_or_else(|p| {
+        if !ENTERED.load(Relaxed) {
+            std::panic::resume_unwind(p);
+        }
+        note_panic(o, "answering without it");
+        without
+    })
+}
+
+/// For a verb that has no answer without the index: a panic once the index
+/// was opened is a [`Rebuilding`] error, not a crash.
+pub fn index_only<T>(o: &Options, f: impl FnOnce() -> Result<T>) -> Result<T> {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)).unwrap_or_else(|p| {
+        if !ENTERED.load(Relaxed) {
+            std::panic::resume_unwind(p);
+        }
+        note_panic(o, "no answer without it");
+        Err(Rebuilding {
+            reason: "corrupt",
+            estimate_ms: None,
+            generation: 0,
+        }
+        .into())
+    })
+}
+
+/// Say that the index path panicked, and queue a rebuild; once a run: the
+/// index is not opened again after it.
+pub fn note_panic(o: &Options, then: &str) {
+    if PANICKED.swap(true, Relaxed) {
+        return;
+    }
+    eprintln!(
+        "greeg: internal error in the index path; {then}{}",
+        if persist::allowed() {
+            " and rebuilding the index"
+        } else {
+            ""
+        }
+    );
+    mark_corrupt(o);
 }
 
 /// For a verb that has no answer without the index: when a check failed,
@@ -411,6 +478,14 @@ fn open_fresh_with(
     defer: bool,
     before_apply: &mut dyn FnMut(),
 ) -> Result<std::result::Result<Opened, Rebuilding>> {
+    if PANICKED.load(Relaxed) {
+        return Ok(Err(Rebuilding {
+            reason: "corrupt",
+            estimate_ms: None,
+            generation: 0,
+        }));
+    }
+    ENTERED.store(true, Relaxed);
     let dir = greeg_index::index_dir(&o.root, o.index_dir.as_deref())?;
     let mut idx = match Index::open(&dir) {
         Ok(i) if i.built_for(&o.root) => i,
@@ -518,10 +593,6 @@ pub(crate) fn try_index(
         Err(r) => return Ok(Err(r.reason.to_string())),
     };
     let idx = &op.idx;
-    // fault injection for the M5 robustness tests
-    if std::env::var_os("GREEG_DEBUG_PANIC").is_some() {
-        panic!("injected panic (GREEG_DEBUG_PANIC)");
-    }
     let mut stats = Stats {
         threads,
         source: "index",
@@ -1145,6 +1216,37 @@ pub(crate) fn classify_at(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A verb's panic that its scan answer hits too is the verb's: it is
+    /// raised as it is, and the index is not marked for rebuild.
+    #[test]
+    fn a_panic_the_scan_also_hits_is_not_the_index_s() {
+        let base = std::env::temp_dir().join(format!("greeg-verb-panic-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        fs::create_dir_all(&base).unwrap();
+        let o = Options {
+            root: base.clone(),
+            index_dir: Some(base.join("index")),
+            ..Default::default()
+        };
+        ENTERED.store(true, Relaxed);
+        let calls = AtomicUsize::new(0);
+        let r = std::panic::catch_unwind(|| {
+            answered(&o, |_| -> Result<()> {
+                calls.fetch_add(1, Relaxed);
+                panic!("the verb's own");
+            })
+        });
+        assert!(r.is_err());
+        assert_eq!(
+            calls.load(Relaxed),
+            2,
+            "answered once from the index, once from a scan"
+        );
+        // marking the index would have created its directory
+        assert!(!base.join("index").exists());
+        let _ = fs::remove_dir_all(&base);
+    }
 
     /// A snapshot found corrupt is retired by the rebuild it queues, like any
     /// superseded build, instead of staying on disk as an orphan.

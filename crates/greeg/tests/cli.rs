@@ -4136,3 +4136,79 @@ fn a_module_name_straddling_two_paths_is_no_match() {
         assert!(stdout.contains("no definition found"), "{args:?}: {stdout}");
     }
 }
+
+/// A panic in the index path answers from a scan, for every verb that has one,
+/// and is a rebuild error (exit 2) for those that have none: never exit 101.
+#[test]
+fn a_panic_in_the_index_path_never_ends_a_verb_with_101() {
+    let f = diff_fixture();
+    f.indexed();
+    w(
+        &f.root.join("src/util.rs"),
+        "pub fn load_config() -> u32 {\n    8\n}\n\npub fn scale(x: u32) -> u32 {\n    x * 2\n}\n\npub fn tidy() -> u32 {\n    1\n}\n",
+    );
+    let panic = [("GREEG_DEBUG_PANIC", std::ffi::OsStr::new("1"))];
+    let scanned: &[&[&str]] = &[
+        &["load_config"],
+        // no hits: the relaxed rungs read the index's names after the answer
+        &["load_confg"],
+        &["def", "load_config"],
+        &["refs", "load_config"],
+        &["callers", "load_config"],
+        &["impls", "load_config"],
+        &["impact", "load_config"],
+        &["impact", "--diff"],
+        &["outline", "src/util.rs"],
+        &["show", "src/util.rs:2"],
+    ];
+    // what agents read (text) and the JSON records
+    let modes: [&[&str]; 2] = [&[], &["--json=greeg", "--budget", "0"]];
+    for (args, mode) in scanned
+        .iter()
+        .flat_map(|a| modes.iter().map(move |m| (a, m)))
+    {
+        let args = [args, &["--no-persist"][..], mode].concat();
+        let out = f.run_env(&args, &panic);
+        let (stdout, stderr) = (
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr),
+        );
+        assert!(
+            matches!(out.status.code(), Some(0 | 1)),
+            "{args:?}: {out:?}"
+        );
+        assert!(
+            stderr.contains("internal error in the index path"),
+            "{args:?}: {stderr}"
+        );
+        assert!(
+            !stdout.contains("\"source\":\"index\""),
+            "{args:?}: {stdout}"
+        );
+        let scan = f.out(&[&args[..], &["--no-index"]].concat());
+        assert_eq!(timeless(&stdout), timeless(&scan), "{args:?}");
+    }
+    // block mode reads the index again after the answer, for its reads
+    let args = ["def", "load_config", "--mode", "block", "--no-persist"];
+    let out = f.run_env(&args, &panic);
+    assert_eq!(out.status.code(), Some(0), "{out:?}");
+    let scan = f.out(&[&args[..], &["--no-index"]].concat());
+    assert_eq!(String::from_utf8_lossy(&out.stdout), scan);
+    for args in [&["map"][..], &["find", "load", "config"]] {
+        let args = [args, &["--no-persist", "--json=greeg"][..]].concat();
+        let out = f.run_env(&args, &panic);
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        assert_eq!(out.status.code(), Some(2), "{args:?}: {out:?}");
+        assert!(stdout.contains("\"rebuilding\""), "{args:?}: {stdout}");
+    }
+}
+
+/// `text` without its `elapsed_ms` values.
+fn timeless(text: &str) -> String {
+    let mut parts = text.split("\"elapsed_ms\":");
+    let mut out = parts.next().unwrap_or_default().to_string();
+    for p in parts {
+        out.push_str(p.trim_start_matches(|c: char| c.is_ascii_digit() || c == '.'));
+    }
+    out
+}

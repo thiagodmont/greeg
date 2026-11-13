@@ -1491,10 +1491,18 @@ pub type BodyOf<'a> = (&'a [u8], FileFlags, &'a str, &'a Body);
 /// Definitions in test, generated and vendored files count only for a body
 /// in one, and declaration files (`.d.ts`) define no values.
 pub fn reads(o: &Options, bodies: &[Option<BodyOf>]) -> Result<Vec<Vec<Read>>> {
-    let mut out = vec![Vec::new(); bodies.len()];
+    let none = vec![Vec::new(); bodies.len()];
     if !o.use_index || bodies.iter().all(Option::is_none) {
-        return Ok(out);
+        return Ok(none);
     }
+    indexed::or_on_panic(o, Ok(none.clone()), || reads_indexed(o, bodies, none))
+}
+
+fn reads_indexed(
+    o: &Options,
+    bodies: &[Option<BodyOf>],
+    mut out: Vec<Vec<Read>>,
+) -> Result<Vec<Vec<Read>>> {
     let threads = if o.threads == 0 {
         crate::default_threads()
     } else {
