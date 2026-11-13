@@ -628,22 +628,36 @@ fn shell_receives_literal_arguments_without_side_effects() {
         ("rg 'a'\\''b' 'a b'", "a'b"),
         ("rg '' 'a b'", ""),
         ("rg \\# 'a b'", "#"),
+        // zsh expands an unquoted word starting with `=` to a command's path
+        ("rg '==' 'a b'", "=="),
+        ("rg '=ls' 'a b'", "=ls"),
     ] {
         let rewritten = f.rewrite("codex", command);
         let args = rewritten.strip_prefix("greeg ").unwrap();
-        let out = f
-            .command("/bin/sh")
-            .args(["-c", &format!("set -- {args}; printf '%s\\000' \"$@\"")])
-            .output()
-            .unwrap();
-        assert!(out.status.success());
-        assert_eq!(
-            out.stdout,
-            format!(
-                "--matching\0exact\0--max-filesize\018446744073709551615\0--\0{pattern}\0a b\0"
-            )
-            .as_bytes()
-        );
+        let script = format!("set -- {args}; printf '%s\\000' \"$@\"");
+        // zsh is the agent's shell on macOS; -f skips the user's startup files
+        let shells: &[&[&str]] = if Path::new("/bin/zsh").exists() {
+            &[&["/bin/sh", "-c"], &["/bin/zsh", "-f", "-c"]]
+        } else {
+            &[&["/bin/sh", "-c"]]
+        };
+        for shell in shells {
+            let out = f
+                .command(shell[0])
+                .args(&shell[1..])
+                .arg(&script)
+                .output()
+                .unwrap();
+            assert!(out.status.success(), "{shell:?} {command}: {out:?}");
+            assert_eq!(
+                out.stdout,
+                format!(
+                    "--matching\0exact\0--max-filesize\018446744073709551615\0--\0{pattern}\0a b\0"
+                )
+                .as_bytes(),
+                "{shell:?} {command}"
+            );
+        }
     }
     assert!(!f.0.join("tree/sentinel").exists());
 }
