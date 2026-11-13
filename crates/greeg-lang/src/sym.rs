@@ -1555,9 +1555,10 @@ mod tests {
         static SLOW: std::cell::Cell<Duration> = const { std::cell::Cell::new(Duration::ZERO) };
     }
 
-    /// A busy machine, as the parse sees it: each progress report waits.
+    /// A busy machine, as the parse sees it: one progress report stalls. One
+    /// sleep, since a sleep's floor varies by OS (2 ms can last 15 on macOS).
     pub(super) fn slow_down() {
-        let d = SLOW.get();
+        let d = SLOW.take();
         if !d.is_zero() {
             std::thread::sleep(d);
         }
@@ -1577,9 +1578,9 @@ mod tests {
         };
         let fast = extract(Lang::Rust, false, src.as_bytes());
         assert!(fast.tree_sitter);
-        SLOW.set(Duration::from_millis(2));
+        // longer than a timed budget would allow, far below the wall limit
+        SLOW.set(PARSE_TIMEOUT * 2);
         let slow = extract(Lang::Rust, false, src.as_bytes());
-        SLOW.set(Duration::ZERO);
         assert!(slow.tree_sitter, "a slow parse fell back to regexes");
         assert_eq!(names(&slow), names(&fast));
     }

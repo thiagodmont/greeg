@@ -1,0 +1,57 @@
+name: macos
+# The test suite on macOS, only when a source file with macOS-only code (a
+# `target_os = "macos"` cfg) or a dependency changes: macOS minutes cost 10x
+# ubuntu ones. A file that gains such code joins both lists. ci.yml's manual
+# `macos` input runs it on demand; release.yml runs it before packaging.
+on:
+  pull_request:
+    paths:
+      - crates/greeg-fsevents/**
+      - crates/greeg-index/src/fresh.rs
+      - crates/greeg-index/src/tree.rs
+      - crates/greeg-index/src/private.rs
+      - crates/greeg-index/src/lock.rs
+      - crates/greeg-index/src/lib.rs
+      - crates/greeg-index/src/build.rs
+      - crates/greeg-query/src/lib.rs
+      - crates/greeg-query/src/session.rs
+      - crates/greeg-query/src/session_store.rs
+      - crates/greeg/src/main.rs
+      - crates/greeg/src/capabilities.rs
+      - crates/greeg/src/doctor.rs
+      - crates/greeg/src/hook_config.rs
+      - crates/greeg/src/stats.rs
+      - "**/Cargo.toml"
+      - Cargo.lock
+      - .github/workflows/macos.yml
+  push:
+    branches: [main]
+    paths:
+      - crates/greeg-fsevents/**
+      - crates/greeg-index/src/fresh.rs
+      - crates/greeg-index/src/tree.rs
+      - crates/greeg-index/src/private.rs
+      - crates/greeg-index/src/lock.rs
+      - crates/greeg-index/src/lib.rs
+      - crates/greeg-index/src/build.rs
+      - crates/greeg-query/src/lib.rs
+      - crates/greeg-query/src/session.rs
+      - crates/greeg-query/src/session_store.rs
+      - crates/greeg/src/main.rs
+      - crates/greeg/src/capabilities.rs
+      - crates/greeg/src/doctor.rs
+      - crates/greeg/src/hook_config.rs
+      - crates/greeg/src/stats.rs
+      - "**/Cargo.toml"
+      - Cargo.lock
+      - .github/workflows/macos.yml
+permissions:
+  contents: read
+jobs:
+  macos-test:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+      - run: cargo test --workspace --locked
