@@ -609,11 +609,12 @@ pub fn check_fsevents(idx: &Index, root: &Path, threads: usize) -> Option<Change
     }
     let mut on_way = tree::Dirs::default();
     for r in &rels {
-        if let Some((old, _)) = k.dirs.get(r.as_slice())
+        if let Some((old, recheck)) = k.dirs.get(r.as_slice())
             && let Ok(st) = tree.stat(r, &mut on_way)
         {
             let st = Stamp::of_stat(&st);
-            if !st.same_dir(old, idx.no_ino()) {
+            // an event names the directory, but a racy listing's stamp may not show it
+            if !st.same_dir(old, idx.no_ino()) || *recheck {
                 changed_dirs.push((r.clone(), st));
                 moved.insert(r.as_slice());
             }
