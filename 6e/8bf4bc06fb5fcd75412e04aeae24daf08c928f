@@ -1,0 +1,27 @@
+crates/greeg/tests/hooks.rs
+  s_d1affe6bf8021e::t_71c6bee50b6548 1142-1150
+README.md
+  s_d1affe6bf8021e::t_71c6bee50b6548 106
+crates/greeg/src/doctor.rs
+  s_d1affe6bf8021e::t_71c6bee50b6548 294-298,305
+crates/greeg/src/hook.rs
+  s_d1affe6bf8021e::t_71c6bee50b6548 159-162,174-181
+references/ARCHITECTURE.md
+  s_d1affe6bf8021e::t_71c6bee50b6548 478-479
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "6e8bf4bc06fb5fcd75412e04aeae24daf08c928f",
+  "prompts": {},
+  "sessions": {
+    "s_d1affe6bf8021e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9f35d094-2dfc-48c8-a346-85f6d65b0c73",
+        "model": "claude-fable-5-2"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
