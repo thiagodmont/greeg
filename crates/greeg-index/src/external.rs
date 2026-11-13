@@ -535,6 +535,10 @@ fn merge_down(segments: &[PathBuf], fan_in: usize) -> Result<Vec<PathBuf>> {
     while segs.len() > fan_in {
         let mut next = Vec::with_capacity(segs.len().div_ceil(group_len));
         for group in segs.chunks(group_len) {
+            if let [one] = group {
+                next.push(one.clone());
+                continue;
+            }
             #[cfg(test)]
             MOST_OPEN.with(|m| m.set(m.get().max(group.len() + 1)));
             let dir = group[0].parent().unwrap_or(Path::new("."));
