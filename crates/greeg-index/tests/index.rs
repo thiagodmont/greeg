@@ -47,6 +47,18 @@ fn empty_tmp() -> Tmp {
     }
 }
 
+/// Wait out the racy window of what was just written under `root`, so a
+/// build lists its directories late enough to trust their stamps.
+fn settle(root: &Path) {
+    use std::os::unix::fs::MetadataExt;
+    let whole = fs::metadata(root).unwrap().ctime_nsec() == 0;
+    std::thread::sleep(std::time::Duration::from_millis(if whole {
+        2100
+    } else {
+        50
+    }));
+}
+
 fn tree() -> Tmp {
     let t = empty_tmp();
     let root = &t.root;
@@ -73,6 +85,7 @@ fn tree() -> Tmp {
     fs::write(root.join("build/out.txt"), "generated_gamma\n").unwrap();
     fs::write(root.join("README.md"), "readme_delta\n").unwrap();
     fs::write(root.join(".gitignore"), "build/\n").unwrap();
+    settle(root);
     t
 }
 
@@ -109,6 +122,7 @@ fn wide_tree(files: usize) -> Tmp {
         body.push_str("    0\n}\n");
         fs::write(root.join(format!("src/f{i}.rs")), body).unwrap();
     }
+    settle(root);
     t
 }
 
@@ -326,6 +340,8 @@ fn stat_mode_add_delete_rename() {
     fs::write(t.root.join("src/extra.rs"), "fn extra_epsilon() {}\n").unwrap();
     fs::create_dir_all(t.root.join("newdir/deep")).unwrap();
     fs::write(t.root.join("newdir/deep/z.py"), "zeta_zeta = 1\n").unwrap();
+    // listed late enough to trust: recorded as they are, not to list again
+    settle(&t.root);
     let ch = check(&idx, &t.root);
     let mut added: Vec<&str> = ch.added.iter().map(|w| text(&w.rel)).collect();
     added.sort();
@@ -387,6 +403,7 @@ fn stat_mode_add_delete_rename() {
 
     // delete a directory tree
     fs::remove_dir_all(t.root.join("renamed")).unwrap();
+    settle(&t.root);
     let ch = check(&idx, &t.root);
     assert_eq!(ch.deleted.len(), 1);
     fresh::apply(&idx, &t.root, &ch).unwrap();
@@ -723,4 +740,33 @@ fn a_stamp_from_the_future_is_not_trusted() {
     let ch = fresh::check(&idx, &t.root, Mode::Auto, 2).expect("an Auto check ran");
     assert_eq!(ch.modified.len(), 1);
     assert_eq!(ch.added.len(), 1);
+}
+
+/// A directory listed within its racy window is listed again by every check,
+/// until a listing comes late enough for its stamp to be trusted.
+#[test]
+fn a_directory_listed_too_soon_is_listed_again() {
+    use std::time::{Duration, SystemTime};
+    let t = tree();
+    let lib = t.root.join("lib");
+    let set_mtime = |at: SystemTime| fs::File::open(&lib).unwrap().set_modified(at).unwrap();
+    settle(&lib);
+    // an mtime ahead of the clock: every listing comes too soon after it
+    set_mtime(SystemTime::now() + Duration::from_secs(10));
+    build(&t.root, &t.dir, &opts()).unwrap();
+    let relisted = || -> Vec<String> {
+        let idx = Index::open(&t.dir).unwrap();
+        let ch = check(&idx, &t.root);
+        fresh::apply(&idx, &t.root, &ch).unwrap();
+        ch.touched_dirs
+            .iter()
+            .map(|d| String::from_utf8_lossy(&d.rel).into_owned())
+            .collect()
+    };
+    assert_eq!(relisted(), ["lib"], "unchanged, but listed too soon");
+    assert_eq!(relisted(), ["lib"]);
+    set_mtime(SystemTime::now() - Duration::from_secs(10));
+    settle(&lib);
+    assert_eq!(relisted(), ["lib"], "its stamp changed");
+    assert!(relisted().is_empty(), "listed late enough: trusted");
 }

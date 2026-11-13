@@ -38,7 +38,7 @@ use std::path::{Path, PathBuf};
 /// The on-disk layout. Every change to what a build or refresh writes gets a
 /// new number, released or not, so binaries of different layouts never share
 /// files (`format_dir`); `layout_fingerprint_matches_format_version` enforces it.
-pub const FORMAT_VERSION: u32 = 12;
+pub const FORMAT_VERSION: u32 = 13;
 
 /// Create an index directory and any missing parents owner-only (0700).
 /// Existing directories are left as they are, never chmodded.

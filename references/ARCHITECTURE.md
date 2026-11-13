@@ -541,8 +541,14 @@ to keep it there.
   dropped events, or the read passes its 40 ms cutoff, the stat pass below
   answers.
 * **Everywhere else**: a parallel `lstat` of every known file, comparing its
-  whole stamp (size, mtime, ctime, inode and device), plus directory mtimes,
-  inodes and devices to catch additions and deletions.
+  whole stamp (size, mtime, ctime, inode and device), plus each directory's
+  mtime, ctime, inode and device to catch additions and deletions. The
+  change time catches an entry added while the directory's mtime was put
+  back (`rsync -a`, `tar x`, `cp -a`) and a directory that a `chmod` made
+  readable. A directory listed within its racy window (20 ms after its
+  mtime or ctime, 2 s on file systems that keep whole seconds) is listed
+  again by the next check, as such a file is read again, until a listing
+  comes late enough to trust its stamp.
   41 ms for 66k files. Below about 8,000 files this beats FSEvents, whose
   stream setup costs ~11 ms no matter how small the tree.
 * **Back-to-back calls**: a manifest verified in the last 100 ms is trusted, so

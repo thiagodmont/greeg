@@ -1934,6 +1934,8 @@ fn purge_previews_and_removes_only_owned_paths() {
             .args(args);
         c.output().unwrap()
     };
+    // past the racy window: no directory is listed again by a refresh
+    settle(&f.root);
     assert!(greeg(&["index", "--quiet"]).status.success());
     assert_eq!(greeg(&["needle"]).status.code(), Some(0));
     let old = base.join("tokio-fedcba9876543210");
@@ -2230,4 +2232,17 @@ fn a_running_build_is_not_joined_however_long_it_runs() {
         "not built twice"
     );
     drop(owner);
+}
+
+/// Wait out the racy window of what was just written under `root` (20 ms, or
+/// 2 s where the file system keeps whole seconds), so a build lists its
+/// directories late enough to trust their stamps.
+fn settle(root: &Path) {
+    use std::os::unix::fs::MetadataExt;
+    let whole = fs::metadata(root).unwrap().ctime_nsec() == 0;
+    std::thread::sleep(std::time::Duration::from_millis(if whole {
+        2100
+    } else {
+        50
+    }));
 }
