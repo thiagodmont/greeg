@@ -804,3 +804,19 @@ filename = "release-0.14.0-recheck-2026-11-13-darwin-arm64.json"
 title = "Release 0.14.0 against 0.13.0: recheck of the four p95 flags (2026-11-13)"
 pr = 166
 notes = "The same two binaries as the 0.14.0 release run, 151 randomized pairs, on the four cases whose p95 crossed 20% there: case_miss_files, split_miss_unlimited, type_files and def_case_hit, both backends. Every median is within +2.7% and every p95 between −5.0% and +5.3%, and stdout and exit status are unchanged: the release run's p95 flags were noise. The run started at 1- and 5-minute loads of 7.0 and 7.6. The result file was written at 2026-11-13T17:32Z."
+
+[[datasets]]
+id = "release_0_14_1"
+section = "matching_review"
+filename = "release-0.14.1-2026-11-13-darwin-arm64.json"
+title = "Release 0.14.1 against 0.14.0: exact-search regression (2026-11-13)"
+pr = 169
+notes = "v0.14.0 (built from the tag, d1b100c) against the 0.14.1 release commit (5e998e7), which makes the hook installer upgrade the skill text of 0.2.0–0.6.0 (#168), adds a skill line to doctor, and corrects the documents (#167); no search or index code differs. All 34 cases keep their stdout and exit status, and every contract passes: rg stdout and status 20/20, JSON exact 4/4, definitions 6/6. --json=rg equals rg --json (28/28), and --json=greeg --budget 0 holds ripgrep's matches (28/28). The run started at 1- and 5-minute loads of 5.7 and 8.1. Medians range from −8.7% to +10.1%. Three cases crossed a threshold: hit_files on a scan (p95 +22.4%, median −3.3%), and on the index word_miss_count (p95 +63.3%, median −8.7%) and glob_files (median +10.1%, p95 −2.6%). A 151-run recheck of those three cases on both backends put every median within +2.3% and every p95 between −2.8% and +4.4%: noise. The result file was written at 2026-11-13T19:12Z."
+
+[[datasets]]
+id = "release_0_14_1_recheck"
+section = "matching_review"
+filename = "release-0.14.1-recheck-2026-11-13-darwin-arm64.json"
+title = "Release 0.14.1 against 0.14.0: recheck of the three flags (2026-11-13)"
+pr = 169
+notes = "The same two binaries as the 0.14.1 release run, 151 randomized pairs, on the three cases that crossed a threshold there: hit_files, word_miss_count and glob_files, both backends. Every median is between −2.0% and +2.3% and every p95 between −2.8% and +4.4%, and stdout and exit status are unchanged: the release run's flags were noise. The run started at 1- and 5-minute loads of 5.3 and 7.6. The result file was written at 2026-11-13T19:13Z."
