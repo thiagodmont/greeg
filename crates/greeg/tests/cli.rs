@@ -4120,3 +4120,19 @@ fn impact_diff_scans_for_hidden() {
     assert!(out.contains("\"source\":\"scan\""), "{out}");
     assert!(out.contains("\"text\":\".tools/use.rs\""), "{out}");
 }
+
+/// A module name that ends one path and runs into the next one in path order
+/// (`a/foo`, `bar.rs`) is no module file: `def foobar` finds nothing.
+#[test]
+fn a_module_name_straddling_two_paths_is_no_match() {
+    let f = empty_fixture();
+    w(&f.root.join("a/foo"), "x\n");
+    w(&f.root.join("bar.rs"), "fn z() {}\n");
+    assert!(f.run(&["index"]).status.success());
+    for args in [&["def", "foobar"][..], &["def", "-i", "FOOBAR"]] {
+        let out = f.run(args);
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        assert_eq!(out.status.code(), Some(1), "{args:?}: {out:?}");
+        assert!(stdout.contains("no definition found"), "{args:?}: {stdout}");
+    }
+}

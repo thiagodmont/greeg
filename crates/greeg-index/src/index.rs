@@ -1225,7 +1225,8 @@ impl Index {
                     r.path_off as usize,
                     r.path_off as usize + r.path_len as usize,
                 );
-                if h >= pe || (h > ps && arena[h - 1] != b'/') {
+                // the name and its separator lie inside this path, not the next one
+                if after >= pe || (h > ps && arena[h - 1] != b'/') {
                     continue;
                 }
                 let rest = &arena[after..pe];

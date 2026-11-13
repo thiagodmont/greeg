@@ -639,3 +639,34 @@ fn apply_skips_when_manifest_moved() {
 fn text(b: &[u8]) -> &str {
     std::str::from_utf8(b).unwrap()
 }
+
+/// A name match that ends one path and runs into the next one in the arena
+/// (`a/foo`, then `bar.rs`) is no module file, and does not panic.
+#[test]
+fn module_lookup_ignores_a_match_across_two_paths() {
+    let base = std::env::temp_dir().join(format!(
+        "greeg-index-test-{}-{}",
+        std::process::id(),
+        N.fetch_add(1, Ordering::Relaxed)
+    ));
+    let t = Tmp {
+        root: base.join("tree"),
+        dir: base.join("index"),
+        base,
+    };
+    fs::create_dir_all(t.root.join("a")).unwrap();
+    fs::create_dir_all(t.root.join("src")).unwrap();
+    fs::write(t.root.join("a/foo"), "x\n").unwrap();
+    fs::write(t.root.join("bar.rs"), "fn z() {}\n").unwrap();
+    fs::write(t.root.join("src/foo.rs"), "fn y() {}\n").unwrap();
+    build(&t.root, &t.dir, &opts()).unwrap();
+    let idx = Index::open(&t.dir).unwrap();
+    assert!(idx.module_files("foobar", 10).is_empty());
+    assert!(idx.module_files_folded("FOOBAR", 10).is_empty());
+    let found: Vec<_> = idx
+        .module_files("foo", 10)
+        .into_iter()
+        .filter_map(|id| idx.path(id))
+        .collect();
+    assert_eq!(found, [b"src/foo.rs".as_slice()]);
+}
