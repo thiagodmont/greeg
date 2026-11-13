@@ -463,16 +463,22 @@ ends with a `greeg-managed-skill:v1` HTML comment identifying the agent and a
 BLAKE3 checksum of the generated body. This detects edits; it is not an
 authentication signature against other code running as the same user. Unknown
 marker versions, another agent's marker, checksum mismatches, and unrecognized
-unmarked text are preserved, including on uninstall. Exact copies of the current
-bundled legacy text are adopted on install or removed on uninstall; older or
-edited unmarked variants are conservatively preserved. Older greeg binaries do
-not honor this protection.
+unmarked text are preserved, including on uninstall. Unmarked text is adopted
+on install or removed on uninstall when it is an exact copy of the current
+body, or of the text a release wrote before skills carried the marker (0.2.0
+to 0.6.0, recognized by BLAKE3 digest, for the agent it was written for); any
+other unmarked text is preserved. Older greeg binaries do not honor this
+protection.
 
 Unmodified managed skills can be upgraded and removed. Reinstalling identical
 content does not rewrite the file or change its mode, inode or modification time.
 Modified skills produce a preservation message while hook configuration edits
 continue. Move a preserved file aside before reinstalling to regenerate it.
-Dry runs report the same ownership decision without writes.
+Dry runs report the same ownership decision without writes. `greeg doctor`
+prints a `skill` line for each agent with a skill file (`current`, `outdated`,
+`edited`, or `unreadable` for one the installer would refuse to read) and, for an outdated one, the command that updates it; the skill
+is rewritten only by `greeg hook claude` or `greeg hook codex`, never by a
+search.
 
 The shared configuration snapshot helper also publishes skill updates atomically
 and checks identity/content before removal under the same persistent per-file

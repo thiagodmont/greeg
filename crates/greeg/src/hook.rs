@@ -156,6 +156,35 @@ fn skill_path() -> Result<PathBuf> {
     Ok(PathBuf::from(home).join(".claude/skills/greeg/SKILL.md"))
 }
 
+/// Each agent's installed skill against this build's: `None` for one the
+/// installer would refuse to read. An agent with no skill file is left out.
+pub fn skill_states() -> Vec<(&'static str, Option<crate::hook_skill::State>)> {
+    use crate::hook_skill::State;
+    let paths = [
+        ("claude", Agent::Claude, skill_path().ok()),
+        (
+            "codex",
+            Agent::Codex,
+            codex_home().ok().map(|h| h.join("skills/greeg/SKILL.md")),
+        ),
+    ];
+    paths
+        .into_iter()
+        .filter_map(|(name, agent, path)| {
+            let state = match crate::hook_config::Config::read(&path?) {
+                Ok(skill) => {
+                    match crate::hook_skill::state(skill.text(), &skill_text(agent), agent) {
+                        State::Missing => return None,
+                        state => Some(state),
+                    }
+                }
+                Err(_) => None,
+            };
+            Some((name, state))
+        })
+        .collect()
+}
+
 /// Codex's config directory: `$CODEX_HOME`, else `~/.codex`.
 fn codex_home() -> Result<PathBuf> {
     if let Some(d) = std::env::var_os("CODEX_HOME").filter(|d| !d.is_empty()) {

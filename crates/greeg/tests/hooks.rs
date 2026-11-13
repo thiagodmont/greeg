@@ -1057,6 +1057,100 @@ fn custom_skills_survive_install_and_uninstall() {
 }
 
 #[test]
+fn a_skill_written_before_the_ownership_marker_is_upgraded_and_removed() {
+    for (agent, released) in [
+        ("claude", include_str!("fixtures/skills/claude-0.2.0.md")),
+        ("claude", include_str!("fixtures/skills/claude-0.4.0.md")),
+        ("codex", include_str!("fixtures/skills/codex-0.5.0.md")),
+    ] {
+        let f = Fixture::new();
+        let skill = f.0.join(format!("home/.{agent}/skills/greeg/SKILL.md"));
+        fs::create_dir_all(skill.parent().unwrap()).unwrap();
+        let hook = |uninstall: bool| {
+            let mut command = f.command(BIN);
+            command.args(["hook", agent]);
+            if uninstall {
+                command.arg("--uninstall");
+            }
+            let out = command.output().unwrap();
+            assert!(out.status.success(), "{agent}: {out:?}");
+            String::from_utf8_lossy(&out.stdout).into_owned()
+        };
+
+        fs::write(&skill, released).unwrap();
+        let out = hook(false);
+        assert!(out.contains("managed skill written"), "{agent}: {out}");
+        let current = fs::read_to_string(&skill).unwrap();
+        assert!(
+            current.contains("\n<!-- greeg-managed-skill:v1 "),
+            "{agent}"
+        );
+        assert!(current.contains("greeg impact --diff"), "{agent}");
+
+        let edited = format!("{released}My own note.\n");
+        fs::write(&skill, &edited).unwrap();
+        for uninstall in [false, true] {
+            let out = hook(uninstall);
+            assert!(out.contains("skill preserved"), "{agent}: {out}");
+            assert_eq!(fs::read_to_string(&skill).unwrap(), edited, "{agent}");
+        }
+
+        fs::write(&skill, released).unwrap();
+        let out = hook(true);
+        assert!(out.contains("unmodified skill removed"), "{agent}: {out}");
+        assert!(!skill.exists(), "{agent}");
+    }
+}
+
+#[test]
+fn doctor_reports_each_installed_skill_against_this_build() {
+    let f = Fixture::new();
+    let doctor = || {
+        let out = f.command(BIN).arg("doctor").output().unwrap();
+        assert!(out.status.success(), "{out:?}");
+        String::from_utf8_lossy(&out.stdout).into_owned()
+    };
+    assert!(!doctor().contains("\nskill "), "no skill is installed");
+
+    for agent in ["claude", "codex"] {
+        let out = f.command(BIN).args(["hook", agent]).output().unwrap();
+        assert!(out.status.success(), "{out:?}");
+    }
+    let report = doctor();
+    assert!(
+        report.contains("\nskill     claude current · codex current\n"),
+        "{report}"
+    );
+    assert!(!report.contains("greeg hook"), "{report}");
+
+    fs::write(
+        f.0.join("home/.claude/skills/greeg/SKILL.md"),
+        include_str!("fixtures/skills/claude-0.2.0.md"),
+    )
+    .unwrap();
+    fs::write(f.0.join("home/.codex/skills/greeg/SKILL.md"), "my skill\n").unwrap();
+    let report = doctor();
+    assert!(
+        report.contains("\nskill     claude outdated · codex edited (left as it is)\n"),
+        "{report}"
+    );
+    assert!(
+        report.contains("run `greeg hook claude` to update it"),
+        "{report}"
+    );
+    assert!(!report.contains("greeg hook codex"), "{report}");
+
+    let codex = f.0.join("home/.codex/skills/greeg/SKILL.md");
+    fs::remove_file(&codex).unwrap();
+    std::os::unix::fs::symlink(f.0.join("home/.claude/skills/greeg/SKILL.md"), &codex).unwrap();
+    let report = doctor();
+    assert!(
+        report.contains("· codex unreadable (a regular UTF-8 file is required)\n"),
+        "{report}"
+    );
+}
+
+#[test]
 fn skill_symlinks_are_refused_before_configuration_changes() {
     use std::os::unix::fs::symlink;
     for agent in ["claude", "codex"] {

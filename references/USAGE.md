@@ -216,7 +216,7 @@ ends grep.
 greeg index                 # build now instead of on first query
 greeg index --status        # manifest: files, generation, deltas, build peak RSS
 greeg --no-index PATTERN    # scan the tree like ripgrep, ignore the index
-greeg doctor                # index location, freshness mode, languages, disk use
+greeg doctor                # index location, freshness mode, languages, disk use, skill state
 greeg purge                 # list every index, session and statistic greeg keeps
 greeg purge --yes           # remove them (what is in use is kept)
 ```
@@ -286,8 +286,11 @@ or ACLs are left unchanged with an error. See the
 for concurrency and interruption limits.
 
 Generated skills carry a versioned ownership marker and content checksum.
-Reinstall updates unmodified managed skills; uninstall removes only those skills
-or an exact copy of the bundled legacy text. Edited or unrecognized skills are
+A new greeg version does not rewrite the skill by itself: run `greeg hook
+claude` or `greeg hook codex` again after upgrading, and `greeg doctor` says
+when an installed skill is outdated. Reinstall updates unmodified managed
+skills, and the unmodified skill of a release from before the marker (0.2 to
+0.6); uninstall removes only those. Edited or unrecognized skills are
 preserved with a message; move one aside before reinstalling to regenerate it.
 Skill-file symlinks, nonregular files and unreadable content stop the operation
 before configuration changes. Configuration and skill updates are separate

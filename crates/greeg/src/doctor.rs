@@ -1,4 +1,4 @@
-//! `greeg doctor`: index health, freshness mode, language coverage, disk use.
+//! `greeg doctor`: index health, freshness mode, language coverage, disk use, installed skill state.
 //! `greeg lang check DIR`: validate runtime-loaded languages and measure coverage.
 
 use crate::{Common, fmt_n, fmt_size};
@@ -284,6 +284,31 @@ pub fn run(c: &Common) -> Result<()> {
         fmt_size(bytes),
         sdir.display()
     )?;
+    let skills = crate::hook::skill_states();
+    if !skills.is_empty() {
+        use crate::hook_skill::State;
+        let parts: Vec<String> = skills
+            .iter()
+            .map(|(agent, state)| {
+                let state = match state {
+                    Some(State::Current) => "current",
+                    Some(State::Outdated) => "outdated",
+                    Some(State::Edited) => "edited (left as it is)",
+                    Some(State::Missing) => "none",
+                    None => "unreadable (a regular UTF-8 file is required)",
+                };
+                format!("{agent} {state}")
+            })
+            .collect();
+        writeln!(w, "skill     {}", parts.join(" · "))?;
+        for (agent, state) in &skills {
+            if *state == Some(State::Outdated) {
+                advice.push(format!(
+                    "the {agent} skill is from another greeg version: run `greeg hook {agent}` to update it"
+                ));
+            }
+        }
+    }
     if let Some(m) = &manifest
         && m.files == 0
     {
