@@ -333,6 +333,9 @@ large files. Explicit zero retains its zero-byte meaning. Reading larger files
 can cost more memory and time; native greeg's default remains unchanged.
 It is an agent-facing presentation adapter: ranked text remains budgeted and
 adds syntax information. It is not a byte-compatible replacement for ripgrep.
+`greeg hook run` always exits 0, since exit 2 would block the agent's
+command: an unreadable payload, a failed reply write or a panic gives no
+reply, and the original command runs.
 Direct `greeg` calls retain the exact/discovery defaults described above.
 
 | Input | Hook behavior |

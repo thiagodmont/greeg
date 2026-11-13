@@ -160,6 +160,43 @@ fn declined_commands_emit_no_reply_or_stats() {
     assert!(!f.0.join("tree/sentinel").exists());
 }
 
+/// Exit 2 from a hook blocks the agent's command: every failure exits 0, and
+/// the command runs as it was.
+#[test]
+fn hook_failures_never_block_the_command() {
+    let f = Fixture::new();
+    let run = |agent: &str, payload: &[u8], read_reply: bool| {
+        let mut child = f
+            .command(BIN)
+            .args(["hook", "run", "--agent", agent])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let reply = child.stdout.take().filter(|_| read_reply);
+        child.stdin.take().unwrap().write_all(payload).unwrap();
+        let mut stdout = Vec::new();
+        if let Some(mut r) = reply {
+            r.read_to_end(&mut stdout).unwrap();
+        }
+        (child.wait().unwrap(), stdout)
+    };
+    let tree = f.0.join("tree");
+    for agent in ["claude", "codex"] {
+        let mut invalid = br#"{"tool_name":"Bash","tool_input":{"command":"rg "#.to_vec();
+        invalid.extend(b"\xff\"}}");
+        let (status, stdout) = run(agent, &invalid, true);
+        assert_eq!(status.code(), Some(0), "{agent}: invalid UTF-8");
+        assert!(stdout.is_empty(), "{agent}: {stdout:?}");
+        // the reader of the reply is gone before it is written
+        let payload =
+            json!({"tool_name": "Bash", "tool_input": {"command": "rg needle"}, "cwd": tree});
+        let (status, _) = run(agent, payload.to_string().as_bytes(), false);
+        assert_eq!(status.code(), Some(0), "{agent}: stdout closed: {status:?}");
+    }
+}
+
 #[test]
 fn explain_reports_the_rewrite_or_the_decline_reason() {
     let f = Fixture::new();
