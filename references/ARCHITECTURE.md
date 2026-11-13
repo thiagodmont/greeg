@@ -566,12 +566,22 @@ to keep it there.
   published, so a change made while either ran is found by the next check.
 
 Only "not found", a file on the way (`ENOTDIR`), a symlink on the way
-(`ELOOP`) or a path the tree cannot hold makes a known file deleted. Any other stat error (a directory made
+(`ELOOP`) or a path the tree cannot hold makes a known file deleted. Any
+other stat error (a directory made
 unreadable, `EIO` or `ESTALE` on a network mount) says nothing about the
 file: that check publishes nothing, leaves the verification stamp as it was,
 and a scan answers (reason `unreadable`). No build is queued: the first
 check that reads the tree again publishes, and `greeg index` rebuilds without
 the unreadable part.
+
+A directory a walk could not list (the build's, or a check's listing of a
+changed or new directory) is recorded as `UNKNOWN`, even when a later
+listing succeeds, so its files are never taken for ignored ones. A file the
+build could not read for a reason that may pass (`EIO`, `ESTALE`) is marked
+for a recheck; one it cannot read as it is (gone, no permission, not a
+regular file) is not, as a scan skips it too. Running out of descriptors or
+memory (`EMFILE`, `ENFILE`, `ENOMEM`) fails a build rather than publish what
+it missed, and makes a check unreliable.
 
 A known file that is no longer a regular file (replaced by a symlink, FIFO
 or device) counts as deleted, and added entries are indexed only when they

@@ -4489,6 +4489,54 @@ fn a_file_that_cannot_be_stat_ed_is_not_deleted() {
     assert_eq!(manifest()["tombstones"], 0);
 }
 
+/// A build that runs out of file descriptors fails, or indexes every file:
+/// never a subset published as complete.
+#[test]
+fn a_build_short_of_file_descriptors_fails_or_is_complete() {
+    use std::os::unix::process::CommandExt;
+    let f = empty_fixture();
+    for d in 0..40 {
+        for i in 0..100 {
+            w(
+                &f.root.join(format!("d{d:02}/f{i:03}.txt")),
+                "needle_omicron\n",
+            );
+        }
+    }
+    settle(&f.root);
+    let scanned = f.out(&["--no-index", "-l", "--sort", "path", "needle_omicron"]);
+    assert_eq!(scanned.lines().count(), 4000);
+    for limit in [14, 20] {
+        let _ = fs::remove_dir_all(&f.index);
+        let mut c = greeg();
+        c.args(["index", "--phase1", "--quiet", "--index-dir"])
+            .arg(&f.index)
+            .current_dir(&f.root)
+            .env("GREEG_STATS", "0");
+        // SAFETY: setrlimit is async-signal-safe; nothing else runs before exec.
+        unsafe {
+            c.pre_exec(move || {
+                let r = libc::rlimit {
+                    rlim_cur: limit,
+                    rlim_max: limit,
+                };
+                if libc::setrlimit(libc::RLIMIT_NOFILE, &r) != 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
+        let o = c.output().unwrap();
+        let index = f.out(&["--fresh", "none", "-l", "--sort", "path", "needle_omicron"]);
+        if o.status.success() {
+            assert_eq!(index, scanned, "limit {limit}: a subset was published");
+        } else {
+            let err = String::from_utf8_lossy(&o.stderr);
+            assert!(err.contains("open files"), "limit {limit}: {err}");
+        }
+    }
+}
+
 /// Wait out the racy window of what was just written under `root` (20 ms, or
 /// 2 s where the file system keeps whole seconds), so a build lists its
 /// directories late enough to trust their stamps.

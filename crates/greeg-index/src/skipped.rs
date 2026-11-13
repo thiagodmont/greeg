@@ -164,12 +164,14 @@ pub fn path(dir: &Path, name: &str) -> Option<PathBuf> {
 /// root-relative paths the walk yielded; `hidden` those it saw and left out
 /// for their name. Anything else was excluded by an ignore rule before the
 /// walk's filter saw it. Ignore files are yielded but never searched, so
-/// they count as skipped hidden files. Lists on a few threads.
+/// they count as skipped hidden files. A directory in `unlisted`, which the
+/// walk could not list, is `UNKNOWN`. Lists on a few threads.
 pub fn list(
     root: &Path,
     dirs: &[&[u8]],
     kept: &HashSet<&[u8]>,
     hidden: &HashSet<&[u8]>,
+    unlisted: &HashSet<&[u8]>,
 ) -> Vec<(Vec<u8>, Children)> {
     const THREADS: usize = 4;
     let chunk = dirs.len().div_ceil(THREADS).max(1);
@@ -179,7 +181,15 @@ pub fn list(
             .map(|part| {
                 sc.spawn(move || {
                     part.iter()
-                        .map(|d| (d.to_vec(), children(root, d, kept, hidden)))
+                        .map(|d| {
+                            let kids = if unlisted.contains(d) {
+                                // the walk could not list it: its children were not kept
+                                vec![(Vec::new(), UNKNOWN)]
+                            } else {
+                                children(root, d, kept, hidden)
+                            };
+                            (d.to_vec(), kids)
+                        })
                         .collect::<Vec<_>>()
                 })
             })
@@ -292,6 +302,7 @@ mod tests {
             &[b"", b"a"],
             &kept,
             &kept,
+            &kept,
         );
         assert_eq!(
             got,
@@ -309,6 +320,15 @@ mod tests {
         );
     }
 
+    #[test]
+    fn a_directory_the_walk_could_not_list_is_unknown_though_it_lists_now() {
+        let root = std::env::temp_dir();
+        let none = HashSet::new();
+        let unlisted: HashSet<&[u8]> = [&b""[..]].into_iter().collect();
+        let got = list(&root, &[b""], &none, &none, &unlisted);
+        assert_eq!(got, [(b"".to_vec(), vec![(Vec::new(), UNKNOWN)])]);
+    }
+
     #[cfg(target_os = "linux")]
     #[test]
     fn a_name_that_is_not_utf8_is_recorded_as_it_is() {
@@ -317,7 +337,7 @@ mod tests {
         fs::create_dir_all(&base).unwrap();
         fs::write(base.join(std::ffi::OsStr::from_bytes(b".h\xff.rs")), "x").unwrap();
         let kept = HashSet::new();
-        let got = list(&base, &[b""], &kept, &kept);
+        let got = list(&base, &[b""], &kept, &kept, &kept);
         assert_eq!(
             got,
             [(b"".to_vec(), vec![(b".h\xff.rs".to_vec(), IGNORED)])]

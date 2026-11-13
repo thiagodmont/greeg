@@ -2,7 +2,7 @@
 //! published (stat pass, or FSEvents history on macOS), and apply changes as
 //! a delta segment plus tombstones.
 
-use crate::build::{Noted, Stamp, WalkedDir, WalkedFile, build_delta, walker_noting};
+use crate::build::{Noted, Stamp, WalkErrors, WalkedDir, WalkedFile, build_delta, walker_noting};
 use crate::format::{self, FileRec, NONE, is_ignore_file};
 use crate::rel::{self, as_path, parent as parent_of};
 use crate::skipped;
@@ -280,9 +280,13 @@ fn stat_many<T: Sync>(
     out
 }
 
+/// A directory's subdirectories and regular files: (name, is_dir, stamp).
+type Listed = Vec<(Vec<u8>, bool, Stamp)>;
+
 /// List a directory with ignore rules (one level), returning (name, is_dir,
-/// stamp) for subdirectories and regular files, and what it skipped.
-fn list_dir(root: &Path, dir: &[u8]) -> (Vec<(Vec<u8>, bool, Stamp)>, skipped::Children) {
+/// stamp) for subdirectories and regular files, what it skipped, and whether
+/// it ran out of descriptors or memory.
+fn list_dir(root: &Path, dir: &[u8]) -> (Listed, skipped::Children, bool) {
     let abs = if dir.is_empty() {
         root.to_path_buf()
     } else {
@@ -291,12 +295,19 @@ fn list_dir(root: &Path, dir: &[u8]) -> (Vec<(Vec<u8>, bool, Stamp)>, skipped::C
     let noted = Noted::default();
     let mut kept = HashSet::new();
     let mut out = Vec::new();
+    let mut errors = WalkErrors::default();
     for e in walker_noting(&abs, Some(noted.clone()))
         .max_depth(Some(1))
         .parents(true)
         .build()
-        .flatten()
     {
+        let e = match e {
+            Ok(e) => e,
+            Err(err) => {
+                errors.note(root, &err);
+                continue;
+            }
+        };
         if e.depth() == 0 {
             continue;
         }
@@ -305,18 +316,27 @@ fn list_dir(root: &Path, dir: &[u8]) -> (Vec<(Vec<u8>, bool, Stamp)>, skipped::C
         if !ft.is_dir() && !ft.is_file() {
             continue;
         }
-        let Ok(md) = e.metadata() else { continue };
+        let md = match e.metadata() {
+            Ok(md) => md,
+            Err(err) => {
+                if let Some(io) = err.io_error() {
+                    errors.note_entry(root, e.path(), io);
+                }
+                continue;
+            }
+        };
         let name = e.file_name().as_bytes().to_vec();
         out.push((name, ft.is_dir(), Stamp::of(&md)));
     }
     let noted = noted_rels(root, &noted);
     let kept: HashSet<&[u8]> = kept.iter().map(Vec::as_slice).collect();
     let hidden: HashSet<&[u8]> = noted.iter().map(Vec::as_slice).collect();
-    let skipped = skipped::list(root, &[dir], &kept, &hidden)
+    let unlisted: HashSet<&[u8]> = errors.unlisted.iter().map(Vec::as_slice).collect();
+    let skipped = skipped::list(root, &[dir], &kept, &hidden, &unlisted)
         .pop()
         .map(|(_, kids)| kids)
         .unwrap_or_default();
-    (out, skipped)
+    (out, skipped, errors.exhausted)
 }
 
 fn noted_rels(root: &Path, noted: &Noted) -> Vec<Vec<u8>> {
@@ -334,12 +354,27 @@ fn walk_new_dir(root: &Path, dir: &[u8], dir_id: u32, ch: &mut Changes) {
     let noted = Noted::default();
     let mut kept = HashSet::new();
     let mut walked = Vec::new();
+    let mut errors = WalkErrors::default();
     for e in walker_noting(&abs, Some(noted.clone()))
         .parents(true)
         .build()
-        .flatten()
     {
-        let Ok(md) = e.metadata() else { continue };
+        let e = match e {
+            Ok(e) => e,
+            Err(err) => {
+                errors.note(root, &err);
+                continue;
+            }
+        };
+        let md = match e.metadata() {
+            Ok(md) => md,
+            Err(err) => {
+                if let Some(io) = err.io_error() {
+                    errors.note_entry(root, e.path(), io);
+                }
+                continue;
+            }
+        };
         let r = rel::of(root, e.path());
         kept.insert(r.clone());
         if e.file_type().map(|t| t.is_dir()).unwrap_or(false) {
@@ -361,8 +396,10 @@ fn walk_new_dir(root: &Path, dir: &[u8], dir_id: u32, ch: &mut Changes) {
     let kept: HashSet<&[u8]> = kept.iter().map(Vec::as_slice).collect();
     let hidden: HashSet<&[u8]> = noted.iter().map(Vec::as_slice).collect();
     let dirs: Vec<&[u8]> = walked.iter().map(Vec::as_slice).collect();
+    let unlisted: HashSet<&[u8]> = errors.unlisted.iter().map(Vec::as_slice).collect();
     ch.skipped
-        .extend(skipped::list(root, &dirs, &kept, &hidden));
+        .extend(skipped::list(root, &dirs, &kept, &hidden, &unlisted));
+    ch.unreliable |= errors.exhausted;
 }
 
 /// Record the stat outcome of one known file. A record marked for a recheck
@@ -572,7 +609,8 @@ fn relist_dirs(root: &Path, k: &Known, changed_dirs: &[(Vec<u8>, Stamp)], ch: &m
         });
         let known_kids = kids.get(dir.as_slice());
         let dir_id = *dir_ids.get(dir.as_slice()).unwrap_or(&0);
-        let (listed, skipped) = list_dir(root, dir);
+        let (listed, skipped, exhausted) = list_dir(root, dir);
+        ch.unreliable |= exhausted;
         ch.skipped.push((dir.clone(), skipped));
         for (name, is_dir, stamp) in listed {
             if known_kids.map(|s| s.contains(&name[..])).unwrap_or(false) {
