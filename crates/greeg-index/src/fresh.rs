@@ -630,7 +630,14 @@ impl Drop for Cookie {
 /// FSEvents-scoped check (macOS). Returns None when the log is unusable.
 #[cfg(target_os = "macos")]
 pub fn check_fsevents(idx: &Index, root: &Path, threads: usize) -> Option<Changes> {
-    if idx.manifest.fsevents_id == 0 {
+    let m = &idx.manifest;
+    // an id from another event database, or one it has not given yet (a
+    // copied or restored index, a reset database), names no events
+    if m.fsevents_id == 0
+        || m.fsevents_id > greeg_fsevents::current_id()
+        || m.fsevents_uuid.is_empty()
+        || m.fsevents_uuid != fsevents_uuid(root)
+    {
         return None;
     }
     let t = Instant::now();
@@ -1097,6 +1104,7 @@ pub fn apply(idx: &Index, root: &Path, ch: &Changes) -> Result<usize> {
         m.verified_unix_ms = m.verified_unix_ms.max(ch.checked_ms).min(now);
         if fsid != 0 {
             m.fsevents_id = fsid;
+            m.fsevents_uuid = fsevents_uuid(root);
         }
         if ch.no_ino {
             m.stamp_mode = crate::STAMP_NO_INO.into();
@@ -1108,6 +1116,7 @@ pub fn apply(idx: &Index, root: &Path, ch: &Changes) -> Result<usize> {
         crate::snapshot::clean(&idx.dir, &m, &due, false, now);
         return Ok(0);
     }
+    let uuid = fsevents_uuid(root);
     let first_id = idx.next_id();
     let mut files: Vec<WalkedFile> = Vec::with_capacity(ch.modified.len() + ch.added.len());
     let mut prev: Vec<u32> = Vec::with_capacity(files.capacity());
@@ -1193,11 +1202,22 @@ pub fn apply(idx: &Index, root: &Path, ch: &Changes) -> Result<usize> {
     m.verified_unix_ms = ch.checked_ms.min(now_ms());
     if fsid != 0 {
         m.fsevents_id = fsid;
+        m.fsevents_uuid = uuid;
     }
     write_manifest(&idx.dir, &m)?;
     crate::snapshot::clean(&idx.dir, &m, &due, false, now);
     crate::legacy::clean(crate::repo_of(&idx.dir), now_ms());
     Ok(files.len())
+}
+
+/// The UUID of the event database of `root`'s device, which FSEvents ids
+/// belong to; empty when it has none, or off macOS.
+pub(crate) fn fsevents_uuid(root: &Path) -> String {
+    use std::os::unix::fs::MetadataExt;
+    std::fs::metadata(root)
+        .ok()
+        .and_then(|m| greeg_fsevents::device_uuid(m.dev()))
+        .unwrap_or_default()
 }
 
 fn current_fsevents_id() -> u64 {

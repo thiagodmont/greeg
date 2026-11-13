@@ -131,6 +131,11 @@ pub struct Manifest {
     pub spilled: bool,
     /// FSEvents event id at publish or last successful check (macOS).
     pub fsevents_id: u64,
+    /// The event database that id belongs to: the root device's
+    /// (`fresh::fsevents_uuid`). Empty when unknown, as in manifests written
+    /// before it was recorded: the FSEvents check then defers to the stat pass.
+    #[serde(default)]
+    pub fsevents_uuid: String,
     /// Last time the index was verified fresh (unix ms), for the TTL.
     pub verified_unix_ms: u64,
     /// Number of delta segments currently applied.

@@ -45,9 +45,12 @@ mod imp {
         CFRunLoopGetCurrent: unsafe extern "C" fn() -> CFRef,
         CFRunLoopRunInMode: unsafe extern "C" fn(CFRef, f64, u8) -> i32,
         CFRelease: unsafe extern "C" fn(CFRef),
+        CFUUIDCreateString: unsafe extern "C" fn(CFRef, CFRef) -> CFRef,
+        CFStringGetCString: unsafe extern "C" fn(CFRef, *mut c_char, CFIndex, u32) -> u8,
         kCFTypeArrayCallBacks: *const c_void,
         kCFRunLoopDefaultMode: CFRef,
         FSEventsGetCurrentEventId: unsafe extern "C" fn() -> u64,
+        FSEventsCopyUUIDForDevice: unsafe extern "C" fn(libc::dev_t) -> CFRef,
         FSEventStreamCreate: unsafe extern "C" fn(
             CFRef,
             Callback,
@@ -105,9 +108,12 @@ mod imp {
                 CFRunLoopGetCurrent: f!(cf, "CFRunLoopGetCurrent"),
                 CFRunLoopRunInMode: f!(cf, "CFRunLoopRunInMode"),
                 CFRelease: f!(cf, "CFRelease"),
+                CFUUIDCreateString: f!(cf, "CFUUIDCreateString"),
+                CFStringGetCString: f!(cf, "CFStringGetCString"),
                 kCFTypeArrayCallBacks: callbacks as *const c_void,
                 kCFRunLoopDefaultMode: mode,
                 FSEventsGetCurrentEventId: f!(cs, "FSEventsGetCurrentEventId"),
+                FSEventsCopyUUIDForDevice: f!(cs, "FSEventsCopyUUIDForDevice"),
                 FSEventStreamCreate: f!(cs, "FSEventStreamCreate"),
                 FSEventStreamScheduleWithRunLoop: f!(cs, "FSEventStreamScheduleWithRunLoop"),
                 FSEventStreamStart: f!(cs, "FSEventStreamStart"),
@@ -173,6 +179,33 @@ mod imp {
         match api() {
             Some(a) => unsafe { (a.FSEventsGetCurrentEventId)() },
             None => 0,
+        }
+    }
+
+    /// The UUID of the event database of device `dev`: event ids are
+    /// comparable only within one. `None` when the device has none, or the
+    /// frameworks cannot be loaded.
+    pub fn device_uuid(dev: u64) -> Option<String> {
+        const UTF8: u32 = 0x0800_0100;
+        let a = api()?;
+        let dev = libc::dev_t::try_from(dev).ok()?;
+        unsafe {
+            let uuid = (a.FSEventsCopyUUIDForDevice)(dev);
+            if uuid.is_null() {
+                return None;
+            }
+            let text = (a.CFUUIDCreateString)(std::ptr::null(), uuid);
+            (a.CFRelease)(uuid);
+            if text.is_null() {
+                return None;
+            }
+            let mut buf = [0 as c_char; 64];
+            let ok = (a.CFStringGetCString)(text, buf.as_mut_ptr(), buf.len() as CFIndex, UTF8);
+            (a.CFRelease)(text);
+            if ok == 0 {
+                return None;
+            }
+            Some(CStr::from_ptr(buf.as_ptr()).to_string_lossy().into_owned())
         }
     }
 
@@ -263,11 +296,15 @@ mod imp {
 }
 
 #[cfg(target_os = "macos")]
-pub use imp::{changed_dirs_since, current_id};
+pub use imp::{changed_dirs_since, current_id, device_uuid};
 
 #[cfg(not(target_os = "macos"))]
 pub fn current_id() -> u64 {
     0
+}
+#[cfg(not(target_os = "macos"))]
+pub fn device_uuid(_dev: u64) -> Option<String> {
+    None
 }
 #[cfg(not(target_os = "macos"))]
 pub fn changed_dirs_since(
@@ -277,4 +314,21 @@ pub fn changed_dirs_since(
     _cutoff: std::time::Duration,
 ) -> Option<Vec<Vec<u8>>> {
     None
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod tests {
+    use super::*;
+    use std::os::unix::fs::MetadataExt;
+
+    #[test]
+    fn the_event_log_has_an_id_and_the_root_device_a_database() {
+        let a = current_id();
+        assert!(a > 0);
+        assert!(current_id() >= a, "ids only grow");
+        let dev = std::fs::metadata(std::env::temp_dir()).unwrap().dev() as u64;
+        let uuid = device_uuid(dev).expect("the temp directory's device has an event database");
+        assert_eq!(uuid.len(), 36, "{uuid}");
+        assert_eq!(device_uuid(dev).as_deref(), Some(uuid.as_str()), "stable");
+    }
 }

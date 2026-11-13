@@ -162,6 +162,7 @@ fn layout_digest(t: &Tmp) -> String {
         "phase2_ms",
         "peak_rss",
         "fsevents_id",
+        "fsevents_uuid",
         "verified_unix_ms",
         "ignore_inputs",
         "resolver_inputs",
