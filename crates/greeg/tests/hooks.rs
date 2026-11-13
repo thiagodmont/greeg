@@ -398,7 +398,7 @@ fn kept_redirections_reach_the_rewritten_search() {
     assert_eq!((code, stdout.as_str()), (Some(0), "none\n"));
 }
 
-/// On a tree with no ignored or hidden files, a rewritten `grep -r` finds the
+/// On a tree with no ignored files, a rewritten `grep -r` finds the
 /// lines grep finds.
 #[test]
 fn rewritten_greps_find_the_lines_grep_finds() {
@@ -415,6 +415,10 @@ fn rewritten_greps_find_the_lines_grep_finds() {
         "def foo():\n    return 42\nclass Bar:\n",
     )
     .unwrap();
+    // hidden files, which grep searches
+    fs::write(tree.join(".env"), "foo=1\n").unwrap();
+    fs::create_dir_all(tree.join(".github/workflows")).unwrap();
+    fs::write(tree.join(".github/workflows/ci.yml"), "run: foo bar\n").unwrap();
     // every `path:line:text` record, duplicates kept; greeg ranks, grep walks
     let lines = |out: &[u8]| -> Vec<String> {
         let mut v: Vec<String> = String::from_utf8_lossy(out)
@@ -546,9 +550,10 @@ fn readers_of_a_rewritten_grep_get_grep_s_lines() {
     );
 }
 
-/// A rewritten `grep -r` picks files as rg does, and says so: ignored,
-/// hidden and binary files are skipped; a glob that names files brings back
-/// the ignored and hidden ones it names, not those under such directories.
+/// A rewritten `grep -r` searches hidden files, as grep does, but not VCS
+/// data; it skips ignored and binary files, as rg does, and says so. A glob
+/// that names files brings back the ignored ones it names, not those under
+/// ignored directories.
 #[test]
 fn rewritten_greps_skip_what_rg_skips_and_say_so() {
     let f = Fixture::new();
@@ -559,6 +564,7 @@ fn rewritten_greps_skip_what_rg_skips_and_say_so() {
         fs::write(tree.join(name), "needle\n").unwrap();
     }
     fs::write(tree.join("bin.rs"), b"needle\0rest\n").unwrap();
+    fs::write(tree.join(".git/needle.rs"), "needle\n").unwrap();
     let run = |command: &str| {
         let rewritten = f.rewrite("claude", command);
         let args = rewritten.strip_prefix("greeg ").unwrap();
@@ -577,19 +583,26 @@ fn rewritten_greps_skip_what_rg_skips_and_say_so() {
         (files, String::from_utf8_lossy(&out.stderr).into_owned())
     };
     let (files, stderr) = run("grep -rl needle .");
-    assert_eq!(files, ["file.rs"], "{stderr}");
+    assert_eq!(files, [".h.rs", ".hid/d.rs", "file.rs"], "{stderr}");
     assert!(
-        stderr.starts_with(
-            "greeg: grep -r ran as greeg: ignored, hidden and binary files are skipped"
-        ),
+        stderr.starts_with("greeg: grep -r ran as greeg: ignored files, binary files and VCS data such as .git/ are skipped"),
         "{stderr}"
     );
     let (files, stderr) = run("grep -rl --include='*.rs' needle .");
-    assert_eq!(files, [".h.rs", "file.rs", "gen.rs"], "{stderr}");
-    assert!(
-        stderr.starts_with("greeg: grep -r ran as greeg: ignored and hidden directories and binary files are skipped"),
+    assert_eq!(
+        files,
+        [".h.rs", ".hid/d.rs", "file.rs", "gen.rs"],
         "{stderr}"
     );
+    assert!(
+        stderr.starts_with(
+            "greeg: grep -r ran as greeg: ignored directories, binary files and VCS data such as .git/ are skipped"
+        ),
+        "{stderr}"
+    );
+    // a path inside VCS data is left to grep
+    let out = f.hook("claude", "grep -rn needle .git", false);
+    assert!(out.status.success() && out.stdout.is_empty(), "{out:?}");
 }
 
 #[test]

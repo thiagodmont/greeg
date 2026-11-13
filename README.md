@@ -105,9 +105,9 @@ greeg hook codex        # Codex 0.131+  (then run /hooks in Codex to trust it)
 This installs a hook and a skill file. The agent keeps writing `rg` or
 `grep -r`; the hook sends those searches to greeg (also inside `;`/`&&`
 lists, before `| head`, and a `grep -rn` or `grep -rl` before other readers such as `| sort`), and the skill teaches the agent greeg's symbol commands. **You don't
-change how you prompt.** A rewritten `grep -r` picks files as rg does: it
-skips ignored, hidden and binary files, which grep searches, and says so on
-stderr. Commands the hook can't translate exactly (most pipelines,
+change how you prompt.** A rewritten `grep -r` searches hidden files, as grep
+does, but not version-control data (`.git/` and the like); it skips ignored
+and binary files, which grep searches, and says so on stderr. Commands the hook can't translate exactly (most pipelines,
 redirections, grep without `-r`, …) run with the original tool, and so does
 every search while a nonempty `RIPGREP_CONFIG_PATH` is set;
 `greeg hook explain 'grep -rn foo src'` shows what it would do.

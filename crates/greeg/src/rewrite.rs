@@ -453,8 +453,9 @@ fn rewrite_rg(words: &[String]) -> Result<Vec<String>, String> {
 
 /// A recursive grep (`grep -r`, with GNU's long flags) as greeg: the pattern
 /// translated from POSIX syntax, `--include`/`--exclude`/`--exclude-dir` as
-/// globs. Ignore rules apply, as in rg; greeg says so on stderr
-/// (`--from-grep`). Flags with no exact greeg meaning decline.
+/// globs. Hidden files are searched and VCS directories left out, as the
+/// agents' grep does; ignore rules apply, as in rg, and greeg says so on
+/// stderr (`--from-grep`). Flags with no exact greeg meaning decline.
 fn rewrite_grep(words: &[String]) -> Result<GrepRewrite, String> {
     // grep refuses two different matchers (`-E -F`, `egrep -F`)
     let mut matcher = match words[0].as_str() {
@@ -610,6 +611,14 @@ fn rewrite_grep(words: &[String]) -> Result<GrepRewrite, String> {
             positional.remove(0)
         }
     };
+    if let Some(w) = positional
+        .iter()
+        .find(|w| w.split('/').any(|c| VCS_DIRS.contains(&c)))
+    {
+        return Err(format!(
+            "`{w}` is version-control data, which a rewrite leaves out"
+        ));
+    }
     let listed = flags.iter().any(|f| f == "-l");
     let reader = if !numbered && !listed {
         Err("greeg numbers the lines grep prints without -n".to_string())
@@ -639,14 +648,20 @@ fn rewrite_grep(words: &[String]) -> Result<GrepRewrite, String> {
             pattern
         }
     };
-    let mut all = vec!["--from-grep".to_string()];
+    // grep searches hidden files, as the agents' own grep does, but not VCS data
+    let mut all = vec!["--from-grep".to_string(), "--hidden".to_string()];
     all.extend(flags);
-    // grep's exclusions win whatever their order; a later glob wins in greeg
-    for g in include.into_iter().chain(exclude) {
+    // grep's exclusions win whatever their order, and the VCS directories
+    // win over both; a later glob wins in greeg
+    let vcs = VCS_DIRS.iter().map(|d| format!("!{d}/"));
+    for g in include.into_iter().chain(exclude).chain(vcs) {
         all.extend(["-g".to_string(), g]);
     }
     Ok((greeg_words(all, pattern, positional, None)?, regex, reader))
 }
+
+/// Version-control directories a rewritten `grep -r` leaves out.
+const VCS_DIRS: [&str; 6] = [".git", ".svn", ".hg", ".bzr", ".jj", ".sl"];
 
 /// A recursive grep's greeg words, its translated regex, and whether its
 /// lines can go to another reader (with the lone operand to check).
@@ -1125,10 +1140,7 @@ pub fn rewrite_full(cmd: &str) -> Result<Rewrite, String> {
                 "2>> /dev/null",
             ];
             if p.original[0] != "rg" && quiet.iter().any(|r| redirections.contains(r)) {
-                return Err(
-                    "`2>/dev/null` would hide that greeg skips ignored, hidden and binary files"
-                        .into(),
-                );
+                return Err("`2>/dev/null` would hide greeg's note on the files it skips".into());
             }
             Ok(p)
         })
@@ -1286,40 +1298,41 @@ mod tests {
 
     #[test]
     fn recursive_greps_become_greeg_searches() {
-        let g = "greeg --matching exact --max-filesize 18446744073709551615 --from-grep";
+        let g = "greeg --matching exact --max-filesize 18446744073709551615 --from-grep --hidden";
+        let v = "-g '!.git/' -g '!.svn/' -g '!.hg/' -g '!.bzr/' -g '!.jj/' -g '!.sl/'";
         for (cmd, want) in [
-            ("grep -rn needle .", format!("{g} -- needle .")),
+            ("grep -rn needle .", format!("{g} {v} -- needle .")),
             (
                 "grep -rn 'fn \\|struct ' src",
-                format!("{g} -- 'fn |struct ' src"),
+                format!("{g} {v} -- 'fn |struct ' src"),
             ),
             // with no file operand grep -r searches the working directory
-            ("grep -rniw Foo", format!("{g} -i -w -- Foo .")),
+            ("grep -rniw Foo", format!("{g} -i -w {v} -- Foo .")),
             (
                 "grep -rl needle src lib",
-                format!("{g} -l -- needle src lib"),
+                format!("{g} -l {v} -- needle src lib"),
             ),
-            ("grep -rnE 'a+b' .", format!("{g} -- a+b .")),
-            ("egrep -r 'a|b' .", format!("{g} -- 'a|b' .")),
-            ("grep -rF 'a.b(' .", format!("{g} -F -- 'a.b(' .")),
-            ("fgrep -r x .", format!("{g} -F -- x .")),
-            ("grep -rn -A 3 -B2 x .", format!("{g} -A 3 -B 2 -- x .")),
+            ("grep -rnE 'a+b' .", format!("{g} {v} -- a+b .")),
+            ("egrep -r 'a|b' .", format!("{g} {v} -- 'a|b' .")),
+            ("grep -rF 'a.b(' .", format!("{g} -F {v} -- 'a.b(' .")),
+            ("fgrep -r x .", format!("{g} -F {v} -- x .")),
+            ("grep -rn -A 3 -B2 x .", format!("{g} -A 3 -B 2 {v} -- x .")),
             (
                 "grep -r --include=*.rs --exclude-dir=target x .",
-                format!("{g} -g '*.rs' -g '!target/' -- x ."),
+                format!("{g} -g '*.rs' -g '!target/' {v} -- x ."),
             ),
             (
                 "grep -r --exclude='*.lock' --include '*.ts' x",
-                format!("{g} -g '*.ts' -g '!*.lock' -- x ."),
+                format!("{g} -g '*.ts' -g '!*.lock' {v} -- x ."),
             ),
-            ("grep -rn -e -dash .", format!("{g} -- -dash .")),
-            ("grep -rn def .", format!("{g} -- def .")),
-            ("grep -rIH --color=never x .", format!("{g} -- x .")),
-            ("grep -r --colour x .", format!("{g} -- x .")),
-            ("grep -rE -E x .", format!("{g} -- x .")),
+            ("grep -rn -e -dash .", format!("{g} {v} -- -dash .")),
+            ("grep -rn def .", format!("{g} {v} -- def .")),
+            ("grep -rIH --color=never x .", format!("{g} {v} -- x .")),
+            ("grep -r --colour x .", format!("{g} {v} -- x .")),
+            ("grep -rE -E x .", format!("{g} {v} -- x .")),
             (
                 "grep --recursive --ignore-case --files-with-matches x .",
-                format!("{g} -i -l -- x ."),
+                format!("{g} -i -l {v} -- x ."),
             ),
         ] {
             let r = rewrite_full(cmd).unwrap_or_else(|e| panic!("{cmd:?}: {e}"));
@@ -1353,6 +1366,7 @@ mod tests {
             ("grep -r --color=bogus x .", "not a color mode"),
             ("grep -rs x .", "would hide greeg's note"),
             ("grep -r --no-messages x .", "would hide greeg's note"),
+            ("grep -rn x . 2>/dev/null", "would hide greeg's note"),
         ] {
             let got = rewrite_full(cmd).err().unwrap_or_default();
             assert!(got.contains(why), "{cmd:?}: {got:?}");
