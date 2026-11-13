@@ -22,7 +22,7 @@ binaries. A manual run of the ci workflow with the
 `macos` input runs it on demand. The nightly workflow adds the large-corpus
 benchmarks, the accuracy oracle and a randomized soak
 (`bench/soak.py MINUTES GREEG CORPUS… --seed SEED`); its schedule is off, so
-it runs only when started from the Actions tab.
+it runs only when dispatched by hand.
 
 The dependencies workflow (pull requests, `main`, weekly) runs
 `cargo deny --locked check advisories licenses sources` against `deny.toml`, in

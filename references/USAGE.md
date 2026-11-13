@@ -345,7 +345,7 @@ breakdowns and build-to-build comparisons.
 
 | Variable | Effect | Default |
 |---|---|---|
-| `GREEG_BUDGET` | output budget for runs without `--budget`: a level name or a token count | the level `greeg budget` saved, else 2000 |
+| `GREEG_BUDGET` | token budget of ranked searches and symbol verbs run without `--budget`: a level name or a token count (`-l`, `-c` and `--json=rg` are never budgeted) | the level `greeg budget` saved, else 2000 |
 | `GREEG_CONFIG_DIR` | directory of `config.toml` (saved budget, statistics switch) | `~/.config/greeg` |
 | `GREEG_INDEX_DIR` | directory for this repository's index and sessions, as `--index-dir` | under the cache directory, one per repository |
 | `GREEG_LANG_DIR` | directory of the extra languages | `~/.config/greeg/lang` |
@@ -353,10 +353,12 @@ breakdowns and build-to-build comparisons.
 | `GREEG_SESSION` | session id, as `--session`; empty means unset | the agent's parent process |
 | `GREEG_STATS` | `1` or `0` turns statistics on or off for one shell, over the config file | the config file, else off |
 | `GREEG_STATS_DIR` | directory of the statistics records | `stats/` under the cache directory |
-| `GREEG_BUILD_BUDGET_MB` | memory an index build's postings may hold before they spill to disk, in MiB | 192 |
+| `GREEG_BUILD_BUDGET_MB` | size the postings an index build buffers may reach before they spill to disk, in MiB; not a limit on the build's memory | 192 |
 | `GREEG_BUILD_BLOCK_KIB` | size of an index component's verified blocks, in KiB | 16 |
 
-`GREEG_INDEX_DIR` holds one repository's index: give each repository its own.
+`GREEG_INDEX_DIR` holds one repository's index. Two repositories that share
+it still get correct answers, but each rebuilds the index over the other's
+and scans meanwhile: give each repository its own.
 Variables starting with `GREEG_DEBUG` exist for greeg's tests; they inject
 faults or print internals, and can change between releases.
 
