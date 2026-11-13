@@ -1,0 +1,32 @@
+references/USAGE.md
+  s_d1affe6bf8021e::t_e209fa9a790c5f 356-357
+  s_d1affe6bf8021e::t_6c537d04419c2c 189-191
+  s_d1affe6bf8021e::t_c9795737c8a2a0 192-193
+  s_d1affe6bf8021e::t_39cf020789d5ee 206
+  s_d1affe6bf8021e::t_0a68fdec79d500 344-355,358-362
+README.md
+  s_d1affe6bf8021e::t_a26038a6c31e1d 67-68
+  s_d1affe6bf8021e::t_9f7e344cced89c 171-173
+  s_d1affe6bf8021e::t_6c371cbec65a3e 209
+references/DEVELOPMENT.md
+  s_d1affe6bf8021e::t_0f3c2ed541cde1 5-7,24-25
+references/ARCHITECTURE.md
+  s_d1affe6bf8021e::t_82156ade7a2b6b 976-980
+  s_d1affe6bf8021e::t_48ade5b40edbb7 740-746
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "ff2a1d1e87f653bc6c97f6d933f18ecf9ddec1fa",
+  "prompts": {},
+  "sessions": {
+    "s_d1affe6bf8021e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9f35d094-2dfc-48c8-a346-85f6d65b0c73",
+        "model": "claude-fable-5-2"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
