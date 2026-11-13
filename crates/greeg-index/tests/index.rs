@@ -742,17 +742,16 @@ fn a_stamp_from_the_future_is_not_trusted() {
     assert_eq!(ch.added.len(), 1);
 }
 
-/// A directory listed within its racy window is listed again by every check,
-/// until a listing comes late enough for its stamp to be trusted.
+/// A directory whose stamp changed is listed again, and once a listing
+/// comes late enough for its stamp to be trusted, no more. An mtime set
+/// ahead of the clock does not keep it listed.
 #[test]
-fn a_directory_listed_too_soon_is_listed_again() {
+fn a_directory_is_listed_again_until_its_stamp_is_trusted() {
     use std::time::{Duration, SystemTime};
     let t = tree();
     let lib = t.root.join("lib");
     let set_mtime = |at: SystemTime| fs::File::open(&lib).unwrap().set_modified(at).unwrap();
     settle(&lib);
-    // an mtime ahead of the clock: every listing comes too soon after it
-    set_mtime(SystemTime::now() + Duration::from_secs(10));
     build(&t.root, &t.dir, &opts()).unwrap();
     let relisted = || -> Vec<String> {
         let idx = Index::open(&t.dir).unwrap();
@@ -763,12 +762,15 @@ fn a_directory_listed_too_soon_is_listed_again() {
             .map(|d| String::from_utf8_lossy(&d.rel).into_owned())
             .collect()
     };
-    assert_eq!(relisted(), ["lib"], "unchanged, but listed too soon");
-    assert_eq!(relisted(), ["lib"]);
-    set_mtime(SystemTime::now() - Duration::from_secs(10));
-    settle(&lib);
-    assert_eq!(relisted(), ["lib"], "its stamp changed");
-    assert!(relisted().is_empty(), "listed late enough: trusted");
+    for at in [
+        SystemTime::now() + Duration::from_secs(10),
+        SystemTime::now() - Duration::from_secs(10),
+    ] {
+        set_mtime(at);
+        settle(&lib);
+        assert_eq!(relisted(), ["lib"], "its stamp changed");
+        assert!(relisted().is_empty(), "listed late enough: trusted");
+    }
 }
 
 /// Files a check cannot stat for a reason other than "not found" are not
@@ -801,6 +803,35 @@ fn a_stat_error_other_than_not_found_is_no_deletion() {
     let after = greeg_index::read_manifest(&t.dir).unwrap();
     assert_eq!(after.snapshot(), before.snapshot());
     assert_eq!(after.verified_unix_ms, before.verified_unix_ms);
+}
+
+/// A file and a directory stamped a day ahead (`touch -t`, an unpacked
+/// archive) are trusted once their ctime is: no check re-extracts them, and
+/// an edit is still seen.
+#[test]
+fn a_stamp_set_in_the_future_is_no_change_on_every_check() {
+    let t = tree();
+    let ahead = std::time::SystemTime::now() + std::time::Duration::from_secs(86_400);
+    let file = t.root.join("src/ahead.rs");
+    fs::write(&file, "fn ahead() {}\n").unwrap();
+    for p in [&file, &t.root.join("lib")] {
+        fs::File::open(p).unwrap().set_modified(ahead).unwrap();
+    }
+    settle(&t.root);
+    build(&t.root, &t.dir, &opts()).unwrap();
+    for _ in 0..3 {
+        let idx = Index::open(&t.dir).unwrap();
+        let ch = check(&idx, &t.root);
+        assert!(
+            ch.modified.is_empty() && ch.touched_dirs.is_empty(),
+            "{ch:?}"
+        );
+        fresh::apply(&idx, &t.root, &ch).unwrap();
+    }
+    assert_eq!(read_manifest(&t.dir).unwrap().deltas, 0);
+    fs::write(&file, "fn behind() {}\n").unwrap();
+    let ch = check(&Index::open(&t.dir).unwrap(), &t.root);
+    assert_eq!(ch.modified.len(), 1, "{ch:?}");
 }
 
 /// A directory the build could not list is no change while it stays so, and
