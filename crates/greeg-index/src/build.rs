@@ -221,7 +221,80 @@ pub(crate) fn walker_noting(path: &Path, noted: Option<Noted>) -> ignore::WalkBu
 /// Walk `root` with the same ignore semantics as scan mode; returns files and
 /// directories sorted by relative path, with the file's dir index resolved.
 pub fn walk(root: &Path) -> Result<(Vec<WalkedFile>, Vec<WalkedDir>)> {
-    walk_noting(root, None)
+    walk_noting(root, None).map(|(files, dirs, _)| (files, dirs))
+}
+
+/// Out of descriptors or memory: what is read then is not what is there.
+pub(crate) fn exhausted(e: &std::io::Error) -> bool {
+    e.kind() == std::io::ErrorKind::OutOfMemory
+        || matches!(
+            e.raw_os_error(),
+            Some(libc::EMFILE | libc::ENFILE | libc::ENOMEM)
+        )
+}
+
+/// What a walk below `root` could not read: the directories to list again
+/// (`UNKNOWN` in the skipped record), whether it ran out of resources, and
+/// whether an error named no path, so what it missed is unknown.
+#[derive(Default)]
+pub(crate) struct WalkErrors {
+    pub unlisted: Unlisted,
+    pub exhausted: bool,
+    pub unplaced: bool,
+}
+
+impl WalkErrors {
+    /// The walk may have missed files it cannot name: a build must not
+    /// publish it, nor a check its changes.
+    pub(crate) fn lost(&self) -> bool {
+        self.exhausted || self.unplaced
+    }
+
+    /// An error the walk that started at `start` yielded: for a directory
+    /// it could not list, or an ignore file it could not read in one.
+    pub(crate) fn note(&mut self, root: &Path, start: &Path, e: &ignore::Error) {
+        fn leaves<'a>(
+            e: &'a ignore::Error,
+            path: Option<&'a Path>,
+            f: &mut dyn FnMut(Option<&'a Path>, &'a ignore::Error),
+        ) {
+            match e {
+                ignore::Error::Partial(es) => es.iter().for_each(|x| leaves(x, path, f)),
+                ignore::Error::WithPath { path, err } => leaves(err, Some(path), f),
+                ignore::Error::WithDepth { err, .. }
+                | ignore::Error::WithLineNumber { err, .. } => leaves(err, path, f),
+                _ => f(path, e),
+            }
+        }
+        leaves(e, None, &mut |path, leaf| {
+            let Some(io) = leaf.io_error() else { return };
+            if exhausted(io) {
+                self.exhausted = true;
+            }
+            // an error partway through a listing names no directory
+            let Some(path) = path else {
+                self.unplaced = true;
+                return;
+            };
+            // ignore inputs outside the walk are tracked by their digest
+            if !path.starts_with(start) {
+                return;
+            }
+            let mut rel = crate::rel::of(root, path);
+            if is_ignore_file(&rel) {
+                rel = crate::rel::parent(&rel).to_vec();
+            }
+            self.unlisted.insert(rel);
+        });
+    }
+
+    /// An entry at `path` whose metadata could not be read: its directory is
+    /// listed again.
+    pub(crate) fn note_entry(&mut self, root: &Path, path: &Path, e: &std::io::Error) {
+        self.exhausted |= exhausted(e);
+        let rel = crate::rel::of(root, path);
+        self.unlisted.insert(crate::rel::parent(&rel).to_vec());
+    }
 }
 
 /// `walk` that also lists what it skipped inside the directories it walked.
@@ -235,7 +308,7 @@ pub fn walk_with_skipped(
     std::thread::JoinHandle<Skipped>,
 )> {
     let noted = Noted::default();
-    let (files, dirs) = walk_noting(root, Some(noted.clone()))?;
+    let (files, dirs, unlisted) = walk_noting(root, Some(noted.clone()))?;
     let noted: Vec<Vec<u8>> = noted
         .lock()
         .unwrap()
@@ -253,15 +326,27 @@ pub fn walk_with_skipped(
         let hidden: HashSet<&[u8]> = noted.iter().map(Vec::as_slice).collect();
         let dirs: Vec<&[u8]> = kept[n_files..].iter().map(Vec::as_slice).collect();
         let kept: HashSet<&[u8]> = kept.iter().map(Vec::as_slice).collect();
+        let unlisted: HashSet<&[u8]> = unlisted.iter().map(Vec::as_slice).collect();
         let mut skipped = Skipped::default();
-        skipped.update(&crate::skipped::list(&root, &dirs, &kept, &hidden));
+        skipped.update(&crate::skipped::list(
+            &root, &dirs, &kept, &hidden, &unlisted,
+        ));
         skipped
     });
     Ok((files, dirs, listing))
 }
 
-fn walk_noting(root: &Path, noted: Option<Noted>) -> Result<(Vec<WalkedFile>, Vec<WalkedDir>)> {
+/// Directories a walk could not list, relative to its root.
+type Unlisted = HashSet<Vec<u8>>;
+
+/// The walk, and the directories it could not list. Running out of
+/// descriptors or memory fails it: the files it misses would look ignored.
+fn walk_noting(
+    root: &Path,
+    noted: Option<Noted>,
+) -> Result<(Vec<WalkedFile>, Vec<WalkedDir>, Unlisted)> {
     type Files = Vec<(Vec<u8>, Stamp)>;
+    let errors: Mutex<WalkErrors> = Mutex::default();
     let out: Mutex<(Files, Vec<WalkedDir>)> =
         Mutex::new((Vec::with_capacity(4096), Vec::with_capacity(512)));
     struct Local<'a> {
@@ -282,6 +367,7 @@ fn walk_noting(root: &Path, noted: Option<Noted>) -> Result<(Vec<WalkedFile>, Ve
         }
     }
     let wb = walker_noting(root, noted).build_parallel();
+    let errors_ref = &errors;
     wb.run(|| {
         let mut local = Local {
             f: Vec::new(),
@@ -289,12 +375,22 @@ fn walk_noting(root: &Path, noted: Option<Noted>) -> Result<(Vec<WalkedFile>, Ve
             out: &out,
         };
         Box::new(move |entry| {
-            let Ok(e) = entry else {
-                return ignore::WalkState::Continue;
+            let e = match entry {
+                Ok(e) => e,
+                Err(err) => {
+                    errors_ref.lock().unwrap().note(root, root, &err);
+                    return ignore::WalkState::Continue;
+                }
             };
             let rel = crate::rel::of(root, e.path());
-            let Ok(md) = e.metadata() else {
-                return ignore::WalkState::Continue;
+            let md = match e.metadata() {
+                Ok(md) => md,
+                Err(err) => {
+                    if let Some(io) = err.io_error() {
+                        errors_ref.lock().unwrap().note_entry(root, e.path(), io);
+                    }
+                    return ignore::WalkState::Continue;
+                }
             };
             match e.file_type() {
                 Some(t) if t.is_dir() => local.d.push(WalkedDir {
@@ -310,6 +406,19 @@ fn walk_noting(root: &Path, noted: Option<Noted>) -> Result<(Vec<WalkedFile>, Ve
             ignore::WalkState::Continue
         })
     });
+    let errors = errors.into_inner().unwrap();
+    if errors.exhausted {
+        bail!(
+            "ran out of open files or memory while walking {}: an index would miss files; raise the limit (`ulimit -n`) and retry",
+            root.display()
+        );
+    }
+    if errors.unplaced {
+        bail!(
+            "a directory under {} could not be read to the end: an index would miss files",
+            root.display()
+        );
+    }
     let (mut files, mut dirs) = out.into_inner().unwrap();
     files.sort_by(|a, b| a.0.cmp(&b.0));
     dirs.sort_by(|a, b| a.rel.cmp(&b.rel));
@@ -327,7 +436,7 @@ fn walk_noting(root: &Path, noted: Option<Noted>) -> Result<(Vec<WalkedFile>, Ve
             })
             .collect()
     };
-    Ok((files, dirs))
+    Ok((files, dirs, errors.unlisted))
 }
 
 /// Per-file extraction record.
@@ -336,6 +445,42 @@ pub struct Extracted {
     pub grams: Vec<u32>,
     /// What the read saw; `None` when the file was not read.
     pub read: Option<Capture>,
+    /// Why a read failed, when one did.
+    pub unread: Option<Unread>,
+}
+
+const EXHAUSTED_READ: &str = "ran out of open files or memory while reading the tree: an index would miss files; raise the limit (`ulimit -n`) and retry";
+
+/// Why a file the walk saw could not be read.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Unread {
+    /// As it is (gone, no permission, not a regular file): a scan skips it too.
+    Skipped,
+    /// A failure that may pass (`EIO`, `ESTALE`): the next check reads it again.
+    Retry,
+    /// Out of descriptors or memory: a build fails rather than publish.
+    Exhausted,
+}
+
+impl Unread {
+    fn of(e: &std::io::Error) -> Unread {
+        if exhausted(e) {
+            return Unread::Exhausted;
+        }
+        match e.raw_os_error() {
+            None => Unread::Skipped,
+            Some(
+                libc::ENOENT
+                | libc::ENOTDIR
+                | libc::ELOOP
+                | libc::EACCES
+                | libc::EPERM
+                | libc::EISDIR
+                | libc::ENXIO,
+            ) => Unread::Skipped,
+            Some(_) => Unread::Retry,
+        }
+    }
 }
 
 /// The stamp of a file as it was read: taken from the open descriptor before
@@ -361,25 +506,40 @@ fn read_hook(tree: &Tree, rel: &[u8]) {
     }
 }
 
+/// A read failure tests inject, by the file's name.
+#[cfg(test)]
+fn read_failure(rel: &[u8]) -> Option<std::io::Error> {
+    let raw = match crate::rel::file_name(rel) {
+        b"eio-read.txt" => libc::EIO,
+        b"emfile-read.txt" => libc::EMFILE,
+        _ => return None,
+    };
+    Some(std::io::Error::from_raw_os_error(raw))
+}
+
 /// Read `rel` (at most `MAX_FILE + 1` bytes) into `buf`, sized from the
 /// walk's size so the read needs one allocation and no probing.
-fn read_file(tree: &Tree, rel: &[u8], walk: &Stamp, buf: &mut Vec<u8>) -> Option<Capture> {
+fn read_file(tree: &Tree, rel: &[u8], walk: &Stamp, buf: &mut Vec<u8>) -> std::io::Result<Capture> {
     use std::io::Read;
     buf.clear();
     buf.reserve((walk.size as usize).min(MAX_FILE as usize + 1) + 1);
-    let f = tree.open_file(rel).ok()?;
+    #[cfg(test)]
+    if let Some(e) = read_failure(rel) {
+        return Err(e);
+    }
+    let f = tree.open_file(rel)?;
     let started = now_ns();
-    let before = Stamp::of(&f.metadata().ok()?);
-    (&f).take(MAX_FILE + 1).read_to_end(buf).ok()?;
+    let before = Stamp::of(&f.metadata()?);
+    (&f).take(MAX_FILE + 1).read_to_end(buf)?;
     #[cfg(test)]
     read_hook(tree, rel);
-    let after = Stamp::of(&f.metadata().ok()?);
+    let after = Stamp::of(&f.metadata()?);
     // the inode is compared only on the one descriptor: a path's stat and a
     // descriptor's can disagree on it where inode numbers are not kept, and
     // a replacement since the walk moves the ctime anyway
     let changed = !before.same(&after, false) || !before.same(walk, true);
     let racy = !changed && before.racy(started);
-    Some(Capture {
+    Ok(Capture {
         stamp: before,
         changed,
         racy: racy.then(|| blake3::hash(buf)),
@@ -388,11 +548,17 @@ fn read_file(tree: &Tree, rel: &[u8], walk: &Stamp, buf: &mut Vec<u8>) -> Option
 
 /// The stamp and `STAMP_*` flags to record for a file the walk saw as
 /// `walk`. A file that was not read keeps the walk's stamp, checked against
-/// `walked_ns`, a time no later than the walk's stat.
-pub(crate) fn recorded(walk: &Stamp, read: Option<&Capture>, walked_ns: i64) -> (Stamp, u8) {
+/// `walked_ns`, a time no later than the walk's stat, and is read again by
+/// the next check when its read may yet succeed.
+pub(crate) fn recorded(
+    walk: &Stamp,
+    read: Option<&Capture>,
+    unread: Option<Unread>,
+    walked_ns: i64,
+) -> (Stamp, u8) {
     let (stamp, recheck) = match read {
         Some(c) => (c.stamp, c.changed || c.racy.is_some()),
-        None => (*walk, walk.racy(walked_ns)),
+        None => (*walk, unread == Some(Unread::Retry) || walk.racy(walked_ns)),
     };
     (stamp, if recheck { format::STAMP_RECHECK } else { 0 })
 }
@@ -502,18 +668,23 @@ fn extract_file_with<T: Default>(
                 flags,
                 grams: Vec::new(),
                 read: None,
+                unread: None,
             },
             T::default(),
         );
     }
     // ignore files are read only for their stamp: they are never searched
-    let read = read_file(tree, rel, walk, buf);
+    let (read, unread) = match read_file(tree, rel, walk, buf) {
+        Ok(c) => (Some(c), None),
+        Err(e) => (None, Some(Unread::of(&e))),
+    };
     if read.is_none() || is_ignore_file(rel) {
         return (
             Extracted {
                 flags,
                 grams: Vec::new(),
                 read,
+                unread,
             },
             T::default(),
         );
@@ -527,6 +698,7 @@ fn extract_file_with<T: Default>(
                 flags,
                 grams: Vec::new(),
                 read,
+                unread: None,
             },
             T::default(),
         );
@@ -539,6 +711,7 @@ fn extract_file_with<T: Default>(
             flags,
             grams: std::mem::take(grams),
             read,
+            unread: None,
         },
         t,
     )
@@ -672,7 +845,7 @@ pub fn build(root: &Path, dir: &Path, opts: &BuildOpts) -> Result<Manifest> {
         .num_threads(opts.reader_threads)
         .build()?;
     let source_bytes = std::sync::atomic::AtomicU64::new(0);
-    type Flags = Vec<(u32, u16, Option<Capture>)>;
+    type Flags = Vec<(u32, u16, Option<Capture>, Option<Unread>)>;
     // Postings accumulate against a byte budget shared across the workers and
     // spill to sorted segments when it is reached (`external.rs`, which
     // carries the measurements). A tree that never reaches it never spills
@@ -725,7 +898,10 @@ pub fn build(root: &Path, dir: &Path, opts: &BuildOpts) -> Result<Manifest> {
                         sink.push(&g, id);
                     }
                     grams = ex.grams;
-                    fl.push((id, ex.flags.0, ex.read));
+                    if ex.unread == Some(Unread::Exhausted) {
+                        bail!(EXHAUSTED_READ);
+                    }
+                    fl.push((id, ex.flags.0, ex.read, ex.unread));
                     // only ever between files: a file's postings must not be
                     // split across a spill, or the per-file dedup breaks
                     sink.spill_if_full()?;
@@ -764,9 +940,9 @@ pub fn build(root: &Path, dir: &Path, opts: &BuildOpts) -> Result<Manifest> {
     // file table
     let mut ft = FileTable::default();
     let mut flags_sorted = flags_by_id;
-    flags_sorted.sort_unstable_by_key(|(id, _, _)| *id);
+    flags_sorted.sort_unstable_by_key(|(id, _, _, _)| *id);
     let mut again = Vec::new();
-    for (id, _, c) in &mut flags_sorted {
+    for (id, _, c, _) in &mut flags_sorted {
         if let Some(c) = c {
             settle_racy(
                 &tree,
@@ -779,17 +955,17 @@ pub fn build(root: &Path, dir: &Path, opts: &BuildOpts) -> Result<Manifest> {
     }
     for (i, w) in walked.iter().enumerate() {
         let at = ft.intern(&w.rel);
-        let (flags, read) = flags_sorted
+        let (flags, read, unread) = flags_sorted
             .get(i)
-            .map(|(_, f, r)| (*f, r.as_ref()))
-            .unwrap_or((0, None));
+            .map(|(_, f, r, u)| (*f, r.as_ref(), *u))
+            .unwrap_or((0, None, None));
         let rec = file_rec(
             at,
             &w.rel,
             w.dir,
             flags,
             0,
-            recorded(&w.stamp, read, walked_ns),
+            recorded(&w.stamp, read, unread, walked_ns),
         );
         ft.push_file(&w.rel, rec);
     }
@@ -970,7 +1146,7 @@ fn extract_symbols_within(
     buf: &mut Vec<u8>,
     budget: Option<&ParseBudget>,
 ) -> (Option<FileExtract>, bool) {
-    let Some(read) = read_file(tree, rel, recorded, buf) else {
+    let Ok(read) = read_file(tree, rel, recorded, buf) else {
         return (None, true);
     };
     let recheck = read.changed || read.racy.is_some();
@@ -1335,6 +1511,9 @@ pub fn build_delta(
         ranks.push(rank);
         sb.add_file(i as u32, fx.as_ref());
         extracts.push(fx);
+        if ex.unread == Some(Unread::Exhausted) {
+            bail!(EXHAUSTED_READ);
+        }
         let mut read = ex.read;
         if let Some(c) = &mut read {
             settle_racy(&tree, &w.rel, c, DELTA_RACY_WAIT, &mut again);
@@ -1346,7 +1525,7 @@ pub fn build_delta(
             w.dir,
             flags,
             rank,
-            recorded(&w.stamp, read.as_ref(), started_ns),
+            recorded(&w.stamp, read.as_ref(), ex.unread, started_ns),
         );
         ft.push_file(&w.rel, rec);
     }
@@ -1753,6 +1932,86 @@ mod tests {
                 .unwrap()
                 .changed
         );
+        let _ = fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn walk_errors_name_the_directory_and_tell_exhaustion_apart() {
+        let root = Path::new("/r");
+        let at = |path: &str, raw: i32| ignore::Error::WithPath {
+            path: PathBuf::from(path),
+            err: Box::new(ignore::Error::Io(std::io::Error::from_raw_os_error(raw))),
+        };
+        let mut e = WalkErrors::default();
+        let deep = ignore::Error::WithDepth {
+            depth: 2,
+            err: Box::new(at("/r/a/b", libc::EACCES)),
+        };
+        e.note(root, root, &deep);
+        assert!(!e.exhausted);
+        e.note(
+            root,
+            root,
+            &ignore::Error::Partial(vec![at("/r/c", libc::EIO), at("/r/d", libc::EMFILE)]),
+        );
+        assert!(e.exhausted);
+        let mut got: Vec<&[u8]> = e.unlisted.iter().map(Vec::as_slice).collect();
+        got.sort();
+        assert_eq!(got, [&b"a/b"[..], b"c", b"d"]);
+        let mut e = WalkErrors::default();
+        e.note_entry(
+            root,
+            Path::new("/r/a/f.txt"),
+            &std::io::Error::from_raw_os_error(libc::ENFILE),
+        );
+        assert!(e.exhausted && e.unlisted.contains(&b"a"[..]));
+
+        // an ignore file names its directory; an error with no path, none
+        let mut e = WalkErrors::default();
+        e.note(root, root, &at("/r/a/.gitignore", libc::EIO));
+        e.note(root, root, &at("/elsewhere/.gitignore", libc::EIO));
+        assert!(!e.lost());
+        assert_eq!(e.unlisted.iter().collect::<Vec<_>>(), [&b"a".to_vec()]);
+        let unnamed = ignore::Error::WithDepth {
+            depth: 3,
+            err: Box::new(ignore::Error::Io(std::io::Error::from_raw_os_error(
+                libc::EIO,
+            ))),
+        };
+        e.note(root, root, &unnamed);
+        assert!(e.lost() && !e.exhausted);
+    }
+
+    #[test]
+    fn a_read_that_may_yet_succeed_is_rechecked_and_exhaustion_fails_the_build() {
+        let d = temp("unread");
+        let root = d.join("tree");
+        let dir = d.join("index");
+        fs::create_dir_all(root.join(".git")).unwrap();
+        fs::write(root.join("eio-read.txt"), "alpha\n").unwrap();
+        fs::write(root.join("steady.txt"), "steady\n").unwrap();
+        let opts = BuildOpts {
+            reader_threads: 1,
+            quiet: true,
+            phase1_only: true,
+            ..Default::default()
+        };
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        build(&root, &dir, &opts).unwrap();
+        let idx = crate::Index::open(&dir).unwrap();
+        let marked: Vec<&[u8]> = idx
+            .live_files()
+            .filter(|(_, _, r)| r.stamp_flags & format::STAMP_RECHECK != 0)
+            .map(|(_, rel, _)| rel)
+            .collect();
+        assert_eq!(marked, [b"eio-read.txt"]);
+        drop(idx);
+
+        fs::write(root.join("emfile-read.txt"), "beta\n").unwrap();
+        let _ = fs::remove_dir_all(&dir);
+        let err = build(&root, &dir, &opts).unwrap_err();
+        assert!(format!("{err:#}").contains("open files"), "{err:#}");
+        assert!(crate::read_manifest(&dir).is_none(), "nothing published");
         let _ = fs::remove_dir_all(&d);
     }
 
