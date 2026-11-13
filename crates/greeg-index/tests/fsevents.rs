@@ -148,8 +148,9 @@ fn fsevents_finds_what_a_directory_stamp_hides() {
         );
     }
 
-    // a directory made unreadable after an event named it: its files are not
-    // deleted, and the check says it could not tell
+    // a directory made unreadable after an edit in it: its files are not
+    // deleted. The event log need not name the directory, so that the check
+    // also reports itself unreliable is tested on the stat pass (index.rs).
     let t = tree();
     let locked = t.root.join("locked");
     fs::create_dir(&locked).unwrap();
@@ -160,7 +161,7 @@ fn fsevents_finds_what_a_directory_stamp_hides() {
     fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
     if fs::read_dir(&locked).is_err() {
         let ch = check(&t, "became unreadable");
-        assert!(ch.unreliable && ch.deleted.is_empty(), "{ch:?}");
+        assert!(ch.deleted.is_empty(), "{ch:?}");
     } else {
         eprintln!("skipped: this user reads a mode-000 directory (root)");
     }
