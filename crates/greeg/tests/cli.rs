@@ -4161,8 +4161,13 @@ fn a_panic_in_the_index_path_never_ends_a_verb_with_101() {
         &["outline", "src/util.rs"],
         &["show", "src/util.rs:2"],
     ];
-    for args in scanned {
-        let args = [args, &["--no-persist", "--json=greeg", "--budget", "0"][..]].concat();
+    // what agents read (text) and the JSON records
+    let modes: [&[&str]; 2] = [&[], &["--json=greeg", "--budget", "0"]];
+    for (args, mode) in scanned
+        .iter()
+        .flat_map(|a| modes.iter().map(move |m| (a, m)))
+    {
+        let args = [args, &["--no-persist"][..], mode].concat();
         let out = f.run_env(&args, &panic);
         let (stdout, stderr) = (
             String::from_utf8_lossy(&out.stdout),
