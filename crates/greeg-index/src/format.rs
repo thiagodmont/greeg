@@ -508,8 +508,20 @@ pub struct Chunked {
 impl Chunked {
     pub const CHUNK: usize = 1 << 20;
 
-    pub fn extend(&mut self, mut b: &[u8]) {
+    #[inline]
+    pub fn extend(&mut self, b: &[u8]) {
         self.len += b.len();
+        if let Some(c) = self.chunks.last_mut()
+            && c.len() + b.len() <= Self::CHUNK
+        {
+            c.extend_from_slice(b);
+            return;
+        }
+        self.extend_across(b);
+    }
+
+    #[cold]
+    fn extend_across(&mut self, mut b: &[u8]) {
         while !b.is_empty() {
             match self.chunks.last_mut() {
                 Some(c) if c.len() < Self::CHUNK => {

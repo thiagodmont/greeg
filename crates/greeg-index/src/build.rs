@@ -784,6 +784,9 @@ fn posting_bytes(mut v: Vec<u32>) -> (u32, Vec<u8>) {
 /// parallel serialization has work, small enough that the batch is a rounding
 /// error against the budget.
 const MERGE_BATCH: usize = 4096;
+/// The in-memory path's batch: its posting lists are all held already, so a
+/// larger batch costs only its bitmaps, and enters rayon less often.
+const MEMORY_BATCH: usize = 1 << 16;
 
 /// Hand every key's document count and serialized bitmap to `add`, in
 /// ascending key order, from whichever shape the workers ended in. `Memory`
@@ -820,7 +823,7 @@ fn postings_into<K: external::Key>(
             entries.par_sort_unstable_by(|a, b| a.0.cmp(&b.0));
             let mut it = entries.into_iter();
             loop {
-                let batch: Vec<(K, Vec<u32>)> = it.by_ref().take(MERGE_BATCH).collect();
+                let batch: Vec<(K, Vec<u32>)> = it.by_ref().take(MEMORY_BATCH).collect();
                 if batch.is_empty() {
                     break;
                 }
