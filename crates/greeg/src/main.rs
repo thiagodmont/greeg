@@ -734,7 +734,10 @@ fn run_index(
                         greeg_index::fresh::rebuild_reason(&idx, &ch).map_or("none", |r| r.name()),
                         ch.ms
                     );
-                    if greeg_index::fresh::needs_rebuild(&idx, &ch) {
+                    if ch.unreliable {
+                        report += "not applied: a stat failed for a reason other than not found\n";
+                        Ok(())
+                    } else if greeg_index::fresh::needs_rebuild(&idx, &ch) {
                         report += "needs full rebuild\n";
                         Ok(())
                     } else if !greeg_index::persist::allowed() {

@@ -4363,12 +4363,93 @@ fn files_dropped_while_their_directory_was_unreadable_come_back() {
         eprintln!("skipped: this user reads a mode-000 directory (root)");
         return;
     }
-    // a verb applies its check before answering: the file is dropped
+    // a verb's check while the directory is unreadable
     let _ = f.run(&["--fresh", "stat", "refs", "needle_mu"]);
     fs::set_permissions(&d, fs::Permissions::from_mode(0o755)).unwrap();
     let scanned = pairs(&f.out(&["--no-index", "--budget", "0", "needle_mu"]));
     assert_eq!(scanned.len(), 1);
     assert_eq!(pairs(&f.out(&args)), scanned);
+}
+
+/// A file the check cannot stat for a reason other than "not found" is not
+/// deleted: a scan answers, and the index gains no tombstone and no newer
+/// verification stamp.
+#[test]
+fn a_file_that_cannot_be_stat_ed_is_not_deleted() {
+    use std::os::unix::fs::PermissionsExt;
+    let f = fixture();
+    filler(&f);
+    let d = f.root.join("locked");
+    w(&d.join("inner.txt"), "needle_nu\n");
+    w(&d.join("deep/more.txt"), "needle_nu\n");
+    settle(&f.root);
+    f.indexed();
+    let manifest = || -> serde_json::Value {
+        let o = f.run(&["--json", "index", "--status"]);
+        serde_json::Deserializer::from_slice(&o.stdout)
+            .into_iter::<serde_json::Value>()
+            .next()
+            .unwrap()
+            .unwrap()
+    };
+    let before = manifest();
+    // readable again whatever fails, so the fixture can be removed
+    struct Unlock<'a>(&'a Path);
+    impl Drop for Unlock<'_> {
+        fn drop(&mut self) {
+            let _ = fs::set_permissions(self.0, fs::Permissions::from_mode(0o755));
+        }
+    }
+    let _unlock = Unlock(&d);
+    fs::set_permissions(&d, fs::Permissions::from_mode(0o000)).unwrap();
+    if fs::read_dir(&d).is_ok() {
+        eprintln!("skipped: this user reads a mode-000 directory (root)");
+        return;
+    }
+    // past the window in which a check leaves the stamp as it is
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    let scanned = pairs(&f.out(&["--no-index", "--budget", "0", "needle_nu"]));
+    let outcome = |args: &[&str]| -> serde_json::Value {
+        let o = f.run(&[&["--fresh", "stat", "--json"][..], args].concat());
+        String::from_utf8_lossy(&o.stdout)
+            .lines()
+            .map(|l| serde_json::from_str::<serde_json::Value>(l).unwrap())
+            .find(|v| v["type"] == "footer")
+            .expect("a footer")["data"]["outcome"]
+            .clone()
+    };
+    let oc = outcome(&["--budget", "0", "needle_nu"]);
+    assert_ne!(oc["source"], "index", "{oc}");
+    assert_eq!(
+        pairs(&f.out(&["--fresh", "stat", "--budget", "0", "needle_nu"])),
+        scanned
+    );
+    // a verb publishes its check before answering
+    let _ = f.run(&["--fresh", "stat", "refs", "needle_nu"]);
+    let _ = f.run(&["index", "--check", "--fresh", "stat"]);
+    // map and find have no scan to fall back on
+    for args in [&["map"][..], &["find", "needle"]] {
+        let oc = outcome(args);
+        assert_eq!(oc["exit"], 2, "{args:?}: {oc}");
+        assert_eq!(oc["rebuilding"]["reason"], "unreadable", "{args:?}: {oc}");
+    }
+    let during = manifest();
+    fs::set_permissions(&d, fs::Permissions::from_mode(0o755)).unwrap();
+    assert_eq!(during["tombstones"], 0, "{during}");
+    assert_eq!(during["deltas"], before["deltas"], "{during}");
+    assert_eq!(
+        during["verified_unix_ms"], before["verified_unix_ms"],
+        "{during}"
+    );
+    let scanned = pairs(&f.out(&["--no-index", "--budget", "0", "needle_nu"]));
+    assert_eq!(scanned.len(), 2);
+    assert_eq!(
+        pairs(&f.out(&["--fresh", "stat", "--budget", "0", "needle_nu"])),
+        scanned
+    );
+    let oc = outcome(&["--budget", "0", "needle_nu"]);
+    assert_eq!(oc["source"], "index", "{oc}");
+    assert_eq!(manifest()["tombstones"], 0);
 }
 
 /// Wait out the racy window of what was just written under `root` (20 ms, or

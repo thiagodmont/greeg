@@ -771,6 +771,38 @@ fn a_directory_listed_too_soon_is_listed_again() {
     assert!(relisted().is_empty(), "listed late enough: trusted");
 }
 
+/// Files a check cannot stat for a reason other than "not found" are not
+/// deleted: the check says it is unreliable, and applying it writes nothing.
+#[test]
+fn a_stat_error_other_than_not_found_is_no_deletion() {
+    use std::os::unix::fs::PermissionsExt;
+    let t = tree();
+    let locked = t.root.join("locked");
+    fs::create_dir(&locked).unwrap();
+    fs::write(locked.join("inner.txt"), "needle\n").unwrap();
+    settle(&t.root);
+    build(&t.root, &t.dir, &opts()).unwrap();
+    let idx = Index::open(&t.dir).unwrap();
+    let before = greeg_index::read_manifest(&t.dir).unwrap();
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+    if fs::read_dir(&locked).is_ok() {
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+        eprintln!("skipped: this user reads a mode-000 directory (root)");
+        return;
+    }
+    // past the second within which `apply` leaves the stamp as it is anyway
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    let ch = check(&idx, &t.root);
+    let applied = fresh::apply(&idx, &t.root, &ch);
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+    assert!(ch.unreliable, "{ch:?}");
+    assert!(ch.deleted.is_empty(), "{ch:?}");
+    assert_eq!(applied.unwrap(), 0);
+    let after = greeg_index::read_manifest(&t.dir).unwrap();
+    assert_eq!(after.snapshot(), before.snapshot());
+    assert_eq!(after.verified_unix_ms, before.verified_unix_ms);
+}
+
 /// A directory the build could not list is no change while it stays so, and
 /// is listed by the first check after it becomes readable.
 #[test]

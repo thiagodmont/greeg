@@ -148,6 +148,24 @@ fn fsevents_finds_what_a_directory_stamp_hides() {
         );
     }
 
+    // a directory made unreadable after an event named it: its files are not
+    // deleted, and the check says it could not tell
+    let t = tree();
+    let locked = t.root.join("locked");
+    fs::create_dir(&locked).unwrap();
+    fs::write(locked.join("inner.txt"), "needle\n").unwrap();
+    settle();
+    build_index(&t);
+    fs::write(locked.join("inner.txt"), "needle 2\n").unwrap();
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+    if fs::read_dir(&locked).is_err() {
+        let ch = check(&t, "became unreadable");
+        assert!(ch.unreliable && ch.deleted.is_empty(), "{ch:?}");
+    } else {
+        eprintln!("skipped: this user reads a mode-000 directory (root)");
+    }
+    drop(t);
+
     // readable again with no event to read (a group or a privacy grant): the
     // index is told it has read every event up to now
     if let Some(t) = locked_tree() {

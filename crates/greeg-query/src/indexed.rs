@@ -134,6 +134,9 @@ fn refresh_inner(root: &Path, dir: &Path, threads: usize) -> Result<()> {
     let Some(ch) = fresh::check(&idx, root, mode, threads.clamp(1, 4)) else {
         return Ok(());
     };
+    if ch.unreliable {
+        return Ok(());
+    }
     if fresh::needs_rebuild(&idx, &ch) {
         drop(idx);
         spawn_build_now(root, dir, false);
@@ -400,8 +403,10 @@ fn retry_mode(idx: &Index, mode: Fresh) -> Fresh {
 /// No index answer: a build of it is queued, for `reason`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Rebuilding {
-    /// `fresh::RebuildReason::name`, `no-index`, `other-root`, `corrupt`, or
-    /// `no-persist` when changes would have to be published first.
+    /// `fresh::RebuildReason::name`, `no-index`, `other-root`, `corrupt`,
+    /// `no-persist` when changes would have to be published first, or
+    /// `unreadable` when the check could not stat part of the tree (no
+    /// build is queued).
     pub reason: &'static str,
     /// How long the build it replaces took, when there was one.
     pub estimate_ms: Option<u64>,
@@ -411,6 +416,11 @@ pub struct Rebuilding {
 
 impl std::fmt::Display for Rebuilding {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        if self.reason == "unreadable" {
+            return f.write_str(
+                "the index cannot answer this: its freshness check could not read part of the tree (reason: unreadable); retry once it is readable, or run `greeg index` to rebuild without it",
+            );
+        }
         if !persist::allowed() {
             return write!(
                 f,
@@ -536,6 +546,14 @@ fn open_fresh_with(
         };
         fresh_method = ch.method;
         fresh_changed = ch.count() + ch.deleted.len();
+        // nothing is queued: the next check that reads the tree publishes
+        if ch.unreliable {
+            return Ok(Err(Rebuilding {
+                reason: "unreadable",
+                estimate_ms: None,
+                generation: idx.manifest.generation,
+            }));
+        }
         if let Some(reason) = fresh::rebuild_reason(&idx, &ch) {
             spawn_build(&o.root, &dir);
             return Ok(Err(rebuilding(&idx, reason.name())));
