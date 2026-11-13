@@ -1,0 +1,43 @@
+crates/greeg/tests/fixtures/skills/codex-0.5.0.md
+  s_d1affe6bf8021e::t_ae0f0a8c08a757 1-45
+crates/greeg/tests/fixtures/skills/claude-0.4.0.md
+  s_d1affe6bf8021e::t_ae0f0a8c08a757 1-46
+README.md
+  s_d1affe6bf8021e::t_7f0fb587f2f696 105-106
+crates/greeg/src/hook.rs
+  s_d1affe6bf8021e::t_416a2afdd87af2 159-182
+crates/greeg/tests/fixtures/skills/claude-0.2.0.md
+  s_d1affe6bf8021e::t_ae0f0a8c08a757 1-39
+references/ARCHITECTURE.md
+  s_d1affe6bf8021e::t_7f0fb587f2f696 466-471,477-481
+crates/greeg/tests/hooks.rs
+  s_d1affe6bf8021e::t_ae0f0a8c08a757 1059-1083,1088-1105
+  s_d1affe6bf8021e::t_9f30cc0e8485be 1084-1087
+  s_d1affe6bf8021e::t_d21d96f6a782c8 1106-1143
+crates/greeg/src/doctor.rs
+  s_d1affe6bf8021e::t_d21d96f6a782c8 296-297
+  s_d1affe6bf8021e::t_416a2afdd87af2 287-295,298-310
+references/USAGE.md
+  s_d1affe6bf8021e::t_7f0fb587f2f696 217,295-299
+crates/greeg/src/hook_skill.rs
+  s_d1affe6bf8021e::t_d3ff4645d947c9 21-23,28,33,38-46,49,135-162,168-169
+  s_d1affe6bf8021e::t_9f30cc0e8485be 24-27,29-32,34-37,163-167
+  s_d1affe6bf8021e::t_416a2afdd87af2 55-72,92-97
+  s_d1affe6bf8021e::t_86c944083b6733 170
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "bf3f520173adf0f9270d54eb03cf95cf4c85bcbd",
+  "prompts": {},
+  "sessions": {
+    "s_d1affe6bf8021e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9f35d094-2dfc-48c8-a346-85f6d65b0c73",
+        "model": "claude-fable-5-2"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
