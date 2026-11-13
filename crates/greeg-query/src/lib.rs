@@ -2478,8 +2478,9 @@ fn scan_once(o: &Options, bounds: &ScanBounds, out: Option<FileSink>) -> Result<
         // the documented value (references/JSON.md); --hidden alone no longer gets here
         "ignored or hidden files asked for".into()
     } else {
-        // A panic anywhere in the index path degrades to scan mode:
-        // the answer is still correct, one line goes to stderr, and the index is rebuilt.
+        // A panic anywhere in the index path degrades to scan mode: the answer
+        // is still correct, one line goes to stderr, and the index is rebuilt
+        // (unless --no-persist).
         match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let again: Option<FileSink> = match &mut sink {
                 Some(s) => Some(&mut **s),

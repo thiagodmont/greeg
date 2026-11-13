@@ -918,11 +918,14 @@ a failure before its first file recovers the same way, and one after it ends
 the run with exit 2 and a message that the output is incomplete.
 
 A panic anywhere in the index path is caught, degrades to a scan, and queues a
-background rebuild, for search and for every verb that has a scan answer
-(`def`, `refs`, `callers`, `impls`, `impact`, `impact --diff`, `outline`,
-`show`). `map` and `find` have none: a panic there exits 2 with the rebuild
-error (`outcome.rebuilding`, reason `corrupt`), as when the index is missing.
-`GREEG_DEBUG_PANIC` makes opening an index panic, for the recovery tests. A block whose digest does not match, a dictionary entry
+background rebuild (not under `--no-persist`), for search and for every verb
+that has a scan answer (`def`, `refs`, `callers`, `impls`, `impact`,
+`impact --diff`, `outline`, `show`). A verb's panic counts as the index's
+only when its scan answer then succeeds; one in the scan too is raised as
+it is, and the index is kept. `map` and `find` have no scan answer: a panic
+after they open the index exits 2 with the rebuild error a missing index
+gives (`outcome.rebuilding`), with reason `corrupt`. `GREEG_DEBUG_PANIC`
+makes opening an index panic, for the recovery tests. A block whose digest does not match, a dictionary entry
 or posting list changed without changing its length included, marks the
 index corrupt: the query is answered again from a scan before anything is
 printed, a rebuild is queued, and no delta is published from it. A posting
