@@ -156,7 +156,7 @@ pub fn find(o: &Options, query: &str) -> Result<FindResult> {
         bail!("`find` needs the symbol table; the index build is still in phase 1");
     }
     let sel = Selection::new(o, Vec::new())?;
-    if sel.coverage(idx, op.pending.as_ref()).is_none() {
+    if sel.coverage(idx, op.pending.as_ref(), false).is_none() {
         bail!(
             "`find` ranks the index, which cannot cover this request: --hidden, --no-ignore, a glob that selects a hidden or ignored directory, or an index still recording what it skips (retry in a moment)"
         );

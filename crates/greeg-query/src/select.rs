@@ -20,6 +20,8 @@ pub(crate) enum Reach {
     File,
     /// A directory the walk would enter: only a scan covers it.
     Dir,
+    /// A hidden directory a `--hidden` walk enters: walked from disk.
+    HiddenDir,
 }
 
 pub(crate) struct Selection<'a> {
@@ -116,16 +118,20 @@ impl<'a> Selection<'a> {
     }
 
     /// The skipped files this request selects besides the indexed ones, or
-    /// `None` when only a scan covers it: `--hidden`, `--no-ignore`, a
-    /// skipped directory it would enter, or an index without the record (a
-    /// background build then records it). `pending` holds changes found but
-    /// not yet published.
+    /// `None` when only a scan covers it: `--no-ignore`, `--hidden` unless
+    /// `walk_hidden`, a skipped directory it would enter, or an index without
+    /// the record (a background build then records it). With `walk_hidden`,
+    /// a `--hidden` request also gets the hidden files the index skipped, the
+    /// files under the hidden directories it skipped (walked as a scan walks
+    /// them) and the tracked-only ignore files. `pending` holds changes found
+    /// but not yet published.
     pub(crate) fn coverage(
         &self,
         idx: &Index,
         pending: Option<&greeg_index::fresh::Changes>,
+        walk_hidden: bool,
     ) -> Option<Vec<Vec<u8>>> {
-        if self.o.hidden || self.o.no_ignore {
+        if self.o.no_ignore || self.o.hidden && !walk_hidden {
             return None;
         }
         if !self.widens() {
@@ -140,13 +146,70 @@ impl<'a> Selection<'a> {
         }
         let mut also = Vec::new();
         for (rel, bits) in sk.entries() {
-            match self.reaches(&rel, bits) {
+            let reach = if self.o.hidden {
+                self.reaches_hidden(&rel, bits)
+            } else {
+                self.reaches(&rel, bits)
+            };
+            match reach {
                 Reach::No => {}
                 Reach::File => also.push(rel),
                 Reach::Dir => return None,
+                Reach::HiddenDir => also.extend(self.walk_hidden_dir(&rel)?),
             }
         }
+        if self.o.hidden {
+            // ignore files are indexed tracked-only, never searched, and hidden
+            also.extend(
+                idx.tracked_files()
+                    .filter(|(_, rel, _)| greeg_index::format::is_ignore_file(rel))
+                    .map(|(_, rel, _)| rel.to_vec()),
+            );
+            also.sort_unstable();
+            also.dedup();
+        }
         Some(also)
+    }
+
+    /// `reaches` for a `--hidden` request: a hidden entry no ignore rule
+    /// excluded is searched as a scan would search it.
+    fn reaches_hidden(&self, rel: &[u8], bits: u8) -> Reach {
+        if bits & (UNKNOWN | IGNORED) != 0 {
+            return self.reaches(rel, bits);
+        }
+        if bits & DIR == 0 {
+            // `admit` applies the paths, globs and types
+            return Reach::File;
+        }
+        let excluded = self
+            .overrides
+            .as_ref()
+            .is_some_and(|ov| ov.matched(as_path(rel), true).is_ignore());
+        let inside = |p: &Vec<u8>| p.starts_with(rel) && p.get(rel.len()) == Some(&b'/');
+        let wanted =
+            crate::indexed::path_allowed(rel, &self.paths) || self.paths.iter().any(inside);
+        if excluded || !wanted {
+            Reach::No
+        } else {
+            Reach::HiddenDir
+        }
+    }
+
+    /// The files under a skipped hidden directory, walked with the scan's
+    /// own walker (ancestor ignore files, globs, types). `None` when a part
+    /// of it cannot be read: a scan reports that.
+    fn walk_hidden_dir(&self, rel: &[u8]) -> Option<Vec<Vec<u8>>> {
+        let mut o = self.o.clone();
+        o.paths = vec![o.root.join(as_path(rel))];
+        let wb = crate::walk_builder(&o, 1, &crate::ScanBounds::default()).ok()?;
+        let mut files = Vec::new();
+        for e in wb.build() {
+            let e = e.ok()?;
+            if e.file_type().is_some_and(|t| t.is_file()) {
+                files.push(greeg_index::rel::of(&o.root, e.path()));
+            }
+        }
+        Some(files)
     }
 
     /// Whether the request selects `rel`: ripgrep precedence, where an

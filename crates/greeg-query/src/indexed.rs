@@ -649,7 +649,7 @@ pub(crate) fn try_index(
     let sel = crate::select::Selection::new(o, paths)?;
     // files the index skipped that this request selects are read from disk
     // like changed ones; anything else it selects needs the scan
-    let Some(also) = sel.coverage(idx, op.pending.as_ref()) else {
+    let Some(also) = sel.coverage(idx, op.pending.as_ref(), true) else {
         return Ok(Err("files the index skipped".into()));
     };
     extras.extend(also.into_iter().map(|rel| (rel, NONE)));

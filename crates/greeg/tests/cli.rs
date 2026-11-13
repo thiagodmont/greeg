@@ -3979,3 +3979,91 @@ fn a_subcommand_after_a_pattern_is_refused_and_writes_nothing() {
         );
     }
 }
+
+/// A tree with hidden files and directories for `--hidden`: nested hidden
+/// entries, ignore rules inside and above a hidden directory, an ignored
+/// hidden file, a binary file and `.git/` content, each holding `needle`.
+fn hidden_fixture() -> Fixture {
+    let f = empty_fixture();
+    let r = &f.root;
+    w(&r.join("src/a.rs"), "fn needle() {}\n");
+    w(&r.join(".env.example"), "NEEDLE=needle\n");
+    w(&r.join(".github/workflows/ci.yml"), "run: needle\n");
+    w(&r.join(".github/workflows/gen.yml"), "run: needle\n");
+    w(&r.join(".github/.nested/.deeper/x.txt"), "needle here\n");
+    w(&r.join(".github/.gitignore"), "skipme.txt\n");
+    w(&r.join(".github/skipme.txt"), "needle\n");
+    w(&r.join(".ignored-hidden.txt"), "needle\n");
+    fs::write(r.join(".github/bin.dat"), b"\x00needle\x00").unwrap();
+    w(&r.join(".git/needle.txt"), "needle in git\n");
+    w(
+        &r.join(".gitignore"),
+        "# needle\n.ignored-hidden.txt\n.github/workflows/gen.yml\n",
+    );
+    f
+}
+
+/// `--hidden` answers from the index (hidden entries read or walked from
+/// disk) and gives what a scan gives, in every output mode.
+#[test]
+fn hidden_searches_use_the_index_and_match_a_scan() {
+    let f = hidden_fixture();
+    f.indexed();
+    let compare = |f: &Fixture, label: &str| {
+        for args in [
+            vec!["-l", "--sort", "path", "needle"],
+            vec!["-c", "--sort", "path", "needle"],
+            vec!["--budget", "0", "--no-ladder", "needle"],
+            vec!["--no-ladder", "needle"],
+            vec!["-l", "--sort", "path", "-g", "!.git/", "needle"],
+            vec!["-l", "--sort", "path", "-g", "*.yml", "needle"],
+            vec!["-l", "--sort", "path", "-t", "yaml", "needle"],
+            vec!["-l", "--sort", "path", "needle", ".github"],
+            vec!["-l", "--sort", "path", "needle", "src", ".github/.nested"],
+            vec!["--json=rg", "needle"],
+        ] {
+            let mut indexed = vec!["--hidden"];
+            indexed.extend(&args);
+            let mut scanned = indexed.clone();
+            scanned.push("--no-index");
+            let (i, s) = (f.run(&indexed), f.run(&scanned));
+            assert_eq!(i.status.code(), s.status.code(), "{label} {args:?}");
+            let text = |o: &Output| {
+                let out = String::from_utf8_lossy(&o.stdout).into_owned();
+                if args[0] == "--json=rg" {
+                    out.lines()
+                        .filter(|l| l.contains("\"type\":\"match\""))
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                } else if args[0] == "-l" || args[0] == "-c" {
+                    out
+                } else {
+                    pairs(&out).into_iter().collect::<Vec<_>>().join("\n")
+                }
+            };
+            assert_eq!(text(&i), text(&s), "{label} {args:?}");
+            // a path naming an unindexed (hidden) directory is scanned on its own;
+            // --json=rg takes no --explain
+            if args.iter().any(|a| a.starts_with(".github")) || args[0] == "--json=rg" {
+                continue;
+            }
+            let explain = f.err(&[&indexed[..], &["--explain"]].concat());
+            assert!(
+                explain.contains("source index") && !explain.contains("index not used"),
+                "{label} {args:?}: {explain}"
+            );
+        }
+    };
+    compare(&f, "built");
+    let all = f.out(&["--hidden", "-l", "--sort", "path", "-g", "!.git/", "needle"]);
+    assert_eq!(
+        all,
+        ".env.example\n.github/.nested/.deeper/x.txt\n.github/workflows/ci.yml\n.gitignore\nsrc/a.rs\n"
+    );
+    // edits after the build: a hidden file changed, one created, one deleted, a new hidden directory
+    w(&f.root.join(".env.example"), "nothing\n");
+    w(&f.root.join(".github/new.txt"), "needle\n");
+    fs::remove_file(f.root.join(".github/.nested/.deeper/x.txt")).unwrap();
+    w(&f.root.join(".newdir/y.txt"), "needle\n");
+    compare(&f, "edited");
+}
