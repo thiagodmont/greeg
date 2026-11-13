@@ -153,6 +153,9 @@ impl Fixture {
     /// Build the index and wait for it, so a test that wants the index path
     /// is not racing the background build.
     fn indexed(&self) -> &Self {
+        // a build right after the fixture was written would list its
+        // directories again at the first query
+        settle(&self.root);
         let o = greeg()
             .args(["index", "--quiet", "--index-dir"])
             .arg(&self.index)
