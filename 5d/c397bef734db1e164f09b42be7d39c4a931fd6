@@ -1,0 +1,24 @@
+.github/workflows/release.yml
+  s_e2aadb8067553a::t_339389badf0b3b 29-31
+references/DEVELOPMENT.md
+  s_e2aadb8067553a::t_339389badf0b3b 15-20
+.github/workflows/macos.yml
+  s_e2aadb8067553a::t_0402998480e61c 1-6,8-16,25-34
+  s_e2aadb8067553a::t_f2749cb4a8206e 7,17-24
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "5dc397bef734db1e164f09b42be7d39c4a931fd6",
+  "prompts": {},
+  "sessions": {
+    "s_e2aadb8067553a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8372df48-1202-40f9-bd30-8e5555761588",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
