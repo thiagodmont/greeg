@@ -210,9 +210,10 @@ build (unless a failed one backs off, or under `--no-persist`), and `map` and
 with `greeg index --phase1` records it (`phase1_only`) and is left as asked.
 
 Publication writes new files under new names, then renames the manifest over
-the old one. Writers take an exclusive lock; **readers never lock**. A query
-whose check found nothing refreshes the verification stamp only if the lock
-is free at once; a writer holding it leaves the stamp to a later check. A reader
+the old one. Writers take an exclusive lock; **readers never wait on it**:
+reading an index takes no lock, and a query whose check found nothing takes
+the lock to refresh the verification stamp only if it is free at once (a
+writer holding it leaves the stamp to a later check). A reader
 opens every component the manifest names, the graph included (it is mapped
 on first use from the descriptor already open), before it uses any, and keeps
 that snapshot until it exits. If opening fails and the manifest has changed

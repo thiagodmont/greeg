@@ -1137,7 +1137,9 @@ fn same_index(idx: &Index, cur: &crate::Manifest) -> bool {
 /// number of files re-extracted. Runs under the writer lock and re-reads the
 /// manifest first: if a build or another query republished since `idx` was
 /// opened, the delta (computed against stale ids) is skipped and 0 is
-/// returned; the caller reopens the index either way.
+/// returned; the caller reopens the index either way. With no change to
+/// publish it only refreshes the verification stamp, and only when the lock
+/// is free at once: a busy lock returns 0 and leaves the stamp as it is.
 pub fn apply(idx: &Index, root: &Path, ch: &Changes) -> Result<usize> {
     if ch.unreliable {
         return Ok(0);
