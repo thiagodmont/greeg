@@ -791,9 +791,9 @@ const MEMORY_BATCH: usize = 1 << 16;
 /// Hand every key's document count and serialized bitmap to `add`, in
 /// ascending key order, from whichever shape the workers ended in. `Memory`
 /// merges the worker maps and sorts; `Segments` is the streaming k-way merge.
-/// Either way a batch of [`MERGE_BATCH`] is serialized in parallel and handed
-/// over before the next, so no more than a batch of bitmaps is held beside
-/// what `add` keeps.
+/// Either way a batch ([`MEMORY_BATCH`] entries in memory, [`MERGE_BATCH`]
+/// from segments) is serialized in parallel and handed over before the next,
+/// so no more than a batch of bitmaps is held beside what `add` keeps.
 fn postings_into<K: external::Key>(
     p: external::Postings<K>,
     mut add: impl FnMut(K, u32, &[u8]),

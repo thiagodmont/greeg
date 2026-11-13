@@ -126,7 +126,7 @@ pub fn serialize(entries: &[(Vec<u8>, u32, Vec<u8>)]) -> Vec<u8> {
     for (w, c, bm) in entries {
         b.push(w, *c, bm);
     }
-    b.finish().to_vec()
+    b.finish().into_vec()
 }
 
 /// Zero-copy view over a serialized word section. Its accessors verify the

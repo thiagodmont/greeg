@@ -126,9 +126,6 @@ fn wide_tree(files: usize) -> Tmp {
     t
 }
 
-/// The whole point of the byte budget: a build that spills must publish the
-/// same index as one that does not. Byte-for-byte, so this also pins the
-/// merge's key order and its posting deduplication.
 /// Many distinct words and few grams: the words reach the budget and spill
 /// while the grams stay in memory, and the manifest says the build spilled.
 #[test]
@@ -165,6 +162,9 @@ fn a_build_whose_words_spill_says_so() {
     assert!(m.spilled, "the words spilled");
 }
 
+/// The whole point of the byte budget: a build that spills must publish the
+/// same index as one that does not. Byte-for-byte, so this also pins the
+/// merge's key order and its posting deduplication.
 #[test]
 fn a_spilled_build_publishes_the_same_index_as_an_in_memory_one() {
     let t = wide_tree(400);

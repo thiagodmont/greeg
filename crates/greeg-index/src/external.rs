@@ -96,7 +96,7 @@ pub fn fan_in() -> usize {
     } else {
         256
     };
-    (soft / 2).clamp(2, MAX_FAN_IN as u64) as usize
+    (soft / 2).clamp(3, MAX_FAN_IN as u64) as usize
 }
 
 /// A posting key. Implemented for `u32` (grams, stored big-endian so that byte
@@ -520,19 +520,23 @@ impl Merger {
 
 #[cfg(test)]
 thread_local! {
-    /// The most segments one merge on this thread opened at once.
+    /// The most segment files a merge on this thread held open at once.
     static MOST_OPEN: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
-/// Merge groups of at most `fan_in` segments into one each, until at most
-/// `fan_in` are left. A pass removes the segments it merged.
+/// Merge groups of segments into one each, until at most `fan_in` are left.
+/// A group leaves a descriptor for its output, so a pass holds at most
+/// `fan_in` open too. A pass removes the segments it merged.
 fn merge_down(segments: &[PathBuf], fan_in: usize) -> Result<Vec<PathBuf>> {
     static N: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
     let mut segs = segments.to_vec();
-    let fan_in = fan_in.max(2);
+    let fan_in = fan_in.max(3);
+    let group_len = fan_in - 1;
     while segs.len() > fan_in {
-        let mut next = Vec::with_capacity(segs.len().div_ceil(fan_in));
-        for group in segs.chunks(fan_in) {
+        let mut next = Vec::with_capacity(segs.len().div_ceil(group_len));
+        for group in segs.chunks(group_len) {
+            #[cfg(test)]
+            MOST_OPEN.with(|m| m.set(m.get().max(group.len() + 1)));
             let dir = group[0].parent().unwrap_or(Path::new("."));
             let n = N.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             let path = dir.join(format!("merged-{}-{n}.seg", std::process::id()));
@@ -664,7 +668,7 @@ mod tests {
     }
 
     /// 2,000 segments merged with a fan-in of 16: never more than 16 open at
-    /// once, the same postings as one merge of all of them, and no segment
+    /// once, a pass's output included, the same postings as one merge of all of them, and no segment
     /// left behind.
     #[test]
     fn many_segments_merge_in_passes_of_the_fan_in() {

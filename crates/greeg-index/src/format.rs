@@ -620,8 +620,18 @@ impl Section {
             .collect()
     }
 
-    pub fn to_vec(&self) -> Vec<u8> {
-        self.pieces().concat()
+    /// The body in one buffer, each chunk freed once copied: at most one
+    /// chunk more than the body is held.
+    pub fn into_vec(self) -> Vec<u8> {
+        let len = self.head.len() + self.parts.iter().map(Chunked::len).sum::<usize>();
+        let mut out = Vec::with_capacity(len);
+        out.extend_from_slice(&self.head);
+        for part in self.parts {
+            for c in part.chunks {
+                out.extend_from_slice(&c);
+            }
+        }
+        out
     }
 }
 
@@ -632,7 +642,7 @@ pub fn serialize_grams(entries: &[(u32, u32, Vec<u8>)]) -> Vec<u8> {
     for (k, c, bm) in entries {
         b.push(*k, *c, bm);
     }
-    b.finish().to_vec()
+    b.finish().into_vec()
 }
 
 pub struct GramsView<'a> {
