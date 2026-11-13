@@ -19,6 +19,8 @@ struct Tmp {
 
 impl Drop for Tmp {
     fn drop(&mut self) {
+        // a failed case may leave a directory unreadable
+        let _ = fs::set_permissions(self.root.join("locked"), fs::Permissions::from_mode(0o755));
         let _ = fs::remove_dir_all(&self.base);
     }
 }
@@ -61,12 +63,18 @@ fn build_index(t: &Tmp) {
     build(&t.root, &t.dir, &opts).unwrap();
 }
 
-/// The FSEvents check, or the stat pass when the event read misses even a
-/// long cutoff on a loaded machine (said on stderr).
+/// The FSEvents check. On a machine too loaded for the event read even with
+/// a long cutoff the stat pass answers, which this says on stderr; under CI
+/// that fails the test.
 fn check(t: &Tmp, what: &str) -> Changes {
     let idx = Index::open(&t.dir).unwrap();
     let ch = fresh::check(&idx, &t.root, Mode::FsEvents, 2).unwrap();
     if ch.method != "fsevents" {
+        assert!(
+            std::env::var_os("CI").is_none(),
+            "{what}: {} answered",
+            ch.method
+        );
         eprintln!("{what}: the stat pass answered ({})", ch.method);
     }
     ch
@@ -90,6 +98,27 @@ fn touch_as(reference: &Path, target: &Path) {
     assert!(st.success());
 }
 
+/// A built tree whose `locked/inner.txt` the build could not list; `None`
+/// (said on stderr) when this user reads a mode-000 directory anyway (root).
+fn locked_tree() -> Option<Tmp> {
+    let t = tree();
+    let locked = t.root.join("locked");
+    fs::create_dir(&locked).unwrap();
+    fs::write(locked.join("inner.txt"), "needle\n").unwrap();
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+    if fs::read_dir(&locked).is_ok() {
+        eprintln!("skipped: this user reads a mode-000 directory (root)");
+        return None;
+    }
+    settle();
+    build_index(&t);
+    Some(t)
+}
+
+fn unlock(t: &Tmp) {
+    fs::set_permissions(t.root.join("locked"), fs::Permissions::from_mode(0o755)).unwrap();
+}
+
 #[test]
 fn fsevents_finds_what_a_directory_stamp_hides() {
     // SAFETY: the only test in this binary, and no thread has started yet.
@@ -108,26 +137,31 @@ fn fsevents_finds_what_a_directory_stamp_hides() {
     assert_eq!(rels(ch.added.iter().map(|w| w.rel.clone())), ["lib/new.py"]);
 
     // a directory unreadable at build, readable again
-    let t = tree();
-    let locked = t.root.join("locked");
-    fs::create_dir(&locked).unwrap();
-    fs::write(locked.join("inner.txt"), "needle\n").unwrap();
-    fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
-    if fs::read_dir(&locked).is_err() {
-        settle();
-        build_index(&t);
+    if let Some(t) = locked_tree() {
         let ch = check(&t, "still unreadable");
         assert!(ch.is_empty(), "an unreadable directory is no change");
-        fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+        unlock(&t);
         let ch = check(&t, "readable again");
         assert_eq!(
             rels(ch.added.iter().map(|w| w.rel.clone())),
             ["locked/inner.txt"]
         );
-    } else {
-        eprintln!("skipped the unreadable case: this user reads a mode-000 directory");
     }
-    let _ = fs::set_permissions(&locked, fs::Permissions::from_mode(0o755));
+
+    // readable again with no event to read (a group or a privacy grant): the
+    // index is told it has read every event up to now
+    if let Some(t) = locked_tree() {
+        unlock(&t);
+        std::thread::sleep(Duration::from_secs(2));
+        let mut m = greeg_index::read_manifest(&t.dir).unwrap();
+        m.fsevents_id = greeg_fsevents::current_id();
+        greeg_index::write_manifest(&t.dir, &m).unwrap();
+        let ch = check(&t, "readable, no event");
+        assert_eq!(
+            rels(ch.added.iter().map(|w| w.rel.clone())),
+            ["locked/inner.txt"]
+        );
+    }
 
     // a directory listed too soon, named by an event though its stamp did not move
     let t = tree();

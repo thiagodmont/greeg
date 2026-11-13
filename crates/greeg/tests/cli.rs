@@ -4281,6 +4281,8 @@ fn fresh_pairs(f: &Fixture, mode: &str, pattern: &str) -> BTreeSet<String> {
                 let oc = &v["data"]["outcome"];
                 assert_eq!(oc["source"], "index", "{mode}: {l}");
                 if oc["fresh"] != mode {
+                    // under CI the event read is never this slow
+                    assert!(std::env::var_os("CI").is_none(), "{mode}: {l}");
                     eprintln!("--fresh {mode} was answered by {}", oc["fresh"]);
                 }
             }
