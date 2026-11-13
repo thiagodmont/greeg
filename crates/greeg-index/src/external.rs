@@ -15,9 +15,9 @@
 //! 1. Each worker accumulates postings in a map with a byte budget.
 //! 2. When the budget is reached *between files*, the map is written to a
 //!    sorted segment file and its allocation released.
-//! 3. [`Merged::stream`] k-way merges the segments back in key order, so the
-//!    serializer sees exactly the ascending, deduplicated postings it saw
-//!    before.
+//! 3. [`stream_batches`] k-way merges the segments back in key order, in
+//!    passes of at most [`fan_in`] open segments, so the serializer sees
+//!    exactly the ascending, deduplicated postings it saw before.
 //!
 //! Peak is then `budget + the largest single posting list + the component
 //! being serialized`, independent of the number of files.
@@ -84,7 +84,7 @@ const MIN_SEGMENT_BUF: usize = 16 << 10;
 const MAX_FAN_IN: usize = 256;
 
 /// How many segments one merge may open: half the descriptors this process
-/// may hold, leaving the rest to the build, at most [`MAX_FAN_IN`].
+/// may hold, leaving the rest to the build, at most 256.
 pub fn fan_in() -> usize {
     let mut r = libc::rlimit {
         rlim_cur: 0,
