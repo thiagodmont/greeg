@@ -214,10 +214,13 @@ pub fn answered<T>(o: &Options, f: impl Fn(&Options) -> Result<T>) -> Result<T> 
         Err(p) => {
             let mut so = o.clone();
             so.use_index = false;
-            // a panic in the scan too is the verb's, not the index's
+            // a panic in the scan too is the verb's, not the index's; only a
+            // scan that answers shows the index was at fault
             let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(&so)))
                 .unwrap_or_else(|_| std::panic::resume_unwind(p));
-            note_panic(o, "answering from a scan");
+            if r.is_ok() {
+                note_panic(o, "answering from a scan");
+            }
             return r;
         }
     };
