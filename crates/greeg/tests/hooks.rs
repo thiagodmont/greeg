@@ -265,10 +265,17 @@ fn rewritten_paths_named_like_subcommands_are_searched() {
                 .env("GREEG_CONFIG_DIR", &config)
                 .output()
                 .unwrap();
+            let stdout = String::from_utf8_lossy(&out.stdout);
             assert!(
-                String::from_utf8_lossy(&out.stdout).contains(hit),
+                out.status.success() && stdout.contains(hit),
                 "{command} → {rewritten}: {out:?}"
             );
+            for other in ["index/a.txt", "stats/a.txt", "budget/a.txt"] {
+                assert!(
+                    other == hit || !stdout.contains(other),
+                    "{command}: {stdout}"
+                );
+            }
             assert_eq!(
                 fs::read_dir(&config).unwrap().count(),
                 0,
