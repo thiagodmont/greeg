@@ -1,0 +1,29 @@
+references/BENCH.md
+  s_d1affe6bf8021e::t_bf88378bf29021 2731-2734,2736-2749
+  s_d1affe6bf8021e::t_f30827c73bf6bc 2684-2687,2689-2730
+  s_d1affe6bf8021e::t_afbacb17a15190 2688,2735
+bench/reports.toml
+  s_d1affe6bf8021e::t_afbacb17a15190 814,822
+  s_d1affe6bf8021e::t_f30827c73bf6bc 807-813
+  s_d1affe6bf8021e::t_bf88378bf29021 815-821
+bench/results/release-0.14.1-recheck-2026-11-13-darwin-arm64.json
+  s_d1affe6bf8021e::t_ed1d50394eb461 1-2261
+bench/results/release-0.14.1-2026-11-13-darwin-arm64.json
+  s_d1affe6bf8021e::t_b231f00d0fd3ef 1-4335
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "96f82fd317a09f15cf9d9e2ce08c668cc802da24",
+  "prompts": {},
+  "sessions": {
+    "s_d1affe6bf8021e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9f35d094-2dfc-48c8-a346-85f6d65b0c73",
+        "model": "claude-fable-5-2"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
