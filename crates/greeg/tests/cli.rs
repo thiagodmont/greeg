@@ -3445,6 +3445,41 @@ fn the_last_case_or_boundary_flag_wins() {
     assert_eq!(files, ["a.txt", "b.rs"]);
 }
 
+/// A root spelled through the Data volume (`/System/Volumes/Data/…`), whose
+/// events FSEvents reports under the short spelling: an edit is found.
+#[cfg(target_os = "macos")]
+#[test]
+fn fsevents_finds_edits_below_a_root_spelled_through_the_data_volume() {
+    let f = empty_fixture();
+    filler(&f);
+    w(&f.root.join("a/b/x.txt"), "old\n");
+    let long = Path::new("/System/Volumes/Data").join(
+        fs::canonicalize(&f.root)
+            .unwrap()
+            .strip_prefix("/")
+            .unwrap(),
+    );
+    if !long.is_dir() {
+        eprintln!("skipped: no Data volume spelling of {}", f.root.display());
+        return;
+    }
+    let long = long.to_str().unwrap();
+    settle(&f.root);
+    let o = f.run(&["--root", long, "index", "--quiet"]);
+    assert!(o.status.success(), "{o:?}");
+    w(&f.root.join("a/b/x.txt"), "needle_xi\n");
+    let cutoff = [(
+        "GREEG_DEBUG_FSEVENTS_CUTOFF_MS",
+        std::ffi::OsStr::new("5000"),
+    )];
+    let args = ["--root", long, "--fresh", "fsevents", "--json", "needle_xi"];
+    let o = f.run_env(&args, &cutoff);
+    let text = String::from_utf8_lossy(&o.stdout);
+    assert_eq!(o.status.code(), Some(0), "{text}");
+    assert!(text.contains("x.txt"), "{text}");
+    assert!(text.contains(r#""source":"index""#), "{text}");
+}
+
 /// The FSEvents check answers edits made just before it from the event log,
 /// and its statistics say so; when the log is unreliable (dropped events), the
 /// stat pass answers. Every answer equals a scan's.
