@@ -648,7 +648,7 @@ same when the wait is under 25 ms. An mtime ahead of the read (`touch -t`,
 an unpacked archive) does not count: a later write stamps the time it
 happens, and the ctime still moves, so the window follows the ctime alone.
 A ctime ahead of the clock (a clock stepped back) keeps the file marked
-until the clock passes it.
+until the clock passes it and its window (20 ms or 2 s) has elapsed.
 
 Restoring an edited file's mtime still moves its ctime, and an editor's
 save-by-rename brings a new inode, so both are seen. On file systems that do

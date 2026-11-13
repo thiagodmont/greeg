@@ -4661,11 +4661,18 @@ fn a_file_stamped_in_the_future_is_not_reindexed_per_query() {
         // the detached delta of an answer-first query
         std::thread::sleep(std::time::Duration::from_millis(100));
     }
-    while greeg_index::lock::marker_held(&layout, greeg_index::lock::Work::Refresh) {
-        std::thread::sleep(std::time::Duration::from_millis(50));
-    }
-    while greeg_index::lock::marker_held(&layout, greeg_index::lock::Work::Build) {
-        std::thread::sleep(std::time::Duration::from_millis(50));
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    for work in [
+        greeg_index::lock::Work::Refresh,
+        greeg_index::lock::Work::Build,
+    ] {
+        while greeg_index::lock::marker_held(&layout, work) {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "background work still held"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
     }
     assert_eq!(built(), before);
     w(&p, "pub fn needle_behind() {}\n");
