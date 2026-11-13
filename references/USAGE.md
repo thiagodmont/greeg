@@ -297,11 +297,13 @@ results still use greeg's ranking and token budget. An explicit file-size flag
 preserves ripgrep's requested limit (unlimited by default), so files over 4 MiB
 are not silently omitted. The pattern and paths follow `--`, so a path named
 like a subcommand (`rg foo index`) is searched, not run. A recursive `grep -r` (or `egrep -r`, `fgrep -r`) is
-rewritten too: its pattern is translated from grep's syntax, and files are
-selected as rg selects them: ignored, hidden and binary files are skipped,
-where grep searches them (greeg says so on stderr; `-uu` searches ignored and
-hidden files). As with rg's `-g`, an `--include` glob brings back the ignored
-and hidden files it names, not those under ignored or hidden directories. It leaves other grep forms, JSON/stats output, explicit
+rewritten too: its pattern is translated from grep's syntax. Hidden files are
+searched, as grep searches them, and version-control directories (`.git`,
+`.svn`, `.hg`, `.bzr`, `.jj`, `.sl`) are left out, as in Claude Code's own
+grep; a path inside one is left to grep. Ignored and binary files are skipped,
+as rg skips them, where grep searches them (greeg says so on stderr; `-u`
+searches ignored files). As with rg's `-g`, an `--include` glob brings back the
+ignored files it names, not those under ignored directories. It leaves other grep forms, JSON/stats output, explicit
 executable paths, other pipelines, subshells and groups, comments,
 redirections other than those that end a search and leave its output alone
 (`2>/dev/null`, `2> /dev/null`, `2>>/dev/null`, `2>> /dev/null`, `2>&1`,

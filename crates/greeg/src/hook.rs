@@ -100,9 +100,10 @@ grep's format, when its paths print as written (not `.` or `./x`) and a lone pat
 is a directory; other pipelines stay unchanged. `egrep -r` and `fgrep -r` count as `grep -r`. Trailing
 redirections of stderr to `/dev/null` or stdout (`2>/dev/null`, `2>&1`, also
 `2>>` and with a space) and of stdin from `/dev/null` are kept. A rewritten
-`grep -r` skips ignored, hidden and binary files, as rg does (an `--include`
-glob brings back the files it names, as `-g` does), and says so on stderr
-(`-uu` searches ignored and hidden files), so one whose stderr goes to
+`grep -r` searches hidden files, as grep does, but not `.git/` or other
+version-control data; it skips ignored and binary files, as rg does (an
+`--include` glob brings back the ignored files it names, as `-g` does), and
+says so on stderr (`-u` searches ignored files), so one whose stderr goes to
 `/dev/null` or that passes `-s` runs unchanged. While a nonempty
 `RIPGREP_CONFIG_PATH` is set, every search runs unchanged. Other greps,
 JSON, other pipes, subshells, comments, expansions and explicit executable
@@ -124,9 +125,10 @@ them only (a list with any other command stays unchanged). `egrep -r` and
 `fgrep -r` count as `grep -r`. Trailing
 redirections of stderr to `/dev/null` or stdout (`2>/dev/null`, `2>&1`, also
 `2>>` and with a space) and of stdin from `/dev/null` are kept. A rewritten
-`grep -r` skips ignored, hidden and binary files, as rg does (an `--include`
-glob brings back the files it names, as `-g` does), and says so on stderr
-(`-uu` searches ignored and hidden files), so one whose stderr goes to
+`grep -r` searches hidden files, as grep does, but not `.git/` or other
+version-control data; it skips ignored and binary files, as rg does (an
+`--include` glob brings back the ignored files it names, as `-g` does), and
+says so on stderr (`-u` searches ignored files), so one whose stderr goes to
 `/dev/null` or that passes `-s` runs unchanged. While a nonempty
 `RIPGREP_CONFIG_PATH` is set, every search runs unchanged. Other greps, JSON, other
 pipes, subshells, comments, expansions and explicit executable paths
@@ -1046,25 +1048,26 @@ mod tests {
 
     #[test]
     fn a_recursive_grep_piped_into_another_reader_gets_every_match_as_grep_prints_it() {
-        let g = "greeg --matching exact --budget 0 --max-filesize 18446744073709551615 --from-grep";
+        let g = "greeg --matching exact --budget 0 --max-filesize 18446744073709551615 --from-grep --hidden";
+        let v = "-g '!.git/' -g '!.svn/' -g '!.hg/' -g '!.bzr/' -g '!.jj/' -g '!.sl/'";
         for (cmd, want) in [
-            ("grep -rn a src | sort", format!("{g} -- a src | sort")),
+            ("grep -rn a src | sort", format!("{g} {v} -- a src | sort")),
             (
                 "grep -rln a src lib | grep -v test | head",
-                format!("{g} -l -- a src lib | grep -v test | head"),
+                format!("{g} -l {v} -- a src lib | grep -v test | head"),
             ),
             (
                 "grep -rn -A2 a src/ | cut -d: -f1",
-                format!("{g} -A 2 -- a src/ | cut -d: -f1"),
+                format!("{g} -A 2 {v} -- a src/ | cut -d: -f1"),
             ),
             // only `head` alone takes greeg's best lines
             (
                 "grep -rn a src | head -5 | cat",
-                format!("{g} -- a src | head -5 | cat"),
+                format!("{g} {v} -- a src | head -5 | cat"),
             ),
             (
                 "grep -rn a ../src | wc -l",
-                format!("{g} -- a ../src | wc -l"),
+                format!("{g} {v} -- a ../src | wc -l"),
             ),
         ] {
             same(cmd, &want);
