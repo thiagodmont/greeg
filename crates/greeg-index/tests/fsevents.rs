@@ -148,16 +148,19 @@ fn fsevents_finds_what_a_directory_stamp_hides() {
         );
     }
 
-    // a directory that became unreadable since the build: its files are not deleted
+    // a directory made unreadable after an event named it: its files are not
+    // deleted, and the check says it could not tell
     let t = tree();
-    fs::create_dir(t.root.join("locked")).unwrap();
-    fs::write(t.root.join("locked/inner.txt"), "needle\n").unwrap();
+    let locked = t.root.join("locked");
+    fs::create_dir(&locked).unwrap();
+    fs::write(locked.join("inner.txt"), "needle\n").unwrap();
     settle();
     build_index(&t);
-    fs::set_permissions(t.root.join("locked"), fs::Permissions::from_mode(0o000)).unwrap();
-    if fs::read_dir(t.root.join("locked")).is_err() {
+    fs::write(locked.join("inner.txt"), "needle 2\n").unwrap();
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+    if fs::read_dir(&locked).is_err() {
         let ch = check(&t, "became unreadable");
-        assert!(ch.deleted.is_empty(), "{ch:?}");
+        assert!(ch.unreliable && ch.deleted.is_empty(), "{ch:?}");
     }
     drop(t);
 

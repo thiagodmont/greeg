@@ -1367,6 +1367,20 @@ mod tests {
         ));
         assert!(!ch.no_ino && ch.modified.len() == 20);
 
+        // a stat that failed for another reason is no deletion
+        let mut ch = Changes::default();
+        let st = (0..20)
+            .map(|i| {
+                if i == 4 {
+                    Err(Unread)
+                } else {
+                    Ok(Some(stamp(i)))
+                }
+            })
+            .collect();
+        classify_all(&mut ch, false, &files, st, 20);
+        assert!(ch.unreliable && ch.deleted.is_empty() && ch.modified.is_empty());
+
         // a recheck mark is a change even with an identical stamp
         let mut marked = recs.clone();
         marked[5].stamp_flags = format::STAMP_RECHECK;

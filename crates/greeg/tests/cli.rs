@@ -4363,7 +4363,7 @@ fn files_dropped_while_their_directory_was_unreadable_come_back() {
         eprintln!("skipped: this user reads a mode-000 directory (root)");
         return;
     }
-    // a verb applies its check before answering: the file is dropped
+    // a verb's check while the directory is unreadable
     let _ = f.run(&["--fresh", "stat", "refs", "needle_mu"]);
     fs::set_permissions(&d, fs::Permissions::from_mode(0o755)).unwrap();
     let scanned = pairs(&f.out(&["--no-index", "--budget", "0", "needle_mu"]));
@@ -4402,13 +4402,17 @@ fn a_file_that_cannot_be_stat_ed_is_not_deleted() {
     // past the window in which a check leaves the stamp as it is
     std::thread::sleep(std::time::Duration::from_millis(1100));
     let scanned = pairs(&f.out(&["--no-index", "--budget", "0", "needle_nu"]));
-    let o = f.run(&["--fresh", "stat", "--json", "--budget", "0", "needle_nu"]);
-    let footer = String::from_utf8_lossy(&o.stdout)
-        .lines()
-        .map(|l| serde_json::from_str::<serde_json::Value>(l).unwrap())
-        .find(|v| v["type"] == "footer")
-        .expect("a footer");
-    assert_ne!(footer["data"]["outcome"]["source"], "index", "{footer}");
+    let outcome = |args: &[&str]| -> serde_json::Value {
+        let o = f.run(&[&["--fresh", "stat", "--json"][..], args].concat());
+        String::from_utf8_lossy(&o.stdout)
+            .lines()
+            .map(|l| serde_json::from_str::<serde_json::Value>(l).unwrap())
+            .find(|v| v["type"] == "footer")
+            .expect("a footer")["data"]["outcome"]
+            .clone()
+    };
+    let oc = outcome(&["--budget", "0", "needle_nu"]);
+    assert_ne!(oc["source"], "index", "{oc}");
     assert_eq!(
         pairs(&f.out(&["--fresh", "stat", "--budget", "0", "needle_nu"])),
         scanned
@@ -4416,6 +4420,12 @@ fn a_file_that_cannot_be_stat_ed_is_not_deleted() {
     // a verb publishes its check before answering
     let _ = f.run(&["--fresh", "stat", "refs", "needle_nu"]);
     let _ = f.run(&["index", "--check", "--fresh", "stat"]);
+    // map and find have no scan to fall back on
+    for args in [&["map"][..], &["find", "needle"]] {
+        let oc = outcome(args);
+        assert_eq!(oc["exit"], 2, "{args:?}: {oc}");
+        assert_eq!(oc["rebuilding"]["reason"], "unreadable", "{args:?}: {oc}");
+    }
     let during = manifest();
     fs::set_permissions(&d, fs::Permissions::from_mode(0o755)).unwrap();
     assert_eq!(during["tombstones"], 0, "{during}");
@@ -4430,6 +4440,8 @@ fn a_file_that_cannot_be_stat_ed_is_not_deleted() {
         pairs(&f.out(&["--fresh", "stat", "--budget", "0", "needle_nu"])),
         scanned
     );
+    let oc = outcome(&["--budget", "0", "needle_nu"]);
+    assert_eq!(oc["source"], "index", "{oc}");
     assert_eq!(manifest()["tombstones"], 0);
 }
 
