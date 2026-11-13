@@ -560,6 +560,14 @@ to keep it there.
   as of when its check or build began reading the tree, not when it was
   published, so a change made while either ran is found by the next check.
 
+Only "not found", a file on the way (`ENOTDIR`) or a symlink on the way
+(`ELOOP`) makes a known file deleted. Any other stat error (a directory made
+unreadable, `EIO` or `ESTALE` on a network mount) says nothing about the
+file: that check publishes nothing, leaves the verification stamp as it was,
+and a scan answers (reason `unreadable`). No build is queued: the first
+check that reads the tree again publishes, and `greeg index` rebuilds without
+the unreadable part.
+
 A known file that is no longer a regular file (replaced by a symlink, FIFO
 or device) counts as deleted, and added entries are indexed only when they
 are regular files, as a scan would. Every file found below the root, by the
@@ -664,7 +672,8 @@ and `map` says how many the graph may miss.
 line naming the reason and the last build's time, `greeg: the import graph is
 being rebuilt (reason: resolver-inputs, about 3s); retry, or run \`greeg
 index\``, and under `--json` a footer whose `outcome` holds `"exit": 2` and
-`"rebuilding": {"reason", "estimate_ms"}`.
+`"rebuilding": {"reason", "estimate_ms"}`. A freshness check that could not
+read part of the tree gives reason `unreadable`, with no rebuild queued.
 
 Symbol verbs are the exception. `def`, `refs` and `outline` need the changed
 files' symbols, so they apply the delta inline before answering.

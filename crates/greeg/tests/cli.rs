@@ -4371,6 +4371,68 @@ fn files_dropped_while_their_directory_was_unreadable_come_back() {
     assert_eq!(pairs(&f.out(&args)), scanned);
 }
 
+/// A file the check cannot stat for a reason other than "not found" is not
+/// deleted: a scan answers, and the index gains no tombstone and no newer
+/// verification stamp.
+#[test]
+fn a_file_that_cannot_be_stat_ed_is_not_deleted() {
+    use std::os::unix::fs::PermissionsExt;
+    let f = fixture();
+    filler(&f);
+    let d = f.root.join("locked");
+    w(&d.join("inner.txt"), "needle_nu\n");
+    w(&d.join("deep/more.txt"), "needle_nu\n");
+    settle(&f.root);
+    f.indexed();
+    let manifest = || -> serde_json::Value {
+        let o = f.run(&["--json", "index", "--status"]);
+        serde_json::Deserializer::from_slice(&o.stdout)
+            .into_iter::<serde_json::Value>()
+            .next()
+            .unwrap()
+            .unwrap()
+    };
+    let before = manifest();
+    fs::set_permissions(&d, fs::Permissions::from_mode(0o000)).unwrap();
+    if fs::read_dir(&d).is_ok() {
+        fs::set_permissions(&d, fs::Permissions::from_mode(0o755)).unwrap();
+        eprintln!("skipped: this user reads a mode-000 directory (root)");
+        return;
+    }
+    // past the window in which a check leaves the stamp as it is
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    let scanned = pairs(&f.out(&["--no-index", "--budget", "0", "needle_nu"]));
+    let o = f.run(&["--fresh", "stat", "--json", "--budget", "0", "needle_nu"]);
+    let footer = String::from_utf8_lossy(&o.stdout)
+        .lines()
+        .map(|l| serde_json::from_str::<serde_json::Value>(l).unwrap())
+        .find(|v| v["type"] == "footer")
+        .expect("a footer");
+    assert_ne!(footer["data"]["outcome"]["source"], "index", "{footer}");
+    assert_eq!(
+        pairs(&f.out(&["--fresh", "stat", "--budget", "0", "needle_nu"])),
+        scanned
+    );
+    // a verb publishes its check before answering
+    let _ = f.run(&["--fresh", "stat", "refs", "needle_nu"]);
+    let _ = f.run(&["index", "--check", "--fresh", "stat"]);
+    let during = manifest();
+    fs::set_permissions(&d, fs::Permissions::from_mode(0o755)).unwrap();
+    assert_eq!(during["tombstones"], 0, "{during}");
+    assert_eq!(during["deltas"], before["deltas"], "{during}");
+    assert_eq!(
+        during["verified_unix_ms"], before["verified_unix_ms"],
+        "{during}"
+    );
+    let scanned = pairs(&f.out(&["--no-index", "--budget", "0", "needle_nu"]));
+    assert_eq!(scanned.len(), 2);
+    assert_eq!(
+        pairs(&f.out(&["--fresh", "stat", "--budget", "0", "needle_nu"])),
+        scanned
+    );
+    assert_eq!(manifest()["tombstones"], 0);
+}
+
 /// Wait out the racy window of what was just written under `root` (20 ms, or
 /// 2 s where the file system keeps whole seconds), so a build lists its
 /// directories late enough to trust their stamps.

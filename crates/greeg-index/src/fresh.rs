@@ -58,6 +58,10 @@ pub struct Changes {
     /// This check found that the file system does not keep inode numbers
     /// (`classify_all`); `apply` records it in the manifest.
     pub no_ino: bool,
+    /// A stat failed for a reason other than "not found" (`gone`): what the
+    /// check found cannot be told from what it could not read, so `apply`
+    /// publishes nothing and the query is answered by a scan.
+    pub unreliable: bool,
 }
 
 /// Why an index must be rebuilt rather than refreshed by a delta.
@@ -214,8 +218,26 @@ impl Lookup {
     }
 }
 
-/// Parallel lstat of `items`, returning per item its stamp, or None when
-/// missing or no longer of the `kind` the index holds (a regular file
+/// A stat error that says the entry is gone from where the index has it:
+/// not found, a file on the way, a symlink on the way, or a path the tree
+/// cannot hold. Any other (EACCES, EIO, ESTALE) says nothing about it.
+fn gone(e: &std::io::Error) -> bool {
+    match e.raw_os_error() {
+        Some(n) => matches!(n, libc::ENOENT | libc::ENOTDIR | libc::ELOOP),
+        None => e.kind() == std::io::ErrorKind::InvalidInput,
+    }
+}
+
+/// A stat that failed for a reason other than [`gone`]: the entry may be
+/// there or not.
+#[derive(Clone, Copy, Debug)]
+struct Unread;
+
+/// What a stat found: the stamp, `Ok(None)` when the entry is gone.
+type Seen = std::result::Result<Option<Stamp>, Unread>;
+
+/// Parallel lstat of `items`, returning per item its stamp, or `Ok(None)`
+/// when missing or no longer of the `kind` the index holds (a regular file
 /// replaced by a symlink reads as deleted, as a scan would skip it).
 fn stat_many<T: Sync>(
     tree: Option<&Tree>,
@@ -224,9 +246,9 @@ fn stat_many<T: Sync>(
     rel: impl Fn(&T) -> &[u8] + Sync,
     kind: fn(&tree::Stat) -> bool,
     threads: usize,
-) -> Vec<Option<Stamp>> {
+) -> Vec<Seen> {
     let n = items.len();
-    let mut out: Vec<Option<Stamp>> = vec![None; n];
+    let mut out: Vec<Seen> = vec![Ok(None); n];
     // an entry the tree cannot reach without a symlink is gone
     let Some(tree) = tree.filter(|_| n > 0) else {
         return out;
@@ -244,7 +266,11 @@ fn stat_many<T: Sync>(
                         Lookup::Refusing => tree.stat(rel(it), &mut dirs),
                         Lookup::Leaf => tree.lstat(rel(it)),
                     };
-                    *o = st.ok().filter(kind).map(|st| Stamp::of_stat(&st));
+                    *o = match st {
+                        Ok(st) => Ok(Some(st).filter(kind).map(|st| Stamp::of_stat(&st))),
+                        Err(e) if gone(&e) => Ok(None),
+                        Err(_) => Err(Unread),
+                    };
                 }
             });
         }
@@ -374,14 +400,14 @@ fn classify_all(
     ch: &mut Changes,
     mut no_ino: bool,
     files: &[(u32, &[u8], &FileRec)],
-    st: Vec<Option<Stamp>>,
+    st: Vec<Seen>,
     indexed: usize,
 ) -> bool {
     if !no_ino {
         let moved = files
             .iter()
             .zip(&st)
-            .filter(|(f, s)| s.is_some_and(|s| s.moved_only(&f.2.stamp())))
+            .filter(|(f, s)| matches!(s, Ok(Some(s)) if s.moved_only(&f.2.stamp())))
             .count();
         if moved >= NO_INO_MIN && moved * 2 > indexed {
             no_ino = true;
@@ -389,7 +415,10 @@ fn classify_all(
         }
     }
     for ((id, rel, rec), s) in files.iter().zip(st) {
-        classify(ch, *id, rel, rec, s, no_ino);
+        match s {
+            Ok(s) => classify(ch, *id, rel, rec, s, no_ino),
+            Err(Unread) => ch.unreliable = true,
+        }
     }
     no_ino
 }
@@ -402,7 +431,9 @@ pub fn check_stat(idx: &Index, root: &Path, threads: usize) -> Changes {
 fn check_stat_with(idx: &Index, root: &Path, lookup: Option<Lookup>, threads: usize) -> Changes {
     let t = Instant::now();
     let checked_ms = now_ms();
-    let tree = Tree::open(root).ok();
+    let tree = Tree::open(root);
+    let unopened = matches!(&tree, Err(e) if !gone(e));
+    let tree = tree.ok();
     let lookup = lookup.unwrap_or_else(|| tree.as_ref().map_or(Lookup::Refusing, Lookup::of));
     let fsevents_id = current_fsevents_id();
     let k = known(idx);
@@ -410,6 +441,7 @@ fn check_stat_with(idx: &Index, root: &Path, lookup: Option<Lookup>, threads: us
         method: "stat",
         fsevents_id,
         checked_ms,
+        unreliable: unopened,
         ..Default::default()
     };
     let tree = tree.as_ref();
@@ -419,18 +451,17 @@ fn check_stat_with(idx: &Index, root: &Path, lookup: Option<Lookup>, threads: us
     // directory comes before those below it
     dirs.sort_unstable_by_key(|d| d.0);
     let mut ds = stat_many(tree, lookup, &dirs, |d| d.0, tree::is_dir, threads);
+    ch.unreliable |= ds.iter().any(Result::is_err);
     if lookup == Lookup::Leaf {
         drop_below_gone(&dirs, &mut ds, &k.files, &mut st);
     }
     let no_ino = classify_all(&mut ch, idx.no_ino(), &k.files, st, k.files.len());
     let mut changed_dirs: Vec<(Vec<u8>, Stamp)> = Vec::new();
     for ((rel, old), s) in dirs.iter().zip(ds) {
-        match s {
-            None => {}
-            Some(st) if !st.same_dir(&old.0, no_ino) || old.1 => {
-                changed_dirs.push((rel.to_vec(), st))
-            }
-            _ => {}
+        if let Ok(Some(st)) = s
+            && (!st.same_dir(&old.0, no_ino) || old.1)
+        {
+            changed_dirs.push((rel.to_vec(), st))
         }
     }
     add_dirs(
@@ -447,14 +478,14 @@ fn check_stat_with(idx: &Index, root: &Path, lookup: Option<Lookup>, threads: us
 /// gone or no longer a directory. `dirs` is in path order.
 fn drop_below_gone<T>(
     dirs: &[(&[u8], T)],
-    ds: &mut [Option<Stamp>],
+    ds: &mut [Seen],
     files: &[(u32, &[u8], &FileRec)],
-    st: &mut [Option<Stamp>],
+    st: &mut [Seen],
 ) {
     let mut gone: HashSet<&[u8]> = HashSet::new();
     for ((rel, _), s) in dirs.iter().zip(ds.iter_mut()) {
-        if s.is_none() || (!gone.is_empty() && below(&gone, rel)) {
-            *s = None;
+        if matches!(s, Ok(None)) || (!gone.is_empty() && below(&gone, rel)) {
+            *s = Ok(None);
             gone.insert(rel);
         }
     }
@@ -463,7 +494,7 @@ fn drop_below_gone<T>(
     }
     for (f, s) in files.iter().zip(st) {
         if below(&gone, f.1) {
-            *s = None;
+            *s = Ok(None);
         }
     }
 }
@@ -665,15 +696,20 @@ pub fn check_fsevents(idx: &Index, root: &Path, threads: usize) -> Option<Change
     let mut moved: HashSet<&[u8]> = HashSet::new();
     let mut on_way = tree::Dirs::default();
     for r in &rels {
-        if let Some((old, recheck)) = k.dirs.get(r.as_slice())
-            && let Ok(st) = tree.stat(r, &mut on_way)
-        {
-            let st = Stamp::of_stat(&st);
-            // an event names the directory, but a racy listing's stamp may not show it
-            if !st.same_dir(old, idx.no_ino()) || *recheck {
-                changed_dirs.push((r.clone(), st));
-                moved.insert(r.as_slice());
+        let Some((old, recheck)) = k.dirs.get(r.as_slice()) else {
+            continue;
+        };
+        match tree.stat(r, &mut on_way) {
+            Ok(st) => {
+                let st = Stamp::of_stat(&st);
+                // an event names the directory, but a racy listing's stamp may not show it
+                if !st.same_dir(old, idx.no_ino()) || *recheck {
+                    changed_dirs.push((r.clone(), st));
+                    moved.insert(r.as_slice());
+                }
             }
+            Err(e) if !gone(&e) => ch.unreliable = true,
+            Err(_) => {}
         }
     }
     let under_moved = |rel: &[u8]| -> bool {
@@ -1016,6 +1052,9 @@ fn same_index(idx: &Index, cur: &crate::Manifest) -> bool {
 /// opened, the delta (computed against stale ids) is skipped and 0 is
 /// returned; the caller reopens the index either way.
 pub fn apply(idx: &Index, root: &Path, ch: &Changes) -> Result<usize> {
+    if ch.unreliable {
+        return Ok(0);
+    }
     let fsid = if ch.fsevents_id != 0 {
         ch.fsevents_id
     } else {
@@ -1179,6 +1218,29 @@ mod tests {
     use std::fs;
 
     #[test]
+    fn only_not_found_errors_mean_a_file_is_gone() {
+        let os = std::io::Error::from_raw_os_error;
+        for e in [libc::ENOENT, libc::ENOTDIR, libc::ELOOP] {
+            assert!(gone(&os(e)), "{e}");
+        }
+        for e in [
+            libc::EACCES,
+            libc::EPERM,
+            libc::EIO,
+            libc::ESTALE,
+            libc::EINVAL,
+        ] {
+            assert!(!gone(&os(e)), "{e}");
+        }
+        assert!(gone(
+            &tree::Tree::open(Path::new("/"))
+                .unwrap()
+                .lstat(b"../x")
+                .unwrap_err()
+        ));
+    }
+
+    #[test]
     fn only_imports_a_changed_file_can_answer_are_resolved_again() {
         use greeg_lang::Lang::{JavaScript, Python, Rust, TypeScript};
         let dirs = ["src/net/"];
@@ -1276,7 +1338,7 @@ mod tests {
             &mut ch,
             false,
             &files,
-            (0..20).map(|i| Some(stamp(i + 100))).collect(),
+            (0..20).map(|i| Ok(Some(stamp(i + 100)))).collect(),
             20
         ));
         assert!(ch.no_ino && ch.modified.is_empty());
@@ -1284,7 +1346,7 @@ mod tests {
         // three atomic replaces among stable inodes are changes
         let mut ch = Changes::default();
         let st = (0..20)
-            .map(|i| Some(stamp(if i < 3 { i + 100 } else { i })))
+            .map(|i| Ok(Some(stamp(if i < 3 { i + 100 } else { i }))))
             .collect();
         assert!(!classify_all(&mut ch, false, &files, st, 20));
         assert!(!ch.no_ino);
@@ -1300,7 +1362,7 @@ mod tests {
             &mut ch,
             false,
             &files,
-            (0..20).map(|i| Some(stamp(i + 100))).collect(),
+            (0..20).map(|i| Ok(Some(stamp(i + 100)))).collect(),
             100
         ));
         assert!(!ch.no_ino && ch.modified.len() == 20);
@@ -1318,7 +1380,7 @@ mod tests {
             &mut ch,
             false,
             &files,
-            (0..20).map(|i| Some(stamp(i))).collect(),
+            (0..20).map(|i| Ok(Some(stamp(i)))).collect(),
             20,
         );
         assert_eq!(ch.modified.iter().map(|m| m.0).collect::<Vec<_>>(), [5]);
