@@ -128,10 +128,13 @@ impl Stamp {
             && (no_ino || (self.ino == o.ino && self.dev == o.dev))
     }
 
-    /// A directory's entry list is unchanged: same mtime and (unless
+    /// A directory's entry list is unchanged: same mtime and change time
+    /// (a restored mtime or a `chmod` moves the change time) and (unless
     /// `no_ino`) the same directory.
     pub fn same_dir(&self, o: &Stamp, no_ino: bool) -> bool {
-        self.mtime_ns == o.mtime_ns && (no_ino || (self.ino == o.ino && self.dev == o.dev))
+        self.mtime_ns == o.mtime_ns
+            && self.ctime_ns == o.ctime_ns
+            && (no_ino || (self.ino == o.ino && self.dev == o.dev))
     }
 
     /// Differs only in inode or device.
@@ -418,12 +421,18 @@ pub(crate) fn file_rec(
     }
 }
 
-pub(crate) fn dir_rec((path_off, path_len): (u32, u16), stamp: &Stamp) -> DirRec {
+/// A directory's record, listed at `listed_ns` or later.
+pub(crate) fn dir_rec((path_off, path_len): (u32, u16), stamp: &Stamp, listed_ns: i64) -> DirRec {
     DirRec {
         path_off,
         path_len,
-        pad: 0,
+        flags: if stamp.racy(listed_ns) {
+            format::STAMP_RECHECK as u16
+        } else {
+            0
+        },
         mtime_ns: stamp.mtime_ns,
+        ctime_ns: stamp.ctime_ns,
         ino: stamp.ino,
         dev: stamp.dev,
     }
@@ -786,7 +795,7 @@ pub fn build(root: &Path, dir: &Path, opts: &BuildOpts) -> Result<Manifest> {
     }
     for d in &dirs {
         let at = ft.intern(&d.rel);
-        ft.dirs.push(dir_rec(at, &d.stamp));
+        ft.dirs.push(dir_rec(at, &d.stamp, walked_ns));
     }
 
     // publish under the writer lock into this build's own directory:
@@ -1265,6 +1274,7 @@ fn greeg_fsevents_id() -> u64 {
 /// and `tomb` holds every id this delta retires. Imports are resolved against
 /// the live base plus the delta's own files, so the edited files keep their
 /// graph edges (ARCHITECTURE.md). Returns the serialized segment body.
+#[allow(clippy::too_many_arguments)]
 pub fn build_delta(
     idx: &Index,
     root: &Path,
@@ -1272,6 +1282,7 @@ pub fn build_delta(
     files: &[WalkedFile],
     prev: &[u32],
     dirs: &[WalkedDir],
+    dirs_listed_ns: i64,
     tomb: &RoaringBitmap,
 ) -> Result<Vec<u8>> {
     // unread files (above the size cap) keep the check's stamp, judged
@@ -1426,7 +1437,7 @@ pub fn build_delta(
     }
     for d in dirs {
         let at = ft.intern(&d.rel);
-        ft.dirs.push(dir_rec(at, &d.stamp));
+        ft.dirs.push(dir_rec(at, &d.stamp, dirs_listed_ns));
     }
     let mut entries: Vec<(u32, u32, Vec<u8>)> = map
         .into_iter()

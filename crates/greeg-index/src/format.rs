@@ -88,7 +88,7 @@ pub const DELTA_HEADER: usize = 32;
 
 pub const NONE: u32 = u32::MAX;
 
-const _: () = assert!(size_of::<FileRec>() == 56 && size_of::<DirRec>() == 32);
+const _: () = assert!(size_of::<FileRec>() == 56 && size_of::<DirRec>() == 40);
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
@@ -131,8 +131,11 @@ impl FileRec {
 pub struct DirRec {
     pub path_off: u32,
     pub path_len: u16,
-    pub pad: u16,
+    /// `STAMP_RECHECK`: listed too soon after a change for its stamp to show
+    /// the next one, so the next check lists it again.
+    pub flags: u16,
     pub mtime_ns: i64,
+    pub ctime_ns: i64,
     pub ino: u64,
     pub dev: u64,
 }
@@ -141,10 +144,15 @@ impl DirRec {
     pub fn stamp(&self) -> crate::build::Stamp {
         crate::build::Stamp {
             mtime_ns: self.mtime_ns,
+            ctime_ns: self.ctime_ns,
             ino: self.ino,
             dev: self.dev,
             ..Default::default()
         }
+    }
+
+    pub fn recheck(&self) -> bool {
+        self.flags & STAMP_RECHECK as u16 != 0
     }
 }
 

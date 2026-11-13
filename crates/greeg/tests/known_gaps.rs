@@ -1934,6 +1934,8 @@ fn purge_previews_and_removes_only_owned_paths() {
             .args(args);
         c.output().unwrap()
     };
+    // past the racy window: no directory is listed again by a refresh
+    std::thread::sleep(std::time::Duration::from_millis(50));
     assert!(greeg(&["index", "--quiet"]).status.success());
     assert_eq!(greeg(&["needle"]).status.code(), Some(0));
     let old = base.join("tokio-fedcba9876543210");

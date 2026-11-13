@@ -148,7 +148,8 @@ struct Known<'a> {
     // (id, rel, rec)
     files: Vec<(u32, &'a [u8], &'a FileRec)>,
     // dir rel -> stamp (latest record wins)
-    dirs: HashMap<&'a [u8], Stamp>,
+    /// Each directory's stamp, and whether it must be listed again anyway.
+    dirs: HashMap<&'a [u8], (Stamp, bool)>,
 }
 
 impl<'a> Known<'a> {
@@ -182,11 +183,12 @@ impl<'a> Known<'a> {
 fn known(idx: &Index) -> Known<'_> {
     let mut files = Vec::with_capacity(idx.base.n_files as usize);
     files.extend(idx.tracked_files());
-    let mut dirs: HashMap<&[u8], Stamp> = HashMap::with_capacity(idx.base.files().dirs().len());
+    let mut dirs: HashMap<&[u8], (Stamp, bool)> =
+        HashMap::with_capacity(idx.base.files().dirs().len());
     for (_, seg) in idx.segments() {
         let fv = seg.files();
         for d in fv.dirs() {
-            dirs.insert(fv.dir_path(d), d.stamp());
+            dirs.insert(fv.dir_path(d), (d.stamp(), d.recheck()));
         }
     }
     Known { files, dirs }
@@ -412,7 +414,7 @@ fn check_stat_with(idx: &Index, root: &Path, lookup: Option<Lookup>, threads: us
     };
     let tree = tree.as_ref();
     let mut st = stat_many(tree, lookup, &k.files, |f| f.1, tree::is_file, threads);
-    let mut dirs: Vec<(&[u8], Stamp)> = k.dirs.iter().map(|(p, m)| (*p, *m)).collect();
+    let mut dirs: Vec<(&[u8], (Stamp, bool))> = k.dirs.iter().map(|(p, m)| (*p, *m)).collect();
     // in path order: a stat pass that opens directories shares them, and a
     // directory comes before those below it
     dirs.sort_unstable_by_key(|d| d.0);
@@ -425,7 +427,9 @@ fn check_stat_with(idx: &Index, root: &Path, lookup: Option<Lookup>, threads: us
     for ((rel, old), s) in dirs.iter().zip(ds) {
         match s {
             None => {}
-            Some(st) if !st.same_dir(old, no_ino) => changed_dirs.push((rel.to_vec(), st)),
+            Some(st) if !st.same_dir(&old.0, no_ino) || old.1 => {
+                changed_dirs.push((rel.to_vec(), st))
+            }
             _ => {}
         }
     }
@@ -437,8 +441,8 @@ fn check_stat_with(idx: &Index, root: &Path, lookup: Option<Lookup>, threads: us
 /// A leaf lookup follows a symlink swapped in for a directory on the way:
 /// clear the stamps of the directories and files below a directory that is
 /// gone or no longer a directory. `dirs` is in path order.
-fn drop_below_gone(
-    dirs: &[(&[u8], Stamp)],
+fn drop_below_gone<T>(
+    dirs: &[(&[u8], T)],
     ds: &mut [Option<Stamp>],
     files: &[(u32, &[u8], &FileRec)],
     st: &mut [Option<Stamp>],
@@ -605,7 +609,7 @@ pub fn check_fsevents(idx: &Index, root: &Path, threads: usize) -> Option<Change
     }
     let mut on_way = tree::Dirs::default();
     for r in &rels {
-        if let Some(old) = k.dirs.get(r.as_slice())
+        if let Some((old, _)) = k.dirs.get(r.as_slice())
             && let Ok(st) = tree.stat(r, &mut on_way)
         {
             let st = Stamp::of_stat(&st);
@@ -1006,7 +1010,9 @@ pub fn apply(idx: &Index, root: &Path, ch: &Changes) -> Result<usize> {
     let mut dirs: Vec<WalkedDir> = ch.added_dirs.clone();
     dirs.extend(ch.touched_dirs.iter().cloned());
     // extraction runs outside the lock; only the publish is serialized
-    let body = build_delta(idx, root, first_id, &files, &prev, &dirs, &tomb)?;
+    // the check listed the directories after it began
+    let listed_ns = ch.checked_ms as i64 * 1_000_000;
+    let body = build_delta(idx, root, first_id, &files, &prev, &dirs, listed_ns, &tomb)?;
     // a delta built from bytes that failed their check is not published
     if idx.corrupt() {
         return Ok(0);

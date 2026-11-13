@@ -4243,3 +4243,74 @@ fn a_verification_stamp_from_the_future_is_not_trusted() {
     let args = ["--fresh", "auto", "--budget", "0", "marker_zeta"];
     assert_eq!(pairs(&f.out(&args)), scanned);
 }
+
+/// A file added while its directory's mtime is restored (`rsync -a`,
+/// `tar x`, `cp -a`) is found: the directory's change time moved.
+#[test]
+fn an_entry_added_with_the_directory_mtime_restored_is_found() {
+    let f = fixture();
+    w(&f.root.join("d/old.txt"), "old\n");
+    // past the racy window, so only the change time can tell
+    std::thread::sleep(std::time::Duration::from_millis(50));
+    f.indexed();
+    let d = f.root.join("d");
+    let r = f.base.join("ref");
+    let touch = |args: &[&std::ffi::OsStr]| {
+        assert!(Command::new("touch").args(args).status().unwrap().success());
+    };
+    touch(&["-r".as_ref(), d.as_os_str(), r.as_os_str()]);
+    w(&d.join("new.txt"), "needle_kappa\n");
+    touch(&["-r".as_ref(), r.as_os_str(), d.as_os_str()]);
+    let scanned = pairs(&f.out(&["--no-index", "--budget", "0", "needle_kappa"]));
+    assert_eq!(scanned.len(), 1);
+    let args = ["--fresh", "stat", "--budget", "0", "needle_kappa"];
+    assert_eq!(pairs(&f.out(&args)), scanned);
+}
+
+/// A directory unreadable when the index was built is listed once it is
+/// readable: `chmod` moves its change time, not its mtime.
+#[test]
+fn a_directory_unreadable_at_build_is_indexed_once_readable() {
+    use std::os::unix::fs::PermissionsExt;
+    let f = fixture();
+    let d = f.root.join("locked");
+    w(&d.join("inner.txt"), "needle_lambda\n");
+    fs::set_permissions(&d, fs::Permissions::from_mode(0o000)).unwrap();
+    if fs::read_dir(&d).is_ok() {
+        // root reads it anyway
+        fs::set_permissions(&d, fs::Permissions::from_mode(0o755)).unwrap();
+        return;
+    }
+    std::thread::sleep(std::time::Duration::from_millis(50));
+    f.indexed();
+    fs::set_permissions(&d, fs::Permissions::from_mode(0o755)).unwrap();
+    let scanned = pairs(&f.out(&["--no-index", "--budget", "0", "needle_lambda"]));
+    assert_eq!(scanned.len(), 1);
+    let args = ["--fresh", "stat", "--budget", "0", "needle_lambda"];
+    assert_eq!(pairs(&f.out(&args)), scanned);
+}
+
+/// Files dropped while their directory was unreadable come back once it is
+/// readable again: `chmod` moves its change time, not its mtime.
+#[test]
+fn files_dropped_while_their_directory_was_unreadable_come_back() {
+    use std::os::unix::fs::PermissionsExt;
+    let f = fixture();
+    let d = f.root.join("locked");
+    w(&d.join("inner.txt"), "needle_mu\n");
+    std::thread::sleep(std::time::Duration::from_millis(50));
+    f.indexed();
+    let args = ["--fresh", "stat", "--budget", "0", "needle_mu"];
+    fs::set_permissions(&d, fs::Permissions::from_mode(0o000)).unwrap();
+    if fs::read_dir(&d).is_ok() {
+        // root reads it anyway
+        fs::set_permissions(&d, fs::Permissions::from_mode(0o755)).unwrap();
+        return;
+    }
+    // a verb applies its check before answering: the file is dropped
+    let _ = f.run(&["--fresh", "stat", "refs", "needle_mu"]);
+    fs::set_permissions(&d, fs::Permissions::from_mode(0o755)).unwrap();
+    let scanned = pairs(&f.out(&["--no-index", "--budget", "0", "needle_mu"]));
+    assert_eq!(scanned.len(), 1);
+    assert_eq!(pairs(&f.out(&args)), scanned);
+}
