@@ -4557,7 +4557,8 @@ fn a_failed_background_build_is_recorded_and_not_respawned_per_query() {
     let first = f.run_env(&["handle_request"], &fail);
     assert_eq!(first.status.code(), Some(0), "{first:?}");
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
-    while record().is_none() {
+    // a build writes the record as it starts, and its error when it fails
+    while !record().is_some_and(|r| r["error"] != "the build did not finish") {
         assert!(std::time::Instant::now() < deadline, "no failure recorded");
         std::thread::sleep(std::time::Duration::from_millis(50));
     }
@@ -4573,6 +4574,11 @@ fn a_failed_background_build_is_recorded_and_not_respawned_per_query() {
     assert_eq!(record().unwrap()["attempts"], 1, "a build was respawned");
     let doctor = f.out(&["doctor"]);
     assert!(doctor.contains("GREEG_DEBUG_BUILD_FAIL"), "{doctor}");
+    // map needs the index: it says why there is none, without waiting
+    let map = f.run(&["--json", "map"]);
+    assert_eq!(map.status.code(), Some(2));
+    let map = String::from_utf8_lossy(&map.stdout);
+    assert!(map.contains(r#""reason":"build-failed""#), "{map}");
     f.indexed();
     assert!(
         record().is_none(),

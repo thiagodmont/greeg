@@ -157,14 +157,19 @@ that finds the marker locked leaves the work to it. A marker left by a process
 that died is not locked, so the next one takes it over at once; a build that
 runs long keeps its lock however old the file is. The process that takes a marker opens it through the private-storage checks (no symlink, one link, owned) before writing it; the probe that only asks whether one is held (`doctor`, a query deciding whether to start a build) opens it without following a symlink and writes nothing, and an older greeg's unlocked marker (a bare pid) counts as live for its old window (10 min for a build, 30 s for a refresh).
 
-A build that fails (an error, a panic) writes `BUILD_FAILED` beside its
-marker before it lets the marker go: the error, when, and how many builds
-in a row failed. Queries then leave the background build alone for 30 s
-after the first failure, doubling after each one up to an hour, rather than
-start the same failing walk and extraction on every call; they answer from a
-scan meanwhile. The first query after a failure says so once on stderr, and
-`doctor` shows the record. A build that succeeds removes it; `greeg index`
-run by hand never waits for the back-off; `--no-persist` writes none.
+A build writes `BUILD_FAILED` beside its marker as it starts, and its
+error, if it fails (an error, a panic), before it lets the marker go: the
+root, the error, when, and how many builds of that root failed in a row. A
+build killed on the way counts as failed; one that cannot write that small
+file fails at once, since it could not publish either, rather than walk the
+tree first. Queries then leave the background build alone for 30 s after
+the first failure, doubling after each one up to an hour, rather than start
+the same failing walk and extraction on every call: searches and the verbs
+that can scan answer from a scan, and `map` and `find` exit 2 without
+waiting. The first query after a failure says so once on stderr (which
+record it reported is kept in a file of its own), and `doctor` shows the
+record. A build that succeeds removes it; `greeg index` run by hand never
+waits for the back-off; `--no-persist` writes none.
 
 The build runs in two phases so queries get useful answers early:
 
@@ -699,7 +704,9 @@ line naming the reason and the last build's time, `greeg: the import graph is
 being rebuilt (reason: resolver-inputs, about 3s); retry, or run \`greeg
 index\``, and under `--json` a footer whose `outcome` holds `"exit": 2` and
 `"rebuilding": {"reason", "estimate_ms"}`. A freshness check that could not
-read part of the tree gives reason `unreadable`, with no rebuild queued.
+read part of the tree gives reason `unreadable`, with no rebuild queued;
+while a failed build backs off, an index that does not exist yet gives
+`build-failed`.
 
 Symbol verbs are the exception. `def`, `refs` and `outline` need the changed
 files' symbols, so they apply the delta inline before answering.

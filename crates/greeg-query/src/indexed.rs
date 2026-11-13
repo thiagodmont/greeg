@@ -38,27 +38,39 @@ pub fn spawn_build(root: &Path, dir: &Path) {
     if !persist::allowed() {
         return;
     }
-    note_failed_build(dir);
+    note_failed_build(root, dir);
     if let Ok(mut g) = PENDING_BUILD.lock() {
         *g = Some((root.to_path_buf(), dir.to_path_buf(), false));
     }
 }
 
-/// Say once, on stderr, that the last background build failed: queries scan
-/// until one succeeds.
-fn note_failed_build(dir: &Path) {
-    let Some(f) = greeg_index::failure::read(dir).filter(|f| !f.reported) else {
+/// Say once, on stderr, that the last background build failed: searches
+/// scan until one succeeds.
+fn note_failed_build(root: &Path, dir: &Path) {
+    use greeg_index::{failure, lock};
+    // while a build runs, the record is that build's
+    if lock::marker_held(dir, lock::Work::Build) {
+        return;
+    }
+    let Some(f) = failure::read(dir, root).filter(|f| !failure::reported(dir, f)) else {
         return;
     };
-    let wait = f
-        .retry_at()
-        .saturating_sub(greeg_index::now_ms())
-        .div_ceil(1000);
+    let now = greeg_index::now_ms();
+    let next = if f.backing_off(now) {
+        format!("the next in {} s", (f.retry_at() - now).div_ceil(1000))
+    } else {
+        "the next now".into()
+    };
     eprintln!(
-        "greeg: the background index build failed ({}); queries scan until one succeeds, the next in {wait}s; `greeg doctor` has more",
+        "greeg: the background index build failed ({}); searches scan until one succeeds, {next}; `greeg doctor` has more",
         f.error
     );
-    greeg_index::failure::mark_reported(dir, &f);
+    failure::mark_reported(dir, &f);
+}
+
+/// The last build of `root` in `dir` failed, and the next waits.
+fn backing_off(root: &Path, dir: &Path) -> bool {
+    greeg_index::failure::read(dir, root).is_some_and(|f| f.backing_off(greeg_index::now_ms()))
 }
 
 /// Queue a detached `greeg index --refresh`: this query
@@ -96,9 +108,7 @@ pub fn spawn_build_now(root: &Path, dir: &Path, refresh: bool) {
         return;
     }
     // a build that failed is not started again on every query
-    if !refresh
-        && greeg_index::failure::read(dir).is_some_and(|f| f.backing_off(greeg_index::now_ms()))
-    {
+    if !refresh && backing_off(root, dir) {
         return;
     }
     let Ok(exe) = std::env::current_exe() else {
@@ -430,7 +440,7 @@ pub struct Rebuilding {
     /// `fresh::RebuildReason::name`, `no-index`, `other-root`, `corrupt`,
     /// `no-persist` when changes would have to be published first, or
     /// `unreadable` when the check could not stat part of the tree (no
-    /// build is queued).
+    /// build is queued), or `build-failed` while a failed build backs off.
     pub reason: &'static str,
     /// How long the build it replaces took, when there was one.
     pub estimate_ms: Option<u64>,
@@ -440,6 +450,11 @@ pub struct Rebuilding {
 
 impl std::fmt::Display for Rebuilding {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        if self.reason == "build-failed" {
+            return f.write_str(
+                "the index cannot answer this: its last build failed (reason: build-failed) and the next waits; `greeg doctor` shows why, `greeg index` builds now",
+            );
+        }
         if self.reason == "unreadable" {
             return f.write_str(
                 "the index cannot answer this: its freshness check could not read part of the tree (reason: unreadable); retry once it is readable, or run `greeg index` to rebuild without it",
@@ -485,11 +500,12 @@ pub fn open_for_graph(o: &Options, threads: usize) -> Result<Opened> {
     let quick = rb
         .estimate_ms
         .is_some_and(|ms| ms < GRAPH_WAIT.as_millis() as u64);
-    if o.fresh == Fresh::None || !quick || !persist::allowed() {
+    let dir = greeg_index::index_dir(&o.root, o.index_dir.as_deref())?;
+    // no build starts while a failed one backs off: there is nothing to wait for
+    if o.fresh == Fresh::None || !quick || !persist::allowed() || backing_off(&o.root, &dir) {
         return Err(rb.into());
     }
     flush_pending_build();
-    let dir = greeg_index::index_dir(&o.root, o.index_dir.as_deref())?;
     let deadline = Instant::now() + GRAPH_WAIT;
     while Instant::now() < deadline {
         std::thread::sleep(std::time::Duration::from_millis(20));
@@ -538,8 +554,15 @@ fn open_fresh_with(
             } else {
                 spawn_build(&o.root, &dir);
             }
+            let reason = if corrupt {
+                "corrupt"
+            } else if backing_off(&o.root, &dir) {
+                "build-failed"
+            } else {
+                "no-index"
+            };
             return Ok(Err(Rebuilding {
-                reason: if corrupt { "corrupt" } else { "no-index" },
+                reason,
                 estimate_ms: None,
                 generation: read_manifest(&dir).map_or(0, |m| m.generation),
             }));

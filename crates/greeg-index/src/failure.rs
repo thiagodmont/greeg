@@ -1,6 +1,8 @@
 //! The last failed build (`BUILD_FAILED`, beside the build marker): queries
 //! back off instead of starting the same build again on every call, and
-//! `doctor` shows why. A build that succeeds removes it.
+//! `doctor` shows why. A build writes it when it starts, so one that is
+//! killed counts too, and removes it when it succeeds. While the build
+//! marker is held, the record describes the build still running.
 
 use crate::{create_private, format, now_ms, persist};
 use serde::{Deserialize, Serialize};
@@ -8,6 +10,10 @@ use std::io::Write;
 use std::path::Path;
 
 const NAME: &str = "BUILD_FAILED";
+/// The record a query has told the user about, by [`BuildFailure::key`].
+const REPORTED: &str = "BUILD_FAILED.reported";
+/// What a build that has not finished says.
+pub const UNFINISHED: &str = "the build did not finish";
 /// The wait after the first failure, doubled after each one up to [`MAX_MS`].
 const FIRST_MS: u64 = 30_000;
 const MAX_MS: u64 = 3_600_000;
@@ -20,9 +26,8 @@ pub struct BuildFailure {
     pub at_unix_ms: u64,
     /// Failed builds in a row.
     pub attempts: u32,
-    /// A query has said so on stderr.
-    #[serde(default)]
-    pub reported: bool,
+    /// The root the builds were for: an `--index-dir` can serve several.
+    pub root: String,
 }
 
 impl BuildFailure {
@@ -39,17 +44,58 @@ impl BuildFailure {
     pub fn backing_off(&self, now: u64) -> bool {
         self.at_unix_ms <= now && now < self.retry_at()
     }
+
+    fn key(&self) -> String {
+        format!("{} {}", self.at_unix_ms, self.attempts)
+    }
 }
 
-/// The record in `dir`, if a build there failed last.
-pub fn read(dir: &Path) -> Option<BuildFailure> {
-    serde_json::from_slice(&std::fs::read(dir.join(NAME)).ok()?).ok()
+/// How a root is named in the record.
+fn root_name(root: &Path) -> String {
+    std::fs::canonicalize(root)
+        .unwrap_or_else(|_| root.to_path_buf())
+        .to_string_lossy()
+        .into_owned()
 }
 
-/// Record that a build in `dir` failed with `error`, one attempt more than
-/// the record before. Nothing is written under `--no-persist`.
-pub fn record(dir: &Path, error: &str) -> anyhow::Result<()> {
-    let attempts = read(dir).map_or(0, |f| f.attempts) + 1;
+/// The record in `dir` for builds of `root`, if one failed last.
+pub fn read(dir: &Path, root: &Path) -> Option<BuildFailure> {
+    let f: BuildFailure = serde_json::from_slice(&std::fs::read(dir.join(NAME)).ok()?).ok()?;
+    (f.root == root_name(root)).then_some(f)
+}
+
+/// A build of `root` in `dir` starts: it counts as failed until it says
+/// otherwise. An error means `dir` cannot be written, so the build cannot
+/// publish either. Nothing is written under `--no-persist`.
+pub fn begin(dir: &Path, root: &Path) -> anyhow::Result<()> {
+    let attempts = read(dir, root).map_or(0, |f| f.attempts).saturating_add(1);
+    write(dir, root, UNFINISHED, attempts)
+}
+
+/// The build `begin` recorded failed with `error`.
+pub fn fail(dir: &Path, root: &Path, error: &str) -> anyhow::Result<()> {
+    let attempts = read(dir, root).map_or(1, |f| f.attempts);
+    write(dir, root, error, attempts)
+}
+
+/// Remove the record: a build in `dir` succeeded.
+pub fn clear(dir: &Path) {
+    let _ = std::fs::remove_file(dir.join(NAME));
+    let _ = std::fs::remove_file(dir.join(REPORTED));
+}
+
+/// Has a query told the user about `f`?
+pub fn reported(dir: &Path, f: &BuildFailure) -> bool {
+    std::fs::read_to_string(dir.join(REPORTED)).is_ok_and(|k| k == f.key())
+}
+
+/// Note that a query has told the user about `f`. A separate file, so this
+/// never writes over a record a build has replaced or removed since.
+pub fn mark_reported(dir: &Path, f: &BuildFailure) {
+    let _ = write_file(dir, REPORTED, f.key().as_bytes());
+}
+
+fn write(dir: &Path, root: &Path, error: &str, attempts: u32) -> anyhow::Result<()> {
     let mut error = error.replace(['\n', '\r'], " ");
     if error.len() > MAX_ERROR {
         let mut end = MAX_ERROR;
@@ -59,40 +105,22 @@ pub fn record(dir: &Path, error: &str) -> anyhow::Result<()> {
         error.truncate(end);
         error.push('…');
     }
-    write(
-        dir,
-        &BuildFailure {
-            error,
-            at_unix_ms: now_ms(),
-            attempts,
-            reported: false,
-        },
-    )
+    let f = BuildFailure {
+        error,
+        at_unix_ms: now_ms(),
+        attempts,
+        root: root_name(root),
+    };
+    write_file(dir, NAME, &serde_json::to_vec(&f)?)
 }
 
-/// Note that a query has told the user about `f`.
-pub fn mark_reported(dir: &Path, f: &BuildFailure) {
-    let _ = write(
-        dir,
-        &BuildFailure {
-            reported: true,
-            ..f.clone()
-        },
-    );
-}
-
-/// Remove the record: a build in `dir` succeeded.
-pub fn clear(dir: &Path) {
-    let _ = std::fs::remove_file(dir.join(NAME));
-}
-
-fn write(dir: &Path, f: &BuildFailure) -> anyhow::Result<()> {
+fn write_file(dir: &Path, name: &str, bytes: &[u8]) -> anyhow::Result<()> {
     if !persist::allowed() {
         return Ok(());
     }
-    let path = dir.join(NAME);
+    let path = dir.join(name);
     let tmp = format::tmp_path(&path);
-    create_private(&tmp)?.write_all(&serde_json::to_vec(f)?)?;
+    create_private(&tmp)?.write_all(bytes)?;
     std::fs::rename(&tmp, &path)?;
     Ok(())
 }
@@ -111,27 +139,36 @@ mod tests {
         assert_eq!(f(1).retry_at(), 1_030_000);
         assert_eq!(f(2).retry_at(), 1_060_000);
         assert_eq!(f(3).retry_at(), 1_120_000);
-        assert_eq!(f(40).retry_at(), 1_000_000 + MAX_MS);
+        assert_eq!(f(u32::MAX).retry_at(), 1_000_000 + MAX_MS);
         assert!(f(1).backing_off(1_029_999));
         assert!(!f(1).backing_off(1_030_000));
         assert!(!f(1).backing_off(999_999), "from the future");
     }
 
     #[test]
-    fn a_record_counts_failures_in_a_row_and_a_success_clears_it() {
+    fn a_record_counts_failures_in_a_row_for_its_root_and_a_success_clears_it() {
         let d = std::env::temp_dir().join(format!("greeg-failure-{}", std::process::id()));
         std::fs::create_dir_all(&d).unwrap();
+        let (root, other) = (d.join("a"), d.join("b"));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::create_dir_all(&other).unwrap();
         clear(&d);
-        record(&d, "first\nline").unwrap();
-        record(&d, &"x".repeat(2000)).unwrap();
-        let f = read(&d).unwrap();
+        begin(&d, &root).unwrap();
+        assert_eq!(read(&d, &root).unwrap().error, UNFINISHED);
+        fail(&d, &root, "first\nline").unwrap();
+        begin(&d, &root).unwrap();
+        fail(&d, &root, &"x".repeat(2000)).unwrap();
+        let f = read(&d, &root).unwrap();
         assert_eq!(f.attempts, 2);
         assert!(f.error.len() <= MAX_ERROR + '…'.len_utf8());
-        assert!(!f.reported);
+        assert!(read(&d, &other).is_none(), "another root's builds");
+        assert!(!reported(&d, &f));
         mark_reported(&d, &f);
-        assert!(read(&d).unwrap().reported);
+        assert!(reported(&d, &f));
+        begin(&d, &root).unwrap();
+        assert!(!reported(&d, &read(&d, &root).unwrap()), "a newer record");
         clear(&d);
-        assert!(read(&d).is_none());
+        assert!(read(&d, &root).is_none());
         let _ = std::fs::remove_dir_all(&d);
     }
 }
