@@ -4086,3 +4086,32 @@ fn symbol_verbs_scan_for_hidden() {
         assert!(out.contains("\"source\":\"scan\""), "{verb:?}: {out}");
     }
 }
+
+/// `impact --diff` scans for `--hidden` too, and says so.
+#[test]
+fn impact_diff_scans_for_hidden() {
+    let f = diff_fixture();
+    f.indexed();
+    w(
+        &f.root.join("src/util.rs"),
+        "pub fn load_config() -> u32 {\n    8\n}\n\npub fn scale(x: u32) -> u32 {\n    x * 2\n}\n\npub fn tidy() -> u32 {\n    1\n}\n",
+    );
+    // the first queries after an edit fold it into the index
+    let plain = (0..5)
+        .map(|_| f.out(&["impact", "--diff", "--json=greeg", "--budget", "0"]))
+        .find(|o| o.contains("\"source\":\"index\""));
+    assert!(
+        plain.is_some(),
+        "impact --diff never answered from the index"
+    );
+    let out = f.out(&[
+        "impact",
+        "--diff",
+        "--json=greeg",
+        "--budget",
+        "0",
+        "--hidden",
+    ]);
+    assert!(out.contains("\"source\":\"scan\""), "{out}");
+    assert!(out.contains("\"name\":\"load_config\""), "{out}");
+}
