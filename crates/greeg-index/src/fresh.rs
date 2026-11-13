@@ -433,6 +433,7 @@ fn check_stat_with(idx: &Index, root: &Path, lookup: Option<Lookup>, threads: us
             _ => {}
         }
     }
+    add_dirs(&mut changed_dirs, listable_again(idx, root));
     relist_dirs(root, &k, &changed_dirs, &mut ch);
     ch.ms = t.elapsed().as_secs_f64() * 1e3;
     ch
@@ -474,6 +475,34 @@ fn below(dirs: &HashSet<&[u8]>, rel: &[u8]) -> bool {
         }
     }
     false
+}
+
+/// Directories the index could not list that list now, with their stamps.
+/// Nothing an FSEvents check reads names a directory a `chmod` made readable,
+/// and its entries were never indexed; one still unlistable is no change.
+fn listable_again(idx: &Index, root: &Path) -> Vec<(Vec<u8>, Stamp)> {
+    idx.unlisted_dirs()
+        .into_iter()
+        .filter_map(|d| {
+            let abs = if d.is_empty() {
+                root.to_path_buf()
+            } else {
+                root.join(as_path(&d))
+            };
+            std::fs::read_dir(&abs).ok()?;
+            let md = std::fs::symlink_metadata(&abs).ok()?;
+            md.is_dir().then(|| (d, Stamp::of(&md)))
+        })
+        .collect()
+}
+
+/// Add `again` to `changed_dirs`, once each.
+fn add_dirs(changed_dirs: &mut Vec<(Vec<u8>, Stamp)>, again: Vec<(Vec<u8>, Stamp)>) {
+    for d in again {
+        if !changed_dirs.iter().any(|c| c.0 == d.0) {
+            changed_dirs.push(d);
+        }
+    }
 }
 
 /// Re-list changed directories to find additions (files and subdirectories).
@@ -652,6 +681,7 @@ pub fn check_fsevents(idx: &Index, root: &Path, threads: usize) -> Option<Change
         threads,
     );
     classify_all(&mut ch, idx.no_ino(), &files, st, k.files.len());
+    add_dirs(&mut changed_dirs, listable_again(idx, root));
     relist_dirs(root, &k, &changed_dirs, &mut ch);
     ch.ms = t.elapsed().as_secs_f64() * 1e3;
     Some(ch)

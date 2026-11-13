@@ -677,6 +677,14 @@ impl Index {
         crate::skipped::Skipped::from_file_bytes(self.skipped.as_deref()?)
     }
 
+    /// The directories the walk could not list (`skipped::UNKNOWN`).
+    pub fn unlisted_dirs(&self) -> Vec<Vec<u8>> {
+        self.skipped
+            .as_deref()
+            .map(crate::skipped::unknown_dirs)
+            .unwrap_or_default()
+    }
+
     /// Is `rel` a directory the index walked?
     pub fn has_dir(&self, rel: &[u8]) -> bool {
         self.segments().any(|(_, seg)| {

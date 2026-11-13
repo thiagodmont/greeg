@@ -770,3 +770,34 @@ fn a_directory_listed_too_soon_is_listed_again() {
     assert_eq!(relisted(), ["lib"], "its stamp changed");
     assert!(relisted().is_empty(), "listed late enough: trusted");
 }
+
+/// A directory the build could not list is no change while it stays so, and
+/// is listed by the first check after it becomes readable.
+#[test]
+fn an_unlisted_directory_is_listed_once_readable() {
+    use std::os::unix::fs::PermissionsExt;
+    let t = tree();
+    let locked = t.root.join("locked");
+    fs::create_dir(&locked).unwrap();
+    fs::write(locked.join("inner.txt"), "needle\n").unwrap();
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+    if fs::read_dir(&locked).is_ok() {
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+        eprintln!("skipped: this user reads a mode-000 directory (root)");
+        return;
+    }
+    settle(&t.root);
+    build(&t.root, &t.dir, &opts()).unwrap();
+    let idx = Index::open(&t.dir).unwrap();
+    assert_eq!(idx.unlisted_dirs(), [b"locked".to_vec()]);
+    assert!(
+        check(&idx, &t.root).is_empty(),
+        "still unlistable: no change"
+    );
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+    let ch = check(&idx, &t.root);
+    let added: Vec<&str> = ch.added.iter().map(|w| text(&w.rel)).collect();
+    assert_eq!(added, ["locked/inner.txt"]);
+    fresh::apply(&idx, &t.root, &ch).unwrap();
+    assert!(Index::open(&t.dir).unwrap().unlisted_dirs().is_empty());
+}

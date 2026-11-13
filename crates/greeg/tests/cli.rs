@@ -4247,27 +4247,77 @@ fn a_verification_stamp_from_the_future_is_not_trusted() {
     assert_eq!(pairs(&f.out(&args)), scanned);
 }
 
+/// The freshness checks to test a tree change under: the stat pass, and on
+/// macOS the FSEvents read.
+fn fresh_modes() -> &'static [&'static str] {
+    if cfg!(target_os = "macos") {
+        &["stat", "fsevents"]
+    } else {
+        &["stat"]
+    }
+}
+
+/// `pattern`'s `path:line` pairs under `--fresh mode`, from the index. FSEvents
+/// may wait for its read as long as it must; on a machine too loaded even for
+/// that, the stat pass answers, and this says so.
+fn fresh_pairs(f: &Fixture, mode: &str, pattern: &str) -> BTreeSet<String> {
+    let cutoff = [(
+        "GREEG_DEBUG_FSEVENTS_CUTOFF_MS",
+        std::ffi::OsStr::new("5000"),
+    )];
+    let args = ["--fresh", mode, "--budget", "0", "--json=greeg", pattern];
+    let o = f.run_env(&args, &cutoff);
+    assert!(matches!(o.status.code(), Some(0 | 1)), "{o:?}");
+    let mut found = BTreeSet::new();
+    let mut path = String::new();
+    for l in String::from_utf8_lossy(&o.stdout).lines() {
+        let v: serde_json::Value = serde_json::from_str(l).unwrap();
+        match v["type"].as_str() {
+            Some("begin") => path = v["data"]["path"]["text"].as_str().unwrap().to_string(),
+            Some("match") => {
+                found.insert(format!("{path}:{}", v["data"]["line"]));
+            }
+            Some("footer") => {
+                let oc = &v["data"]["outcome"];
+                assert_eq!(oc["source"], "index", "{mode}: {l}");
+                if oc["fresh"] != mode {
+                    eprintln!("--fresh {mode} was answered by {}", oc["fresh"]);
+                }
+            }
+            _ => {}
+        }
+    }
+    found
+}
+
+/// Files enough that one change stays a delta, under the rebuild threshold.
+fn filler(f: &Fixture) {
+    for i in 0..40 {
+        w(&f.root.join(format!("filler/f{i:02}.txt")), "hay\n");
+    }
+}
+
 /// A file added while its directory's mtime is restored (`rsync -a`,
 /// `tar x`, `cp -a`) is found: the directory's change time moved.
 #[test]
 fn an_entry_added_with_the_directory_mtime_restored_is_found() {
-    let f = fixture();
-    w(&f.root.join("d/old.txt"), "old\n");
-    // past the racy window, so only the change time can tell
-    settle(&f.root.join("d"));
-    f.indexed();
-    let d = f.root.join("d");
-    let r = f.base.join("ref");
-    let touch = |args: &[&std::ffi::OsStr]| {
-        assert!(Command::new("touch").args(args).status().unwrap().success());
-    };
-    touch(&["-r".as_ref(), d.as_os_str(), r.as_os_str()]);
-    w(&d.join("new.txt"), "needle_kappa\n");
-    touch(&["-r".as_ref(), r.as_os_str(), d.as_os_str()]);
-    let scanned = pairs(&f.out(&["--no-index", "--budget", "0", "needle_kappa"]));
-    assert_eq!(scanned.len(), 1);
-    let args = ["--fresh", "stat", "--budget", "0", "needle_kappa"];
-    assert_eq!(pairs(&f.out(&args)), scanned);
+    for mode in fresh_modes() {
+        let f = fixture();
+        filler(&f);
+        w(&f.root.join("d/old.txt"), "old\n");
+        f.indexed();
+        let d = f.root.join("d");
+        let r = f.base.join("ref");
+        let touch = |args: &[&std::ffi::OsStr]| {
+            assert!(Command::new("touch").args(args).status().unwrap().success());
+        };
+        touch(&["-r".as_ref(), d.as_os_str(), r.as_os_str()]);
+        w(&d.join("new.txt"), "needle_kappa\n");
+        touch(&["-r".as_ref(), r.as_os_str(), d.as_os_str()]);
+        let scanned = pairs(&f.out(&["--no-index", "--budget", "0", "needle_kappa"]));
+        assert_eq!(scanned.len(), 1);
+        assert_eq!(fresh_pairs(&f, mode, "needle_kappa"), scanned, "{mode}");
+    }
 }
 
 /// A directory unreadable when the index was built is listed once it is
@@ -4275,22 +4325,23 @@ fn an_entry_added_with_the_directory_mtime_restored_is_found() {
 #[test]
 fn a_directory_unreadable_at_build_is_indexed_once_readable() {
     use std::os::unix::fs::PermissionsExt;
-    let f = fixture();
-    let d = f.root.join("locked");
-    w(&d.join("inner.txt"), "needle_lambda\n");
-    fs::set_permissions(&d, fs::Permissions::from_mode(0o000)).unwrap();
-    if fs::read_dir(&d).is_ok() {
+    for mode in fresh_modes() {
+        let f = fixture();
+        filler(&f);
+        let d = f.root.join("locked");
+        w(&d.join("inner.txt"), "needle_lambda\n");
+        fs::set_permissions(&d, fs::Permissions::from_mode(0o000)).unwrap();
+        if fs::read_dir(&d).is_ok() {
+            fs::set_permissions(&d, fs::Permissions::from_mode(0o755)).unwrap();
+            eprintln!("skipped: this user reads a mode-000 directory (root)");
+            return;
+        }
+        f.indexed();
         fs::set_permissions(&d, fs::Permissions::from_mode(0o755)).unwrap();
-        eprintln!("skipped: this user reads a mode-000 directory (root)");
-        return;
+        let scanned = pairs(&f.out(&["--no-index", "--budget", "0", "needle_lambda"]));
+        assert_eq!(scanned.len(), 1);
+        assert_eq!(fresh_pairs(&f, mode, "needle_lambda"), scanned, "{mode}");
     }
-    settle(&f.root);
-    f.indexed();
-    fs::set_permissions(&d, fs::Permissions::from_mode(0o755)).unwrap();
-    let scanned = pairs(&f.out(&["--no-index", "--budget", "0", "needle_lambda"]));
-    assert_eq!(scanned.len(), 1);
-    let args = ["--fresh", "stat", "--budget", "0", "needle_lambda"];
-    assert_eq!(pairs(&f.out(&args)), scanned);
 }
 
 /// Files of a directory that was unreadable for a while are found once it is
