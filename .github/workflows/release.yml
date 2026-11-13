@@ -26,7 +26,8 @@ jobs:
           v=${GITHUB_REF_NAME#v}
           grep -qx "version = \"$v\"" Cargo.toml || { echo "::error::tag $GITHUB_REF_NAME is not the version in Cargo.toml"; exit 1; }
       - run: cargo build --release --locked --target ${{ matrix.target }} -p greeg
-      - name: tests on macOS (hosted CI runs them only for freshness changes)
+      - name: tests on macOS (hosted CI runs them only for macOS-only code changes)
+        # the FSEvents test is timing-sensitive: on a failure there, re-run the job
         if: runner.os == 'macOS'
         run: cargo test --workspace --locked
       - name: package

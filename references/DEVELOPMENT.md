@@ -13,10 +13,11 @@ python3 bench/bench.py oracle tokio django TypeScript-5.9 # SCIP accuracy oracle
 
 CI runs build, tests, clippy, a binary-size gate, the rg parity suite and the
 small-corpus speed protocol, on Linux. macOS minutes cost 10x Linux ones, so
-the test suite runs on macOS only where macOS-only code can break: the macos
-workflow, for pull requests and `main` pushes that change FSEvents or
-freshness code (its `paths:` list), and the release workflow, before it
-packages the two macOS binaries. A manual run of the ci workflow with the
+the test suite runs on macOS in the macos workflow, for pull requests and
+`main` pushes that change a source file with macOS-only code, a
+`Cargo.toml` or `Cargo.lock` (its `paths:` list; a file that gains macOS-only
+code joins it), and in the release workflow, before it packages the two macOS
+binaries. A manual run of the ci workflow with the
 `macos` input runs it on demand. The nightly workflow adds the large-corpus
 benchmarks, the accuracy oracle and a randomized soak
 (`bench/soak.py MINUTES GREEG CORPUS… --seed SEED`).

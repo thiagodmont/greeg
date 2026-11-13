@@ -1,7 +1,8 @@
 name: macos
-# The test suite on macOS, only when FSEvents or freshness code changes: macOS
-# minutes cost 10x ubuntu ones. ci.yml's manual `macos` input runs it on demand,
-# and release.yml runs it before packaging the macOS binaries.
+# The test suite on macOS, only when a source file with macOS-only code (a
+# `target_os = "macos"` cfg) or a dependency changes: macOS minutes cost 10x
+# ubuntu ones. A file that gains such code joins both lists. ci.yml's manual
+# `macos` input runs it on demand; release.yml runs it before packaging.
 on:
   pull_request:
     paths:
@@ -10,7 +11,18 @@ on:
       - crates/greeg-index/src/tree.rs
       - crates/greeg-index/src/private.rs
       - crates/greeg-index/src/lock.rs
+      - crates/greeg-index/src/lib.rs
+      - crates/greeg-index/src/build.rs
+      - crates/greeg-query/src/lib.rs
+      - crates/greeg-query/src/session.rs
+      - crates/greeg-query/src/session_store.rs
       - crates/greeg/src/main.rs
+      - crates/greeg/src/capabilities.rs
+      - crates/greeg/src/doctor.rs
+      - crates/greeg/src/hook_config.rs
+      - crates/greeg/src/stats.rs
+      - "**/Cargo.toml"
+      - Cargo.lock
       - .github/workflows/macos.yml
   push:
     branches: [main]
@@ -20,12 +32,23 @@ on:
       - crates/greeg-index/src/tree.rs
       - crates/greeg-index/src/private.rs
       - crates/greeg-index/src/lock.rs
+      - crates/greeg-index/src/lib.rs
+      - crates/greeg-index/src/build.rs
+      - crates/greeg-query/src/lib.rs
+      - crates/greeg-query/src/session.rs
+      - crates/greeg-query/src/session_store.rs
       - crates/greeg/src/main.rs
+      - crates/greeg/src/capabilities.rs
+      - crates/greeg/src/doctor.rs
+      - crates/greeg/src/hook_config.rs
+      - crates/greeg/src/stats.rs
+      - "**/Cargo.toml"
+      - Cargo.lock
       - .github/workflows/macos.yml
 permissions:
   contents: read
 jobs:
-  test:
+  macos-test:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
