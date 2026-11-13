@@ -284,6 +284,30 @@ pub fn run(c: &Common) -> Result<()> {
         fmt_size(bytes),
         sdir.display()
     )?;
+    let skills = crate::hook::skill_states();
+    if !skills.is_empty() {
+        use crate::hook_skill::State;
+        let parts: Vec<String> = skills
+            .iter()
+            .map(|(agent, state)| {
+                let state = match state {
+                    State::Current => "current",
+                    State::Outdated => "outdated",
+                    State::Edited => "edited (left as it is)",
+                    State::Missing => "none",
+                };
+                format!("{agent} {state}")
+            })
+            .collect();
+        writeln!(w, "skill     {}", parts.join(" · "))?;
+        for (agent, state) in &skills {
+            if *state == State::Outdated {
+                advice.push(format!(
+                    "the {agent} skill is from another greeg version: run `greeg hook {agent}` to update it"
+                ));
+            }
+        }
+    }
     if let Some(m) = &manifest
         && m.files == 0
     {
