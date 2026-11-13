@@ -161,6 +161,8 @@ fn fsevents_finds_what_a_directory_stamp_hides() {
     if fs::read_dir(&locked).is_err() {
         let ch = check(&t, "became unreadable");
         assert!(ch.unreliable && ch.deleted.is_empty(), "{ch:?}");
+    } else {
+        eprintln!("skipped: this user reads a mode-000 directory (root)");
     }
     drop(t);
 

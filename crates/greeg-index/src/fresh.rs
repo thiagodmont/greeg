@@ -451,10 +451,11 @@ fn check_stat_with(idx: &Index, root: &Path, lookup: Option<Lookup>, threads: us
     // directory comes before those below it
     dirs.sort_unstable_by_key(|d| d.0);
     let mut ds = stat_many(tree, lookup, &dirs, |d| d.0, tree::is_dir, threads);
-    ch.unreliable |= ds.iter().any(Result::is_err);
     if lookup == Lookup::Leaf {
         drop_below_gone(&dirs, &mut ds, &k.files, &mut st);
     }
+    // below a directory that is gone, a failed stat is a deletion
+    ch.unreliable |= ds.iter().any(Result::is_err);
     let no_ino = classify_all(&mut ch, idx.no_ino(), &k.files, st, k.files.len());
     let mut changed_dirs: Vec<(Vec<u8>, Stamp)> = Vec::new();
     for ((rel, old), s) in dirs.iter().zip(ds) {

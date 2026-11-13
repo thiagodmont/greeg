@@ -790,6 +790,7 @@ fn a_stat_error_other_than_not_found_is_no_deletion() {
         eprintln!("skipped: this user reads a mode-000 directory (root)");
         return;
     }
+    // past the second within which `apply` leaves the stamp as it is anyway
     std::thread::sleep(std::time::Duration::from_millis(1100));
     let ch = check(&idx, &t.root);
     let applied = fresh::apply(&idx, &t.root, &ch);

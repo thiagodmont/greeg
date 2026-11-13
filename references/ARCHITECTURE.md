@@ -560,8 +560,8 @@ to keep it there.
   as of when its check or build began reading the tree, not when it was
   published, so a change made while either ran is found by the next check.
 
-Only "not found", a file on the way (`ENOTDIR`) or a symlink on the way
-(`ELOOP`) makes a known file deleted. Any other stat error (a directory made
+Only "not found", a file on the way (`ENOTDIR`), a symlink on the way
+(`ELOOP`) or a path the tree cannot hold makes a known file deleted. Any other stat error (a directory made
 unreadable, `EIO` or `ESTALE` on a network mount) says nothing about the
 file: that check publishes nothing, leaves the verification stamp as it was,
 and a scan answers (reason `unreadable`). No build is queued: the first

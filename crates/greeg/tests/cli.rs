@@ -4393,9 +4393,16 @@ fn a_file_that_cannot_be_stat_ed_is_not_deleted() {
             .unwrap()
     };
     let before = manifest();
+    // readable again whatever fails, so the fixture can be removed
+    struct Unlock<'a>(&'a Path);
+    impl Drop for Unlock<'_> {
+        fn drop(&mut self) {
+            let _ = fs::set_permissions(self.0, fs::Permissions::from_mode(0o755));
+        }
+    }
+    let _unlock = Unlock(&d);
     fs::set_permissions(&d, fs::Permissions::from_mode(0o000)).unwrap();
     if fs::read_dir(&d).is_ok() {
-        fs::set_permissions(&d, fs::Permissions::from_mode(0o755)).unwrap();
         eprintln!("skipped: this user reads a mode-000 directory (root)");
         return;
     }
