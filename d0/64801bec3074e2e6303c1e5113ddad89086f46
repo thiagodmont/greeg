@@ -1,0 +1,23 @@
+references/USAGE.md
+  s_d1affe6bf8021e::t_c93de73d803750 348,356,359-361
+references/ARCHITECTURE.md
+  s_d1affe6bf8021e::t_c93de73d803750 740-747,977-980
+references/DEVELOPMENT.md
+  s_d1affe6bf8021e::t_c93de73d803750 25
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "d064801bec3074e2e6303c1e5113ddad89086f46",
+  "prompts": {},
+  "sessions": {
+    "s_d1affe6bf8021e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9f35d094-2dfc-48c8-a346-85f6d65b0c73",
+        "model": "claude-fable-5-2"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
