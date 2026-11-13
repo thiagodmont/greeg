@@ -2924,8 +2924,7 @@ fn rg_json_summary(w: &mut impl Write, stats: &greeg_query::Stats, acc: &RgPrint
 
 #[cfg(test)]
 mod tests {
-    /// The hook adds `-e` before a pattern spelled like a subcommand; a name
-    /// missing from its list would run the command instead of a search.
+    /// The rewrite tests below cover every subcommand name.
     #[test]
     fn hook_knows_every_subcommand() {
         let mut names: Vec<String> = Cli::command()
@@ -2940,6 +2939,31 @@ mod tests {
         names.sort();
         verbs.sort();
         assert_eq!(verbs, names);
+    }
+
+    /// A pattern or path named like a subcommand stays a search operand.
+    #[test]
+    fn rewritten_operands_named_like_subcommands_are_searched() {
+        for v in crate::rewrite::VERBS {
+            for (cmd, pattern, paths) in [
+                (format!("rg x {v}"), "x", vec![*v]),
+                (format!("rg x {v} {v}2"), "x", vec![*v, &format!("{v}2")]),
+                (format!("grep -rn x {v}"), "x", vec![*v]),
+                (format!("rg {v} x"), *v, vec!["x"]),
+                (format!("rg {v} {v}"), *v, vec![*v]),
+            ] {
+                let words = crate::rewrite::shell_words(
+                    &crate::rewrite::rewrite_full(&cmd).unwrap().command,
+                )
+                .unwrap();
+                let cli =
+                    Cli::try_parse_from(&words).unwrap_or_else(|e| panic!("{cmd}: {words:?}: {e}"));
+                assert!(cli.cmd.is_none(), "{cmd}: {words:?}");
+                assert_eq!(cli.pattern.as_deref(), Some(pattern), "{cmd}: {words:?}");
+                let got: Vec<String> = cli.paths.iter().map(|p| p.display().to_string()).collect();
+                assert_eq!(got, paths, "{cmd}: {words:?}");
+            }
+        }
     }
 
     use super::*;

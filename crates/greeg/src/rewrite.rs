@@ -184,8 +184,7 @@ struct Parsed {
     flags: Vec<String>,
     /// patterns given with `-e`/`--regexp`
     patterns: Vec<String>,
-    /// (word, seen after `--`)
-    positional: Vec<(String, bool)>,
+    positional: Vec<String>,
     fixed: bool,
     unrestricted: u8,
     max_filesize: Option<String>,
@@ -244,7 +243,9 @@ impl Parsed {
     }
 }
 
-/// Every subcommand name: a pattern spelled like one needs `-e`.
+/// Every subcommand name: the tests check that a rewritten operand spelled
+/// like one is searched.
+#[cfg(test)]
 pub(crate) const VERBS: &[&str] = &[
     "def", "refs", "callers", "impls", "outline", "show", "map", "impact", "find", "index",
     "doctor", "purge", "man", "hook", "lang", "budget", "stats",
@@ -266,7 +267,7 @@ fn parse(words: &[String]) -> Result<Parsed, String> {
         let w = &words[i];
         i += 1;
         if after_dd || !w.starts_with('-') || w == "-" {
-            p.positional.push((w.clone(), after_dd));
+            p.positional.push(w.clone());
             continue;
         }
         if w == "--" {
@@ -389,17 +390,17 @@ fn printed_as_written(operand: &str) -> bool {
         && !operand.contains("//")
 }
 
-/// `greeg --matching exact` with no file-size limit, the given flags, then the
-/// pattern and paths (`-e` before a pattern spelled like a subcommand, `--`
-/// before words that must not read as flags).
+/// `greeg --matching exact` with no file-size limit, the given flags, then
+/// `--`, the pattern and paths: none of them is read as a flag or a
+/// subcommand.
 fn greeg_words(
     flags: Vec<String>,
-    pattern: (String, bool),
-    paths: Vec<(String, bool)>,
+    pattern: String,
+    paths: Vec<String>,
     max_filesize: Option<String>,
 ) -> Result<Vec<String>, String> {
     // stdin readers become tree searches: leave them alone
-    if paths.iter().any(|(w, _)| w == "-") {
+    if paths.iter().any(|w| w == "-") {
         return Err("stdin search".into());
     }
     let mut out: Vec<String> = vec!["greeg".into(), "--matching".into(), "exact".into()];
@@ -408,19 +409,9 @@ fn greeg_words(
         max_filesize.unwrap_or_else(|| u64::MAX.to_string()),
     ]);
     out.extend(flags);
-    let (pattern, pattern_dd) = pattern;
-    let pattern_dd = pattern_dd || pattern.starts_with('-');
-    if !pattern_dd && VERBS.contains(&pattern.as_str()) {
-        out.push("-e".into());
-    }
-    let mut dd_done = false;
-    for (w, dd) in std::iter::once((pattern, pattern_dd)).chain(paths) {
-        if dd && !dd_done {
-            out.push("--".into());
-            dd_done = true;
-        }
-        out.push(w);
-    }
+    out.push("--".into());
+    out.push(pattern);
+    out.extend(paths);
     Ok(out)
 }
 
@@ -430,7 +421,7 @@ fn rewrite_rg(words: &[String]) -> Result<Vec<String>, String> {
         return Err("several -e patterns (greeg takes one)".into());
     }
     let pattern = match p.patterns.pop() {
-        Some(e) => (e, false),
+        Some(e) => e,
         None => {
             if p.positional.is_empty() {
                 return Err("no pattern".into());
@@ -498,7 +489,7 @@ fn rewrite_grep(words: &[String]) -> Result<GrepRewrite, String> {
         let w = &words[i];
         i += 1;
         if after_dd || !w.starts_with('-') || w == "-" {
-            positional.push((w.clone(), after_dd));
+            positional.push(w.clone());
             continue;
         }
         if w == "--" {
@@ -606,8 +597,8 @@ fn rewrite_grep(words: &[String]) -> Result<GrepRewrite, String> {
     if patterns.len() > 1 {
         return Err("several -e patterns (greeg takes one)".into());
     }
-    let (pattern, dd) = match patterns.pop() {
-        Some(e) => (e, false),
+    let pattern = match patterns.pop() {
+        Some(e) => e,
         None => {
             if positional.is_empty() {
                 return Err("no pattern".into());
@@ -622,12 +613,12 @@ fn rewrite_grep(words: &[String]) -> Result<GrepRewrite, String> {
         Err("`--color=always` colors grep's lines".to_string())
     } else if positional.is_empty() {
         Err("grep -r with no path prints `./` before its paths on some systems".to_string())
-    } else if let Some((w, _)) = positional.iter().find(|(w, _)| !printed_as_written(w)) {
+    } else if let Some(w) = positional.iter().find(|w| !printed_as_written(w)) {
         Err(format!(
             "greeg prints the paths under `{w}` without its `./` or `//`"
         ))
     } else {
-        Ok((positional.len() == 1).then(|| positional[0].0.clone()))
+        Ok((positional.len() == 1).then(|| positional[0].clone()))
     };
     let (extended, fixed) = (matcher == Some('E'), matcher == Some('F'));
     let regex = (!fixed)
@@ -635,7 +626,7 @@ fn rewrite_grep(words: &[String]) -> Result<GrepRewrite, String> {
         .transpose()?;
     // with no file operand grep -r searches the working directory
     if positional.is_empty() {
-        positional.push((".".to_string(), false));
+        positional.push(".".to_string());
     }
     let pattern = match &regex {
         Some(r) => r.clone(),
@@ -650,11 +641,7 @@ fn rewrite_grep(words: &[String]) -> Result<GrepRewrite, String> {
     for g in include.into_iter().chain(exclude) {
         all.extend(["-g".to_string(), g]);
     }
-    Ok((
-        greeg_words(all, (pattern, dd), positional, None)?,
-        regex,
-        reader,
-    ))
+    Ok((greeg_words(all, pattern, positional, None)?, regex, reader))
 }
 
 /// A recursive grep's greeg words, its translated regex, and whether its
@@ -1269,35 +1256,38 @@ mod tests {
     fn recursive_greps_become_greeg_searches() {
         let g = "greeg --matching exact --max-filesize 18446744073709551615 --from-grep";
         for (cmd, want) in [
-            ("grep -rn needle .", format!("{g} needle .")),
+            ("grep -rn needle .", format!("{g} -- needle .")),
             (
                 "grep -rn 'fn \\|struct ' src",
-                format!("{g} 'fn |struct ' src"),
+                format!("{g} -- 'fn |struct ' src"),
             ),
             // with no file operand grep -r searches the working directory
-            ("grep -rniw Foo", format!("{g} -i -w Foo .")),
-            ("grep -rl needle src lib", format!("{g} -l needle src lib")),
-            ("grep -rnE 'a+b' .", format!("{g} a+b .")),
-            ("egrep -r 'a|b' .", format!("{g} 'a|b' .")),
-            ("grep -rF 'a.b(' .", format!("{g} -F 'a.b(' .")),
-            ("fgrep -r x .", format!("{g} -F x .")),
-            ("grep -rn -A 3 -B2 x .", format!("{g} -A 3 -B 2 x .")),
+            ("grep -rniw Foo", format!("{g} -i -w -- Foo .")),
+            (
+                "grep -rl needle src lib",
+                format!("{g} -l -- needle src lib"),
+            ),
+            ("grep -rnE 'a+b' .", format!("{g} -- a+b .")),
+            ("egrep -r 'a|b' .", format!("{g} -- 'a|b' .")),
+            ("grep -rF 'a.b(' .", format!("{g} -F -- 'a.b(' .")),
+            ("fgrep -r x .", format!("{g} -F -- x .")),
+            ("grep -rn -A 3 -B2 x .", format!("{g} -A 3 -B 2 -- x .")),
             (
                 "grep -r --include=*.rs --exclude-dir=target x .",
-                format!("{g} -g '*.rs' -g '!target/' x ."),
+                format!("{g} -g '*.rs' -g '!target/' -- x ."),
             ),
             (
                 "grep -r --exclude='*.lock' --include '*.ts' x",
-                format!("{g} -g '*.ts' -g '!*.lock' x ."),
+                format!("{g} -g '*.ts' -g '!*.lock' -- x ."),
             ),
             ("grep -rn -e -dash .", format!("{g} -- -dash .")),
-            ("grep -rn def .", format!("{g} -e def .")),
-            ("grep -rIH --color=never x .", format!("{g} x .")),
-            ("grep -r --colour x .", format!("{g} x .")),
-            ("grep -rE -E x .", format!("{g} x .")),
+            ("grep -rn def .", format!("{g} -- def .")),
+            ("grep -rIH --color=never x .", format!("{g} -- x .")),
+            ("grep -r --colour x .", format!("{g} -- x .")),
+            ("grep -rE -E x .", format!("{g} -- x .")),
             (
                 "grep --recursive --ignore-case --files-with-matches x .",
-                format!("{g} -i -l x ."),
+                format!("{g} -i -l -- x ."),
             ),
         ] {
             let r = rewrite_full(cmd).unwrap_or_else(|e| panic!("{cmd:?}: {e}"));

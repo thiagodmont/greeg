@@ -321,7 +321,9 @@ remaining symbol-verb and selection inconsistencies.
 The hook accepts a simple `rg` or `grep -r` invocation (alone, in a list,
 piped into `head`, or a `grep -rn`/`-rl` piped into another reader) and emits `greeg --matching exact`
 with an explicit `--max-filesize`: the supplied byte limit, or `18446744073709551615`
-when no limit was requested. This prevents the native 4 MiB default from omitting
+when no limit was requested, then `--` before the pattern and paths, so an
+operand named like a subcommand (`rg foo index`) or starting with `-` is
+searched. The limit prevents the native 4 MiB default from omitting
 large files. Explicit zero retains its zero-byte meaning. Reading larger files
 can cost more memory and time; native greeg's default remains unchanged.
 It is an agent-facing presentation adapter: ranked text remains budgeted and

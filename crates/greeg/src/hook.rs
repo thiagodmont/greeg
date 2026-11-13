@@ -928,19 +928,25 @@ mod tests {
     fn lists_rewrite_each_rg_command_and_keep_every_other_byte() {
         let g = "greeg --matching exact --max-filesize 18446744073709551615";
         for (cmd, want) in [
-            ("rg needle && echo yes", format!("{g} needle && echo yes")),
-            ("cd src && rg needle", format!("cd src && {g} needle")),
-            ("rg a; rg -l b src", format!("{g} a; {g} -l b src")),
-            ("rg needle\necho done", format!("{g} needle\necho done")),
-            ("rg --json a ; rg b", format!("rg --json a ; {g} b")),
+            (
+                "rg needle && echo yes",
+                format!("{g} -- needle && echo yes"),
+            ),
+            ("cd src && rg needle", format!("cd src && {g} -- needle")),
+            ("rg a; rg -l b src", format!("{g} -- a; {g} -l -- b src")),
+            ("rg needle\necho done", format!("{g} -- needle\necho done")),
+            ("rg --json a ; rg b", format!("rg --json a ; {g} -- b")),
             (
                 "echo $HOME;  rg needle  ",
-                format!("echo $HOME;  {g} needle  "),
+                format!("echo $HOME;  {g} -- needle  "),
             ),
-            ("rg 'a;b' || echo none", format!("{g} 'a;b' || echo none")),
-            ("rg x 2>&1; rg y", format!("{g} x 2>&1; {g} y")),
-            ("rg x 2>err; rg y", format!("rg x 2>err; {g} y")),
-            ("rg a | sort; rg b", format!("rg a | sort; {g} b")),
+            (
+                "rg 'a;b' || echo none",
+                format!("{g} -- 'a;b' || echo none"),
+            ),
+            ("rg x 2>&1; rg y", format!("{g} -- x 2>&1; {g} -- y")),
+            ("rg x 2>err; rg y", format!("rg x 2>err; {g} -- y")),
+            ("rg a | sort; rg b", format!("rg a | sort; {g} -- b")),
         ] {
             let r = rewrite_full(cmd).unwrap_or_else(|e| panic!("{cmd:?}: {e}"));
             assert_eq!(r.command, want, "{cmd:?}");
@@ -979,14 +985,14 @@ mod tests {
     fn a_list_keeps_what_the_shell_reads_as_one_word() {
         let g = "greeg --matching exact --max-filesize 18446744073709551615";
         // an escaped `#` and a `#` after an escaped blank are literal
-        same("rg a\\ #b; rg c", &format!("{g} 'a #b'; {g} c"));
-        same("echo x\\#; rg c", &format!("echo x\\#; {g} c"));
+        same("rg a\\ #b; rg c", &format!("{g} -- 'a #b'; {g} -- c"));
+        same("echo x\\#; rg c", &format!("echo x\\#; {g} -- c"));
         // an escaped trailing blank is part of the pattern
-        same("rg a\\ ; rg b", &format!("{g} 'a '; {g} b"));
-        same("rg a\\ ", &format!("{g} 'a '"));
+        same("rg a\\ ; rg b", &format!("{g} -- 'a '; {g} -- b"));
+        same("rg a\\ ", &format!("{g} -- 'a '"));
         // a trailing `;` or newline ends the only command
-        same("rg a;", &format!("{g} a;"));
-        same("rg a ;\n", &format!("{g} a ;\n"));
+        same("rg a;", &format!("{g} -- a;"));
+        same("rg a ;\n", &format!("{g} -- a ;\n"));
         // the environment of a command alone is its own decline reason
         let why = rewrite_full("RIPGREP_CONFIG_PATH=x rg a")
             .err()
@@ -1005,10 +1011,10 @@ mod tests {
             "head --lines=5",
             "'head' -20",
         ] {
-            same(&format!("rg a | {head}"), &format!("{g} a | {head}"));
+            same(&format!("rg a | {head}"), &format!("{g} -- a | {head}"));
             same(
                 &format!("rg a |{head}; rg b"),
-                &format!("{g} a |{head}; {g} b"),
+                &format!("{g} -- a |{head}; {g} -- b"),
             );
         }
         let r = rewrite_full("grep -rn a src | head -20").unwrap();
@@ -1042,21 +1048,24 @@ mod tests {
     fn a_recursive_grep_piped_into_another_reader_gets_every_match_as_grep_prints_it() {
         let g = "greeg --matching exact --budget 0 --max-filesize 18446744073709551615 --from-grep";
         for (cmd, want) in [
-            ("grep -rn a src | sort", format!("{g} a src | sort")),
+            ("grep -rn a src | sort", format!("{g} -- a src | sort")),
             (
                 "grep -rln a src lib | grep -v test | head",
-                format!("{g} -l a src lib | grep -v test | head"),
+                format!("{g} -l -- a src lib | grep -v test | head"),
             ),
             (
                 "grep -rn -A2 a src/ | cut -d: -f1",
-                format!("{g} -A 2 a src/ | cut -d: -f1"),
+                format!("{g} -A 2 -- a src/ | cut -d: -f1"),
             ),
             // only `head` alone takes greeg's best lines
             (
                 "grep -rn a src | head -5 | cat",
-                format!("{g} a src | head -5 | cat"),
+                format!("{g} -- a src | head -5 | cat"),
             ),
-            ("grep -rn a ../src | wc -l", format!("{g} a ../src | wc -l")),
+            (
+                "grep -rn a ../src | wc -l",
+                format!("{g} -- a ../src | wc -l"),
+            ),
         ] {
             same(cmd, &want);
             let r = rewrite_full(cmd).unwrap();
@@ -1164,17 +1173,17 @@ mod tests {
             "2>&1 </dev/null",
             "2>&1  ",
         ] {
-            same(&format!("rg a {kept}"), &format!("{g} a {kept}"));
+            same(&format!("rg a {kept}"), &format!("{g} -- a {kept}"));
         }
         // stdin's `<` needs no blank before it
-        same("rg a</dev/null", &format!("{g} a</dev/null"));
-        same("rg a 2>&1</dev/null", &format!("{g} a 2>&1</dev/null"));
-        same("rg a\\</dev/null", &format!("{g} 'a</dev/null'"));
-        same("rg a 2>&1 | head -3", &format!("{g} a 2>&1 | head -3"));
-        same("rg a\\  2>&1", &format!("{g} 'a ' 2>&1"));
+        same("rg a</dev/null", &format!("{g} -- a</dev/null"));
+        same("rg a 2>&1</dev/null", &format!("{g} -- a 2>&1</dev/null"));
+        same("rg a\\</dev/null", &format!("{g} -- 'a</dev/null'"));
+        same("rg a 2>&1 | head -3", &format!("{g} -- a 2>&1 | head -3"));
+        same("rg a\\  2>&1", &format!("{g} -- 'a ' 2>&1"));
         same(
             "rg a 2>/dev/null; rg b\t2>&1",
-            &format!("{g} a 2>/dev/null; {g} b\t2>&1"),
+            &format!("{g} -- a 2>/dev/null; {g} -- b\t2>&1"),
         );
         let r = rewrite_full("grep -rn a . 2>&1 | head").unwrap();
         assert!(r.command.ends_with(" a . 2>&1 | head"), "{}", r.command);
@@ -1260,7 +1269,7 @@ mod tests {
         let r = rewrite_full("rg -w NEEDLE src").unwrap();
         assert_eq!(
             r.command,
-            "greeg --matching exact --max-filesize 18446744073709551615 -w NEEDLE src"
+            "greeg --matching exact --max-filesize 18446744073709551615 -w -- NEEDLE src"
         );
     }
 
@@ -1283,37 +1292,37 @@ mod tests {
         for (cmd, args) in [
             (
                 "rg -in 'get queryset' --type py",
-                "-i --type py 'get queryset'",
+                "-i --type py -- 'get queryset'",
             ),
-            ("rg def --type rs", "--type rs -e def"),
-            ("rg stats src", "-e stats src"),
-            ("rg -C 3 'fn main' crates", "-C 3 'fn main' crates"),
-            ("rg foo . ../other", "foo . ../other"),
-            ("rg foo -- -weird", "foo -- -weird"),
-            ("rg foo \"a b\"", "foo 'a b'"),
-            ("rg -e foo bar src", "foo bar src"),
+            ("rg def --type rs", "--type rs -- def"),
+            ("rg stats src", "-- stats src"),
+            ("rg -C 3 'fn main' crates", "-C 3 -- 'fn main' crates"),
+            ("rg foo . ../other", "-- foo . ../other"),
+            ("rg foo -- -weird", "-- foo -weird"),
+            ("rg foo \"a b\"", "-- foo 'a b'"),
+            ("rg -e foo bar src", "-- foo bar src"),
             ("rg -- -x src", "-- -x src"),
             ("rg -F -- --flag", "-F -- --flag"),
             ("rg -e -x src", "-- -x src"),
             ("rg -- def src", "-- def src"),
-            ("rg -tjs foo", "-t js foo"),
-            ("rg -gX foo", "-g X foo"),
-            ("rg -eX src", "X src"),
-            ("rg -A3 foo", "-A 3 foo"),
-            ("rg -B2 foo", "-B 2 foo"),
-            ("rg -C1 foo", "-C 1 foo"),
-            ("rg -iw foo", "-i -w foo"),
-            ("rg -itrs foo", "-i -t rs foo"),
-            ("rg -inA 2 foo src", "-i -A 2 foo src"),
-            ("rg -M 80 foo", "--max-columns 80 foo"),
-            ("rg -j4 foo", "-j 4 foo"),
-            ("rg -l foo", "-l foo"),
-            ("rg -c foo src", "-c foo src"),
-            ("rg -x foo", "-x foo"),
-            ("rg -U 'a\\nb' src", "-U 'a\\nb' src"),
-            ("rg -u foo", "--no-ignore foo"),
-            ("rg -uu foo", "--no-ignore --hidden foo"),
-            ("rg --unrestricted -i foo", "-i --no-ignore foo"),
+            ("rg -tjs foo", "-t js -- foo"),
+            ("rg -gX foo", "-g X -- foo"),
+            ("rg -eX src", "-- X src"),
+            ("rg -A3 foo", "-A 3 -- foo"),
+            ("rg -B2 foo", "-B 2 -- foo"),
+            ("rg -C1 foo", "-C 1 -- foo"),
+            ("rg -iw foo", "-i -w -- foo"),
+            ("rg -itrs foo", "-i -t rs -- foo"),
+            ("rg -inA 2 foo src", "-i -A 2 -- foo src"),
+            ("rg -M 80 foo", "--max-columns 80 -- foo"),
+            ("rg -j4 foo", "-j 4 -- foo"),
+            ("rg -l foo", "-l -- foo"),
+            ("rg -c foo src", "-c -- foo src"),
+            ("rg -x foo", "-x -- foo"),
+            ("rg -U 'a\\nb' src", "-U -- 'a\\nb' src"),
+            ("rg -u foo", "--no-ignore -- foo"),
+            ("rg -uu foo", "--no-ignore --hidden -- foo"),
+            ("rg --unrestricted -i foo", "-i --no-ignore -- foo"),
         ] {
             same(
                 cmd,
@@ -1335,7 +1344,7 @@ mod tests {
         ] {
             same(
                 &format!("rg {flags} foo"),
-                "greeg --matching exact --max-filesize 18446744073709551615 foo",
+                "greeg --matching exact --max-filesize 18446744073709551615 -- foo",
             );
         }
     }
@@ -1433,6 +1442,7 @@ mod tests {
                     "exact",
                     "--max-filesize",
                     "18446744073709551615",
+                    "--",
                     pattern,
                     "src"
                 ]
@@ -1441,7 +1451,7 @@ mod tests {
         }
         same(
             "rg -g '*.rs' foo",
-            "greeg --matching exact --max-filesize 18446744073709551615 -g '*.rs' foo",
+            "greeg --matching exact --max-filesize 18446744073709551615 -g '*.rs' -- foo",
         );
     }
 

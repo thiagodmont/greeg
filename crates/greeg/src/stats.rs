@@ -2608,7 +2608,8 @@ fn run_once(argv: &[String], cwd: &Path, with: Program, timeout: Duration) -> Re
     let mut cmd = match with {
         Program::Greeg(g) => {
             let mut c = std::process::Command::new(&g.bin);
-            c.args(&argv[1..]).arg("--no-session");
+            // a recorded `--` would make a flag after the arguments a path
+            c.arg("--no-session").args(&argv[1..]);
             if g.index_base.is_some() {
                 c.env("GREEG_INDEX_DIR", g.index_dir(cwd)?);
             }
