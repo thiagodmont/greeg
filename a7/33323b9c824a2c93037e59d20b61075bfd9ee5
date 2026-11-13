@@ -1,0 +1,22 @@
+crates/greeg-index/src/external.rs
+  s_e2aadb8067553a::t_462311931ca514 18-20
+  s_e2aadb8067553a::t_10b2e922af2d04 87
+references/ARCHITECTURE.md
+  s_e2aadb8067553a::t_8ab85282370e93 184-189
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a733323b9c824a2c93037e59d20b61075bfd9ee5",
+  "prompts": {},
+  "sessions": {
+    "s_e2aadb8067553a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8372df48-1202-40f9-bd30-8e5555761588",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": null
+    }
+  }
+}
