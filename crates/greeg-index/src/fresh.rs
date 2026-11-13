@@ -433,6 +433,10 @@ fn check_stat_with(idx: &Index, root: &Path, lookup: Option<Lookup>, threads: us
             _ => {}
         }
     }
+    add_dirs(
+        &mut changed_dirs,
+        listable_again(root, tree, idx.unlisted_dirs()),
+    );
     relist_dirs(root, &k, &changed_dirs, &mut ch);
     ch.ms = t.elapsed().as_secs_f64() * 1e3;
     ch
@@ -474,6 +478,49 @@ fn below(dirs: &HashSet<&[u8]>, rel: &[u8]) -> bool {
         }
     }
     false
+}
+
+/// Directories the index could not list that list now, with their stamps.
+/// Nothing an FSEvents check reads names a directory a `chmod` made readable,
+/// and its entries were never indexed; one still unlistable is no change.
+/// `unlisted` is `idx.unlisted_dirs()`; each is looked up through `tree`,
+/// which refuses a symlink on the way, and must list to the end.
+fn listable_again(
+    root: &Path,
+    tree: Option<&Tree>,
+    unlisted: Vec<Vec<u8>>,
+) -> Vec<(Vec<u8>, Stamp)> {
+    let Some(tree) = tree else {
+        return Vec::new();
+    };
+    let mut on_way = tree::Dirs::default();
+    unlisted
+        .into_iter()
+        .filter_map(|d| {
+            let st = tree.stat(&d, &mut on_way).ok()?;
+            if !tree::is_dir(&st) {
+                return None;
+            }
+            let abs = if d.is_empty() {
+                root.to_path_buf()
+            } else {
+                root.join(as_path(&d))
+            };
+            for e in std::fs::read_dir(&abs).ok()? {
+                e.ok()?;
+            }
+            Some((d, Stamp::of_stat(&st)))
+        })
+        .collect()
+}
+
+/// Add `again` to `changed_dirs`, once each.
+fn add_dirs(changed_dirs: &mut Vec<(Vec<u8>, Stamp)>, again: Vec<(Vec<u8>, Stamp)>) {
+    for d in again {
+        if !changed_dirs.iter().any(|c| c.0 == d.0) {
+            changed_dirs.push(d);
+        }
+    }
 }
 
 /// Re-list changed directories to find additions (files and subdirectories).
@@ -578,9 +625,23 @@ pub fn check_fsevents(idx: &Index, root: &Path, threads: usize) -> Option<Change
         checked_ms,
         ..Default::default()
     };
-    if dirs.is_empty() {
+    // no event names a directory a change of access made listable, so the
+    // ones the build could not list are tried; before `known`, which is the
+    // cost of the whole index
+    let unlisted = idx.unlisted_dirs();
+    if dirs.is_empty() && unlisted.is_empty() {
         ch.ms = t.elapsed().as_secs_f64() * 1e3;
         return Some(ch);
+    }
+    let tree = Tree::open(&abs_root).ok()?;
+    let again = listable_again(root, Some(&tree), unlisted);
+    if dirs.is_empty() && again.is_empty() {
+        ch.ms = t.elapsed().as_secs_f64() * 1e3;
+        return Some(ch);
+    }
+    // only the full pass checks the directories on the way for a leaf lookup
+    if Lookup::of(&tree) == Lookup::Leaf {
+        return None;
     }
     let k = known(idx);
     // relative dir set
@@ -602,11 +663,6 @@ pub fn check_fsevents(idx: &Index, root: &Path, threads: usize) -> Option<Change
     // reports only the parent, so every known file below it is re-stat'd too
     let mut changed_dirs = Vec::new();
     let mut moved: HashSet<&[u8]> = HashSet::new();
-    let tree = Tree::open(&abs_root).ok()?;
-    // only the full pass checks the directories on the way for a leaf lookup
-    if Lookup::of(&tree) == Lookup::Leaf {
-        return None;
-    }
     let mut on_way = tree::Dirs::default();
     for r in &rels {
         if let Some((old, recheck)) = k.dirs.get(r.as_slice())
@@ -652,6 +708,7 @@ pub fn check_fsevents(idx: &Index, root: &Path, threads: usize) -> Option<Change
         threads,
     );
     classify_all(&mut ch, idx.no_ino(), &files, st, k.files.len());
+    add_dirs(&mut changed_dirs, again);
     relist_dirs(root, &k, &changed_dirs, &mut ch);
     ch.ms = t.elapsed().as_secs_f64() * 1e3;
     Some(ch)

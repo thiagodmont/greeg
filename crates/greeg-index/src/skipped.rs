@@ -126,6 +126,30 @@ impl Skipped {
     }
 }
 
+/// The directories a record holds as unlistable (`UNKNOWN`), read without
+/// parsing the rest of it.
+pub fn unknown_dirs(bytes: &[u8]) -> Vec<Vec<u8>> {
+    format::check_header(bytes, format::COMP_SKIPPED).map_or_else(|_| Vec::new(), unknown_in)
+}
+
+/// `unknown_dirs` of a record's body.
+fn unknown_in(body: &[u8]) -> Vec<Vec<u8>> {
+    let mut out = Vec::new();
+    let mut at = 4;
+    while let (Some(&bits), Some(len)) = (body.get(at), body.get(at + 1..at + 5)) {
+        let len = u32::from_le_bytes(len.try_into().unwrap()) as usize;
+        let Some(rel) = body.get(at + 5..at + 5 + len) else {
+            break;
+        };
+        if bits & UNKNOWN != 0 {
+            // stored as the directory joined with an empty name: `a/b/`
+            out.push(rel.strip_suffix(b"/").unwrap_or(rel).to_vec());
+        }
+        at += 5 + len;
+    }
+    out
+}
+
 /// Where the record a manifest names lives. `None` when it names none
 /// (built before the record existed): coverage is then unknown.
 pub fn path(dir: &Path, name: &str) -> Option<PathBuf> {
@@ -229,6 +253,18 @@ mod tests {
         assert_eq!(s2.entries().collect::<Vec<_>>(), [(b".x".to_vec(), 0)]);
         assert!(Skipped::parse(&[1, 0, 0, 0]).is_err());
         assert!(path(Path::new("/"), "../x").is_none());
+    }
+
+    #[test]
+    fn unlisted_directories_are_read_without_parsing_the_record() {
+        let mut s = Skipped::default();
+        s.set(b"", vec![(Vec::new(), UNKNOWN)]);
+        s.set(b"a/b", vec![(Vec::new(), UNKNOWN)]);
+        s.set(
+            b"c",
+            vec![(b".h".to_vec(), 0), (b"d".to_vec(), DIR | IGNORED)],
+        );
+        assert_eq!(unknown_in(&s.serialize()), [b"".to_vec(), b"a/b".to_vec()]);
     }
 
     #[test]

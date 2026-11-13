@@ -548,7 +548,11 @@ to keep it there.
   readable. A directory listed within its racy window (20 ms after its
   mtime or ctime, 2 s on file systems that keep whole seconds) is listed
   again by the next check, as such a file is read again, until a listing
-  comes late enough to trust its stamp.
+  comes late enough to trust its stamp. Both checks also try the
+  directories the build could not list (`UNKNOWN` in the skipped record):
+  one that lists now is listed like a changed directory, since nothing an
+  FSEvents check reads names a directory a `chmod` made readable; one that
+  still cannot be listed is no change.
   41 ms for 66k files. Below about 8,000 files this beats FSEvents, whose
   stream setup costs ~11 ms no matter how small the tree.
 * **Back-to-back calls**: a manifest verified in the last 100 ms is trusted, so
