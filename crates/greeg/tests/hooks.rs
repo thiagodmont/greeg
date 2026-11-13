@@ -398,7 +398,7 @@ fn kept_redirections_reach_the_rewritten_search() {
     assert_eq!((code, stdout.as_str()), (Some(0), "none\n"));
 }
 
-/// On a tree with no ignored or hidden files, a rewritten `grep -r` finds the
+/// On a tree with no ignored files, a rewritten `grep -r` finds the
 /// lines grep finds.
 #[test]
 fn rewritten_greps_find_the_lines_grep_finds() {
@@ -585,7 +585,7 @@ fn rewritten_greps_skip_what_rg_skips_and_say_so() {
     let (files, stderr) = run("grep -rl needle .");
     assert_eq!(files, [".h.rs", ".hid/d.rs", "file.rs"], "{stderr}");
     assert!(
-        stderr.starts_with("greeg: grep -r ran as greeg: ignored and binary files are skipped"),
+        stderr.starts_with("greeg: grep -r ran as greeg: ignored files, binary files and VCS data such as .git/ are skipped"),
         "{stderr}"
     );
     let (files, stderr) = run("grep -rl --include='*.rs' needle .");
@@ -596,7 +596,7 @@ fn rewritten_greps_skip_what_rg_skips_and_say_so() {
     );
     assert!(
         stderr.starts_with(
-            "greeg: grep -r ran as greeg: ignored directories and binary files are skipped"
+            "greeg: grep -r ran as greeg: ignored directories, binary files and VCS data such as .git/ are skipped"
         ),
         "{stderr}"
     );

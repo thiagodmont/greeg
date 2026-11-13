@@ -1268,9 +1268,9 @@ fn run() -> Result<()> {
         eprintln!(
             "greeg: grep -r ran as greeg: {}",
             if include {
-                "ignored directories and binary files are skipped, as rg skips them with -g (-u searches the directories)"
+                "ignored directories, binary files and VCS data such as .git/ are skipped (-u searches the directories)"
             } else {
-                "ignored and binary files are skipped, as rg skips them (-u searches ignored ones)"
+                "ignored files, binary files and VCS data such as .git/ are skipped (-u searches ignored ones)"
             }
         );
     }
