@@ -823,6 +823,10 @@ where
 
 /// Build phase 1 into `dir`. Returns the manifest written.
 pub fn build(root: &Path, dir: &Path, opts: &BuildOpts) -> Result<Manifest> {
+    // fault injection for the failed-build tests
+    if std::env::var_os("GREEG_DEBUG_BUILD_FAIL").is_some() {
+        bail!("build failed on request (GREEG_DEBUG_BUILD_FAIL)");
+    }
     let t0 = Instant::now();
     crate::create_private_dir(dir)?;
     crate::write_owner(dir)?;

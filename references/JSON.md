@@ -55,7 +55,8 @@ and `index`, refuse `--json=greeg` (exit 2).
 
 The last record is a `footer` with an `outcome`. A run that fails before it
 answers writes nothing to stdout and exits 2. The exception is `map` or `find` while the
-index it needs is rebuilt, or cannot be checked (`"reason":"unreadable"`,
+index it needs is rebuilt, or cannot be built for now (`"reason":"build-failed"`,
+while a failed build backs off), or cannot be checked (`"reason":"unreadable"`,
 when part of the tree cannot be read): its footer then holds only
 `"outcome":{"exit":2,"rebuilding":{"reason":…,"estimate_ms":…}}`.
 

@@ -780,7 +780,25 @@ fn run_index(
     if threads > 0 {
         opts.reader_threads = threads;
     }
-    let r = greeg_index::build::build(&root, &dir, &opts);
+    // a build that cannot write this small file cannot publish: it fails
+    // now rather than after walking the tree
+    greeg_index::failure::begin(&dir, &root).map_err(|e| {
+        e.context(format!(
+            "cannot write in the index directory {}",
+            dir.display()
+        ))
+    })?;
+    let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        greeg_index::build::build(&root, &dir, &opts)
+    }))
+    .unwrap_or_else(|_| Err(anyhow::anyhow!("the build panicked")));
+    // settled before the marker goes, so a query that sees it free sees why
+    match &r {
+        Ok(_) => greeg_index::failure::clear(&dir),
+        Err(e) => {
+            let _ = greeg_index::failure::fail(&dir, &root, &format!("{e:#}"));
+        }
+    }
     drop(marker);
     let m = r?;
     if !quiet {

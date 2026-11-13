@@ -4540,6 +4540,55 @@ fn a_build_short_of_file_descriptors_fails_or_is_complete() {
     }
 }
 
+/// A background build that fails is recorded, and queries back off rather
+/// than start it again each time; `doctor` shows the error, a search says so
+/// once, and a build that succeeds clears the record.
+#[test]
+fn a_failed_background_build_is_recorded_and_not_respawned_per_query() {
+    let f = fixture();
+    let fail = [("GREEG_DEBUG_BUILD_FAIL", std::ffi::OsStr::new("1"))];
+    let record = || -> Option<serde_json::Value> {
+        let rd = fs::read_dir(&f.index).ok()?;
+        rd.flatten()
+            .map(|e| e.path().join("BUILD_FAILED"))
+            .find_map(|p| fs::read(p).ok())
+            .map(|b| serde_json::from_slice(&b).unwrap())
+    };
+    let first = f.run_env(&["handle_request"], &fail);
+    assert_eq!(first.status.code(), Some(0), "{first:?}");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    // a build writes the record as it starts, and its error when it fails,
+    // then lets its marker go
+    while !record().is_some_and(|r| r["error"] != "the build did not finish")
+        || f.out(&["doctor"]).contains("build in progress")
+    {
+        assert!(std::time::Instant::now() < deadline, "no failure recorded");
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    let second = f.run_env(&["handle_request"], &fail);
+    let note = String::from_utf8_lossy(&second.stderr);
+    assert!(note.contains("background index build failed"), "{note}");
+    let third = f.run_env(&["handle_request"], &fail);
+    assert!(
+        !String::from_utf8_lossy(&third.stderr).contains("build failed"),
+        "said once"
+    );
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    assert_eq!(record().unwrap()["attempts"], 1, "a build was respawned");
+    let doctor = f.out(&["doctor"]);
+    assert!(doctor.contains("GREEG_DEBUG_BUILD_FAIL"), "{doctor}");
+    // map needs the index: it says why there is none, without waiting
+    let map = f.run(&["--json", "map"]);
+    assert_eq!(map.status.code(), Some(2));
+    let map = String::from_utf8_lossy(&map.stdout);
+    assert!(map.contains(r#""reason":"build-failed""#), "{map}");
+    f.indexed();
+    assert!(
+        record().is_none(),
+        "a build that succeeds clears the record"
+    );
+}
+
 /// Wait out the racy window of what was just written under `root` (20 ms, or
 /// 2 s where the file system keeps whole seconds), so a build lists its
 /// directories late enough to trust their stamps.
