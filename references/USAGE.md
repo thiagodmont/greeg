@@ -17,6 +17,11 @@ greeg createSourceFile --json=rg    # ripgrep JSON Lines only: every match
 greeg respond --budget 0            # unlimited exact matches, path order
 ```
 
+A pattern spelled like a subcommand needs `-e` (`greeg -e def`). A path
+spelled like one goes after `--` or as `./name`: `greeg foo -- index` and
+`greeg foo ./index` search the directory `index`, while `greeg foo index` is
+refused with exit 2, since `index` there would be the index command.
+
 ### Exact and relaxed matching
 
 File searches with `-l`, `-c`, `--mode files|count`, `--budget 0`, or `--json`
