@@ -153,7 +153,10 @@ pub fn find(o: &Options, query: &str) -> Result<FindResult> {
     let op = indexed::open_for_graph(o, threads)?;
     let idx = &op.idx;
     if !idx.has_symbols() {
-        bail!("`find` needs the symbol table; the index build is still in phase 1");
+        bail!(
+            "`find` needs the symbol table: {}",
+            indexed::without_symbols(o, idx)
+        );
     }
     let sel = Selection::new(o, Vec::new())?;
     if sel.coverage(idx, op.pending.as_ref(), false).is_none() {

@@ -1827,7 +1827,10 @@ pub fn map(o: &Options, dir: &str) -> Result<MapResult> {
     let op = indexed::open_for_graph(o, threads)?;
     let idx = &op.idx;
     if !idx.has_symbols() {
-        bail!("`map` needs the symbol table; the index build is still in phase 1");
+        bail!(
+            "`map` needs the symbol table: {}",
+            indexed::without_symbols(o, idx)
+        );
     }
     let sel = Selection::new(o, Vec::new())?;
     let Some(also) = sel.coverage(idx, op.pending.as_ref(), false) else {

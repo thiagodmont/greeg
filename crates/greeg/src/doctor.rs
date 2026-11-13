@@ -143,8 +143,10 @@ pub fn run(c: &Common) -> Result<()> {
             {
                 advice.push("index is older than a week with deltas applied; `greeg index` rebuilds it with fresh PageRank (deltas keep edges but never recompute ranks)".into());
             }
-            if !m.phase2 && !building {
-                advice.push("phase 2 (symbols) never completed; run `greeg index`".into());
+            if m.phase1_only {
+                advice.push("built with `--phase1` (grams only): `map` and `find` need the symbols `greeg index` adds".into());
+            } else if !m.phase2 && !building {
+                advice.push("phase 2 (symbols) never completed: the next query finishes it in the background (unless --no-persist, or a failed build backs off), or run `greeg index` now".into());
             }
             // freshness mode
             let fs_id = greeg_fsevents_id();

@@ -109,6 +109,9 @@ pub struct Manifest {
     /// Symbols, spans and graph published (phase 2, ARCHITECTURE.md).
     #[serde(default)]
     pub phase2: bool,
+    /// Built with `greeg index --phase1`: queries leave it without symbols.
+    #[serde(default)]
+    pub phase1_only: bool,
     #[serde(default)]
     pub symbols: u32,
     #[serde(default)]
