@@ -102,8 +102,11 @@ fn split_words(s: &str) -> Result<(Vec<String>, bool), &'static str> {
     Ok((out, glob))
 }
 
+/// `w` as one shell word: bare when every byte is safe, else single-quoted.
+/// A leading `=` is quoted, since zsh expands `=cmd` to a command's path.
 pub(crate) fn quote(w: &str) -> String {
     if !w.is_empty()
+        && !w.starts_with('=')
         && w.bytes()
             .all(|b| b.is_ascii_alphanumeric() || b"-_./:=,@+".contains(&b))
     {
@@ -1250,6 +1253,15 @@ mod tests {
             let got = posix_regex(posix, extended).err().unwrap_or_default();
             assert!(got.contains(why), "{posix:?}: {got:?}");
         }
+    }
+
+    /// zsh expands an unquoted word that starts with `=` (`=ls` is `/bin/ls`).
+    #[test]
+    fn a_word_starting_with_equals_is_quoted() {
+        assert_eq!(quote("=ls"), "'=ls'");
+        assert_eq!(quote("=="), "'=='");
+        assert_eq!(quote("--glob=x"), "--glob=x");
+        assert_eq!(quote("a=b"), "a=b");
     }
 
     #[test]
