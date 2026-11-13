@@ -248,6 +248,10 @@ fn fsevents_finds_what_a_directory_stamp_hides() {
             .any(|d| fv.dir_path(d) == b"lib" && d.recheck())
     });
     if !listed_too_soon {
+        assert!(
+            std::env::var_os("CI").is_none(),
+            "no build listed lib within its racy window"
+        );
         eprintln!("skipped: no build listed lib within its racy window");
         return;
     }

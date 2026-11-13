@@ -142,15 +142,16 @@ impl Stamp {
         self.same(o, true) && !self.same(o, false)
     }
 
-    /// From when a write after `read_ns` can no longer keep these timestamps:
-    /// 20 ms after the later of mtime and ctime for sub-second timestamps
-    /// (coarse kernel clocks), 2 s when the file system records whole seconds.
-    /// An mtime ahead of the read was set, not written: a later write stamps
-    /// the time it happens, which differs, so only the ctime counts then.
-    pub fn trusted_from(&self, read_ns: i64) -> i64 {
+    /// From when a write can no longer keep these timestamps, judged at
+    /// `now_ns`, after the stat: 20 ms after the later of mtime and ctime for
+    /// sub-second timestamps (coarse kernel clocks), 2 s when the file system
+    /// records whole seconds. An mtime still ahead of `now_ns` was set, not
+    /// written: a later write stamps the time it happens, which differs, so
+    /// only the ctime counts then.
+    pub fn trusted_from(&self, now_ns: i64) -> i64 {
         let whole = self.mtime_ns % 1_000_000_000 == 0 && self.ctime_ns % 1_000_000_000 == 0;
         let window = if whole { 2_000_000_000 } else { 20_000_000 };
-        let mtime = if self.mtime_ns > read_ns {
+        let mtime = if self.mtime_ns > now_ns {
             self.ctime_ns
         } else {
             self.mtime_ns
@@ -160,7 +161,12 @@ impl Stamp {
 
     /// Read at `read_ns`, too soon for a later write to show in the stamp.
     pub fn racy(&self, read_ns: i64) -> bool {
-        read_ns < self.trusted_from(read_ns)
+        self.racy_at(read_ns, now_ns())
+    }
+
+    /// [`Stamp::racy`], judged at `now_ns`.
+    pub fn racy_at(&self, read_ns: i64, now_ns: i64) -> bool {
+        read_ns < self.trusted_from(now_ns)
     }
 }
 
@@ -1833,31 +1839,34 @@ mod tests {
             ctime_ns: 5_000_000_456,
             ..Default::default()
         };
-        assert!(fine.racy(5_010_000_000));
-        assert!(!fine.racy(5_030_000_000));
+        assert!(fine.racy_at(5_010_000_000, 5_010_000_000));
+        assert!(!fine.racy_at(5_030_000_000, 5_030_000_000));
         let whole = Stamp {
             mtime_ns: 5_000_000_000,
             ctime_ns: 5_000_000_000,
             ..Default::default()
         };
-        assert!(whole.racy(6_500_000_000));
-        assert!(!whole.racy(7_000_000_001));
+        assert!(whole.racy_at(6_500_000_000, 6_500_000_000));
+        assert!(!whole.racy_at(7_000_000_001, 7_000_000_001));
         // `touch -t` into the future: the ctime says when it was set
         let ahead = Stamp {
             mtime_ns: 90_000_000_000,
             ..fine
         };
-        assert!(ahead.racy(5_010_000_000));
-        assert!(!ahead.racy(5_030_000_000));
+        assert!(ahead.racy_at(5_010_000_000, 5_010_000_000));
+        assert!(!ahead.racy_at(5_030_000_000, 5_030_000_000));
+        // a write between the read and the stat is not taken for a set mtime
+        assert!(ahead.racy_at(5_030_000_000, 90_000_000_000));
         // a ctime ahead is a clock that stepped back: nothing to trust yet
         let back = Stamp {
             ctime_ns: 90_000_000_123,
             ..fine
         };
-        assert!(back.racy(5_030_000_000));
-        let flags = |s: &Stamp, at| dir_rec((0, 0), s, at).flags;
-        assert_eq!(flags(&fine, 5_010_000_000), format::STAMP_RECHECK as u16);
-        assert_eq!(flags(&ahead, 5_030_000_000), 0);
+        assert!(back.racy_at(5_030_000_000, 5_030_000_000));
+        assert_eq!(
+            dir_rec((0, 0), &fine, 5_010_000_000).flags,
+            format::STAMP_RECHECK as u16
+        );
     }
 
     #[test]
