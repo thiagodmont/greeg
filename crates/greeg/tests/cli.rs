@@ -4680,6 +4680,62 @@ fn a_file_stamped_in_the_future_is_not_reindexed_per_query() {
     assert_eq!(found.len(), 1, "{found:?}");
 }
 
+/// A build that spills more segments than it may hold open merges them in
+/// passes: under 64 descriptors and a 1 MiB budget it publishes the index a
+/// scan agrees with, rather than failing with "Too many open files".
+#[test]
+fn a_build_with_more_segments_than_open_files_merges_in_passes() {
+    use std::os::unix::process::CommandExt;
+    let f = empty_fixture();
+    let mut x: u64 = 7;
+    let mut probes = Vec::new();
+    for i in 0..200 {
+        let mut body = String::with_capacity(10_000);
+        for j in 0..1000 {
+            x = x.wrapping_mul(6364136223846793005).wrapping_add(1);
+            let word: String = (0..8)
+                .map(|k| (b'a' + ((x >> (8 + 5 * k)) % 26) as u8) as char)
+                .collect();
+            if j == 0 && i % 50 == 0 {
+                probes.push(word.clone());
+            }
+            body.push_str(&word);
+            body.push(' ');
+        }
+        w(&f.root.join(format!("d{:02}/f{i:03}.txt", i / 20)), &body);
+    }
+    settle(&f.root);
+    let mut c = greeg();
+    c.args(["index", "--quiet", "-j", "2", "--index-dir"])
+        .arg(&f.index)
+        .current_dir(&f.root)
+        .env("GREEG_STATS", "0")
+        .env("GREEG_BUILD_BUDGET_MB", "1");
+    // SAFETY: setrlimit is async-signal-safe; nothing else runs before exec.
+    unsafe {
+        c.pre_exec(|| {
+            let r = libc::rlimit {
+                rlim_cur: 64,
+                rlim_max: 64,
+            };
+            if libc::setrlimit(libc::RLIMIT_NOFILE, &r) != 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+    let o = c.output().unwrap();
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    let layout = greeg_index::format_dir(&f.index);
+    assert!(greeg_index::read_manifest(&layout).unwrap().spilled);
+    for p in &probes {
+        let args = ["-l", "--sort", "path", "-w", p.as_str()];
+        let scanned = f.out(&[&["--no-index"][..], &args].concat());
+        assert_eq!(scanned.lines().count(), 1, "{p}: {scanned}");
+        assert_eq!(f.out(&[&["--fresh", "none"][..], &args].concat()), scanned);
+    }
+}
+
 /// Wait out the racy window of what was just written under `root` (20 ms, or
 /// 2 s where the file system keeps whole seconds), so a build lists its
 /// directories late enough to trust their stamps.

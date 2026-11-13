@@ -79,6 +79,26 @@ pub const DEFAULT_BUDGET: usize = 192 << 20;
 const MERGE_READ_BUDGET: usize = 4 << 20;
 const MIN_SEGMENT_BUF: usize = 16 << 10;
 
+/// Segments merged at once, at most: more are merged in passes, so the merge
+/// holds this many descriptors and read buffers whatever the segment count.
+const MAX_FAN_IN: usize = 256;
+
+/// How many segments one merge may open: half the descriptors this process
+/// may hold, leaving the rest to the build, at most [`MAX_FAN_IN`].
+pub fn fan_in() -> usize {
+    let mut r = libc::rlimit {
+        rlim_cur: 0,
+        rlim_max: 0,
+    };
+    // SAFETY: `r` is a valid rlimit for getrlimit to fill.
+    let soft = if unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut r) } == 0 {
+        r.rlim_cur
+    } else {
+        256
+    };
+    (soft / 2).clamp(2, MAX_FAN_IN as u64) as usize
+}
+
 /// A posting key. Implemented for `u32` (grams, stored big-endian so that byte
 /// order and numeric order agree) and `Vec<u8>` (words, stored as themselves).
 pub trait Key: Clone + Eq + std::hash::Hash + Ord + Send + Sync {
@@ -121,6 +141,19 @@ fn put_varint(out: &mut Vec<u8>, mut v: u64) {
         v >>= 7;
     }
     out.push(v as u8);
+}
+
+/// One segment record (see the module's format) into `rec`, replacing it.
+fn put_record(rec: &mut Vec<u8>, key: &[u8], ids: &[u32]) {
+    rec.clear();
+    put_varint(rec, key.len() as u64);
+    rec.extend_from_slice(key);
+    put_varint(rec, ids.len() as u64);
+    let mut prev = 0u32;
+    for (i, &id) in ids.iter().enumerate() {
+        put_varint(rec, if i == 0 { id } else { id - prev } as u64);
+        prev = id;
+    }
 }
 
 /// One worker's accumulator. `push` is the hot path; `spill_if_full` is called
@@ -222,28 +255,14 @@ impl<K: Key> Sink<K> {
             crate::create_private(&path).with_context(|| format!("create {}", path.display()))?;
         let mut w = BufWriter::with_capacity(256 << 10, f);
         let mut rec = Vec::with_capacity(4096);
+        let mut kb = Vec::with_capacity(16);
         for k in &keys {
             let v = self.map.get_mut(k).expect("key from this map");
             v.sort_unstable();
             v.dedup();
-            rec.clear();
-            let mut kb = Vec::with_capacity(16);
+            kb.clear();
             k.write_key(&mut kb);
-            put_varint(&mut rec, kb.len() as u64);
-            rec.extend_from_slice(&kb);
-            put_varint(&mut rec, v.len() as u64);
-            let mut prev = 0u32;
-            for (i, &id) in v.iter().enumerate() {
-                put_varint(
-                    &mut rec,
-                    if i == 0 {
-                        id as u64
-                    } else {
-                        (id - prev) as u64
-                    },
-                );
-                prev = id;
-            }
+            put_record(&mut rec, &kb, v);
             w.write_all(&rec)?;
         }
         w.flush()?;
@@ -459,6 +478,8 @@ pub struct Merger {
 
 impl Merger {
     fn open(segments: &[PathBuf]) -> Result<Self> {
+        #[cfg(test)]
+        MOST_OPEN.with(|m| m.set(m.get().max(segments.len())));
         let cap = (MERGE_READ_BUDGET / segments.len().max(1)).max(MIN_SEGMENT_BUF);
         let mut readers = Vec::with_capacity(segments.len());
         let mut heap = BinaryHeap::new();
@@ -497,15 +518,65 @@ impl Merger {
     }
 }
 
+#[cfg(test)]
+thread_local! {
+    /// The most segments one merge on this thread opened at once.
+    static MOST_OPEN: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Merge groups of at most `fan_in` segments into one each, until at most
+/// `fan_in` are left. A pass removes the segments it merged.
+fn merge_down(segments: &[PathBuf], fan_in: usize) -> Result<Vec<PathBuf>> {
+    static N: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let mut segs = segments.to_vec();
+    let fan_in = fan_in.max(2);
+    while segs.len() > fan_in {
+        let mut next = Vec::with_capacity(segs.len().div_ceil(fan_in));
+        for group in segs.chunks(fan_in) {
+            let dir = group[0].parent().unwrap_or(Path::new("."));
+            let n = N.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let path = dir.join(format!("merged-{}-{n}.seg", std::process::id()));
+            let f = crate::create_private(&path)
+                .with_context(|| format!("create {}", path.display()))?;
+            let mut w = BufWriter::with_capacity(256 << 10, f);
+            let mut m = Merger::open(group)?;
+            let mut rec = Vec::with_capacity(4096);
+            while let Some((k, v)) = m.next()? {
+                put_record(&mut rec, &k, &v);
+                w.write_all(&rec)?;
+            }
+            w.flush()?;
+            drop(m);
+            for p in group {
+                let _ = std::fs::remove_file(p);
+            }
+            next.push(path);
+        }
+        segs = next;
+    }
+    Ok(segs)
+}
+
 /// Merge `segments` and hand batches of at most `batch` entries to `f`, in
 /// ascending key order. Batching keeps the caller's serialization parallel
-/// while the merge itself stays streaming.
+/// while the merge itself stays streaming. More segments than [`fan_in`]
+/// are merged in passes first. The segments are removed once merged.
 pub fn stream_batches<K: Key>(
     segments: &[PathBuf],
     batch: usize,
+    f: impl FnMut(Vec<(K, Vec<u32>)>) -> Result<()>,
+) -> Result<()> {
+    stream_batches_with(segments, batch, fan_in(), f)
+}
+
+fn stream_batches_with<K: Key>(
+    segments: &[PathBuf],
+    batch: usize,
+    fan_in: usize,
     mut f: impl FnMut(Vec<(K, Vec<u32>)>) -> Result<()>,
 ) -> Result<()> {
-    let mut m = Merger::open(segments)?;
+    let segments = merge_down(segments, fan_in)?;
+    let mut m = Merger::open(&segments)?;
     let mut acc: Vec<(K, Vec<u32>)> = Vec::with_capacity(batch);
     while let Some((k, v)) = m.next()? {
         acc.push((K::from_key_bytes(&k), v));
@@ -516,6 +587,10 @@ pub fn stream_batches<K: Key>(
     }
     if !acc.is_empty() {
         f(acc)?;
+    }
+    drop(m);
+    for p in &segments {
+        let _ = std::fs::remove_file(p);
     }
     Ok(())
 }
@@ -585,6 +660,47 @@ mod tests {
         let got: Vec<(u32, Vec<u32>)> = drain(&segs);
         let want: Vec<(u32, Vec<u32>)> = want.into_iter().collect();
         assert_eq!(got, want);
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    /// 2,000 segments merged with a fan-in of 16: never more than 16 open at
+    /// once, the same postings as one merge of all of them, and no segment
+    /// left behind.
+    #[test]
+    fn many_segments_merge_in_passes_of_the_fan_in() {
+        let tmp = std::env::temp_dir().join(format!("greeg-extp-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        let mut want: std::collections::BTreeMap<u32, Vec<u32>> = Default::default();
+        // a budget of 1 byte spills after every file: one segment each
+        let mut s: Sink<u32> = Sink::new(&tmp, "g", 0, 1, 16);
+        let mut x: u64 = 99;
+        for file in 0..2000u32 {
+            for _ in 0..3 {
+                x = x.wrapping_mul(6364136223846793005).wrapping_add(1);
+                let g = ((x >> 33) % 300) as u32;
+                if want.get(&g).and_then(|v| v.last()) != Some(&file) {
+                    s.push(&g, file);
+                    want.entry(g).or_default().push(file);
+                }
+            }
+            s.spill_if_full().unwrap();
+        }
+        let Part::Segments(segs) = s.finish().unwrap() else {
+            panic!("a 1-byte budget spills");
+        };
+        assert_eq!(segs.len(), 2000);
+        MOST_OPEN.with(|m| m.set(0));
+        let mut got = Vec::new();
+        stream_batches_with::<u32>(&segs, 64, 16, |b| {
+            got.extend(b);
+            Ok(())
+        })
+        .unwrap();
+        assert!(MOST_OPEN.with(|m| m.get()) <= 16);
+        let want: Vec<(u32, Vec<u32>)> = want.into_iter().collect();
+        assert_eq!(got, want);
+        assert_eq!(std::fs::read_dir(&tmp).unwrap().count(), 0, "segments left");
         let _ = std::fs::remove_dir_all(&tmp);
     }
 

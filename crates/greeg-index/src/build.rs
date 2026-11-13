@@ -785,16 +785,28 @@ fn posting_bytes(mut v: Vec<u32>) -> (u32, Vec<u8>) {
 /// error against the budget.
 const MERGE_BATCH: usize = 4096;
 
-/// Sorted (key, document count, serialized bitmap) entries, from whichever
-/// shape the workers ended in. `Memory` is the path that existed before the
-/// budget: merge the worker maps, sort, serialize in parallel. `Segments` is
-/// the streaming k-way merge, which never holds more than one batch.
-fn entries_of<K, T, F>(p: external::Postings<K>, key_out: F) -> Result<Vec<(T, u32, Vec<u8>)>>
-where
-    K: external::Key,
-    T: Send,
-    F: Fn(K) -> T + Send + Sync + Copy,
-{
+/// Hand every key's document count and serialized bitmap to `add`, in
+/// ascending key order, from whichever shape the workers ended in. `Memory`
+/// merges the worker maps and sorts; `Segments` is the streaming k-way merge.
+/// Either way a batch of [`MERGE_BATCH`] is serialized in parallel and handed
+/// over before the next, so no more than a batch of bitmaps is held beside
+/// what `add` keeps.
+fn postings_into<K: external::Key>(
+    p: external::Postings<K>,
+    mut add: impl FnMut(K, u32, &[u8]),
+) -> Result<()> {
+    let mut serialize = |batch: Vec<(K, Vec<u32>)>| {
+        let done: Vec<(K, u32, Vec<u8>)> = batch
+            .into_par_iter()
+            .map(|(k, v)| {
+                let (c, b) = posting_bytes(v);
+                (k, c, b)
+            })
+            .collect();
+        for (k, c, b) in done {
+            add(k, c, &b);
+        }
+    };
     match p {
         external::Postings::Memory(mut maps) => {
             maps.sort_by_key(|m| std::cmp::Reverse(m.len()));
@@ -806,31 +818,21 @@ where
             }
             let mut entries: Vec<(K, Vec<u32>)> = merged.into_iter().collect();
             entries.par_sort_unstable_by(|a, b| a.0.cmp(&b.0));
-            Ok(entries
-                .into_par_iter()
-                .map(|(k, v)| {
-                    let (c, b) = posting_bytes(v);
-                    (key_out(k), c, b)
-                })
-                .collect())
+            let mut it = entries.into_iter();
+            loop {
+                let batch: Vec<(K, Vec<u32>)> = it.by_ref().take(MERGE_BATCH).collect();
+                if batch.is_empty() {
+                    break;
+                }
+                serialize(batch);
+            }
+            Ok(())
         }
         external::Postings::Segments(segs) => {
-            let mut out: Vec<(T, u32, Vec<u8>)> = Vec::new();
             external::stream_batches::<K>(&segs, MERGE_BATCH, |batch| {
-                let mut done: Vec<(T, u32, Vec<u8>)> = batch
-                    .into_par_iter()
-                    .map(|(k, v)| {
-                        let (c, b) = posting_bytes(v);
-                        (key_out(k), c, b)
-                    })
-                    .collect();
-                out.append(&mut done);
+                serialize(batch);
                 Ok(())
-            })?;
-            for s in &segs {
-                let _ = fs::remove_file(s);
-            }
-            Ok(out)
+            })
         }
     }
 }
@@ -944,15 +946,16 @@ pub fn build(root: &Path, dir: &Path, opts: &BuildOpts) -> Result<Manifest> {
     // rather than both components' of each, and nothing survives into phase 2
     let gram_postings = external::collect(gram_parts, &scratch.dir, "g")?;
     let word_postings = external::collect(word_parts, &scratch.dir, "w")?;
-    let spilled = matches!(gram_postings, external::Postings::Segments(_));
-    let (n_grams, grams_bytes) = {
-        let entries: Vec<(u32, u32, Vec<u8>)> = entries_of(gram_postings, |k| k)?;
-        (entries.len(), format::serialize_grams(&entries))
-    };
-    let (n_words, words_bytes) = {
-        let wentries: Vec<(Vec<u8>, u32, Vec<u8>)> = entries_of(word_postings, |k| k)?;
-        (wentries.len(), words::serialize(&wentries))
-    };
+    let spilled = matches!(gram_postings, external::Postings::Segments(_))
+        || matches!(word_postings, external::Postings::Segments(_));
+    let mut grams = format::GramsBuilder::default();
+    postings_into(gram_postings, |k, c, b| grams.push(k, c, b))?;
+    let n_grams = grams.len();
+    let grams = grams.finish();
+    let mut words = words::WordsBuilder::default();
+    postings_into(word_postings, |k: Vec<u8>, c, b| words.push(&k, c, b))?;
+    let n_words = words.len();
+    let words = words.finish();
     drop(scratch);
 
     // file table
@@ -1018,17 +1021,17 @@ pub fn build(root: &Path, dir: &Path, opts: &BuildOpts) -> Result<Manifest> {
         seq: snapshot::SEQ_PHASE1,
     };
     let mut roots = std::collections::BTreeMap::new();
-    let mut publish = |comp: u8, body: &[u8]| -> Result<()> {
+    let mut publish = |comp: u8, body: &[&[u8]]| -> Result<()> {
         let name = m.named(comp, snapshot::SEQ_PHASE1);
-        let root = format::write_atomic(&dir.join(&name), comp, id, body, opts.block)?;
+        let root = format::write_atomic_pieces(&dir.join(&name), comp, id, body, opts.block)?;
         roots.insert(name, root);
         Ok(())
     };
-    publish(format::COMP_GRAMS, &grams_bytes)?;
-    drop(grams_bytes);
-    publish(format::COMP_WORDS, &words_bytes)?;
-    drop(words_bytes);
-    publish(format::COMP_FILES, &ft.serialize())?;
+    publish(format::COMP_GRAMS, &grams.pieces())?;
+    drop(grams);
+    publish(format::COMP_WORDS, &words.pieces())?;
+    drop(words);
+    publish(format::COMP_FILES, &[&ft.serialize()])?;
     let skipped = skipped
         .join()
         .map_err(|_| anyhow::anyhow!("listing skipped entries panicked"))?;
