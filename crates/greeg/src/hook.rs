@@ -792,10 +792,17 @@ pub fn explain(cmd: &str, agent: Agent) -> Result<bool> {
     }
 }
 
+/// Fail-open: exit 2 would block the agent's command, so every error and
+/// panic ends in exit 0 and the command runs as it was.
 pub fn run(agent: Agent) -> Result<()> {
-    let mut input = String::new();
-    std::io::stdin().read_to_string(&mut input)?;
-    let v: Value = match serde_json::from_str(&input) {
+    let _ = std::panic::catch_unwind(|| reply(agent));
+    Ok(())
+}
+
+fn reply(agent: Agent) -> Result<()> {
+    let mut input = Vec::new();
+    std::io::stdin().read_to_end(&mut input)?;
+    let v: Value = match serde_json::from_slice(&input) {
         Ok(v) => v,
         Err(_) => return Ok(()),
     };
