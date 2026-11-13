@@ -313,7 +313,8 @@ fn parse(words: &[String]) -> Result<Parsed, String> {
                     i += 1;
                     missing_value(words, i, &name)?
                 } else {
-                    rest.to_string()
+                    // as in rg: `-g='*.rs'` is `-g '*.rs'`
+                    rest.strip_prefix('=').unwrap_or(rest).to_string()
                 };
                 p.apply(kind, &name, Some(value))?;
                 break;
@@ -1252,6 +1253,25 @@ mod tests {
         ] {
             let got = posix_regex(posix, extended).err().unwrap_or_default();
             assert!(got.contains(why), "{posix:?}: {got:?}");
+        }
+    }
+
+    /// rg strips one `=` from a short flag's attached value: `-g='*.rs'` globs `*.rs`.
+    #[test]
+    fn an_attached_short_flag_value_loses_one_equals() {
+        let g = "greeg --matching exact --max-filesize 18446744073709551615";
+        for (cmd, want) in [
+            ("rg -g='*.rs' foo", format!("{g} -g '*.rs' -- foo")),
+            ("rg -t=py foo", format!("{g} -t py -- foo")),
+            ("rg -T=py foo", format!("{g} -T py -- foo")),
+            ("rg -e=foo src", format!("{g} -- foo src")),
+            ("rg -e==foo", format!("{g} -- '=foo'")),
+            ("rg -A=2 foo", format!("{g} -A 2 -- foo")),
+            ("rg -iC=1 foo", format!("{g} -i -C 1 -- foo")),
+            ("rg -g==x foo", format!("{g} -g '=x' -- foo")),
+        ] {
+            let r = rewrite_full(cmd).unwrap_or_else(|e| panic!("{cmd}: {e}"));
+            assert_eq!(r.command, want, "{cmd}");
         }
     }
 
