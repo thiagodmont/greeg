@@ -47,7 +47,8 @@ impl BuildFailure {
     }
 
     fn key(&self) -> String {
-        format!("{}.{}", self.at_unix_ms, self.attempts)
+        let root = blake3::hash(self.root.as_bytes()).to_hex();
+        format!("{}.{}.{}", self.at_unix_ms, self.attempts, &root[..16])
     }
 }
 
@@ -87,21 +88,24 @@ pub fn clear(dir: &Path) {
 
 /// Claim the telling of `f`: true for the one query that should say so. A
 /// file of its own, so this never writes over a record a build has replaced
-/// or removed since. Never under `--no-persist`, which would say it each time.
+/// or removed since. Never under `--no-persist`, which would say it each time;
+/// true when the claim cannot be written, so the failure is still told.
 pub fn claim_report(dir: &Path, f: &BuildFailure) -> bool {
     if !persist::allowed() {
         return false;
     }
     let name = format!("{REPORTED}{}", f.key());
-    let made = crate::private_file()
+    match crate::private_file()
         .write(true)
         .create_new(true)
         .open(dir.join(&name))
-        .is_ok();
-    if made {
-        remove_claims(dir, Some(&name));
+    {
+        Ok(_) => {
+            remove_claims(dir, Some(&name));
+            true
+        }
+        Err(e) => e.kind() != std::io::ErrorKind::AlreadyExists,
     }
-    made
 }
 
 /// Remove the claims of records other than `keep`.

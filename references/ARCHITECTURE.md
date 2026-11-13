@@ -166,7 +166,8 @@ tree first. Queries then leave the background build alone for 30 s after
 the first failure, doubling after each one up to an hour, rather than start
 the same failing walk and extraction on every call: searches and the verbs
 that can scan answer from a scan, and `map` and `find` exit 2 without
-waiting. The first query after a failure says so once on stderr (which
+waiting. The first query after a failure that may write (not
+`--no-persist`) says so once on stderr (which
 one query claims the telling, in a file of its own), and `doctor` shows the
 record. A build that succeeds removes it; `greeg index` run by hand never
 waits for the back-off; `--no-persist` writes none.
