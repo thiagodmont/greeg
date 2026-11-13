@@ -170,7 +170,8 @@ pub fn impact_diff(o: &Options, spec: &DiffSpec) -> Result<DiffImpactResult> {
     } else {
         o.threads
     };
-    let opened = if o.use_index && !order.is_empty() {
+    // as the other verbs, --hidden scans
+    let opened = if o.use_index && !o.hidden && !order.is_empty() {
         crate::indexed::open_fresh(o, threads)?
     } else {
         None

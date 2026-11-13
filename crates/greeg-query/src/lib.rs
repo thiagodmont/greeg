@@ -707,7 +707,11 @@ fn walker(o: &Options, threads: usize, bounds: &ScanBounds) -> Result<ignore::Wa
     Ok(walk_builder(o, threads, bounds)?.build_parallel())
 }
 
-fn walk_builder(o: &Options, threads: usize, bounds: &ScanBounds) -> Result<ignore::WalkBuilder> {
+pub(crate) fn walk_builder(
+    o: &Options,
+    threads: usize,
+    bounds: &ScanBounds,
+) -> Result<ignore::WalkBuilder> {
     let roots = walk_roots(o);
     let mut wb = ignore::WalkBuilder::new(&roots[0]);
     for r in &roots[1..] {
@@ -2470,7 +2474,8 @@ fn scan_once(o: &Options, bounds: &ScanBounds, out: Option<FileSink>) -> Result<
     let mut sink: Option<FileSink> = if streaming { Some(&mut counted) } else { None };
     let index_skipped: String = if !o.use_index {
         "not used".into()
-    } else if o.no_ignore || o.hidden {
+    } else if o.no_ignore {
+        // the documented value (references/JSON.md); --hidden alone no longer gets here
         "ignored or hidden files asked for".into()
     } else {
         // A panic anywhere in the index path degrades to scan mode:

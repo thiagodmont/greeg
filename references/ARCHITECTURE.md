@@ -220,10 +220,15 @@ Cleanup touches only those names, at most 64 per publication.
    The index holds only what a plain walk yields, but ripgrep lets a positive
    glob select a hidden or ignored file, and a type a hidden one. Such files
    are read from disk next to the candidates, listed by the `skipped` record.
-   `--hidden`, `--no-ignore`, a glob that would enter a skipped directory, a
-   hidden or ignored directory named on the command line, a directory whose
-   entries could not be listed (a read error), and an index built before the
-   record existed are answered by a scan. `map` refuses them.
+   A text search with `--hidden` does the same for every hidden entry no
+   ignore rule excluded: hidden files are read from disk, hidden directories
+   are walked with the scan's own walker (ancestor ignore files, globs,
+   types), and the tracked-only ignore files are searched; its cost is the
+   indexed query plus reading those entries. `--no-ignore`, a glob that would
+   enter a skipped directory, a hidden or ignored directory named on the
+   command line, a directory whose entries could not be listed (a read
+   error), and an index built before the record existed are answered by a
+   scan, as is `--hidden` for the symbol verbs. `map` refuses them.
 3. **Verify.** A pool of reader threads reads candidates in *prior order*
    (best files first) and matches them with the real regex engine. Ordering by
    prior means the budget can stop early and still hold the best hits.

@@ -405,7 +405,7 @@ pub fn def(
         && (name.is_ascii()
             || !op.idx.lookup(name).is_empty()
             || !op.idx.module_files(name, 1).is_empty())
-        && let Some(also) = sel.coverage(&op.idx, op.pending.as_ref())
+        && let Some(also) = sel.coverage(&op.idx, op.pending.as_ref(), false)
     {
         let idx = &op.idx;
         res.source = "index";
@@ -689,6 +689,8 @@ fn scan_defs(
     want_kind: Option<DefKind>,
 ) -> Result<(Vec<DefEntry>, Rung, &'static str)> {
     let mut so = o.clone();
+    // hidden files hold no symbols: the verbs scan for --hidden
+    so.use_index &= !o.hidden;
     so.use_index &= name.is_ascii();
     so.pattern = name.to_string();
     so.fixed_strings = true;
@@ -790,6 +792,7 @@ fn refs_settled(
     kinds: &[HitKind],
 ) -> Result<RefsResult> {
     let mut so = o.clone();
+    so.use_index &= !o.hidden;
     so.pattern = name.to_string();
     so.fixed_strings = true;
     so.word = true;
@@ -868,6 +871,7 @@ pub struct CallersResult {
 pub fn callers(o: &Options, name: &str, depth: usize) -> Result<CallersResult> {
     let t0 = Instant::now();
     let mut so = o.clone();
+    so.use_index &= !o.hidden;
     so.pattern = name.to_string();
     so.fixed_strings = true;
     so.word = true;
@@ -1095,7 +1099,7 @@ pub fn impls(o: &Options, name: &str) -> Result<ImplsResult> {
         && let Some(op) = indexed::open_fresh(o, threads)?
         && op.idx.has_symbols()
         // skipped files hold no symbols; the type-position scan below reads them
-        && sel.coverage(&op.idx, op.pending.as_ref()).is_some()
+        && sel.coverage(&op.idx, op.pending.as_ref(), false).is_some()
     {
         let idx = &op.idx;
         source = "index";
@@ -1202,6 +1206,7 @@ pub fn impls(o: &Options, name: &str) -> Result<ImplsResult> {
     // a scan reads implementations from the files that mention the name;
     // both backends list type-position hits on definition lines as extras
     let mut so = o.clone();
+    so.use_index &= !o.hidden;
     so.pattern = name.to_string();
     so.fixed_strings = true;
     so.word = true;
@@ -1817,7 +1822,7 @@ pub fn map(o: &Options, dir: &str) -> Result<MapResult> {
         bail!("`map` needs the symbol table; the index build is still in phase 1");
     }
     let sel = Selection::new(o, Vec::new())?;
-    let Some(also) = sel.coverage(idx, op.pending.as_ref()) else {
+    let Some(also) = sel.coverage(idx, op.pending.as_ref(), false) else {
         bail!(
             "`map` summarizes the index, which cannot cover this request: --hidden, --no-ignore, a glob that selects a hidden or ignored directory, or an index still recording what it skips (retry in a moment)"
         );
@@ -1973,6 +1978,7 @@ pub fn impact(o: &Options, name: &str) -> Result<ImpactResult> {
     // the references, the graph and the callers read the index after one check
     let (o, fresh) = &settle(o)?;
     let mut so = o.clone();
+    so.use_index &= !o.hidden;
     so.budget = 0;
     let r = refs_settled(&so, fresh, name, &[])?;
     let io = o.clone();
