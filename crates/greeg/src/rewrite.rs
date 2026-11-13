@@ -1140,10 +1140,7 @@ pub fn rewrite_full(cmd: &str) -> Result<Rewrite, String> {
                 "2>> /dev/null",
             ];
             if p.original[0] != "rg" && quiet.iter().any(|r| redirections.contains(r)) {
-                return Err(
-                    "`2>/dev/null` would hide that greeg skips ignored, hidden and binary files"
-                        .into(),
-                );
+                return Err("`2>/dev/null` would hide greeg's note on the files it skips".into());
             }
             Ok(p)
         })
@@ -1369,6 +1366,7 @@ mod tests {
             ("grep -r --color=bogus x .", "not a color mode"),
             ("grep -rs x .", "would hide greeg's note"),
             ("grep -r --no-messages x .", "would hide greeg's note"),
+            ("grep -rn x . 2>/dev/null", "would hide greeg's note"),
         ] {
             let got = rewrite_full(cmd).err().unwrap_or_default();
             assert!(got.contains(why), "{cmd:?}: {got:?}");
