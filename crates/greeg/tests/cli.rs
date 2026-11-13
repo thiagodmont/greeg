@@ -4091,6 +4091,13 @@ fn symbol_verbs_scan_for_hidden() {
 #[test]
 fn impact_diff_scans_for_hidden() {
     let f = diff_fixture();
+    // a committed hidden caller, found only by a --hidden search
+    w(
+        &f.root.join(".tools/use.rs"),
+        "fn tool() -> u32 {\n    load_config()\n}\n",
+    );
+    git(&f, &["add", "-A"]);
+    git(&f, &["commit", "-q", "-m", "hidden caller"]);
     f.indexed();
     w(
         &f.root.join("src/util.rs"),
@@ -4099,11 +4106,9 @@ fn impact_diff_scans_for_hidden() {
     // the first queries after an edit fold it into the index
     let plain = (0..5)
         .map(|_| f.out(&["impact", "--diff", "--json=greeg", "--budget", "0"]))
-        .find(|o| o.contains("\"source\":\"index\""));
-    assert!(
-        plain.is_some(),
-        "impact --diff never answered from the index"
-    );
+        .find(|o| o.contains("\"source\":\"index\""))
+        .expect("impact --diff never answered from the index");
+    assert!(!plain.contains(".tools/use.rs"), "{plain}");
     let out = f.out(&[
         "impact",
         "--diff",
@@ -4113,5 +4118,5 @@ fn impact_diff_scans_for_hidden() {
         "--hidden",
     ]);
     assert!(out.contains("\"source\":\"scan\""), "{out}");
-    assert!(out.contains("\"name\":\"load_config\""), "{out}");
+    assert!(out.contains("\"text\":\".tools/use.rs\""), "{out}");
 }
