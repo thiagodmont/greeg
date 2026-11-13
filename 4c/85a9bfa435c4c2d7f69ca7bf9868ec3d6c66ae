@@ -1,0 +1,40 @@
+references/USAGE.md
+  s_e2aadb8067553a::t_d5b782a11fcdde 234-238
+references/ARCHITECTURE.md
+  s_e2aadb8067553a::t_b96df9c814f0c4 166-167
+  s_e2aadb8067553a::t_d5b782a11fcdde 160-165,168
+crates/greeg-index/src/build.rs
+  s_e2aadb8067553a::t_928006afd43705 826-829
+crates/greeg/src/main.rs
+  s_e2aadb8067553a::t_928006afd43705 783-793
+crates/greeg-index/src/lib.rs
+  s_e2aadb8067553a::t_928006afd43705 11
+crates/greeg-index/src/failure.rs
+  s_e2aadb8067553a::t_29c8480fb3aa92 1-137
+crates/greeg/tests/cli.rs
+  s_e2aadb8067553a::t_3fecbc8b2295e9 4561,4577-4580
+  s_e2aadb8067553a::t_bf26c8535f2c5d 4543-4560,4562-4576,4581-4582
+crates/greeg/src/doctor.rs
+  s_e2aadb8067553a::t_3fecbc8b2295e9 61,212-228
+  s_e2aadb8067553a::t_9c75a052085b03 229
+crates/greeg-query/src/indexed.rs
+  s_e2aadb8067553a::t_3fecbc8b2295e9 53-56,100
+  s_e2aadb8067553a::t_928006afd43705 41,47-52,57-63,98-99,101-102
+  s_e2aadb8067553a::t_5d34a2ded37e1d 103
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "4c85a9bfa435c4c2d7f69ca7bf9868ec3d6c66ae",
+  "prompts": {},
+  "sessions": {
+    "s_e2aadb8067553a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8372df48-1202-40f9-bd30-8e5555761588",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
