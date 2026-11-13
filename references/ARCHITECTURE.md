@@ -644,9 +644,10 @@ to tell. A stamp written less than 20 ms (2 s on file systems with
 whole-second timestamps) before the read started could
 survive a later write unchanged; a build re-reads such files once the window
 has passed and keeps the mark only if the bytes differ, and a delta does the
-same when the wait is under 25 ms. An mtime ahead of the read (`touch -t`,
-an unpacked archive) does not count: a later write stamps the time it
-happens, and the ctime still moves, so the window follows the ctime alone.
+same when the wait is under 25 ms. An mtime still ahead of the clock when the
+stamp is judged, after the stat (`touch -t`, an unpacked archive), does not
+count: a later write stamps the time it happens, and the ctime still moves,
+so the window follows the ctime alone.
 A ctime ahead of the clock (a clock stepped back) keeps the file marked
 until the clock passes it and its window (20 ms or 2 s) has elapsed.
 
