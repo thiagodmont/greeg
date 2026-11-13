@@ -9,6 +9,8 @@ mod hook_config;
 mod hook_skill;
 mod json_native;
 mod rewrite;
+#[cfg(test)]
+mod shell_rewrite_tests;
 mod stats;
 mod stream;
 mod verbs_out;
