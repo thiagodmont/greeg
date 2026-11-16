@@ -12,7 +12,7 @@ use std::collections::BTreeSet;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NoGrammar {
     pub files: usize,
-    /// Extensions, sorted, without the dot; a file with none adds no entry.
+    /// Extensions, sorted, lowercase and without the dot.
     pub languages: Vec<String>,
 }
 
@@ -27,14 +27,19 @@ impl NoGrammar {
         )
     }
 
-    /// Root-relative paths already known to have no grammar.
+    /// Root-relative paths already known to have no grammar; only those whose
+    /// extension names a programming language count.
     pub fn of_paths<'a>(rels: impl Iterator<Item = &'a [u8]>) -> Option<NoGrammar> {
         let mut files = 0;
         let mut languages = BTreeSet::new();
         for rel in rels {
-            files += 1;
-            if let Some(ext) = greeg_index::rel::as_path(rel).extension() {
-                languages.insert(ext.to_string_lossy().to_lowercase());
+            let Some(ext) = greeg_index::rel::as_path(rel).extension() else {
+                continue;
+            };
+            let ext = ext.to_string_lossy();
+            if greeg_lang::is_code_without_grammar(&ext) {
+                files += 1;
+                languages.insert(ext.to_lowercase());
             }
         }
         (files > 0).then(|| NoGrammar {
@@ -50,12 +55,11 @@ impl NoGrammar {
         } else {
             ("files", "have")
         };
-        let exts = if self.languages.is_empty() {
-            String::new()
-        } else {
-            format!(" ({})", self.languages.join(", "))
-        };
-        format!("{} matching {noun} {verb} no grammar{exts}", self.files)
+        format!(
+            "{} matching {noun} {verb} no grammar ({})",
+            self.files,
+            self.languages.join(", ")
+        )
     }
 }
 
@@ -159,5 +163,21 @@ mod tests {
         assert_eq!(ng.languages, ["go", "java"]);
         assert_eq!(ng.describe(), "3 matching files have no grammar (go, java)");
         assert_eq!(NoGrammar::of_paths(std::iter::empty()), None);
+    }
+
+    #[test]
+    fn no_grammar_counts_only_code_extensions() {
+        let text = [
+            &b"Makefile"[..],
+            b"LICENSE",
+            b".gitignore",
+            b"NOTES.MD",
+            b"build.log",
+            b"guide.adoc",
+        ];
+        assert_eq!(NoGrammar::of_paths(text.into_iter()), None);
+        let ng = NoGrammar::of_paths(text.into_iter().chain([&b"go/x.go"[..]])).unwrap();
+        assert_eq!(ng.files, 1);
+        assert_eq!(ng.languages, ["go"]);
     }
 }

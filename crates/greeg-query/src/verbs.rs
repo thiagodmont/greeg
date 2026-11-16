@@ -835,8 +835,10 @@ fn refs_settled(
     let (defs, defs_total) = (found.entries, found.total);
     let no_grammar = if kinds.is_empty() {
         NoGrammar::of(&scan_r.files)
-    } else {
+    } else if scan_r.stats.total_hits == 0 {
         no_grammar_matches(o, name)?
+    } else {
+        None
     };
     let (mut resolved, mut classified) = (0usize, 0usize);
     if let Some(op) = if o.use_index && !scanned {
@@ -985,7 +987,11 @@ pub fn callers(o: &Options, name: &str, depth: usize) -> Result<CallersResult> {
             }
         }
     }
-    let no_grammar = no_grammar_matches(o, name)?;
+    let no_grammar = if callers.is_empty() {
+        no_grammar_matches(o, name)?
+    } else {
+        None
+    };
     Ok(CallersResult {
         outcome: Outcome::of_search(&r, 0).with_no_grammar(no_grammar),
         name: name.to_string(),

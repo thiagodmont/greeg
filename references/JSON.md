@@ -99,11 +99,14 @@ Every footer has `outcome`:
 | `fresh` | the freshness check an index answer ran (`ttl`, `stat`, `fsevents`, `none`; for `show`, the weakest of its locations), empty when files were read directly (a scan, or `show` and `outline` without the index) |
 | `deferred` | files changed since the index was published, read from disk |
 
-When files that match the name have no grammar (code in a language without
-one, not text files such as `.md`), the footer of `def`, `callers`, `impls`,
-`refs` and `outline` also carries `no_grammar`: `{"files": N, "languages":
-["go", …]}`, the count and the extensions, sorted. The field is left out when
-there are none. It does not change `outcome`: the answer is as complete as it
+When files that match the name have no grammar, the footer can carry
+`no_grammar`: `{"files": N, "languages": ["go", …]}`, the count and the
+extensions, lowercase and sorted. Only files whose extension names a
+programming language (`.go`, `.java`, …) count; files without an extension
+and other text files such as `.md` do not. `refs` without `--kind` carries
+the field whenever there are such files. `def`, `callers`, `impls` and
+`refs --kind` carry it only when they found nothing. The field is left out
+when there are none. It does not change `outcome`: the answer is as complete as it
 was. `outline` of such a file answers with no symbols and `no_grammar` for its
 one file, from the index and from a scan.
 

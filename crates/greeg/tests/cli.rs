@@ -4824,6 +4824,14 @@ fn impls_and_refs_note_files_without_a_grammar() {
 }
 
 #[test]
+fn refs_with_a_kind_notes_files_without_a_grammar_when_it_finds_nothing() {
+    let f = no_grammar_fixture();
+    for (out, _) in both_backends(&f, &["refs", "helper", "--kind", "call"]) {
+        assert!(out.contains("1 matching file has no grammar (go)"), "{out}");
+    }
+}
+
+#[test]
 fn the_footer_counts_files_without_a_grammar() {
     let f = no_grammar_fixture();
     for verb in ["def", "callers", "impls", "refs"] {
@@ -4850,6 +4858,78 @@ fn text_files_and_files_with_a_grammar_add_no_note() {
             let footer = footer_of(&out);
             assert!(footer["data"].get("no_grammar").is_none(), "{verb}: {out}");
         }
+    }
+}
+
+#[test]
+fn text_files_without_an_extension_or_a_code_extension_add_no_note() {
+    let f = empty_fixture();
+    for file in [
+        "Makefile",
+        "CHANGELOG",
+        "NOTES.MD",
+        "build.log",
+        "guide.adoc",
+    ] {
+        w(&f.root.join(file), "frobnicate runs here\n");
+    }
+    for (out, _) in both_backends(&f, &["def", "frobnicate"]) {
+        assert!(!out.contains("no grammar"), "{out}");
+        let next = out.lines().find(|l| l.starts_with("next:")).expect(&out);
+        assert!(next.contains("--kind def"), "{out}");
+    }
+    for (out, _) in both_backends(&f, &["def", "frobnicate", "--json=greeg"]) {
+        assert!(footer_of(&out)["data"].get("no_grammar").is_none(), "{out}");
+    }
+    for (out, _) in both_backends(&f, &["frobnicate"]) {
+        assert!(out.contains("a dependency or generated code?"), "{out}");
+    }
+    w(&f.root.join("LICENSE"), "MIT\n");
+    for file in ["NOTES.MD", "LICENSE"] {
+        for (out, _) in both_backends(&f, &["outline", file]) {
+            assert!(!out.contains("no grammar"), "{file}: {out}");
+        }
+    }
+}
+
+/// `helper` and `Shape` defined and used in Rust, and named again in Go.
+fn mixed_tree_fixture() -> Fixture {
+    let f = no_grammar_fixture();
+    w(
+        &f.root.join("src/lib.rs"),
+        "pub fn helper(x: u32) -> u32 {\n    x\n}\n\npub fn run() -> u32 {\n    helper(1)\n}\n\npub trait Shape {}\npub struct Square;\nimpl Shape for Square {}\n",
+    );
+    w(
+        &f.root.join("go/shape.go"),
+        "package main\n\ntype Shape interface{}\n",
+    );
+    f
+}
+
+#[test]
+fn mixed_tree_notes_files_without_a_grammar_only_when_the_answer_is_empty() {
+    let f = mixed_tree_fixture();
+    for args in [
+        &["callers", "helper"][..],
+        &["refs", "helper", "--kind", "call"],
+    ] {
+        for (out, code) in both_backends(&f, args) {
+            assert_eq!(code, Some(0), "{args:?}: {out}");
+            assert!(out.contains("src/lib.rs"), "{args:?}: {out}");
+            assert!(!out.contains("no grammar"), "{args:?}: {out}");
+        }
+    }
+    for (out, _) in both_backends(&f, &["refs", "helper"]) {
+        assert!(out.contains("1 matching file has no grammar (go)"), "{out}");
+    }
+    for (out, _) in both_backends(&f, &["def", "helper", "--json=greeg"]) {
+        assert!(footer_of(&out)["data"].get("no_grammar").is_none(), "{out}");
+        assert!(out.contains("src/lib.rs"), "{out}");
+    }
+    for (out, code) in both_backends(&f, &["impls", "Shape"]) {
+        assert_eq!(code, Some(0), "{out}");
+        assert!(out.contains("Square"), "{out}");
+        assert!(!out.contains("no grammar"), "{out}");
     }
 }
 

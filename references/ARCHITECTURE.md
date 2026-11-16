@@ -984,12 +984,17 @@ tree-sitter grammars. Every other language, until a grammar is added for it
 as described below, gets text search, ranking and budgeting only: no symbols,
 no hit kinds (each hit is an `ident`), no enclosing symbol and no import
 edges. `def`, `callers`, `impls` and `refs` find nothing classified in such
-files, so when a word-bounded search of the name matches files whose language
-has no grammar (code, not text such as `.md` or `.json`) they say so: the
-outcome line reads `1 matching file has no grammar (go)`, the footer carries
-`no_grammar`, and `next:` suggests `greeg NAME`, not `--kind def`. The same
-search that finds them runs for the index and for a scan, so both backends
-print the same note. `outline` of such a file prints `0 symbols` with the
+files. A matching file counts as one without a grammar only when its
+extension, in any case, is on `CODE_WITHOUT_GRAMMAR` in `greeg-lang`
+(`.go`, `.java`, `.c`, …); files without an extension, dotfiles and other
+text files do not. `refs` without `--kind` notes such files from its own
+search whenever there are any. `def`, `callers`, `impls` and `refs --kind`
+run a word-bounded search of the name for them only when they found
+nothing, so an answer costs no extra search. The note reads
+`1 matching file has no grammar (go)` on the outcome line, the footer
+carries `no_grammar`, and `def`'s `next:` suggests `greeg NAME`, not
+`--kind def`. The same search runs for the index and for a scan, so both
+backends print the same note. `outline` of such a file prints `0 symbols` with the
 same note and exits `0`, from the index and from a scan alike.
 
 You can add one without rebuilding greeg. Drop `spec.toml`, a compiled

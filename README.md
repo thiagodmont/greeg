@@ -172,8 +172,11 @@ matching rules.
   TypeScript/JavaScript, Rust and Kotlin get full syntax support. Other
   languages get text search, ranking and budgets, but no definitions or
   symbol commands, until you add a tree-sitter grammar. When a name matches
-  such files, `def`, `callers`, `impls` and `refs` say how many and suggest
-  plain `greeg NAME`.
+  such files, `refs` says how many. `def`, `callers`, `impls` and
+  `refs --kind` say so only when they found nothing, and suggest plain
+  `greeg NAME`. Only files whose extension names a programming language
+  (`.go`, `.java`, …) count; files without an extension and other text files
+  do not.
 - **Ranks, then budgets.** Definitions outrank calls, source outranks tests,
   central files outrank leaves. Tests and generated files are demoted, never
   hidden, and the footer always says what was cut.
