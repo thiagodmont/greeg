@@ -171,7 +171,9 @@ matching rules.
   import, type, comment, …) and tagged with the symbol it sits in. Python,
   TypeScript/JavaScript, Rust and Kotlin get full syntax support. Other
   languages get text search, ranking and budgets, but no definitions or
-  symbol commands, until you add a tree-sitter grammar.
+  symbol commands, until you add a tree-sitter grammar. When a name matches
+  such files, `def`, `callers`, `impls` and `refs` say how many and suggest
+  plain `greeg NAME`.
 - **Ranks, then budgets.** Definitions outrank calls, source outranks tests,
   central files outrank leaves. Tests and generated files are demoted, never
   hidden, and the footer always says what was cut.

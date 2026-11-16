@@ -1013,7 +1013,10 @@ fn hints(
     {
         footer
             .hints
-            .push("no definition in searched files (a dependency or generated code?)".into());
+            .push(match crate::outcome::NoGrammar::of(&r.files) {
+                Some(ng) => format!("{}: definitions are not classified in them", ng.describe()),
+                None => "no definition in searched files (a dependency or generated code?)".into(),
+            });
     }
 }
 

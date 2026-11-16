@@ -4748,3 +4748,143 @@ fn settle(root: &Path) {
         50
     }));
 }
+
+// ---------------------------------------------------------------------------
+// files without a grammar
+// ---------------------------------------------------------------------------
+
+/// Go and Java files, which have no grammar, holding the names queried.
+fn no_grammar_fixture() -> Fixture {
+    let f = empty_fixture();
+    w(
+        &f.root.join("go/main.go"),
+        "package main\n\ntype Circle struct { R float64 }\nfunc helper(x int) int { return x }\nfunc main() { helper(1) }\n",
+    );
+    w(&f.root.join("Widget.java"), "public class Widget {}\n");
+    f
+}
+
+/// `args` run with the index and with `--no-index`: (stdout, exit code).
+fn both_backends(f: &Fixture, args: &[&str]) -> Vec<(String, Option<i32>)> {
+    f.indexed();
+    [&[][..], &["--no-index"][..]]
+        .iter()
+        .map(|extra| {
+            let o = f.run(&[args, extra].concat());
+            (
+                String::from_utf8_lossy(&o.stdout).into_owned(),
+                o.status.code(),
+            )
+        })
+        .collect()
+}
+
+fn footer_of(out: &str) -> serde_json::Value {
+    json_lines(out).pop().expect("a footer")
+}
+
+#[test]
+fn def_names_files_without_a_grammar_and_suggests_a_plain_search() {
+    let f = no_grammar_fixture();
+    for (name, ext) in [("Widget", "java"), ("helper", "go")] {
+        for (out, code) in both_backends(&f, &["def", name]) {
+            assert_eq!(code, Some(1), "{out}");
+            assert!(
+                out.contains(&format!("1 matching file has no grammar ({ext})")),
+                "{out}"
+            );
+            let next = out.lines().find(|l| l.starts_with("next:")).expect(&out);
+            assert!(next.contains(&format!("greeg {name}")), "{out}");
+            assert!(!out.contains("--kind def"), "{out}");
+        }
+    }
+}
+
+#[test]
+fn callers_names_files_without_a_grammar() {
+    let f = no_grammar_fixture();
+    for (out, code) in both_backends(&f, &["callers", "helper"]) {
+        assert_eq!(code, Some(1), "{out}");
+        assert!(out.contains("1 matching file has no grammar (go)"), "{out}");
+        assert!(out.contains("next: greeg helper"), "{out}");
+    }
+}
+
+#[test]
+fn impls_and_refs_note_files_without_a_grammar() {
+    let f = no_grammar_fixture();
+    for (out, code) in both_backends(&f, &["impls", "Widget"]) {
+        assert_eq!(code, Some(1), "{out}");
+        assert!(out.contains("no grammar (java)"), "{out}");
+    }
+    for (out, code) in both_backends(&f, &["refs", "helper"]) {
+        assert_eq!(code, Some(0), "{out}");
+        assert!(out.contains("no grammar (go)"), "{out}");
+    }
+}
+
+#[test]
+fn the_footer_counts_files_without_a_grammar() {
+    let f = no_grammar_fixture();
+    for verb in ["def", "callers", "impls", "refs"] {
+        for (out, _) in both_backends(&f, &[verb, "helper", "--json=greeg"]) {
+            let footer = footer_of(&out);
+            assert_eq!(footer["data"]["no_grammar"]["files"], 1, "{verb}: {out}");
+            assert_eq!(
+                footer["data"]["no_grammar"]["languages"],
+                serde_json::json!(["go"]),
+                "{verb}: {out}"
+            );
+        }
+    }
+}
+
+#[test]
+fn text_files_and_files_with_a_grammar_add_no_note() {
+    let f = fixture();
+    for verb in ["def", "callers", "impls", "refs"] {
+        for (out, _) in both_backends(&f, &[verb, "handle_request"]) {
+            assert!(!out.contains("no grammar"), "{verb}: {out}");
+        }
+        for (out, _) in both_backends(&f, &[verb, "handle_request", "--json=greeg"]) {
+            let footer = footer_of(&out);
+            assert!(footer["data"].get("no_grammar").is_none(), "{verb}: {out}");
+        }
+    }
+}
+
+#[test]
+fn outline_of_a_file_without_a_grammar_is_the_same_from_both_backends() {
+    let f = no_grammar_fixture();
+    let text = both_backends(&f, &["outline", "go/main.go"]);
+    for (out, code) in &text {
+        assert_eq!(*code, Some(0), "{out}");
+        assert!(out.contains("0 symbols"), "{out}");
+        assert!(out.contains("no grammar (go)"), "{out}");
+    }
+    for (out, code) in both_backends(&f, &["outline", "go/main.go", "--json=greeg"]) {
+        assert_eq!(code, Some(0), "{out}");
+        assert_eq!(
+            footer_of(&out)["data"]["no_grammar"]["languages"],
+            serde_json::json!(["go"]),
+            "{out}"
+        );
+    }
+}
+
+#[test]
+fn a_search_hint_names_files_without_a_grammar() {
+    let f = no_grammar_fixture();
+    for (out, _) in both_backends(&f, &["helper"]) {
+        assert!(!out.contains("a dependency or generated code?"), "{out}");
+        assert!(out.contains("no grammar (go)"), "{out}");
+    }
+}
+
+#[test]
+fn a_search_hint_keeps_the_dependency_note_when_every_file_has_a_grammar() {
+    let f = fixture();
+    for (out, _) in both_backends(&f, &["reads", "-g", "*.rs"]) {
+        assert!(out.contains("a dependency or generated code?"), "{out}");
+    }
+}

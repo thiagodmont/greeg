@@ -983,9 +983,14 @@ Python, TypeScript/TSX, JavaScript, Rust and Kotlin ship compiled in with
 tree-sitter grammars. Every other language, until a grammar is added for it
 as described below, gets text search, ranking and budgeting only: no symbols,
 no hit kinds (each hit is an `ident`), no enclosing symbol and no import
-edges. `def`, `callers` and `impls` answer
-"none" for a name defined only in such files, and `outline` prints
-`0 symbols` (from a scan it exits `2`, `no grammar for this file type`).
+edges. `def`, `callers`, `impls` and `refs` find nothing classified in such
+files, so when a word-bounded search of the name matches files whose language
+has no grammar (code, not text such as `.md` or `.json`) they say so: the
+outcome line reads `1 matching file has no grammar (go)`, the footer carries
+`no_grammar`, and `next:` suggests `greeg NAME`, not `--kind def`. The same
+search that finds them runs for the index and for a scan, so both backends
+print the same note. `outline` of such a file prints `0 symbols` with the
+same note and exits `0`, from the index and from a scan alike.
 
 You can add one without rebuilding greeg. Drop `spec.toml`, a compiled
 `grammar.so`/`.dylib` and a `tags.scm` using greeg's capture names into

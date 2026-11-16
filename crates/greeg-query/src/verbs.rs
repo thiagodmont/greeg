@@ -4,7 +4,7 @@
 //! `map`, which needs the symbol table.
 
 use crate::indexed::{self, defs_of};
-use crate::outcome::Outcome;
+use crate::outcome::{NoGrammar, Outcome};
 use crate::select::Selection;
 use crate::{DefSummary, HitKind, Mode, Options, Rung, ScanResult, scan};
 use anyhow::{Context, Result, bail};
@@ -378,6 +378,21 @@ fn case_variant_names(idx: &Index, name: &str) -> Vec<String> {
         }
     }
     names
+}
+
+/// The files holding `name` that have no grammar, from a word-bounded search
+/// of every kind: no definition or call is ever classified in them.
+pub fn no_grammar_matches(o: &Options, name: &str) -> Result<Option<NoGrammar>> {
+    let mut so = o.clone();
+    so.use_index &= !o.hidden;
+    so.pattern = name.to_string();
+    so.fixed_strings = true;
+    so.word = true;
+    so.kinds = Vec::new();
+    so.matching = crate::MatchingPolicy::Exact;
+    so.mode = Mode::Files;
+    so.budget = 0;
+    Ok(NoGrammar::of(&scan(&so)?.files))
 }
 
 /// `greeg def NAME`.
@@ -767,6 +782,8 @@ pub struct RefsResult {
     /// Hits (file idx, hit idx) whose file reaches a definition file with ≥ 0.8.
     pub resolved: usize,
     pub classified: usize,
+    /// Matching files that no kind was classified in.
+    pub no_grammar: Option<NoGrammar>,
 }
 
 pub fn refs(o: &Options, name: &str, kinds: &[HitKind]) -> Result<RefsResult> {
@@ -816,6 +833,11 @@ fn refs_settled(
         }
     };
     let (defs, defs_total) = (found.entries, found.total);
+    let no_grammar = if kinds.is_empty() {
+        NoGrammar::of(&scan_r.files)
+    } else {
+        no_grammar_matches(o, name)?
+    };
     let (mut resolved, mut classified) = (0usize, 0usize);
     if let Some(op) = if o.use_index && !scanned {
         indexed::open_fresh(&d, 1).ok().flatten()
@@ -838,6 +860,7 @@ fn refs_settled(
         defs_total,
         resolved,
         classified,
+        no_grammar,
     })
 }
 
@@ -962,8 +985,9 @@ pub fn callers(o: &Options, name: &str, depth: usize) -> Result<CallersResult> {
             }
         }
     }
+    let no_grammar = no_grammar_matches(o, name)?;
     Ok(CallersResult {
-        outcome: Outcome::of_search(&r, 0),
+        outcome: Outcome::of_search(&r, 0).with_no_grammar(no_grammar),
         name: name.to_string(),
         files: r.files.len(),
         callers,
@@ -1321,6 +1345,8 @@ pub struct OutlineResult {
     pub lang: Lang,
     pub elapsed_ms: f64,
     pub parse_errors: bool,
+    /// The file is code with no grammar: it has no symbols to list.
+    pub no_grammar: Option<NoGrammar>,
 }
 
 /// `greeg outline FILE`: the definitions of one file as a tree.
@@ -1329,6 +1355,9 @@ pub fn outline(o: &Options, file: &str) -> Result<OutlineResult> {
     let rel = file.trim_start_matches("./").as_bytes().to_vec();
     let path = o.root.join(as_path(&rel));
     let lang = Lang::from_path(&path);
+    let no_grammar = (lang == Lang::None)
+        .then(|| NoGrammar::of_paths(std::iter::once(rel.as_slice())))
+        .flatten();
     let threads = if o.threads == 0 {
         crate::default_threads()
     } else {
@@ -1355,10 +1384,24 @@ pub fn outline(o: &Options, file: &str) -> Result<OutlineResult> {
                 lang,
                 elapsed_ms: t0.elapsed().as_secs_f64() * 1e3,
                 parse_errors: FileFlags(rec.flags).has(FileFlags::PARSE_ERRORS),
+                no_grammar,
             });
         }
     }
     let src = greeg_lang::read_text(&path).with_context(|| format!("read {}", path.display()))?;
+    if no_grammar.is_some() {
+        return Ok(OutlineResult {
+            rel,
+            defs: Vec::new(),
+            imports: Vec::new(),
+            source: "scan",
+            fresh: "",
+            lang,
+            elapsed_ms: t0.elapsed().as_secs_f64() * 1e3,
+            parse_errors: false,
+            no_grammar,
+        });
+    }
     if !lang.has_grammar() {
         bail!("{file}: no grammar for this file type");
     }
@@ -1393,6 +1436,7 @@ pub fn outline(o: &Options, file: &str) -> Result<OutlineResult> {
         lang,
         elapsed_ms: t0.elapsed().as_secs_f64() * 1e3,
         parse_errors: ex.parse_errors,
+        no_grammar: None,
     })
 }
 
