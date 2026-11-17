@@ -3746,6 +3746,42 @@ fn changes(out: &str) -> Vec<Change> {
 }
 
 #[test]
+fn impact_diff_loads_a_path_with_a_space() {
+    let f = diff_fixture();
+    let p = f.root.join("src/sp ace.py");
+    w(
+        &p,
+        "def py_old(a):\n    return a\n\ndef caller():\n    return py_old(1)\n",
+    );
+    git(&f, &["add", "-A"]);
+    git(&f, &["commit", "-q", "-m", "space"]);
+    fs::write(&p, "def py_new2(a, b):\n    return a\n").unwrap();
+
+    let o = f.run(&["impact", "--diff", "--json=greeg", "--budget", "0"]);
+    assert_eq!(o.status.code(), Some(0));
+    let out = String::from_utf8_lossy(&o.stdout).into_owned();
+    let got = changes(&out);
+    let old = got
+        .iter()
+        .find(|c| c.0 == "py_old")
+        .unwrap_or_else(|| panic!("py_old: {got:?}"));
+    assert_eq!(old.1, "removed");
+    // `caller` is deleted in the same edit, so its call is not in the current
+    // tree and no use is reported
+    assert!(old.3.is_empty(), "{:?}", old.3);
+    let paths: Vec<String> = json_lines(&out)
+        .iter()
+        .filter(|r| r["type"] == "file")
+        .map(|r| r["data"]["path"]["text"].as_str().unwrap().to_string())
+        .collect();
+    assert!(paths.contains(&"src/sp ace.py".to_string()), "{paths:?}");
+
+    let text = f.out(&["impact", "--diff"]);
+    assert!(!text.contains('\t'), "{text:?}");
+    assert!(!text.contains("0 definitions changed"), "{text}");
+}
+
+#[test]
 fn impact_diff_lists_changed_definitions_and_the_uses_to_update() {
     let f = diff_fixture();
     f.indexed();

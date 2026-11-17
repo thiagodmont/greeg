@@ -361,6 +361,13 @@ fn unquote(p: &[u8]) -> Vec<u8> {
 
 /// `a/x` or `b/x` (quoted or not) to `x`; `/dev/null` to `None`.
 fn side_path(p: &[u8]) -> Option<Vec<u8>> {
+    // git appends one tab to an unquoted name that contains a space; a quoted
+    // name escapes its tabs, so it ends in `"` and is left alone
+    let p = if p.first() == Some(&b'"') {
+        p
+    } else {
+        p.strip_suffix(b"\t").unwrap_or(p)
+    };
     let p = unquote(p);
     if p == b"/dev/null" {
         return None;
@@ -694,7 +701,7 @@ mod tests {
 
     #[test]
     fn patch_hunks_and_statuses() {
-        let patch = b"diff --git a/src/a.rs b/src/a.rs\nindex 1..2 100644\n--- a/src/a.rs\n+++ b/src/a.rs\n@@ -3 +3,2 @@ fn x\n-a\n+b\n+c\n@@ -10,2 +11,0 @@\n-x\n-y\ndiff --git a/gone.py b/gone.py\ndeleted file mode 100644\n--- a/gone.py\n+++ /dev/null\n@@ -1,2 +0,0 @@\n-a\n-b\ndiff --git a/old name.kt b/new name.kt\nsimilarity index 100%\nrename from old name.kt\nrename to new name.kt\ndiff --git a/new.ts b/new.ts\nnew file mode 100644\n--- /dev/null\n+++ b/new.ts\n@@ -0,0 +1 @@\n+x\ndiff --git a/img.png b/img.png\nBinary files a/img.png and b/img.png differ\ndiff --git \"a/t\\303\\251\\tx.py\" \"b/t\\303\\251\\tx.py\"\n--- \"a/t\\303\\251\\tx.py\"\n+++ \"b/t\\303\\251\\tx.py\"\n@@ -1 +1 @@\n-a\n+b\n";
+        let patch = b"diff --git a/src/a.rs b/src/a.rs\nindex 1..2 100644\n--- a/src/a.rs\n+++ b/src/a.rs\n@@ -3 +3,2 @@ fn x\n-a\n+b\n+c\n@@ -10,2 +11,0 @@\n-x\n-y\ndiff --git a/gone.py b/gone.py\ndeleted file mode 100644\n--- a/gone.py\n+++ /dev/null\n@@ -1,2 +0,0 @@\n-a\n-b\ndiff --git a/old name.kt b/new name.kt\nsimilarity index 100%\nrename from old name.kt\nrename to new name.kt\ndiff --git a/new.ts b/new.ts\nnew file mode 100644\n--- /dev/null\n+++ b/new.ts\n@@ -0,0 +1 @@\n+x\ndiff --git a/img.png b/img.png\nBinary files a/img.png and b/img.png differ\ndiff --git \"a/t\\303\\251\\tx.py\" \"b/t\\303\\251\\tx.py\"\n--- \"a/t\\303\\251\\tx.py\"\n+++ \"b/t\\303\\251\\tx.py\"\n@@ -1 +1 @@\n-a\n+b\ndiff --git a/a b.py b/a b.py\n--- a/a b.py\t\n+++ b/a b.py\t\n@@ -2 +2 @@\n-a\n+b\n";
         let f = parse_patch(patch);
         type Row = (String, FileStatus, Vec<(u32, u32)>, Vec<(u32, u32)>, bool);
         let got: Vec<Row> = f
@@ -746,6 +753,13 @@ mod tests {
                     FileStatus::Modified,
                     vec![(1, 1)],
                     vec![(1, 1)],
+                    false
+                ),
+                (
+                    "a b.py".into(),
+                    FileStatus::Modified,
+                    vec![(2, 2)],
+                    vec![(2, 2)],
                     false
                 ),
             ]
