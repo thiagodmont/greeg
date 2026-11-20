@@ -3836,7 +3836,9 @@ fn impact_diff_lists_a_removed_function_named_as_a_value() {
             assert_eq!(at[0].1, "import", "{mode:?}: {c:?}");
         }
 
-        let text = f.out(&["impact", "--diff"]);
+        let mut targs = vec!["impact", "--diff"];
+        targs.extend_from_slice(mode);
+        let text = f.out(&targs);
         let at = text.find("named as a value").expect(&text);
         assert!(text[at..].contains("bus.subscribe(on_event)"), "{text}");
         assert!(text[at..].contains("isinstance(x, GoneError)"), "{text}");
@@ -3847,6 +3849,155 @@ fn impact_diff_lists_a_removed_function_named_as_a_value() {
         assert!(!text.contains("no uses of on_event"), "{text}");
         assert!(!text.contains("no use of on_event"), "{text}");
     }
+}
+
+/// The uses of `name` in the `change` records of a `--json=greeg` answer, and
+/// its `uses_total`.
+fn uses_of(out: &str, name: &str) -> (Vec<(String, String, bool)>, u64) {
+    let uses = changes(out)
+        .into_iter()
+        .find(|c| c.0 == name)
+        .unwrap_or_else(|| panic!("{name}: {out}"))
+        .3;
+    let total = json_lines(out)
+        .iter()
+        .find(|r| r["type"] == "change" && r["data"]["name"] == name)
+        .unwrap()["data"]["uses_total"]
+        .as_u64()
+        .unwrap();
+    (uses, total)
+}
+
+#[test]
+fn impact_diff_skips_locals_named_like_a_removed_method() {
+    let f = diff_fixture();
+    w(
+        &f.root.join("box.py"),
+        "class Box:\n    def items(self):\n        return []\n",
+    );
+    w(
+        &f.root.join("walk.py"),
+        "def walk(items):\n    for item in items:\n        print(item)\n    return items\n",
+    );
+    w(
+        &f.root.join("src/machine.rs"),
+        "pub struct Machine;\n\nimpl Machine {\n    pub fn state(&self) -> u8 {\n        0\n    }\n}\n",
+    );
+    w(
+        &f.root.join("src/step.rs"),
+        "pub fn step(state: u8) -> u8 {\n    match state {\n        0 => 1,\n        _ => 0,\n    }\n}\n",
+    );
+    git(&f, &["add", "-A"]);
+    git(&f, &["commit", "-q", "-m", "methods"]);
+    f.indexed();
+    fs::write(f.root.join("box.py"), "class Box:\n    pass\n").unwrap();
+    fs::write(
+        f.root.join("src/machine.rs"),
+        "pub struct Machine;\n\nimpl Machine {}\n",
+    )
+    .unwrap();
+
+    for mode in [&["--fresh", "stat"][..], &["--no-index"][..]] {
+        let mut args = vec!["impact", "--diff", "--json=greeg", "--budget", "0"];
+        args.extend_from_slice(mode);
+        let out = f.out(&args);
+        for name in ["items", "state"] {
+            let (uses, total) = uses_of(&out, name);
+            assert!(uses.iter().all(|u| u.1 != "ident"), "{mode:?}: {uses:?}");
+            assert_eq!(total, 0, "{mode:?}: {name}: {uses:?}");
+        }
+        let mut targs = vec!["impact", "--diff"];
+        targs.extend_from_slice(mode);
+        let text = f.out(&targs);
+        assert!(text.contains("method"), "{mode:?}: {text}");
+        assert!(!text.contains("named as a value"), "{mode:?}: {text}");
+    }
+}
+
+#[test]
+fn impact_diff_skips_bindings_of_a_removed_function_name() {
+    let f = diff_fixture();
+    w(
+        &f.root.join("defs.py"),
+        "def count(xs):\n    return len(xs)\n",
+    );
+    w(
+        &f.root.join("uses.py"),
+        "from defs import count\n\ncount = 0\nfor count in range(3):\n    pass\nwith open(p) as count:\n    pass\nbus.subscribe(count)\ncount = row[\"count\"]\ncount = 0  # count so far\ncount = self.count\ncount = count([])\n",
+    );
+    w(
+        &f.root.join("src/tally.rs"),
+        "pub fn count() -> u8 {\n    0\n}\n",
+    );
+    w(
+        &f.root.join("src/sum.rs"),
+        "pub fn sum() -> u8 {\n    let mut count = 0;\n    1\n}\n",
+    );
+    git(&f, &["add", "-A"]);
+    git(&f, &["commit", "-q", "-m", "count"]);
+    f.indexed();
+    fs::write(f.root.join("defs.py"), "").unwrap();
+    fs::write(f.root.join("src/tally.rs"), "").unwrap();
+
+    for mode in [&["--fresh", "stat"][..], &["--no-index"][..]] {
+        let mut args = vec!["impact", "--diff", "--json=greeg", "--budget", "0"];
+        args.extend_from_slice(mode);
+        let out = f.out(&args);
+        let records: Vec<_> = changes(&out)
+            .into_iter()
+            .filter(|c| c.0 == "count")
+            .collect();
+        assert!(!records.is_empty(), "{mode:?}: {out}");
+        for c in &records {
+            for line in [
+                "uses.py:3",
+                "uses.py:4",
+                "uses.py:6",
+                "uses.py:9",
+                "uses.py:10",
+                "src/sum.rs:2",
+            ] {
+                assert!(c.3.iter().all(|u| u.0 != line), "{mode:?}: {line}: {c:?}");
+            }
+        }
+        let (uses, total) = uses_of(&out, "count");
+        assert!(
+            uses.contains(&("uses.py:8".into(), "ident".into(), true)),
+            "{mode:?}: {uses:?}"
+        );
+        assert!(
+            uses.contains(&("uses.py:1".into(), "import".into(), true)),
+            "{mode:?}: {uses:?}"
+        );
+        // past the binding, the line counts as its other occurrence
+        assert!(
+            uses.contains(&("uses.py:11".into(), "member".into(), false)),
+            "{mode:?}: {uses:?}"
+        );
+        assert!(
+            uses.contains(&("uses.py:12".into(), "call".into(), true)),
+            "{mode:?}: {uses:?}"
+        );
+        assert_eq!(total, 4, "{mode:?}: {uses:?}");
+    }
+}
+
+#[test]
+fn impact_diff_counts_value_uses_past_the_site_cap() {
+    let f = diff_fixture();
+    w(&f.root.join("defs.py"), "def cb(x):\n    return x\n");
+    let mut calls = String::new();
+    for i in 0..398 {
+        calls.push_str(&format!("y{i} = cb({i})\n"));
+    }
+    w(&f.root.join("calls.py"), &calls);
+    w(&f.root.join("values.py"), &"xs = [cb]\n".repeat(5));
+    git(&f, &["add", "-A"]);
+    git(&f, &["commit", "-q", "-m", "cap"]);
+    fs::write(f.root.join("defs.py"), "").unwrap();
+
+    let text = f.out(&["impact", "--diff", "--budget", "0"]);
+    assert!(text.contains("5 uses of cb named as a value"), "{text}");
 }
 
 #[test]

@@ -2223,7 +2223,7 @@ fn write_def_impact(
         .partition(|s| is_value_use(d, s.kind));
     write_sites(w, c, &strong)?;
     if !values.is_empty() {
-        let n = imp.sites.iter().filter(|s| is_value_use(d, s.kind)).count();
+        let n = imp.values_total;
         writeln!(
             w,
             "    {} use{} of {old} named as a value",
