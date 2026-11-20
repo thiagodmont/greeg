@@ -189,8 +189,16 @@ statistic; also `GREEG_NO_PERSIST=1`)
 Rust, Kotlin. A file in any other language is searched, ranked and budgeted
 as text: its hits carry no kind (`ident` in JSON) and no enclosing symbol, and
 the symbol verbs find no definitions, callers or implementations in it
-(`def` answers `no definition found`; `outline` prints `0 symbols`, or exits
-`2` with `no grammar for this file type` when it scans). You can add a language yourself by dropping a tree-sitter grammar and a
+(`def` answers `no definition found`; `outline` prints `0 symbols` and exits
+`0`, from the index and from a scan). When files that match the name have no
+grammar, `refs` adds `N matching files have no grammar (go, java)` to its
+outcome line whenever there are any. `def`, `callers`, `impls` and
+`refs --kind` add it only when they found nothing, and then `def` suggests
+`greeg NAME` instead of `--kind def`. The plain search says the same in its
+hint instead of "a dependency or generated code?". Only files whose extension
+names a programming language (`.go`, `.java`, `.c`, …) count; files without
+an extension (`Makefile`, `LICENSE`) and other text files (`.md`, `.log`, …)
+do not. You can add a language yourself by dropping a tree-sitter grammar and a
 `tags.scm` into `~/.config/greeg/lang/<name>/`; `greeg lang check DIR` validates
 it. See [`references/ARCHITECTURE.md`](ARCHITECTURE.md).
 

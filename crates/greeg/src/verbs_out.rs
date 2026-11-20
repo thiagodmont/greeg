@@ -76,6 +76,9 @@ pub(crate) fn outcome_line(
     if let Some(note) = unchecked_note(o) {
         terms.push(note.to_string());
     }
+    if let Some(ng) = &o.no_grammar {
+        terms.push(ng.describe());
+    }
     if cut {
         terms.push(more.to_string());
     }
@@ -333,6 +336,7 @@ fn answered_outcome(
         fresh,
         deferred: 0,
         byte_cut: false,
+        no_grammar: None,
     }
 }
 
@@ -584,7 +588,15 @@ pub fn run_def(
     {
         from = s.focus();
     }
-    let r = answered(o, |o| verbs::def(o, name, &from, want))?;
+    let (r, no_grammar) = answered(o, |o| {
+        let r = verbs::def(o, name, &from, want)?;
+        let no_grammar = if r.total == 0 {
+            verbs::no_grammar_matches(o, name)?
+        } else {
+            None
+        };
+        Ok((r, no_grammar))
+    })?;
     let ex = c.explain.then(|| crate::explain::VerbExplain {
         ranked: &r.entries,
         ..crate::explain::VerbExplain::new(json!({"definitions": r.total, "described": r.entries.len(), "near_names": r.suggestions.len()}))
@@ -597,6 +609,7 @@ pub fn run_def(
         fresh: r.fresh,
         deferred: 0,
         byte_cut: false,
+        no_grammar,
     };
     let w = out();
     if c.json() {
@@ -631,7 +644,9 @@ pub fn run_def(
             let limit = cut.rows;
             let mut w = Vec::new();
             writeln!(w, "def {}  no definition found ({})", r.name, r.source)?;
-            if names.is_empty() {
+            if names.is_empty() && oc.no_grammar.is_some() {
+                writeln!(w, "next: greeg {name} | greeg -i {name}")?;
+            } else if names.is_empty() {
                 writeln!(w, "next: greeg {name} --kind def | greeg -i {name}")?;
             } else {
                 let shown = &names[..names.len().min(limit)];
@@ -917,7 +932,8 @@ pub fn run_refs(c: &Common, o: &Options, name: &str) -> Result<()> {
                         .map(|&(fi, hi)| (*k, fi, hi))
                 })
                 .collect();
-            let oc = cut.mark(Outcome::of_search(s, shown.len()));
+            let oc =
+                cut.mark(Outcome::of_search(s, shown.len()).with_no_grammar(r.no_grammar.clone()));
             let counts = nonempty.iter().map(|(k, v)| (k.name(), v.len())).collect();
             crate::json_native::refs(&mut w, name, &r, defs, &shown, counts, &oc)?;
             Ok((w, oc))
@@ -926,7 +942,7 @@ pub fn run_refs(c: &Common, o: &Options, name: &str) -> Result<()> {
         return finish_fit(c, o, w, "refs", ex.as_ref(), fitted);
     }
     if s.stats.total_hits == 0 {
-        let oc = Outcome::of_search(s, 0);
+        let oc = Outcome::of_search(s, 0).with_no_grammar(r.no_grammar.clone());
         let render = |_: Cut| -> Result<(Vec<u8>, Outcome)> {
             let mut w = Vec::new();
             writeln!(w, "refs {name}  no references ({})", s.stats.source)?;
@@ -1022,7 +1038,7 @@ pub fn run_refs(c: &Common, o: &Options, name: &str) -> Result<()> {
                 writeln!(w, "  +{} more", v.len() - taken.len())?;
             }
         }
-        let oc = cut.mark(Outcome::of_search(s, shown));
+        let oc = cut.mark(Outcome::of_search(s, shown).with_no_grammar(r.no_grammar.clone()));
         writeln!(w)?;
         outcome_line(
             &mut w,
@@ -1076,6 +1092,9 @@ pub fn run_callers(c: &Common, o: &Options, name: &str, depth: usize) -> Result<
             let mut w = Vec::new();
             writeln!(w, "callers {}  no call sites ({})", r.name, r.source)?;
             outcome_line(&mut w, &[], &oc, MORE)?;
+            if oc.no_grammar.is_some() {
+                writeln!(w, "next: greeg {}", r.name)?;
+            }
             Ok((w, oc.clone()))
         };
         let fitted = fit(c.json(), o, 0, render)?;
@@ -1164,7 +1183,15 @@ pub fn run_callers(c: &Common, o: &Options, name: &str, depth: usize) -> Result<
 }
 
 pub fn run_impls(c: &Common, o: &Options, name: &str) -> Result<()> {
-    let r = answered(o, |o| verbs::impls(o, name))?;
+    let (r, no_grammar) = answered(o, |o| {
+        let r = verbs::impls(o, name)?;
+        let no_grammar = if r.direct_total + r.extras_total == 0 {
+            verbs::no_grammar_matches(o, name)?
+        } else {
+            None
+        };
+        Ok((r, no_grammar))
+    })?;
     let ex = c.explain.then(|| {
         crate::explain::VerbExplain::new(
             json!({"direct": r.direct_total, "extras": r.extras_total}),
@@ -1187,6 +1214,7 @@ pub fn run_impls(c: &Common, o: &Options, name: &str) -> Result<()> {
         fresh: r.fresh,
         deferred: 0,
         byte_cut: false,
+        no_grammar,
     };
     if c.json() {
         let render = |cut: Cut| -> Result<(Vec<u8>, Outcome)> {
@@ -1208,6 +1236,9 @@ pub fn run_impls(c: &Common, o: &Options, name: &str) -> Result<()> {
             let mut w = Vec::new();
             writeln!(w, "impls {}  none found ({})", r.name, r.source)?;
             outcome_line(&mut w, &[], &oc, MORE)?;
+            if oc.no_grammar.is_some() {
+                writeln!(w, "next: greeg {}", r.name)?;
+            }
             Ok((w, oc.clone()))
         };
         let fitted = fit(c.json(), o, 0, render)?;
@@ -1279,7 +1310,10 @@ pub fn run_outline(c: &Common, o: &Options, file: &str, imports: bool) -> Result
             let limit = cut.rows;
             let mut w = Vec::new();
             let shown = r.defs.len().min(limit);
-            let oc = cut.mark(answered_outcome(r.defs.len(), shown, r.source, r.fresh));
+            let oc = cut.mark(
+                answered_outcome(r.defs.len(), shown, r.source, r.fresh)
+                    .with_no_grammar(r.no_grammar.clone()),
+            );
             crate::json_native::outline(&mut w, &r, shown, &oc)?;
             Ok((w, oc))
         };
@@ -1398,7 +1432,10 @@ pub fn run_outline(c: &Common, o: &Options, file: &str, imports: bool) -> Result
         }
         // nested symbols folded into their parent's line count as cut
         let listed = printed.min(max_lines);
-        let oc = cut.mark(answered_outcome(r.defs.len(), listed, r.source, r.fresh));
+        let oc = cut.mark(
+            answered_outcome(r.defs.len(), listed, r.source, r.fresh)
+                .with_no_grammar(r.no_grammar.clone()),
+        );
         outcome_line(
             &mut w,
             &[(listed, r.defs.len(), "symbols")],
@@ -1927,6 +1964,7 @@ fn diff_outcome(r: &DiffImpactResult, shown_sites: usize) -> Outcome {
         fresh: r.fresh,
         deferred: 0,
         byte_cut: false,
+        no_grammar: None,
     }
 }
 

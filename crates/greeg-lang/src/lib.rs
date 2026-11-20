@@ -103,6 +103,23 @@ impl Lang {
     }
 }
 
+/// Extensions of programming languages with no built-in grammar. A file
+/// without a grammar counts as unclassified code only with one of these;
+/// build files, dotfiles and prose do not.
+pub const CODE_WITHOUT_GRAMMAR: &[&str] = &[
+    "go", "java", "c", "h", "cc", "cpp", "cxx", "hh", "hpp", "hxx", "cs", "fs", "fsx", "vb", "rb",
+    "php", "swift", "m", "mm", "scala", "sc", "lua", "pl", "pm", "r", "dart", "zig", "ex", "exs",
+    "erl", "hrl", "hs", "clj", "cljs", "cljc", "groovy", "ml", "mli", "nim", "jl", "elm", "cr",
+    "d", "ps1", "f90", "pas",
+];
+
+/// `ext`, without the dot and in any case, is on [`CODE_WITHOUT_GRAMMAR`].
+pub fn is_code_without_grammar(ext: &str) -> bool {
+    CODE_WITHOUT_GRAMMAR
+        .iter()
+        .any(|e| e.eq_ignore_ascii_case(ext))
+}
+
 /// Built-in languages in code order (`Lang::code`).
 pub const BUILTINS: [Lang; 7] = [
     Lang::None,

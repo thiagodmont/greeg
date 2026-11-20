@@ -79,6 +79,22 @@ pub(crate) struct OutcomeRec {
     truncated_by: Option<&'static str>,
 }
 
+/// Matching files without a grammar, which the verb could not classify.
+#[derive(Serialize)]
+struct NoGrammarRec<'a> {
+    files: usize,
+    languages: &'a [String],
+}
+
+impl<'a> NoGrammarRec<'a> {
+    fn of(o: &'a Outcome) -> Option<NoGrammarRec<'a>> {
+        o.no_grammar.as_ref().map(|n| NoGrammarRec {
+            files: n.files,
+            languages: &n.languages,
+        })
+    }
+}
+
 impl OutcomeRec {
     pub(crate) fn of(o: &Outcome) -> OutcomeRec {
         OutcomeRec {
@@ -414,6 +430,8 @@ struct DefFooter<'a> {
     suggestions_total: usize,
     elapsed_ms: f64,
     outcome: OutcomeRec,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    no_grammar: Option<NoGrammarRec<'a>>,
 }
 
 /// The first `shown` entries and `suggestions` near names.
@@ -437,6 +455,7 @@ pub(crate) fn defs(
             suggestions_total: r.suggestions.len(),
             elapsed_ms: r3(r.elapsed_ms),
             outcome: OutcomeRec::of(oc),
+            no_grammar: NoGrammarRec::of(oc),
         },
     )
 }
@@ -455,6 +474,8 @@ struct ImplsFooter<'a> {
     extras: usize,
     elapsed_ms: f64,
     outcome: OutcomeRec,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    no_grammar: Option<NoGrammarRec<'a>>,
 }
 
 pub(crate) fn impls(
@@ -486,6 +507,7 @@ pub(crate) fn impls(
             extras: r.extras_total,
             elapsed_ms: r3(r.elapsed_ms),
             outcome: OutcomeRec::of(oc),
+            no_grammar: NoGrammarRec::of(oc),
         },
     )
 }
@@ -511,6 +533,8 @@ struct RefsFooter<'a> {
     classified: usize,
     elapsed_ms: f64,
     outcome: OutcomeRec,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    no_grammar: Option<NoGrammarRec<'a>>,
 }
 
 /// The first `defs` definitions; `shown` holds the hits shown, by file and
@@ -558,6 +582,7 @@ pub(crate) fn refs(
             classified: r.classified,
             elapsed_ms: r3(s.stats.elapsed_ms),
             outcome: OutcomeRec::of(oc),
+            no_grammar: NoGrammarRec::of(oc),
         },
     )
 }
@@ -594,6 +619,8 @@ struct CallersFooter<'a> {
     files: usize,
     elapsed_ms: f64,
     outcome: OutcomeRec,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    no_grammar: Option<NoGrammarRec<'a>>,
 }
 
 pub(crate) fn callers(
@@ -615,6 +642,7 @@ pub(crate) fn callers(
             files: r.files,
             elapsed_ms: r3(r.elapsed_ms),
             outcome: OutcomeRec::of(oc),
+            no_grammar: NoGrammarRec::of(oc),
         },
     )
 }
@@ -697,6 +725,8 @@ struct OutlineFooter<'a> {
     parse_errors: bool,
     elapsed_ms: f64,
     outcome: OutcomeRec,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    no_grammar: Option<NoGrammarRec<'a>>,
 }
 
 /// The first `shown` symbols.
@@ -732,6 +762,7 @@ pub(crate) fn outline(
             parse_errors: r.parse_errors,
             elapsed_ms: r3(r.elapsed_ms),
             outcome: OutcomeRec::answered(oc, shown == r.defs.len()),
+            no_grammar: NoGrammarRec::of(oc),
         },
     )
 }
