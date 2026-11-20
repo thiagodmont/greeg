@@ -1767,16 +1767,39 @@ pub(crate) fn process_file(
         Some((tree, sub)) => tree.open_file(sub).ok()?,
         None => fs::File::open(path).ok()?,
     };
-    {
+    let first_block_binary = {
         use std::io::Read;
         // read at most max_filesize + 1 so oversized files are detected without a stat
-        (&f).take(o.max_filesize.saturating_add(1))
-            .read_to_end(buf)
-            .ok()?;
-    }
+        let limit = o.max_filesize.saturating_add(1);
+        // the first block, plus a UTF-8 BOM, decides whether the file is binary
+        let probe = limit.min(BINARY_PROBE as u64 + 3);
+        (&f).take(probe).read_to_end(buf).ok()?;
+        let utf16 = matches!(Encoding::sniff(buf), Encoding::Utf16Le | Encoding::Utf16Be);
+        let bom = if buf.starts_with(&[0xEF, 0xBB, 0xBF]) {
+            3
+        } else {
+            0
+        };
+        let binary = !utf16 && text_extent(&buf[bom..]).is_none();
+        if !binary && buf.len() as u64 == probe {
+            (&f).take(limit - probe).read_to_end(buf).ok()?;
+        }
+        binary
+    };
     cx.stats
         .read_ns
         .fetch_add(t_read.elapsed().as_nanos() as u64, Relaxed);
+    if first_block_binary {
+        let huge = buf.len() as u64 > o.max_filesize
+            || f.metadata().is_ok_and(|m| m.len() > o.max_filesize);
+        let counter = if huge {
+            &cx.stats.huge
+        } else {
+            &cx.stats.binary
+        };
+        counter.fetch_add(1, Relaxed);
+        return None;
+    }
     if buf.len() as u64 > o.max_filesize {
         cx.stats.huge.fetch_add(1, Relaxed);
         return None;
@@ -3495,6 +3518,94 @@ mod tests {
             .is_none()
         );
         assert_eq!(acc.binary.load(Relaxed), 1);
+    }
+
+    /// `process_file` on `p` with `o`, returning its result, stats and buffer.
+    fn process_with_stats(o: &Options, p: &Path) -> (Option<FileResult>, StatsAcc, Vec<u8>) {
+        let matcher = build_matcher(o).unwrap();
+        let acc = StatsAcc::default();
+        let mut buf = Vec::new();
+        let res = {
+            let cx = Ctx {
+                o,
+                matcher: &matcher,
+                stats: &acc,
+                classify: false,
+                filter_kinds: true,
+                refill: false,
+            };
+            let mut sb = SearcherBuilder::new();
+            sb.line_number(true)
+                .binary_detection(BinaryDetection::quit(0))
+                .bom_sniffing(false);
+            let mut searcher = sb.build();
+            let name = p.file_name().unwrap().as_encoded_bytes().to_vec();
+            process_file(&cx, p, name, None, &mut searcher, &mut buf, None)
+        };
+        (res, acc, buf)
+    }
+
+    #[test]
+    fn binary_first_block_stops_the_read_without_a_size_limit() {
+        let mut src = vec![0u8];
+        src.resize(1 + (1 << 20), b'a');
+        let p = tmp_file("bin-head.img", &src);
+        let mut o = opts("a");
+        o.max_filesize = u64::MAX;
+        let (res, acc, buf) = process_with_stats(&o, &p);
+        assert!(res.is_none());
+        assert_eq!(acc.binary.load(Relaxed), 1);
+        assert!(
+            buf.len() <= BINARY_PROBE + 3,
+            "read {} bytes of a binary file",
+            buf.len()
+        );
+    }
+
+    #[test]
+    fn binary_file_over_the_limit_counts_as_huge() {
+        let mut src = vec![0u8];
+        src.resize(2048, b'a');
+        let p = tmp_file("bin-huge.img", &src);
+        let mut o = opts("a");
+        o.max_filesize = 1024;
+        let (res, acc, _) = process_with_stats(&o, &p);
+        assert!(res.is_none());
+        assert_eq!(acc.huge.load(Relaxed), 1);
+        assert_eq!(acc.binary.load(Relaxed), 0);
+    }
+
+    #[test]
+    fn binary_file_over_a_limit_past_the_first_block_counts_as_huge() {
+        let mut src = vec![0u8];
+        src.resize(4 * BINARY_PROBE, b'a');
+        let p = tmp_file("bin-huge-past-probe.img", &src);
+        let mut o = opts("a");
+        o.max_filesize = 2 * BINARY_PROBE as u64;
+        let (res, acc, buf) = process_with_stats(&o, &p);
+        assert!(res.is_none());
+        assert_eq!(acc.huge.load(Relaxed), 1, "binary file over the limit");
+        assert_eq!(acc.binary.load(Relaxed), 0);
+        assert!(
+            buf.len() <= BINARY_PROBE + 3,
+            "read {} bytes of a binary file",
+            buf.len()
+        );
+    }
+
+    #[test]
+    fn text_match_after_the_first_block_is_found() {
+        let mut src = vec![b'a'; BINARY_PROBE + 100];
+        src.extend_from_slice(b"\nneedle\n");
+        let p = tmp_file("long.txt", &src);
+        let mut o = opts("needle");
+        o.max_filesize = u64::MAX;
+        let (res, acc, buf) = process_with_stats(&o, &p);
+        let f = res.unwrap();
+        assert_eq!(f.total, 1);
+        assert_eq!(f.hits[0].line, 2);
+        assert_eq!(buf.len(), src.len());
+        assert_eq!(acc.binary.load(Relaxed), 0);
     }
 
     #[test]
