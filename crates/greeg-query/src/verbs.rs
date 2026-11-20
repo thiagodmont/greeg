@@ -1414,8 +1414,9 @@ pub fn outline(o: &Options, file: &str) -> Result<OutlineResult> {
     {
         let idx = &op.idx;
         if let Some((id, _, rec)) = idx.live_files().find(|(_, r, _)| *r == rel)
-            // the index holds no symbols for a huge file: parse one that fits
-            && (!FileFlags(rec.flags).has(FileFlags::HUGE) || rec.size > o.max_filesize)
+            // the index answers only when its huge flag agrees with `--max-filesize`:
+            // a scan parses a huge file that fits, and skips any file over the limit
+            && FileFlags(rec.flags).has(FileFlags::HUGE) == (rec.size > o.max_filesize)
         {
             let defs = defs_of(idx, id);
             let imports: Vec<String> = idx

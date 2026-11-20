@@ -2504,3 +2504,40 @@ fn outline_honors_max_filesize_in_both_backends() {
         assert_eq!(skipped_huge(&o), None);
     }
 }
+
+fn outline_symbols(o: &Output) -> Vec<(String, u64)> {
+    json_records(o, "symbol")
+        .iter()
+        .map(|s| {
+            (
+                s["name"].as_str().unwrap().to_string(),
+                s["line"].as_u64().unwrap(),
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn outline_honors_a_lowered_max_filesize_under_the_index_cap_in_both_backends() {
+    let mut body = b"// padding\nfn bigneedle() {}\nfn bigcaller() { bigneedle(); }\n".to_vec();
+    body.resize(50_000, b'\n');
+    let f = Fixture::new(&[]);
+    w(&f.root.join("big.rs"), body);
+    for o in both(&f, &["outline", "big.rs", "--max-filesize", "1000"]) {
+        assert!(json_records(&o, "symbol").is_empty(), "{}", stdout(&o));
+        assert_eq!(skipped_huge(&o), Some(1), "{}", stdout(&o));
+    }
+    let mut seen = Vec::new();
+    for o in both(&f, &["outline", "big.rs"]) {
+        let syms = outline_symbols(&o);
+        assert_eq!(
+            syms,
+            [("bigneedle".to_string(), 2), ("bigcaller".to_string(), 3)],
+            "{}",
+            stdout(&o)
+        );
+        assert_eq!(skipped_huge(&o), None, "{}", stdout(&o));
+        seen.push(syms);
+    }
+    assert_eq!(seen[0], seen[1]);
+}
