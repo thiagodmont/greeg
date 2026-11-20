@@ -55,6 +55,31 @@ pub struct DefResult {
     pub fresh: &'static str,
     /// Names suggested by the ladder when nothing matched exactly.
     pub suggestions: Vec<String>,
+    /// Selected files over `--max-filesize` that no definition rule read.
+    pub skipped_huge: usize,
+}
+
+/// The live, selected files the index flagged `HUGE` (it holds no symbols for
+/// them): those within `--max-filesize`, which the caller reads, and the count
+/// above it, known from the record's size without a read.
+fn huge_files(idx: &Index, sel: &Selection, o: &Options) -> (Vec<Vec<u8>>, usize) {
+    let (mut within, mut over) = (Vec::new(), 0);
+    for (_, seg) in idx.segments() {
+        for id in seg.huge() {
+            if !idx.is_live(id) || !selected(idx, sel, id) {
+                continue;
+            }
+            let (Some(rec), Some(rel)) = (idx.rec(id), idx.path(id)) else {
+                continue;
+            };
+            if rec.size > o.max_filesize {
+                over += 1;
+            } else {
+                within.push(rel.to_vec());
+            }
+        }
+    }
+    (within, over)
 }
 
 fn loc_w(flags: FileFlags, rel: &[u8], all: bool) -> f32 {
@@ -573,7 +598,12 @@ pub fn def(
                 file_module: true,
             });
         }
-        // selected files the index skipped: found by the scan's definition rules
+        // selected files the index skipped, or flagged huge and so left without
+        // symbols: found by the scan's definition rules
+        let (huge_within, huge_over) = huge_files(idx, &sel, o);
+        res.skipped_huge = huge_over;
+        let mut also = also;
+        also.extend(huge_within);
         if !also.is_empty() {
             let mut so = o.clone();
             so.paths = also
@@ -584,7 +614,8 @@ pub fn def(
             so.use_index = false;
             so.matching = crate::MatchingPolicy::Exact;
             if !so.paths.is_empty() {
-                let (found, _, _) = scan_defs(&so, name, want_kind)?;
+                let (found, _, _, huge) = scan_defs(&so, name, want_kind)?;
+                res.skipped_huge += huge;
                 res.total += found.len();
                 entries.extend(found);
             }
@@ -675,7 +706,8 @@ pub fn def(
         return Ok(res);
     }
     // scan fallback: definition hits by regex
-    let (mut entries, rung, source) = scan_defs(o, name, want_kind)?;
+    let (mut entries, rung, source, huge) = scan_defs(o, name, want_kind)?;
+    res.skipped_huge = huge;
     res.source = source;
     res.rung = rung;
     res.total = entries.len();
@@ -697,12 +729,12 @@ pub fn def(
 }
 
 /// Definitions of `name` found by a scan's definition rules, unsorted, with
-/// the rung and source that answered.
+/// the rung and source that answered, and the files over `--max-filesize`.
 fn scan_defs(
     o: &Options,
     name: &str,
     want_kind: Option<DefKind>,
-) -> Result<(Vec<DefEntry>, Rung, &'static str)> {
+) -> Result<(Vec<DefEntry>, Rung, &'static str, usize)> {
     let mut so = o.clone();
     // hidden files hold no symbols: the verbs scan for --hidden
     so.use_index &= !o.hidden;
@@ -768,7 +800,7 @@ fn scan_defs(
             });
         }
     }
-    Ok((entries, r.rung.clone(), source))
+    Ok((entries, r.rung.clone(), source, r.stats.skipped_huge))
 }
 
 /// `greeg refs NAME`: a word-bounded search, classified, plus the fraction of
@@ -1017,6 +1049,8 @@ pub struct ImplsResult {
     pub source: &'static str,
     pub fresh: &'static str,
     pub elapsed_ms: f64,
+    /// Files over `--max-filesize` that the type-position scan did not read.
+    pub skipped_huge: usize,
 }
 
 /// Definitions whose parsed supertypes include `name`, read from the files
@@ -1255,7 +1289,9 @@ pub fn impls(o: &Options, name: &str) -> Result<ImplsResult> {
         Err(e) => return Err(e),
     };
     let mut extras = Vec::new();
+    let mut skipped_huge = 0;
     if let Some(mut r) = scanned {
+        skipped_huge = r.stats.skipped_huge;
         if source == "scan" {
             direct = implementors_of(&mut r.files, name, o.all, threads);
             direct_total = direct.len();
@@ -1337,6 +1373,7 @@ pub fn impls(o: &Options, name: &str) -> Result<ImplsResult> {
         source,
         fresh,
         elapsed_ms: t0.elapsed().as_secs_f64() * 1e3,
+        skipped_huge,
     })
 }
 
@@ -1353,6 +1390,8 @@ pub struct OutlineResult {
     pub parse_errors: bool,
     /// The file is code with no grammar: it has no symbols to list.
     pub no_grammar: Option<NoGrammar>,
+    /// The file is over `--max-filesize`: it was not parsed.
+    pub skipped_huge: usize,
 }
 
 /// `greeg outline FILE`: the definitions of one file as a tree.
@@ -1374,7 +1413,10 @@ pub fn outline(o: &Options, file: &str) -> Result<OutlineResult> {
         && op.idx.has_symbols()
     {
         let idx = &op.idx;
-        if let Some((id, _, rec)) = idx.live_files().find(|(_, r, _)| *r == rel) {
+        if let Some((id, _, rec)) = idx.live_files().find(|(_, r, _)| *r == rel)
+            // the index holds no symbols for a huge file: parse one that fits
+            && (!FileFlags(rec.flags).has(FileFlags::HUGE) || rec.size > o.max_filesize)
+        {
             let defs = defs_of(idx, id);
             let imports: Vec<String> = idx
                 .imports_of(id)
@@ -1391,8 +1433,23 @@ pub fn outline(o: &Options, file: &str) -> Result<OutlineResult> {
                 elapsed_ms: t0.elapsed().as_secs_f64() * 1e3,
                 parse_errors: FileFlags(rec.flags).has(FileFlags::PARSE_ERRORS),
                 no_grammar,
+                skipped_huge: usize::from(FileFlags(rec.flags).has(FileFlags::HUGE)),
             });
         }
+    }
+    if std::fs::metadata(&path).is_ok_and(|m| m.len() > o.max_filesize) {
+        return Ok(OutlineResult {
+            rel,
+            defs: Vec::new(),
+            imports: Vec::new(),
+            source: "scan",
+            fresh: "",
+            lang,
+            elapsed_ms: t0.elapsed().as_secs_f64() * 1e3,
+            parse_errors: false,
+            no_grammar,
+            skipped_huge: 1,
+        });
     }
     let src = greeg_lang::read_text(&path).with_context(|| format!("read {}", path.display()))?;
     if no_grammar.is_some() {
@@ -1406,6 +1463,7 @@ pub fn outline(o: &Options, file: &str) -> Result<OutlineResult> {
             elapsed_ms: t0.elapsed().as_secs_f64() * 1e3,
             parse_errors: false,
             no_grammar,
+            skipped_huge: 0,
         });
     }
     if !lang.has_grammar() {
@@ -1443,6 +1501,7 @@ pub fn outline(o: &Options, file: &str) -> Result<OutlineResult> {
         elapsed_ms: t0.elapsed().as_secs_f64() * 1e3,
         parse_errors: ex.parse_errors,
         no_grammar: None,
+        skipped_huge: 0,
     })
 }
 
@@ -1728,7 +1787,12 @@ pub fn show(o: &Options, locs: &[(String, u32)]) -> Result<ShowResult> {
         let src = named_source(o, rel.as_bytes())?;
         let asked = (*asked).clamp(1, src.line_count().max(1));
         let defs = if Lang::from_path(&o.root.join(rel)).has_grammar() {
-            let ol = outline(o, rel)?;
+            // a file named on the command line is always parsed, whatever its size
+            let named = Options {
+                max_filesize: u64::MAX,
+                ..o.clone()
+            };
+            let ol = outline(&named, rel)?;
             read.push((ol.source, ol.fresh));
             ol.defs
         } else {

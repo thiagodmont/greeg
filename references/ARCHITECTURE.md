@@ -861,7 +861,8 @@ it:
 
 Symbol verbs, `outline` and `map` end the same way, with one outcome line
 before `next:`. It names what the budget cut (`3/23 definitions`, `4/14
-directories · 5/378 files`), a relaxed match, an unchecked index, and how to
+directories · 5/378 files`), a relaxed match, an unchecked index, files
+skipped for exceeding `--max-filesize` (`skipped 1 huge file`), and how to
 see the rest (`raise --budget`). A complete, exact, checked answer has no
 outcome line. Inside the answer, a cut group ends with `+N more` where its
 rows stop. `show` states a clipped body inside it (`… N more lines to L`),
