@@ -69,6 +69,9 @@ nothing checked out.
 
 For each removed, renamed or re-signed definition it lists the uses of the
 old name outside the changed lines: calls, imports and type uses to update,
+then, for a removed or renamed function or type, the places its name
+appears as a value (a callback argument, a list element, `isinstance(x, T)`,
+a unit struct expression; kind `ident`, listed under `named as a value`),
 then other uses (an import a new signature leaves valid, a member access
 that may be a same-named field). A body change lists a few callers to
 recheck. Uses are found by name, so a definition with the same name

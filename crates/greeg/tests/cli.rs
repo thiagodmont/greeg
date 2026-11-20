@@ -3782,6 +3782,112 @@ fn impact_diff_loads_a_path_with_a_space() {
 }
 
 #[test]
+fn impact_diff_lists_a_removed_function_named_as_a_value() {
+    let f = diff_fixture();
+    w(
+        &f.root.join("defs.py"),
+        "class GoneError(Exception):\n    pass\n\ndef on_event(e):\n    pass\n",
+    );
+    w(
+        &f.root.join("uses.py"),
+        "from defs import GoneError, on_event\n\nbus.subscribe(on_event)\nhandlers = [on_event]\n\ntry:\n    run()\nexcept GoneError:\n    pass\n\nok = isinstance(x, GoneError)\n",
+    );
+    git(&f, &["add", "-A"]);
+    git(&f, &["commit", "-q", "-m", "py"]);
+    f.indexed();
+    fs::write(f.root.join("defs.py"), "").unwrap();
+
+    for mode in [&["--fresh", "stat"][..], &["--no-index"][..]] {
+        let mut args = vec!["impact", "--diff", "--json=greeg", "--budget", "0"];
+        args.extend_from_slice(mode);
+        let o = f.run(&args);
+        assert_eq!(o.status.code(), Some(0), "{mode:?}");
+        let out = String::from_utf8_lossy(&o.stdout).into_owned();
+        let got = changes(&out);
+        let records: Vec<_> = json_lines(&out)
+            .into_iter()
+            .filter(|r| r["type"] == "change")
+            .collect();
+        let find = |name: &str| got.iter().find(|c| c.0 == name).unwrap();
+        let total = |name: &str| {
+            records.iter().find(|r| r["data"]["name"] == name).unwrap()["data"]["uses_total"]
+                .as_u64()
+                .unwrap()
+        };
+        let ev = find("on_event");
+        for line in ["uses.py:3", "uses.py:4"] {
+            assert!(
+                ev.3.contains(&(line.into(), "ident".into(), true)),
+                "{mode:?}: {ev:?}"
+            );
+        }
+        assert_eq!(total("on_event"), 3, "{mode:?}: {ev:?}");
+        let gone = find("GoneError");
+        assert!(
+            gone.3
+                .contains(&("uses.py:11".into(), "ident".into(), true)),
+            "{mode:?}: {gone:?}"
+        );
+        assert!(gone.3.iter().any(|u| u.0 == "uses.py:8"), "{gone:?}");
+        assert_eq!(total("GoneError"), 3, "{mode:?}: {gone:?}");
+        for c in [ev, gone] {
+            let at: Vec<_> = c.3.iter().filter(|u| u.0 == "uses.py:1").collect();
+            assert_eq!(at.len(), 1, "{mode:?}: {c:?}");
+            assert_eq!(at[0].1, "import", "{mode:?}: {c:?}");
+        }
+
+        let text = f.out(&["impact", "--diff"]);
+        let at = text.find("named as a value").expect(&text);
+        assert!(text[at..].contains("bus.subscribe(on_event)"), "{text}");
+        assert!(text[at..].contains("isinstance(x, GoneError)"), "{text}");
+        assert!(
+            text.contains("3 uses of on_event in 1 file to update"),
+            "{text}"
+        );
+        assert!(!text.contains("no uses of on_event"), "{text}");
+        assert!(!text.contains("no use of on_event"), "{text}");
+    }
+}
+
+#[test]
+fn impact_diff_lists_a_removed_unit_struct_named_as_a_value() {
+    let f = diff_fixture();
+    w(&f.root.join("src/gone.rs"), "pub struct Gone;\n");
+    w(
+        &f.root.join("src/make.rs"),
+        "pub fn make() {\n    let _g = Gone;\n}\n",
+    );
+    git(&f, &["add", "-A"]);
+    git(&f, &["commit", "-q", "-m", "unit"]);
+    f.indexed();
+    fs::write(f.root.join("src/gone.rs"), "").unwrap();
+
+    for mode in [&["--fresh", "stat"][..], &["--no-index"][..]] {
+        let mut args = vec!["impact", "--diff", "--json=greeg", "--budget", "0"];
+        args.extend_from_slice(mode);
+        let out = f.out(&args);
+        let got = changes(&out);
+        let gone = got.iter().find(|c| c.0 == "Gone").unwrap();
+        assert!(
+            gone.3
+                .contains(&("src/make.rs:2".into(), "ident".into(), true)),
+            "{mode:?}: {gone:?}"
+        );
+        let total = json_lines(&out)
+            .iter()
+            .find(|r| r["type"] == "change" && r["data"]["name"] == "Gone")
+            .unwrap()["data"]["uses_total"]
+            .as_u64()
+            .unwrap();
+        assert!(total >= 1, "{mode:?}");
+        let mut targs = vec!["impact", "--diff"];
+        targs.extend_from_slice(mode);
+        let text = f.out(&targs);
+        assert!(!text.contains("no uses of Gone"), "{text}");
+    }
+}
+
+#[test]
 fn impact_diff_lists_changed_definitions_and_the_uses_to_update() {
     let f = diff_fixture();
     f.indexed();

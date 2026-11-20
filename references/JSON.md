@@ -220,7 +220,9 @@ signature, body), `from` (a renamed definition's old name),
 `edited` (uses on the changed lines, left out), `uses`,
 `other_definitions` (`[path, line, kind]`), `other_definitions_total` and
 `uses_as_for` (`[path, line]` of the change whose record lists the same
-old name's uses). Each use has `path`, `line`, `kind`, `direct` (the
+old name's uses). A removed or renamed function, method, macro or type also
+lists the uses where its name appears as a value (a callback argument, a
+list element, `isinstance(x, T)`): kind `ident`, `direct: true`. Each use has `path`, `line`, `kind`, `direct` (the
 change breaks or may break it), `text`, `container` and `file_flags`. The
 budget cuts the uses, a few at a time from every change. Footer: `base`,
 `commit`, `merge_base`, `staged_only`, `files`, `definitions`,

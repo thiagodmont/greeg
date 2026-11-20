@@ -30,7 +30,8 @@ pub struct DefImpact {
     /// Into `Changes::files`, and that file's `defs`.
     pub file: usize,
     pub def: usize,
-    /// Direct uses (calls, imports, type uses) first, then the others.
+    /// Direct uses (calls, imports, type uses) first, then names used as
+    /// values, then the others.
     pub sites: Vec<Site>,
     pub sites_total: usize,
     /// Of `sites_total`, the direct uses; a function's member access without
@@ -67,11 +68,26 @@ impl DiffImpactResult {
 }
 
 /// The kinds of use that can depend on a definition of `kind`, strongest first.
-fn use_kinds(kind: DefKind) -> &'static [HitKind] {
+/// A removed or renamed callable or type also counts its name used as a value.
+fn use_kinds(kind: DefKind, change: &DefChange) -> &'static [HitKind] {
+    let gone = matches!(change, DefChange::Removed | DefChange::Renamed { .. });
     match kind {
+        DefKind::Function | DefKind::Method | DefKind::Macro if gone => &[
+            HitKind::Call,
+            HitKind::Import,
+            HitKind::Member,
+            HitKind::Ident,
+        ],
         DefKind::Function | DefKind::Method | DefKind::Macro => {
             &[HitKind::Call, HitKind::Import, HitKind::Member]
         }
+        k if (k.is_container() || k == DefKind::TypeAlias) && gone => &[
+            HitKind::Type,
+            HitKind::Call,
+            HitKind::Import,
+            HitKind::Member,
+            HitKind::Ident,
+        ],
         k if k.is_container() || k == DefKind::TypeAlias => &[
             HitKind::Type,
             HitKind::Call,
@@ -104,8 +120,22 @@ pub fn direct(def: &ChangedDef, k: HitKind) -> bool {
     match k {
         HitKind::Call | HitKind::Type => true,
         HitKind::Import => matches!(def.change, DefChange::Removed | DefChange::Renamed { .. }),
+        HitKind::Ident if callable || typed => is_value_use(def, k),
         _ => !(callable || typed),
     }
+}
+
+/// A removed or renamed function, method, macro or type named as a value (a
+/// callback argument, a list element, `isinstance(x, T)`, a unit struct
+/// expression). It breaks like a call, but is found by name only.
+pub fn is_value_use(def: &ChangedDef, k: HitKind) -> bool {
+    k == HitKind::Ident
+        && matches!(def.change, DefChange::Removed | DefChange::Renamed { .. })
+        && (matches!(
+            def.kind,
+            DefKind::Function | DefKind::Method | DefKind::Macro
+        ) || def.kind.is_container()
+            || def.kind == DefKind::TypeAlias)
 }
 
 /// Whether byte `col` of `line` sits in a string's interpolated expression:
@@ -210,7 +240,7 @@ pub fn impact_diff(o: &Options, spec: &DiffSpec) -> Result<DiffImpactResult> {
         so.smart_case = false;
         so.matching = MatchingPolicy::Exact;
         // a string hit may be an interpolated expression (`"${f()}"`)
-        so.kinds = [use_kinds(d.kind), &[HitKind::Str]].concat();
+        so.kinds = [use_kinds(d.kind, &d.change), &[HitKind::Str]].concat();
         so.mode = Mode::Content;
         so.budget = 0;
         so.use_index = use_index;
@@ -218,15 +248,24 @@ pub fn impact_diff(o: &Options, spec: &DiffSpec) -> Result<DiffImpactResult> {
         let mut r = scan(&so)?;
         let idxs: Vec<usize> = (0..r.files.len().min(400)).collect();
         crate::refine(&mut r, &idxs);
-        let (mut sites, mut weak) = (Vec::new(), Vec::new());
+        let (mut sites, mut values, mut weak) = (Vec::new(), Vec::new(), Vec::new());
         let (mut total, mut direct_total, mut edited, mut files) = (0usize, 0usize, 0usize, 0usize);
         for f in &r.files {
             let changed = changes.files.iter().find(|c| c.rel == f.rel);
             let mut counted = false;
             for h in &f.hits {
-                let Some(kind) = code_kind(h).filter(|k| use_kinds(d.kind).contains(k)) else {
+                let Some(kind) = code_kind(h).filter(|k| use_kinds(d.kind, &d.change).contains(k))
+                else {
                     continue;
                 };
+                // the import line already counts as an import
+                if is_value_use(d, kind)
+                    && f.hits
+                        .iter()
+                        .any(|o| o.line == h.line && o.kind == HitKind::Import)
+                {
+                    continue;
+                }
                 if changed.is_some_and(|c| c.changed_line(h.line)) {
                     edited += 1;
                     continue;
@@ -246,12 +285,17 @@ pub fn impact_diff(o: &Options, spec: &DiffSpec) -> Result<DiffImpactResult> {
                 };
                 if direct(d, kind) {
                     direct_total += 1;
-                    sites.push(site);
+                    if is_value_use(d, kind) {
+                        values.push(site);
+                    } else {
+                        sites.push(site);
+                    }
                 } else {
                     weak.push(site);
                 }
             }
         }
+        sites.append(&mut values);
         sites.append(&mut weak);
         sites.truncate(MAX_SITES);
         let (others, others_total) = other_definitions(&so, &name, &changes, fi, d);
