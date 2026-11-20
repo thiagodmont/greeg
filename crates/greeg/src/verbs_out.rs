@@ -81,6 +81,9 @@ pub(crate) fn outcome_line(
     if let Some(ng) = &o.no_grammar {
         terms.push(ng.describe());
     }
+    if let Some(note) = o.capped {
+        terms.push(note.to_string());
+    }
     if cut {
         terms.push(more.to_string());
     }
@@ -339,6 +342,7 @@ fn answered_outcome(
         deferred: 0,
         byte_cut: false,
         no_grammar: None,
+        capped: None,
     }
 }
 
@@ -612,6 +616,7 @@ pub fn run_def(
         deferred: 0,
         byte_cut: false,
         no_grammar,
+        capped: None,
     };
     let w = out();
     if c.json() {
@@ -1217,6 +1222,7 @@ pub fn run_impls(c: &Common, o: &Options, name: &str) -> Result<()> {
         deferred: 0,
         byte_cut: false,
         no_grammar,
+        capped: None,
     };
     if c.json() {
         let render = |cut: Cut| -> Result<(Vec<u8>, Outcome)> {
@@ -1967,6 +1973,7 @@ fn diff_outcome(r: &DiffImpactResult, shown_sites: usize) -> Outcome {
         deferred: 0,
         byte_cut: false,
         no_grammar: None,
+        capped: None,
     }
 }
 

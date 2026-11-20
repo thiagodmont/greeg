@@ -904,7 +904,7 @@ pub fn callers(o: &Options, name: &str, depth: usize) -> Result<CallersResult> {
     so.mode = Mode::Content;
     so.budget = 0;
     let mut r = scan(&so)?;
-    let idxs: Vec<usize> = (0..r.files.len().min(400)).collect();
+    let idxs: Vec<usize> = (0..r.files.len()).collect();
     crate::refine(&mut r, &idxs);
     let mut map: BTreeMap<(Vec<u8>, Option<u32>), Caller> = BTreeMap::new();
     let mut total = 0usize;
@@ -954,6 +954,7 @@ pub fn callers(o: &Options, name: &str, depth: usize) -> Result<CallersResult> {
             .unwrap_or(std::cmp::Ordering::Equal)
             .then(a.rel.cmp(&b.rel))
     });
+    let mut capped = false;
     if depth >= 2 {
         let mut seen: Vec<String> = Vec::new();
         for c in callers.iter_mut().take(12) {
@@ -968,7 +969,7 @@ pub fn callers(o: &Options, name: &str, depth: usize) -> Result<CallersResult> {
             so2.pattern = cname.clone();
             so2.matching = crate::MatchingPolicy::Exact;
             if let Ok(mut r2) = scan(&so2) {
-                let idxs: Vec<usize> = (0..r2.files.len().min(60)).collect();
+                let idxs: Vec<usize> = (0..r2.files.len()).collect();
                 crate::refine(&mut r2, &idxs);
                 let mut names: Vec<String> = Vec::new();
                 for f in &r2.files {
@@ -982,10 +983,17 @@ pub fn callers(o: &Options, name: &str, depth: usize) -> Result<CallersResult> {
                         }
                     }
                 }
+                capped |= names.len() > 12;
                 names.truncate(12);
                 c.called_by = names;
             }
         }
+        // callers past the twelfth that would have been expanded
+        capped |= callers.iter().skip(12).any(|c| {
+            c.chain
+                .last()
+                .is_some_and(|(_, n)| n != name && !seen.contains(n))
+        });
     }
     let no_grammar = if callers.is_empty() {
         no_grammar_matches(o, name)?
@@ -993,7 +1001,10 @@ pub fn callers(o: &Options, name: &str, depth: usize) -> Result<CallersResult> {
         None
     };
     Ok(CallersResult {
-        outcome: Outcome::of_search(&r, 0).with_no_grammar(no_grammar),
+        outcome: Outcome {
+            capped: capped.then_some("called by: first 12 callers, 12 names each"),
+            ..Outcome::of_search(&r, 0).with_no_grammar(no_grammar)
+        },
         name: name.to_string(),
         files: r.files.len(),
         callers,
