@@ -81,6 +81,13 @@ pub(crate) fn outcome_line(
     if let Some(ng) = &o.no_grammar {
         terms.push(ng.describe());
     }
+    if o.skipped_huge > 0 {
+        let s = if o.skipped_huge == 1 { "" } else { "s" };
+        terms.push(format!(
+            "skipped {} huge file{s} (--max-filesize)",
+            o.skipped_huge
+        ));
+    }
     if cut {
         terms.push(more.to_string());
     }
@@ -339,6 +346,7 @@ fn answered_outcome(
         deferred: 0,
         byte_cut: false,
         no_grammar: None,
+        skipped_huge: 0,
     }
 }
 
@@ -612,6 +620,7 @@ pub fn run_def(
         deferred: 0,
         byte_cut: false,
         no_grammar,
+        skipped_huge: r.skipped_huge,
     };
     let w = out();
     if c.json() {
@@ -1217,6 +1226,7 @@ pub fn run_impls(c: &Common, o: &Options, name: &str) -> Result<()> {
         deferred: 0,
         byte_cut: false,
         no_grammar,
+        skipped_huge: r.skipped_huge,
     };
     if c.json() {
         let render = |cut: Cut| -> Result<(Vec<u8>, Outcome)> {
@@ -1314,7 +1324,8 @@ pub fn run_outline(c: &Common, o: &Options, file: &str, imports: bool) -> Result
             let shown = r.defs.len().min(limit);
             let oc = cut.mark(
                 answered_outcome(r.defs.len(), shown, r.source, r.fresh)
-                    .with_no_grammar(r.no_grammar.clone()),
+                    .with_no_grammar(r.no_grammar.clone())
+                    .with_skipped_huge(r.skipped_huge),
             );
             crate::json_native::outline(&mut w, &r, shown, &oc)?;
             Ok((w, oc))
@@ -1436,7 +1447,8 @@ pub fn run_outline(c: &Common, o: &Options, file: &str, imports: bool) -> Result
         let listed = printed.min(max_lines);
         let oc = cut.mark(
             answered_outcome(r.defs.len(), listed, r.source, r.fresh)
-                .with_no_grammar(r.no_grammar.clone()),
+                .with_no_grammar(r.no_grammar.clone())
+                .with_skipped_huge(r.skipped_huge),
         );
         outcome_line(
             &mut w,
@@ -1967,6 +1979,7 @@ fn diff_outcome(r: &DiffImpactResult, shown_sites: usize) -> Outcome {
         deferred: 0,
         byte_cut: false,
         no_grammar: None,
+        skipped_huge: 0,
     }
 }
 
