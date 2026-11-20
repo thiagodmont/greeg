@@ -961,6 +961,8 @@ a later `--json` would override, exits 2 before any work, naming `--json`.
   BOM, UTF-16 transcoded.
 - `-l` and `-c` print text, as `rg --json -l` does. Exit status is 0, 1 or 2.
 - Files come in path order (`--sort path`).
+- Without `--max-filesize`, files of any size are searched, as in ripgrep.
+  Other formats keep the 4 MiB default.
 - Timings differ: only the whole query is timed (`summary.elapsed_total`);
   per-file and summed search times are 0.
 - `searches` and `bytes_searched` count what greeg read (the decoded bytes),
