@@ -178,9 +178,10 @@ struct Common {
     /// Clip lines longer than N columns around the match (0 = never)
     #[arg(long = "max-columns", default_value_t = 200, global = true)]
     max_columns: usize,
-    /// Skip files larger than this many bytes
-    #[arg(long = "max-filesize", default_value_t = 4 << 20, global = true)]
-    max_filesize: u64,
+    /// Skip files larger than this many bytes [default: 4194304; no limit
+    /// under `--json=rg`]
+    #[arg(long = "max-filesize", global = true)]
+    max_filesize: Option<u64>,
     /// JSON Lines output. `--json=greeg`: greeg's own records, schema 2.
     /// `--json=rg`: exactly ripgrep's records and semantics. Bare `--json` is
     /// `greeg`
@@ -1011,7 +1012,11 @@ fn build_options(c: &Common, pattern: String, paths: Vec<PathBuf>) -> Result<Opt
         no_ignore: c.no_ignore || c.unrestricted >= 1,
         hidden: c.hidden || c.unrestricted >= 2,
         threads: c.threads,
-        max_filesize: c.max_filesize,
+        // ripgrep has no size limit, and its `summary` has no field to
+        // disclose a skipped file, so `--json=rg` searches any size by default.
+        max_filesize: c
+            .max_filesize
+            .unwrap_or(if c.json_rg() { u64::MAX } else { 4 << 20 }),
         mode,
         budget: c.budget(),
         max_bytes: c.max_bytes.unwrap_or(0),

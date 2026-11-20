@@ -5,7 +5,7 @@ greeg writes JSON Lines in two dialects:
 | Flag | Dialect | For |
 |---|---|---|
 | `--json=greeg`, and bare `--json` for searches and verbs | greeg's own records, schema 2 (this page) | agents and tools that read greeg |
-| `--json=rg` | ripgrep's records, nothing else | tools written for `rg --json` |
+| `--json=rg` | ripgrep's records, nothing else; no file size limit unless `--max-filesize` is given | tools written for `rg --json` |
 
 `--json=rg` is described under [JSON output](ARCHITECTURE.md#json-output).
 `--json=legacy`, greeg's records through 0.10, was removed in 0.12.1: it exits

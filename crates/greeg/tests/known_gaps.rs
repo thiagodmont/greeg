@@ -2246,3 +2246,62 @@ fn settle(root: &Path) {
         50
     }));
 }
+
+/// A file one byte over the 4 MiB default, with the match on its last line.
+fn huge_fixture() -> Fixture {
+    let mut body = vec![b'x'; (4 << 20) + 1 - 19];
+    body.extend(b"\nfn hugeneedle() {}");
+    assert_eq!(body.len(), (4 << 20) + 1);
+    let f = Fixture::new(&[]);
+    w(&f.root.join("huge.rs"), body);
+    f
+}
+
+fn match_lines(o: &Output) -> Vec<String> {
+    stdout(o)
+        .lines()
+        .filter(|l| l.contains("\"type\":\"match\""))
+        .map(str::to_string)
+        .collect()
+}
+
+/// ripgrep has no size limit and its summary cannot disclose a skipped file,
+/// so `--json=rg` searches any size unless `--max-filesize` is given.
+#[test]
+fn json_rg_searches_files_over_4_mib_in_both_backends() {
+    let f = huge_fixture();
+    let scan = f.scan(&["hugeneedle", "--json=rg"]);
+    assert_eq!(scan.status.code(), Some(0), "{}", stdout(&scan));
+    let m = match_lines(&scan);
+    assert_eq!(m.len(), 1, "{m:?}");
+    assert!(
+        m[0].contains("huge.rs") && m[0].contains("\"line_number\":2"),
+        "{m:?}"
+    );
+    assert!(stdout(&scan).contains("\"matches\":1"));
+    let idx = f.indexed().run(&["hugeneedle", "--json=rg"]);
+    assert_eq!(idx.status.code(), Some(0), "{}", stdout(&idx));
+    assert_eq!(match_lines(&idx), m);
+}
+
+#[test]
+fn json_rg_keeps_an_explicit_max_filesize() {
+    let f = huge_fixture();
+    let args = ["hugeneedle", "--json=rg", "--max-filesize", "4194304"];
+    let scan = f.scan(&args);
+    f.indexed();
+    let idx = f.run(&args);
+    for o in [scan, idx] {
+        assert_eq!(o.status.code(), Some(1), "{}", stdout(&o));
+        assert!(match_lines(&o).is_empty());
+    }
+}
+
+#[test]
+fn text_search_keeps_the_4_mib_default() {
+    let f = huge_fixture();
+    let o = f.scan(&["hugeneedle"]);
+    let all = format!("{}{}", stdout(&o), String::from_utf8_lossy(&o.stderr));
+    assert_eq!(o.status.code(), Some(1), "{all}");
+    assert!(all.contains("1 huge"), "{all}");
+}
