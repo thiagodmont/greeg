@@ -388,7 +388,7 @@ pub fn impact_diff(o: &Options, spec: &DiffSpec) -> Result<DiffImpactResult> {
         so.use_index = use_index;
         so.fresh = greeg_index::fresh::Mode::None;
         let mut r = scan(&so)?;
-        let idxs: Vec<usize> = (0..r.files.len().min(400)).collect();
+        let idxs: Vec<usize> = (0..r.files.len()).collect();
         crate::refine(&mut r, &idxs);
         let (mut sites, mut values, mut weak) = (Vec::new(), Vec::new(), Vec::new());
         let (mut total, mut direct_total, mut values_total, mut edited, mut files) =

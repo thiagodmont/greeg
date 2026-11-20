@@ -3782,6 +3782,38 @@ fn impact_diff_loads_a_path_with_a_space() {
 }
 
 #[test]
+fn impact_diff_classifies_a_use_past_the_400th_file() {
+    let f = diff_fixture();
+    for i in 0..400 {
+        w(
+            &f.root.join(format!("s/a{i:03}.rs")),
+            "pub const S: &str = \"target\";\n",
+        );
+    }
+    w(&f.root.join("zz.rs"), "fn late() { target(1); }\n");
+    w(&f.root.join("defs.rs"), "pub fn target(_: u32) {}\n");
+    git(&f, &["add", "-A"]);
+    git(&f, &["commit", "-q", "-m", "many"]);
+    w(
+        &f.root.join("defs.rs"),
+        "pub fn target(_: u32, _b: u32) {}\n",
+    );
+
+    let o = f.run(&["impact", "--diff", "--json=greeg", "--budget", "0"]);
+    let out = String::from_utf8_lossy(&o.stdout).into_owned();
+    let uses: Vec<serde_json::Value> = json_lines(&out)
+        .iter()
+        .filter(|r| r["type"] == "change")
+        .flat_map(|r| r["data"]["uses"].as_array().unwrap().clone())
+        .collect();
+    let late = uses
+        .iter()
+        .find(|u| u["path"]["text"] == "zz.rs")
+        .unwrap_or_else(|| panic!("zz.rs use: {}", &out[..out.len().min(2000)]));
+    assert_eq!(late["container"], "late", "{late}");
+}
+
+#[test]
 fn impact_diff_lists_a_removed_function_named_as_a_value() {
     let f = diff_fixture();
     w(

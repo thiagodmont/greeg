@@ -82,6 +82,9 @@ pub struct Outcome {
     pub byte_cut: bool,
     /// Matching files the verb could not classify; none when there are none.
     pub no_grammar: Option<NoGrammar>,
+    /// A fixed limit, not the budget, left names out of the answer; it
+    /// leaves `complete()` alone and shows as `truncated_by: "cap"`.
+    pub capped: Option<&'static str>,
 }
 
 impl Outcome {
@@ -105,6 +108,7 @@ impl Outcome {
             deferred: r.stats.fresh_deferred,
             byte_cut: false,
             no_grammar: None,
+            capped: None,
         }
     }
 
@@ -121,9 +125,14 @@ impl Outcome {
         self.shown >= self.total
     }
 
-    /// What left results out of an incomplete answer: `budget` or `bytes`.
+    /// What left results out: `bytes` or `budget` when the answer is
+    /// incomplete, else `cap` when a fixed limit left names out.
     pub fn truncated_by(&self) -> Option<&'static str> {
-        (!self.complete()).then_some(if self.byte_cut { "bytes" } else { "budget" })
+        if self.complete() {
+            self.capped.map(|_| "cap")
+        } else {
+            Some(if self.byte_cut { "bytes" } else { "budget" })
+        }
     }
 
     pub fn exit_code(&self) -> i32 {
@@ -145,6 +154,7 @@ mod tests {
             deferred: 0,
             byte_cut: false,
             no_grammar: None,
+            capped: None,
         }
     }
 
@@ -179,5 +189,16 @@ mod tests {
         let ng = NoGrammar::of_paths(text.into_iter().chain([&b"go/x.go"[..]])).unwrap();
         assert_eq!(ng.files, 1);
         assert_eq!(ng.languages, ["go"]);
+    }
+
+    #[test]
+    fn a_fixed_limit_is_a_cap_that_leaves_the_counts_complete() {
+        let capped = Outcome {
+            capped: Some("called by: first 12 callers, 12 names each"),
+            ..outcome(3, Rung::Exact)
+        };
+        assert!(capped.complete());
+        assert_eq!(capped.truncated_by(), Some("cap"));
+        assert_eq!(outcome(3, Rung::Exact).truncated_by(), None);
     }
 }
