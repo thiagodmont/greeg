@@ -1,0 +1,25 @@
+crates/greeg/src/main.rs
+  s_3a191be274475a::t_ded43cfc8d731b 181-184,1015-1019
+crates/greeg/tests/known_gaps.rs
+  s_3a191be274475a::t_56a09fb0f18480 2249-2307
+references/ARCHITECTURE.md
+  s_3a191be274475a::t_85705a9ce56a4f 964-965
+references/JSON.md
+  s_3a191be274475a::t_7eb1d7e1dc32e0 8
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "05df687ef59f8263ee3c3810ba0c0ec9334ec28f",
+  "prompts": {},
+  "sessions": {
+    "s_3a191be274475a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "dfea36bf-ff8b-4338-be1e-785be7bbbafd",
+        "model": "unknown"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
