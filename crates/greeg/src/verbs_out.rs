@@ -7,7 +7,9 @@ use anyhow::Result;
 use greeg_lang::sym::{SYM_EXPORTED, SYM_HAS_DOC, SYM_TEST};
 use greeg_lang::{DefKind, FileFlags};
 use greeg_query::change::{DefChange, DiffSpec};
-use greeg_query::impact_diff::{DefImpact, DiffImpactResult, Site, direct, impact_diff};
+use greeg_query::impact_diff::{
+    DefImpact, DiffImpactResult, Site, direct, impact_diff, is_value_use,
+};
 use greeg_query::indexed::answered;
 use greeg_query::outcome::Outcome;
 use greeg_query::verbs::{self, DefEntry};
@@ -2211,12 +2213,25 @@ fn write_def_impact(
         writeln!(w, "    no use of {old} to update{edited}")?;
     }
     let shown = &imp.sites[..cap.min(imp.sites.len())];
-    let (strong, weak): (Vec<&Site>, Vec<&Site>) = if d.change == DefChange::Body {
+    let (direct_sites, weak): (Vec<&Site>, Vec<&Site>) = if d.change == DefChange::Body {
         (shown.iter().collect(), Vec::new())
     } else {
         shown.iter().partition(|s| direct(d, s.kind))
     };
+    let (values, strong): (Vec<&Site>, Vec<&Site>) = direct_sites
+        .into_iter()
+        .partition(|s| is_value_use(d, s.kind));
     write_sites(w, c, &strong)?;
+    if !values.is_empty() {
+        let n = imp.values_total;
+        writeln!(
+            w,
+            "    {} use{} of {old} named as a value",
+            fmt_n(n),
+            plural(n)
+        )?;
+        write_sites(w, c, &values)?;
+    }
     if !weak.is_empty() {
         let other = imp.sites_total - imp.direct_total;
         let mut kinds: Vec<&str> = weak.iter().map(|s| s.kind.name()).collect();

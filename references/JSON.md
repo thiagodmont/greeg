@@ -220,12 +220,16 @@ signature, body), `from` (a renamed definition's old name),
 `edited` (uses on the changed lines, left out), `uses`,
 `other_definitions` (`[path, line, kind]`), `other_definitions_total` and
 `uses_as_for` (`[path, line]` of the change whose record lists the same
-old name's uses). Each use has `path`, `line`, `kind`, `direct` (the
-change breaks or may break it), `text`, `container` and `file_flags`. The
-budget cuts the uses, a few at a time from every change. Footer: `base`,
-`commit`, `merge_base`, `staged_only`, `files`, `definitions`,
-`unsearched`, `elapsed_ms`, `outcome` (`total` counts changed files and
-uses).
+old name's uses). A removed or renamed function, macro or type also lists
+the uses where its name appears as a value (a callback argument, a list
+element, `isinstance(x, T)`): kind `ident`, `direct: true`. A binding of
+the name (`let x`, `for x in`, `as x`, `x = 0`, a parameter) declares a
+local and is not counted. Each use has `path`, `line`, `kind`, `direct`
+(the change breaks or may break it), `text`, `container` and
+`file_flags`. The budget cuts the uses, a few at a time from every change.
+Footer: `base`, `commit`, `merge_base`, `staged_only`, `files`,
+`definitions`, `unsearched`, `elapsed_ms`, `outcome` (`total` counts
+changed files and uses).
 
 **`show`** records: `path`, `line` (as asked), `symbol` (the enclosing
 definition or null), `start_line`, `end_line`, `shown_to`, `clipped`, `text`

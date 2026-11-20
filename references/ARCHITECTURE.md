@@ -800,7 +800,17 @@ the only added definition of a kind in one scope count as a rename.
 `impact_diff.rs` then searches each breaking change's old name with the
 kinds that can depend on its definition, skips the hits on changed lines,
 and lists other definitions of the name: a use found by name may be of any
-of them. A string hit inside an interpolation (`${…}`, a Python f-string's
+of them. A removed or renamed function, macro or type also counts its name
+used as a value (`ident` hits: a callback argument, a list element,
+`isinstance(x, T)`, a unit struct expression, except on a line that holds an
+import and on a binding site: after `let`, `let mut`, `val`, `var`, `for` or
+`as`, before an assignment `=`, or a top-level parameter in the parameter
+list of a `def`, `fn`, `fun` or `function` line, but not a pattern such as
+`let Point { x, .. }`; a binding line counts only through another
+occurrence of the name, classified as its own kind); these uses are
+`direct` and the text lists them under
+`named as a value`, counted before the site list is cut. A method is never
+named by a bare identifier, so its `ident` hits are not searched. A string hit inside an interpolation (`${…}`, a Python f-string's
 `{…}`) counts as code.
 
 `find` answers a question in plain words from the same index, with no
