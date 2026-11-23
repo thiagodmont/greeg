@@ -1,0 +1,28 @@
+crates/greeg/tests/known_gaps.rs
+  s_74f03d815658cc::t_60464b8585fcb2 2585
+  s_74f03d815658cc::t_d2c9e69a1f9025 2592-2593,2607-2634
+references/JSON.md
+  s_74f03d815658cc::t_f2f84dbfda5086 65,99-100
+  s_74f03d815658cc::t_c9716024a3b480 66-68
+crates/greeg/tests/cli.rs
+  s_74f03d815658cc::t_5940f7fedb23ea 1910-1911,1914-1916
+  s_74f03d815658cc::t_fc5d350c3996d8 1923-1925
+crates/greeg-query/src/verbs.rs
+  s_74f03d815658cc::t_9a8c6b947c288a 2206-2209
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f6d3e0dccc47c0e950904ca049f2f030784efe1d",
+  "prompts": {},
+  "sessions": {
+    "s_74f03d815658cc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ed0cbd15-a9c9-4b01-aaf3-c4a30a3f6cc1",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
