@@ -212,6 +212,14 @@ mod tests {
         assert!(capped.complete());
         assert_eq!(capped.truncated_by(), Some("cap"));
         assert_eq!(outcome(3, Rung::Exact).truncated_by(), None);
+        let cut = Outcome { shown: 1, ..capped };
+        assert!(!cut.complete());
+        assert_eq!(cut.truncated_by(), Some("budget"));
+        let cut = Outcome {
+            byte_cut: true,
+            ..cut
+        };
+        assert_eq!(cut.truncated_by(), Some("bytes"));
     }
 
     #[test]

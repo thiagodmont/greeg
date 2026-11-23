@@ -954,7 +954,8 @@ paths and content as `{"text"}` or `{"bytes"}`, each file's encoding and
 offset coordinates, and an `outcome` in every footer. A non-zero `--budget`
 bounds its own estimated tokens once its smallest answer fits (that answer is
 written regardless), `--budget 0` writes everything, and
-`outcome.truncated_by` says when the budget cut it. Serde structs in `json_native.rs` define it.
+`outcome.truncated_by` says what cut it: the budget, `--max-bytes`, or a
+verb's fixed limit (`cap`). Serde structs in `json_native.rs` define it.
 
 Bare `--json` is `--json=greeg` for searches and the symbol verbs; commands
 with a JSON report of their own (`stats`, `index --status`) keep it.
