@@ -1,0 +1,14 @@
+.gitignore
+  h_5539fd3470b479 6
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "667979468df2418ef408435423a80c1dda0bb47c",
+  "prompts": {},
+  "humans": {
+    "h_5539fd3470b479": {
+      "author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
