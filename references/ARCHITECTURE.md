@@ -340,7 +340,9 @@ relaxed rung found), and 2 for errors, including output-write failures such
 as a closed pipe. One typed outcome decides the status in every format:
 eligible results (`total`), results shown, the rung, the source and the
 freshness check. JSON footers carry it as an `outcome` object with the exit
-status it implies; `complete` is false only when a budget left results out.
+status it implies; `complete` is false when the budget or `--max-bytes` left
+results out, when depth-2 `callers` (also run by `impact NAME`) leaves names
+out under its fixed limit, or when `show` clips a body.
 Stdin always uses exact matching and rejects explicit discovery. JSON keeps
 its existing summary/footer records on a miss, without match records.
 
@@ -862,8 +864,9 @@ it:
 Symbol verbs, `outline` and `map` end the same way, with one outcome line
 before `next:`. It names what the budget cut (`3/23 definitions`, `4/14
 directories · 5/378 files`), a relaxed match, an unchecked index, files
-skipped for exceeding `--max-filesize` (`skipped 1 huge file`), and how to
-see the rest (`raise --budget`). A complete, exact, checked answer has no
+skipped for exceeding `--max-filesize` (`skipped 1 huge file`), names a
+fixed limit left out (`called by: first 12 callers, 12 names each`), and how
+to see the rest (`raise --budget`). A complete, exact, checked answer has no
 outcome line. Inside the answer, a cut group ends with `+N more` where its
 rows stop. `show` states a clipped body inside it (`… N more lines to L`),
 and its outcome line only reports an unchecked index.
