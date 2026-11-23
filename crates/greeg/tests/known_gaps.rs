@@ -2306,19 +2306,214 @@ fn text_search_keeps_the_4_mib_default() {
     assert!(all.contains("1 huge"), "{all}");
 }
 
-fn footer(o: &Output) -> serde_json::Value {
-    stdout(o)
-        .lines()
-        .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
-        .rfind(|v| v["type"] == "footer")
-        .unwrap_or_else(|| panic!("no footer: {o:?}"))
+/// A file one byte over the 4 MiB default: a comment line, then a definition
+/// on line 2 and a function calling it on line 3, then blank padding. The
+/// padding keeps the file's head from reading as minified, which no verb
+/// classifies at any limit.
+fn huge_defs_fixture() -> Fixture {
+    let mut body = b"// padding\nfn hugeneedle() {}\nfn hugecaller() { hugeneedle(); }\n".to_vec();
+    body.resize((4 << 20) + 1, b'\n');
+    assert_eq!(body.len(), (4 << 20) + 1);
+    let f = Fixture::new(&[]);
+    w(&f.root.join("huge.rs"), body);
+    f
 }
 
-fn records(o: &Output, kind: &str) -> Vec<serde_json::Value> {
+const RAISED: [&str; 2] = ["--max-filesize", "100000000"];
+
+fn json_records(o: &Output, kind: &str) -> Vec<serde_json::Value> {
     stdout(o)
         .lines()
         .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
         .filter(|v| v["type"] == kind)
+        .map(|v| v["data"].clone())
+        .collect()
+}
+
+fn footer(o: &Output) -> serde_json::Value {
+    json_records(o, "footer").pop().expect("a footer record")
+}
+
+/// Both backends' answers to `args` with `--json`, scan first.
+fn both(f: &Fixture, args: &[&str]) -> [Output; 2] {
+    let mut a = args.to_vec();
+    a.push("--json");
+    [f.scan(&a), f.indexed().run(&a)]
+}
+
+fn skipped_huge(o: &Output) -> Option<u64> {
+    footer(o)["skipped_huge"].as_u64()
+}
+
+#[test]
+fn def_discloses_a_huge_file_in_both_backends() {
+    let f = huge_defs_fixture();
+    let text = [
+        f.scan(&["def", "hugeneedle"]),
+        f.indexed().run(&["def", "hugeneedle"]),
+    ];
+    for o in &text {
+        assert_eq!(o.status.code(), Some(1), "{}", stdout(o));
+        assert!(stdout(o).contains("skipped 1 huge file"), "{}", stdout(o));
+    }
+    for o in both(&f, &["def", "hugeneedle"]) {
+        assert_eq!(o.status.code(), Some(1), "{}", stdout(&o));
+        assert!(json_records(&o, "def").is_empty());
+        assert_eq!(skipped_huge(&o), Some(1), "{}", stdout(&o));
+    }
+}
+
+#[test]
+fn footers_omit_skipped_huge_without_a_huge_file() {
+    let f = Fixture::new(&[("a.rs", "fn small() { small(); }\n")]);
+    f.indexed();
+    for verb in [
+        vec!["def", "small"],
+        vec!["refs", "small"],
+        vec!["callers", "small"],
+        vec!["impls", "small"],
+        vec!["outline", "a.rs"],
+    ] {
+        let mut a = verb.clone();
+        a.push("--json");
+        for o in [f.scan(&a), f.run(&a)] {
+            assert!(footer(&o).get("skipped_huge").is_none(), "{verb:?}");
+        }
+    }
+}
+
+#[test]
+fn raised_limit_def_finds_a_huge_file_definition_in_both_backends() {
+    let f = huge_defs_fixture();
+    let mut args = vec!["def", "hugeneedle"];
+    args.extend(RAISED);
+    let mut found = Vec::new();
+    for o in both(&f, &args) {
+        assert_eq!(o.status.code(), Some(0), "{}", stdout(&o));
+        let defs = json_records(&o, "def");
+        assert_eq!(defs.len(), 1, "{}", stdout(&o));
+        assert_eq!(defs[0]["path"]["text"], "huge.rs");
+        assert_eq!(defs[0]["line"], 2);
+        assert_eq!(defs[0]["kind"], "fn");
+        assert_eq!(skipped_huge(&o), None);
+        found.push(
+            defs.iter()
+                .map(|d| {
+                    (
+                        d["path"]["text"].clone(),
+                        d["line"].clone(),
+                        d["kind"].clone(),
+                    )
+                })
+                .collect::<Vec<_>>(),
+        );
+    }
+    assert_eq!(found[0], found[1]);
+}
+
+#[test]
+fn refs_and_callers_disclose_a_huge_file_in_both_backends() {
+    let f = huge_defs_fixture();
+    for verb in ["refs", "callers"] {
+        for o in both(&f, &[verb, "hugeneedle"]) {
+            let out = stdout(&o);
+            assert_eq!(footer(&o)["outcome"]["total"], 0, "{verb}: {out}");
+            assert_eq!(skipped_huge(&o), Some(1), "{verb}: {out}");
+        }
+    }
+}
+
+#[test]
+fn impls_discloses_a_huge_file_in_both_backends() {
+    let f = huge_defs_fixture();
+    for o in both(&f, &["impls", "hugeneedle"]) {
+        assert_eq!(skipped_huge(&o), Some(1), "{}", stdout(&o));
+    }
+}
+
+#[test]
+fn raised_limit_refs_classify_a_huge_file_by_the_scan_rules() {
+    let f = huge_defs_fixture();
+    let mut args = vec!["refs", "hugeneedle"];
+    args.extend(RAISED);
+    let mut seen = Vec::new();
+    for o in both(&f, &args) {
+        let hits: Vec<(String, u64, String)> = json_records(&o, "ref")
+            .iter()
+            .map(|r| {
+                (
+                    r["path"]["text"].as_str().unwrap().to_string(),
+                    r["line"].as_u64().unwrap(),
+                    r["kind"].as_str().unwrap().to_string(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            hits,
+            [
+                ("huge.rs".to_string(), 2, "def".to_string()),
+                ("huge.rs".to_string(), 3, "call".to_string())
+            ],
+            "{}",
+            stdout(&o)
+        );
+        seen.push(hits);
+    }
+    assert_eq!(seen[0], seen[1]);
+}
+
+#[test]
+fn raised_limit_callers_lists_the_function_in_a_huge_file() {
+    let f = huge_defs_fixture();
+    let mut args = vec!["callers", "hugeneedle"];
+    args.extend(RAISED);
+    for o in both(&f, &args) {
+        let c = json_records(&o, "caller");
+        assert_eq!(c.len(), 1, "{}", stdout(&o));
+        assert_eq!(c[0]["path"]["text"], "huge.rs");
+        assert_eq!(c[0]["symbol"], "hugecaller");
+        assert_eq!(c[0]["lines"], serde_json::json!([3]));
+    }
+}
+
+#[test]
+fn outline_honors_max_filesize_in_both_backends() {
+    let f = huge_defs_fixture();
+    for o in both(&f, &["outline", "huge.rs"]) {
+        assert!(json_records(&o, "symbol").is_empty(), "{}", stdout(&o));
+        assert_eq!(skipped_huge(&o), Some(1), "{}", stdout(&o));
+    }
+    let mut args = vec!["outline", "huge.rs"];
+    args.extend(RAISED);
+    for o in both(&f, &args) {
+        let syms: Vec<(String, u64)> = json_records(&o, "symbol")
+            .iter()
+            .map(|s| {
+                (
+                    s["name"].as_str().unwrap().to_string(),
+                    s["line"].as_u64().unwrap(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            syms,
+            [("hugeneedle".to_string(), 2), ("hugecaller".to_string(), 3)],
+            "{}",
+            stdout(&o)
+        );
+        assert_eq!(skipped_huge(&o), None);
+    }
+}
+
+fn outline_symbols(o: &Output) -> Vec<(String, u64)> {
+    json_records(o, "symbol")
+        .iter()
+        .map(|s| {
+            (
+                s["name"].as_str().unwrap().to_string(),
+                s["line"].as_u64().unwrap(),
+            )
+        })
         .collect()
 }
 
@@ -2347,9 +2542,13 @@ fn callers_classifies_every_matching_file() {
     assert_eq!(rows(&indexed), rows(&scan));
 
     let json = f.scan(&["callers", "target", "--budget", "0", "--json=greeg"]);
-    let callers = records(&json, "caller");
+    let callers = json_records(&json, "caller");
     assert_eq!(callers.len(), 401);
-    assert!(callers.iter().all(|c| c["data"]["symbol"] != ""));
+    assert!(
+        callers
+            .iter()
+            .all(|c| c["symbol"].as_str().is_some_and(|s| !s.is_empty()))
+    );
 }
 
 #[test]
@@ -2381,17 +2580,17 @@ fn depth_two_callers_read_every_file_of_a_callers_search() {
         "0",
         "--json=greeg",
     ]);
-    let hub = records(&o, "caller")
+    let hub = json_records(&o, "caller")
         .into_iter()
         .find(|c| {
-            c["data"]["symbol"]
+            c["symbol"]
                 .as_str()
                 .is_some_and(|s| s.ends_with("hub"))
         })
         .unwrap_or_else(|| panic!("{}", stdout(&o)));
-    let by = hub["data"]["called_by"].to_string();
+    let by = hub["called_by"].to_string();
     assert!(by.contains("same") && by.contains("other"), "{by}");
-    assert_eq!(footer(&o)["data"]["outcome"]["complete"], true);
+    assert_eq!(footer(&o)["outcome"]["complete"], true);
 }
 
 #[test]
@@ -2421,7 +2620,7 @@ fn depth_two_callers_say_when_a_fixed_limit_left_names_out() {
         "--json=greeg",
     ]);
     assert_eq!(o.status.code(), Some(0));
-    let oc = footer(&o)["data"]["outcome"].clone();
+    let oc = footer(&o)["outcome"].clone();
     assert_eq!(oc["complete"], false, "{oc}");
     assert_eq!(oc["truncated_by"], "cap", "{oc}");
 
@@ -2443,7 +2642,32 @@ fn depth_two_callers_say_when_a_fixed_limit_left_names_out() {
         "--json=greeg",
     ]);
     assert_eq!(o.status.code(), Some(0));
-    let oc = footer(&o)["data"]["outcome"].clone();
+    let oc = footer(&o)["outcome"].clone();
     assert_eq!(oc["complete"], true, "{oc}");
     assert!(oc["truncated_by"].is_null(), "{oc}");
+}
+
+#[test]
+fn outline_honors_a_lowered_max_filesize_under_the_index_cap_in_both_backends() {
+    let mut body = b"// padding\nfn bigneedle() {}\nfn bigcaller() { bigneedle(); }\n".to_vec();
+    body.resize(50_000, b'\n');
+    let f = Fixture::new(&[]);
+    w(&f.root.join("big.rs"), body);
+    for o in both(&f, &["outline", "big.rs", "--max-filesize", "1000"]) {
+        assert!(json_records(&o, "symbol").is_empty(), "{}", stdout(&o));
+        assert_eq!(skipped_huge(&o), Some(1), "{}", stdout(&o));
+    }
+    let mut seen = Vec::new();
+    for o in both(&f, &["outline", "big.rs"]) {
+        let syms = outline_symbols(&o);
+        assert_eq!(
+            syms,
+            [("bigneedle".to_string(), 2), ("bigcaller".to_string(), 3)],
+            "{}",
+            stdout(&o)
+        );
+        assert_eq!(skipped_huge(&o), None, "{}", stdout(&o));
+        seen.push(syms);
+    }
+    assert_eq!(seen[0], seen[1]);
 }

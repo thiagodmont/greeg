@@ -432,6 +432,8 @@ struct DefFooter<'a> {
     outcome: OutcomeRec,
     #[serde(skip_serializing_if = "Option::is_none")]
     no_grammar: Option<NoGrammarRec<'a>>,
+    #[serde(skip_serializing_if = "is_zero")]
+    skipped_huge: usize,
 }
 
 /// The first `shown` entries and `suggestions` near names.
@@ -456,6 +458,7 @@ pub(crate) fn defs(
             elapsed_ms: r3(r.elapsed_ms),
             outcome: OutcomeRec::of(oc),
             no_grammar: NoGrammarRec::of(oc),
+            skipped_huge: oc.skipped_huge,
         },
     )
 }
@@ -476,6 +479,8 @@ struct ImplsFooter<'a> {
     outcome: OutcomeRec,
     #[serde(skip_serializing_if = "Option::is_none")]
     no_grammar: Option<NoGrammarRec<'a>>,
+    #[serde(skip_serializing_if = "is_zero")]
+    skipped_huge: usize,
 }
 
 pub(crate) fn impls(
@@ -508,6 +513,7 @@ pub(crate) fn impls(
             elapsed_ms: r3(r.elapsed_ms),
             outcome: OutcomeRec::of(oc),
             no_grammar: NoGrammarRec::of(oc),
+            skipped_huge: oc.skipped_huge,
         },
     )
 }
@@ -535,6 +541,8 @@ struct RefsFooter<'a> {
     outcome: OutcomeRec,
     #[serde(skip_serializing_if = "Option::is_none")]
     no_grammar: Option<NoGrammarRec<'a>>,
+    #[serde(skip_serializing_if = "is_zero")]
+    skipped_huge: usize,
 }
 
 /// The first `defs` definitions; `shown` holds the hits shown, by file and
@@ -583,6 +591,7 @@ pub(crate) fn refs(
             elapsed_ms: r3(s.stats.elapsed_ms),
             outcome: OutcomeRec::of(oc),
             no_grammar: NoGrammarRec::of(oc),
+            skipped_huge: oc.skipped_huge,
         },
     )
 }
@@ -621,6 +630,8 @@ struct CallersFooter<'a> {
     outcome: OutcomeRec,
     #[serde(skip_serializing_if = "Option::is_none")]
     no_grammar: Option<NoGrammarRec<'a>>,
+    #[serde(skip_serializing_if = "is_zero")]
+    skipped_huge: usize,
 }
 
 pub(crate) fn callers(
@@ -643,6 +654,7 @@ pub(crate) fn callers(
             elapsed_ms: r3(r.elapsed_ms),
             outcome: OutcomeRec::of(oc),
             no_grammar: NoGrammarRec::of(oc),
+            skipped_huge: oc.skipped_huge,
         },
     )
 }
@@ -727,6 +739,8 @@ struct OutlineFooter<'a> {
     outcome: OutcomeRec,
     #[serde(skip_serializing_if = "Option::is_none")]
     no_grammar: Option<NoGrammarRec<'a>>,
+    #[serde(skip_serializing_if = "is_zero")]
+    skipped_huge: usize,
 }
 
 /// The first `shown` symbols.
@@ -763,6 +777,7 @@ pub(crate) fn outline(
             elapsed_ms: r3(r.elapsed_ms),
             outcome: OutcomeRec::answered(oc, shown == r.defs.len()),
             no_grammar: NoGrammarRec::of(oc),
+            skipped_huge: oc.skipped_huge,
         },
     )
 }

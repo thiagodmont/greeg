@@ -944,7 +944,13 @@ pub(crate) fn try_index(
         let path: PathBuf = root.join(greeg_index::rel::as_path(rel));
         // an indexed file classifies from its span tables; one
         // without them, like a changed file, by the scan rules
-        let spans = if use_spans && !changed {
+        // (a huge file holds none, whatever the limit: the scan rules read it)
+        let spans = if use_spans
+            && !changed
+            && !idx
+                .rec(*id)
+                .is_some_and(|r| FileFlags(r.flags).has(FileFlags::HUGE))
+        {
             idx.symbols_of(*id)
         } else {
             None

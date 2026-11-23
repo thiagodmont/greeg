@@ -179,21 +179,21 @@ unbudgeted answers (`-l`, `-c`, `--budget 0`) keep the text's estimate.
 `generated`, `vendored`), `supertypes`, `score`, `reach`, `start` and `end`
 (byte offsets of the definition). Footer: `name`, `suggestions` (near names
 when nothing matched, cut to the budget), `suggestions_total`, `elapsed_ms`,
-`outcome`.
+`outcome`, `skipped_huge`.
 
 **`impl`** records (`impls`): a `def` record's fields plus `confidence`
 (`high` for a direct implementation, `low` for a type-position use). Footer:
-`name`, `direct`, `extras`, `elapsed_ms`, `outcome`.
+`name`, `direct`, `extras`, `elapsed_ms`, `outcome`, `skipped_huge`.
 
 **`ref`** records (`refs`, after its `def` records): `kind`, `path`, `line`,
 `text` (`Text`), `symbol` (enclosing definition), `file_flags`, `score`.
 Footer: `name`, `definitions_total` (at least three of them are listed when
 there are; more as the budget allows), `files_total`, `by_kind`, `resolved`,
-`classified`, `elapsed_ms`, `outcome`.
+`classified`, `elapsed_ms`, `outcome`, `skipped_huge`.
 
 **`caller`** records (`callers`): `path`, `symbol`, `kind`, `def_line`, `count`,
 `lines`, `file_flags`, `called_by`. Footer: `name`, `call_sites`, `files`,
-`elapsed_ms`, `outcome`.
+`elapsed_ms`, `outcome`, `skipped_huge`.
 
 **`impact`**, one record: `name`, `definitions` (`def` records' fields), the
 files that use the name in three groups, `import_graph`, and `callers`
@@ -237,7 +237,15 @@ definition or null), `start_line`, `end_line`, `shown_to`, `clipped`, `text`
 
 **`symbol`** records (`outline`): `name`, `kind`, `line`, `start`, `end`,
 `container`, `depth`, `flags`. Footer: `path`, `imports`, `parse_errors`,
-`elapsed_ms`, `outcome`.
+`elapsed_ms`, `outcome`, `skipped_huge`.
+
+`skipped_huge` in the footers of `def`, `impl`, `ref`, `caller` and `symbol`
+records counts the files over `--max-filesize` (4 MiB by default) that the
+verb did not read. The key is left out when it is 0. Raise `--max-filesize`
+to read them: `def`, `refs`, `callers` and `outline` then give the same
+answer from the index and from a scan. `impls` still skips such files as
+implementors, in both backends. `outline` of a file over the limit lists no
+symbols and reports `skipped_huge` 1.
 
 **`dir`** and **`file`** records (`map`): `dir` has `path`, `files`,
 `symbols`, `rank`; `file` has `path`, `rank`, `symbols`, `imported_by`,
