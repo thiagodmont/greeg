@@ -2407,6 +2407,23 @@ pub fn refine(r: &mut ScanResult, indices: &[usize]) {
     r.stats.refine_ms += t.elapsed().as_secs_f64() * 1e3;
 }
 
+/// Refine every file a batch at a time, handing each to `each` and then
+/// dropping its source, so memory holds one batch of files, not all of them.
+pub fn refine_each(r: &mut ScanResult, mut each: impl FnMut(&mut FileResult)) {
+    const BATCH: usize = 256;
+    let mut start = 0;
+    while start < r.files.len() {
+        let end = (start + BATCH).min(r.files.len());
+        let idxs: Vec<usize> = (start..end).collect();
+        refine(r, &idxs);
+        for f in &mut r.files[start..end] {
+            each(f);
+            f.src = None;
+        }
+        start = end;
+    }
+}
+
 #[derive(Default)]
 pub(crate) struct StatsAcc {
     pub(crate) searched: AtomicUsize,

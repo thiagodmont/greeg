@@ -388,8 +388,6 @@ pub fn impact_diff(o: &Options, spec: &DiffSpec) -> Result<DiffImpactResult> {
         so.use_index = use_index;
         so.fresh = greeg_index::fresh::Mode::None;
         let mut r = scan(&so)?;
-        let idxs: Vec<usize> = (0..r.files.len()).collect();
-        crate::refine(&mut r, &idxs);
         let (mut sites, mut values, mut weak) = (Vec::new(), Vec::new(), Vec::new());
         let (mut total, mut direct_total, mut values_total, mut edited, mut files) =
             (0usize, 0usize, 0usize, 0usize, 0usize);
@@ -399,7 +397,7 @@ pub fn impact_diff(o: &Options, spec: &DiffSpec) -> Result<DiffImpactResult> {
             let end = (h.match_end - h.line_start) as usize;
             is_value_use(d, kind) && binding(&h.raw, h.column() as usize, end)
         };
-        for f in &mut r.files {
+        crate::refine_each(&mut r, |f| {
             if f.hits
                 .iter()
                 .any(|h| code_kind(h).is_some_and(|k| binds(h, k)))
@@ -462,7 +460,7 @@ pub fn impact_diff(o: &Options, spec: &DiffSpec) -> Result<DiffImpactResult> {
                     weak.push(site);
                 }
             }
-        }
+        });
         sites.append(&mut values);
         sites.append(&mut weak);
         sites.truncate(MAX_SITES);

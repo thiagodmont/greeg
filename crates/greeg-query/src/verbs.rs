@@ -950,6 +950,9 @@ fn called_by_names(r: &mut ScanResult, cname: &str) -> (Vec<String>, bool) {
                 }
             }
         }
+        for f in &mut r.files[start..end] {
+            f.src = None;
+        }
         start = end;
     }
     (names, false)
@@ -966,13 +969,11 @@ pub fn callers(o: &Options, name: &str, depth: usize) -> Result<CallersResult> {
     so.mode = Mode::Content;
     so.budget = 0;
     let mut r = scan(&so)?;
-    let idxs: Vec<usize> = (0..r.files.len()).collect();
-    crate::refine(&mut r, &idxs);
     let mut map: BTreeMap<(Vec<u8>, Option<u32>), Caller> = BTreeMap::new();
     let mut total = 0usize;
-    for f in &r.files {
+    crate::refine_each(&mut r, |f| {
         if !f.lang.has_grammar() {
-            continue;
+            return;
         }
         for h in &f.hits {
             if h.kind != HitKind::Call && h.kind != HitKind::Member {
@@ -1008,7 +1009,7 @@ pub fn callers(o: &Options, name: &str, depth: usize) -> Result<CallersResult> {
                 e.lines.push(h.line);
             }
         }
-    }
+    });
     let mut callers: Vec<Caller> = map.into_values().collect();
     callers.sort_by(|a, b| {
         (b.score * (1.0 + (b.count as f32).ln()))
