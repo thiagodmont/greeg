@@ -82,6 +82,8 @@ pub struct Outcome {
     pub byte_cut: bool,
     /// Matching files the verb could not classify; none when there are none.
     pub no_grammar: Option<NoGrammar>,
+    /// Files over `--max-filesize` that were not read.
+    pub skipped_huge: usize,
 }
 
 impl Outcome {
@@ -105,12 +107,21 @@ impl Outcome {
             deferred: r.stats.fresh_deferred,
             byte_cut: false,
             no_grammar: None,
+            skipped_huge: r.stats.skipped_huge,
         }
     }
 
     /// The same outcome, noting files without a grammar.
     pub fn with_no_grammar(self, no_grammar: Option<NoGrammar>) -> Outcome {
         Outcome { no_grammar, ..self }
+    }
+
+    /// The same outcome, counting the files `--max-filesize` skipped.
+    pub fn with_skipped_huge(self, skipped_huge: usize) -> Outcome {
+        Outcome {
+            skipped_huge,
+            ..self
+        }
     }
 
     pub fn exact(&self) -> bool {
@@ -145,6 +156,7 @@ mod tests {
             deferred: 0,
             byte_cut: false,
             no_grammar: None,
+            skipped_huge: 0,
         }
     }
 
@@ -179,5 +191,26 @@ mod tests {
         let ng = NoGrammar::of_paths(text.into_iter().chain([&b"go/x.go"[..]])).unwrap();
         assert_eq!(ng.files, 1);
         assert_eq!(ng.languages, ["go"]);
+    }
+
+    #[test]
+    fn of_search_copies_the_skipped_huge_count() {
+        let r = ScanResult {
+            opts: crate::Options::default(),
+            files: Vec::new(),
+            stats: crate::Stats {
+                skipped_huge: 2,
+                ..Default::default()
+            },
+            rung: Rung::Exact,
+            ignored_only: None,
+            ignored_partial: false,
+            related_index: Vec::new(),
+        };
+        assert_eq!(Outcome::of_search(&r, 0).skipped_huge, 2);
+        assert_eq!(
+            Outcome::of_search(&r, 0).with_skipped_huge(5).skipped_huge,
+            5
+        );
     }
 }
