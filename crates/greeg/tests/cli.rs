@@ -1907,16 +1907,22 @@ fn json_fits_its_budget() {
                 let oc = &footer["data"]["outcome"];
                 // `show` is also incomplete when it clips a body
                 let cut = oc["complete"] == false;
-                if oc["shown"].as_u64() < oc["total"].as_u64() {
+                let all_shown = oc["shown"].as_u64() >= oc["total"].as_u64();
+                if !all_shown {
                     assert!(cut, "{}", ctx());
                 }
+                // `impact` runs depth-2 `callers`, whose fixed limit the
+                // fixture's 17 callers exceed
+                let capped = q[0] == "impact" && all_shown;
                 // every answer grows past its floor when the budget allows
                 if budget == 4000 {
                     assert!(!is_floor && est(&out) > floor, "{}", ctx());
                 }
                 assert_eq!(
                     oc["truncated_by"],
-                    if cut {
+                    if capped {
+                        serde_json::json!("cap")
+                    } else if cut {
                         serde_json::json!("budget")
                     } else {
                         serde_json::Value::Null

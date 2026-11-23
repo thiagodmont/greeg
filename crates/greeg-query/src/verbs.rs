@@ -2203,7 +2203,10 @@ pub fn impact(o: &Options, name: &str) -> Result<ImpactResult> {
     co.matching = crate::MatchingPolicy::Exact;
     let callers = callers(&co, name, 2)?;
     Ok(ImpactResult {
-        outcome: Outcome::of_search(&r.scan, 0),
+        outcome: Outcome {
+            capped: callers.outcome.capped,
+            ..Outcome::of_search(&r.scan, 0)
+        },
         name: name.to_string(),
         defs: r.defs,
         defs_total: r.defs_total,

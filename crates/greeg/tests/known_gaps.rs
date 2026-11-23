@@ -2582,19 +2582,15 @@ fn depth_two_callers_read_every_file_of_a_callers_search() {
     ]);
     let hub = json_records(&o, "caller")
         .into_iter()
-        .find(|c| {
-            c["symbol"]
-                .as_str()
-                .is_some_and(|s| s.ends_with("hub"))
-        })
+        .find(|c| c["symbol"].as_str().is_some_and(|s| s.ends_with("hub")))
         .unwrap_or_else(|| panic!("{}", stdout(&o)));
     let by = hub["called_by"].to_string();
     assert!(by.contains("same") && by.contains("other"), "{by}");
     assert_eq!(footer(&o)["outcome"]["complete"], true);
 }
 
-#[test]
-fn depth_two_callers_say_when_a_fixed_limit_left_names_out() {
+/// Thirteen functions call `target`, one more than depth 2 expands.
+fn thirteen_callers_fixture() -> Fixture {
     let files: Vec<(String, String)> = (0..13)
         .map(|i| {
             (
@@ -2608,7 +2604,34 @@ fn depth_two_callers_say_when_a_fixed_limit_left_names_out() {
         .iter()
         .map(|(a, b)| (a.as_str(), b.as_str()))
         .collect();
-    let f = Fixture::new(&refs);
+    Fixture::new(&refs)
+}
+
+#[test]
+fn impact_says_when_its_depth_two_callers_left_names_out() {
+    let f = thirteen_callers_fixture();
+    for o in both(&f, &["impact", "target", "--budget", "0"]) {
+        assert_eq!(o.status.code(), Some(0), "{}", stdout(&o));
+        let oc = footer(&o)["outcome"].clone();
+        assert_eq!(oc["complete"], false, "{oc}");
+        assert_eq!(oc["truncated_by"], "cap", "{oc}");
+    }
+    let text = [
+        f.scan(&["impact", "target", "--budget", "0"]),
+        f.indexed().run(&["impact", "target", "--budget", "0"]),
+    ];
+    for o in &text {
+        assert!(
+            stdout(o).contains("called by: first 12 callers, 12 names each"),
+            "{}",
+            stdout(o)
+        );
+    }
+}
+
+#[test]
+fn depth_two_callers_say_when_a_fixed_limit_left_names_out() {
+    let f = thirteen_callers_fixture();
 
     let o = f.scan(&[
         "callers",
