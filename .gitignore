@@ -3,3 +3,4 @@ spikes/target/
 __pycache__/
 bench/agent/runs/
 docs/
+.DS_Store
