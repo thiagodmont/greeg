@@ -2518,6 +2518,159 @@ fn outline_symbols(o: &Output) -> Vec<(String, u64)> {
 }
 
 #[test]
+fn callers_classifies_every_matching_file() {
+    let names: Vec<String> = (0..=400).map(|i| format!("src/c{i:03}.rs")).collect();
+    let bodies: Vec<String> = (0..=400)
+        .map(|i| format!("fn caller_{i}() {{ target(1); }}\n"))
+        .collect();
+    let mut files: Vec<(&str, &str)> = names
+        .iter()
+        .zip(&bodies)
+        .map(|(n, b)| (n.as_str(), b.as_str()))
+        .collect();
+    files.push(("src/t.rs", "pub fn target(_: u32) {}\n"));
+    let f = Fixture::new(&files);
+    f.indexed();
+
+    let scan = f.scan(&["callers", "target", "--budget", "0"]);
+    let text = stdout(&scan);
+    assert!(!text.contains("(top level)"), "{text}");
+    assert!(text.contains("401 call sites in 401 functions"), "{text}");
+
+    let rows = |o: &Output| stdout(o).lines().skip(1).collect::<Vec<_>>().join("\n");
+    let indexed = f.run(&["callers", "target", "--budget", "0"]);
+    assert_eq!(rows(&indexed), rows(&scan));
+
+    let json = f.scan(&["callers", "target", "--budget", "0", "--json=greeg"]);
+    let callers = json_records(&json, "caller");
+    assert_eq!(callers.len(), 401);
+    assert!(
+        callers
+            .iter()
+            .all(|c| c["symbol"].as_str().is_some_and(|s| !s.is_empty()))
+    );
+}
+
+#[test]
+fn depth_two_callers_read_every_file_of_a_callers_search() {
+    let mut files: Vec<(String, String)> = (0..=60)
+        .map(|i| {
+            (
+                format!("u/f{i:02}.rs"),
+                "fn same() { hub(); }\n".to_string(),
+            )
+        })
+        .collect();
+    files.push(("zz.rs".into(), "fn other() { hub(); }\n".into()));
+    files.push((
+        "hub.rs".into(),
+        "fn hub() { target(); }\npub fn target() {}\n".into(),
+    ));
+    let refs: Vec<(&str, &str)> = files
+        .iter()
+        .map(|(a, b)| (a.as_str(), b.as_str()))
+        .collect();
+    let f = Fixture::new(&refs);
+    let o = f.scan(&[
+        "callers",
+        "target",
+        "--depth",
+        "2",
+        "--budget",
+        "0",
+        "--json=greeg",
+    ]);
+    let hub = json_records(&o, "caller")
+        .into_iter()
+        .find(|c| c["symbol"].as_str().is_some_and(|s| s.ends_with("hub")))
+        .unwrap_or_else(|| panic!("{}", stdout(&o)));
+    let by = hub["called_by"].to_string();
+    assert!(by.contains("same") && by.contains("other"), "{by}");
+    assert_eq!(footer(&o)["outcome"]["complete"], true);
+}
+
+/// Thirteen functions call `target`, one more than depth 2 expands.
+fn thirteen_callers_fixture() -> Fixture {
+    let files: Vec<(String, String)> = (0..13)
+        .map(|i| {
+            (
+                format!("f{i:02}.rs"),
+                format!("fn c{i}() {{ target(); }}\nfn d{i}() {{ c{i}(); }}\n"),
+            )
+        })
+        .chain([("t.rs".to_string(), "pub fn target() {}\n".to_string())])
+        .collect();
+    let refs: Vec<(&str, &str)> = files
+        .iter()
+        .map(|(a, b)| (a.as_str(), b.as_str()))
+        .collect();
+    Fixture::new(&refs)
+}
+
+#[test]
+fn impact_says_when_its_depth_two_callers_left_names_out() {
+    let f = thirteen_callers_fixture();
+    for o in both(&f, &["impact", "target", "--budget", "0"]) {
+        assert_eq!(o.status.code(), Some(0), "{}", stdout(&o));
+        let oc = footer(&o)["outcome"].clone();
+        assert_eq!(oc["complete"], false, "{oc}");
+        assert_eq!(oc["truncated_by"], "cap", "{oc}");
+    }
+    let text = [
+        f.scan(&["impact", "target", "--budget", "0"]),
+        f.indexed().run(&["impact", "target", "--budget", "0"]),
+    ];
+    for o in &text {
+        assert!(
+            stdout(o).contains("called by: first 12 callers, 12 names each"),
+            "{}",
+            stdout(o)
+        );
+    }
+}
+
+#[test]
+fn depth_two_callers_say_when_a_fixed_limit_left_names_out() {
+    let f = thirteen_callers_fixture();
+
+    let o = f.scan(&[
+        "callers",
+        "target",
+        "--depth",
+        "2",
+        "--budget",
+        "0",
+        "--json=greeg",
+    ]);
+    assert_eq!(o.status.code(), Some(0));
+    let oc = footer(&o)["outcome"].clone();
+    assert_eq!(oc["complete"], false, "{oc}");
+    assert_eq!(oc["truncated_by"], "cap", "{oc}");
+
+    let o = f.scan(&["callers", "target", "--depth", "2", "--budget", "0"]);
+    assert_eq!(o.status.code(), Some(0));
+    assert!(
+        stdout(&o).contains("called by: first 12 callers, 12 names each"),
+        "{}",
+        stdout(&o)
+    );
+
+    let o = f.scan(&[
+        "callers",
+        "target",
+        "--depth",
+        "1",
+        "--budget",
+        "0",
+        "--json=greeg",
+    ]);
+    assert_eq!(o.status.code(), Some(0));
+    let oc = footer(&o)["outcome"].clone();
+    assert_eq!(oc["complete"], true, "{oc}");
+    assert!(oc["truncated_by"].is_null(), "{oc}");
+}
+
+#[test]
 fn outline_honors_a_lowered_max_filesize_under_the_index_cap_in_both_backends() {
     let mut body = b"// padding\nfn bigneedle() {}\nfn bigcaller() { bigneedle(); }\n".to_vec();
     body.resize(50_000, b'\n');

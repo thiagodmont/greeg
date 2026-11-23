@@ -1907,16 +1907,22 @@ fn json_fits_its_budget() {
                 let oc = &footer["data"]["outcome"];
                 // `show` is also incomplete when it clips a body
                 let cut = oc["complete"] == false;
-                if oc["shown"].as_u64() < oc["total"].as_u64() {
+                let all_shown = oc["shown"].as_u64() >= oc["total"].as_u64();
+                if !all_shown {
                     assert!(cut, "{}", ctx());
                 }
+                // `impact` runs depth-2 `callers`, whose fixed limit the
+                // fixture's 17 callers exceed
+                let capped = q[0] == "impact" && all_shown;
                 // every answer grows past its floor when the budget allows
                 if budget == 4000 {
                     assert!(!is_floor && est(&out) > floor, "{}", ctx());
                 }
                 assert_eq!(
                     oc["truncated_by"],
-                    if cut {
+                    if capped {
+                        serde_json::json!("cap")
+                    } else if cut {
                         serde_json::json!("budget")
                     } else {
                         serde_json::Value::Null
@@ -3779,6 +3785,38 @@ fn impact_diff_loads_a_path_with_a_space() {
     let text = f.out(&["impact", "--diff"]);
     assert!(!text.contains('\t'), "{text:?}");
     assert!(!text.contains("0 definitions changed"), "{text}");
+}
+
+#[test]
+fn impact_diff_classifies_a_use_past_the_400th_file() {
+    let f = diff_fixture();
+    for i in 0..400 {
+        w(
+            &f.root.join(format!("s/a{i:03}.rs")),
+            "pub const S: &str = \"target\";\n",
+        );
+    }
+    w(&f.root.join("zz.rs"), "fn late() { target(1); }\n");
+    w(&f.root.join("defs.rs"), "pub fn target(_: u32) {}\n");
+    git(&f, &["add", "-A"]);
+    git(&f, &["commit", "-q", "-m", "many"]);
+    w(
+        &f.root.join("defs.rs"),
+        "pub fn target(_: u32, _b: u32) {}\n",
+    );
+
+    let o = f.run(&["impact", "--diff", "--json=greeg", "--budget", "0"]);
+    let out = String::from_utf8_lossy(&o.stdout).into_owned();
+    let uses: Vec<serde_json::Value> = json_lines(&out)
+        .iter()
+        .filter(|r| r["type"] == "change")
+        .flat_map(|r| r["data"]["uses"].as_array().unwrap().clone())
+        .collect();
+    let late = uses
+        .iter()
+        .find(|u| u["path"]["text"] == "zz.rs")
+        .unwrap_or_else(|| panic!("zz.rs use: {}", &out[..out.len().min(2000)]));
+    assert_eq!(late["container"], "late", "{late}");
 }
 
 #[test]

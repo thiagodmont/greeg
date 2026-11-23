@@ -84,6 +84,9 @@ pub struct Outcome {
     pub no_grammar: Option<NoGrammar>,
     /// Files over `--max-filesize` that were not read.
     pub skipped_huge: usize,
+    /// A fixed limit, not the budget, left names out of the answer; it
+    /// leaves `complete()` alone and shows as `truncated_by: "cap"`.
+    pub capped: Option<&'static str>,
 }
 
 impl Outcome {
@@ -108,6 +111,7 @@ impl Outcome {
             byte_cut: false,
             no_grammar: None,
             skipped_huge: r.stats.skipped_huge,
+            capped: None,
         }
     }
 
@@ -132,9 +136,14 @@ impl Outcome {
         self.shown >= self.total
     }
 
-    /// What left results out of an incomplete answer: `budget` or `bytes`.
+    /// What left results out: `bytes` or `budget` when the answer is
+    /// incomplete, else `cap` when a fixed limit left names out.
     pub fn truncated_by(&self) -> Option<&'static str> {
-        (!self.complete()).then_some(if self.byte_cut { "bytes" } else { "budget" })
+        if self.complete() {
+            self.capped.map(|_| "cap")
+        } else {
+            Some(if self.byte_cut { "bytes" } else { "budget" })
+        }
     }
 
     pub fn exit_code(&self) -> i32 {
@@ -157,6 +166,7 @@ mod tests {
             byte_cut: false,
             no_grammar: None,
             skipped_huge: 0,
+            capped: None,
         }
     }
 
@@ -191,6 +201,25 @@ mod tests {
         let ng = NoGrammar::of_paths(text.into_iter().chain([&b"go/x.go"[..]])).unwrap();
         assert_eq!(ng.files, 1);
         assert_eq!(ng.languages, ["go"]);
+    }
+
+    #[test]
+    fn a_fixed_limit_is_a_cap_that_leaves_the_counts_complete() {
+        let capped = Outcome {
+            capped: Some("called by: first 12 callers, 12 names each"),
+            ..outcome(3, Rung::Exact)
+        };
+        assert!(capped.complete());
+        assert_eq!(capped.truncated_by(), Some("cap"));
+        assert_eq!(outcome(3, Rung::Exact).truncated_by(), None);
+        let cut = Outcome { shown: 1, ..capped };
+        assert!(!cut.complete());
+        assert_eq!(cut.truncated_by(), Some("budget"));
+        let cut = Outcome {
+            byte_cut: true,
+            ..cut
+        };
+        assert_eq!(cut.truncated_by(), Some("bytes"));
     }
 
     #[test]

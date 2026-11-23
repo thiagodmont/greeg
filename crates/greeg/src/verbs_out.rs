@@ -88,6 +88,9 @@ pub(crate) fn outcome_line(
             o.skipped_huge
         ));
     }
+    if let Some(note) = o.capped {
+        terms.push(note.to_string());
+    }
     if cut {
         terms.push(more.to_string());
     }
@@ -347,6 +350,7 @@ fn answered_outcome(
         byte_cut: false,
         no_grammar: None,
         skipped_huge: 0,
+        capped: None,
     }
 }
 
@@ -621,6 +625,7 @@ pub fn run_def(
         byte_cut: false,
         no_grammar,
         skipped_huge: r.skipped_huge,
+        capped: None,
     };
     let w = out();
     if c.json() {
@@ -1227,6 +1232,7 @@ pub fn run_impls(c: &Common, o: &Options, name: &str) -> Result<()> {
         byte_cut: false,
         no_grammar,
         skipped_huge: r.skipped_huge,
+        capped: None,
     };
     if c.json() {
         let render = |cut: Cut| -> Result<(Vec<u8>, Outcome)> {
@@ -1980,6 +1986,7 @@ fn diff_outcome(r: &DiffImpactResult, shown_sites: usize) -> Outcome {
         byte_cut: false,
         no_grammar: None,
         skipped_huge: 0,
+        capped: None,
     }
 }
 

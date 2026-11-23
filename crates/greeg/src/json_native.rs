@@ -103,7 +103,7 @@ impl OutcomeRec {
             rung: o.rung.name(),
             total: o.total,
             shown: o.shown,
-            complete: o.complete(),
+            complete: o.complete() && o.capped.is_none(),
             source: o.source,
             fresh: o.fresh,
             deferred: o.deferred,

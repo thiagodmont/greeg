@@ -925,6 +925,39 @@ pub struct CallersResult {
     pub rung: Rung,
 }
 
+/// First 12 distinct names calling `cname`, in file order, and whether a 13th
+/// exists. Refines in batches and stops once the 13th name is found.
+fn called_by_names(r: &mut ScanResult, cname: &str) -> (Vec<String>, bool) {
+    const BATCH: usize = 64;
+    const KEEP: usize = 12;
+    let mut names: Vec<String> = Vec::new();
+    let mut start = 0;
+    while start < r.files.len() {
+        let end = (start + BATCH).min(r.files.len());
+        let idxs: Vec<usize> = (start..end).collect();
+        crate::refine(r, &idxs);
+        for f in &r.files[start..end] {
+            for h in &f.hits {
+                if (h.kind == HitKind::Call || h.kind == HitKind::Member)
+                    && let Some((_, n)) = h.chain.last()
+                    && n != cname
+                    && !names.contains(n)
+                {
+                    if names.len() == KEEP {
+                        return (names, true);
+                    }
+                    names.push(n.clone());
+                }
+            }
+        }
+        for f in &mut r.files[start..end] {
+            f.src = None;
+        }
+        start = end;
+    }
+    (names, false)
+}
+
 pub fn callers(o: &Options, name: &str, depth: usize) -> Result<CallersResult> {
     let t0 = Instant::now();
     let mut so = o.clone();
@@ -936,13 +969,11 @@ pub fn callers(o: &Options, name: &str, depth: usize) -> Result<CallersResult> {
     so.mode = Mode::Content;
     so.budget = 0;
     let mut r = scan(&so)?;
-    let idxs: Vec<usize> = (0..r.files.len().min(400)).collect();
-    crate::refine(&mut r, &idxs);
     let mut map: BTreeMap<(Vec<u8>, Option<u32>), Caller> = BTreeMap::new();
     let mut total = 0usize;
-    for f in &r.files {
+    crate::refine_each(&mut r, |f| {
         if !f.lang.has_grammar() {
-            continue;
+            return;
         }
         for h in &f.hits {
             if h.kind != HitKind::Call && h.kind != HitKind::Member {
@@ -978,7 +1009,7 @@ pub fn callers(o: &Options, name: &str, depth: usize) -> Result<CallersResult> {
                 e.lines.push(h.line);
             }
         }
-    }
+    });
     let mut callers: Vec<Caller> = map.into_values().collect();
     callers.sort_by(|a, b| {
         (b.score * (1.0 + (b.count as f32).ln()))
@@ -986,6 +1017,7 @@ pub fn callers(o: &Options, name: &str, depth: usize) -> Result<CallersResult> {
             .unwrap_or(std::cmp::Ordering::Equal)
             .then(a.rel.cmp(&b.rel))
     });
+    let mut capped = false;
     if depth >= 2 {
         let mut seen: Vec<String> = Vec::new();
         for c in callers.iter_mut().take(12) {
@@ -1000,24 +1032,17 @@ pub fn callers(o: &Options, name: &str, depth: usize) -> Result<CallersResult> {
             so2.pattern = cname.clone();
             so2.matching = crate::MatchingPolicy::Exact;
             if let Ok(mut r2) = scan(&so2) {
-                let idxs: Vec<usize> = (0..r2.files.len().min(60)).collect();
-                crate::refine(&mut r2, &idxs);
-                let mut names: Vec<String> = Vec::new();
-                for f in &r2.files {
-                    for h in &f.hits {
-                        if (h.kind == HitKind::Call || h.kind == HitKind::Member)
-                            && let Some((_, n)) = h.chain.last()
-                            && n != cname
-                            && !names.contains(n)
-                        {
-                            names.push(n.clone());
-                        }
-                    }
-                }
-                names.truncate(12);
+                let (names, more) = called_by_names(&mut r2, cname);
+                capped |= more;
                 c.called_by = names;
             }
         }
+        // callers past the twelfth that would have been expanded
+        capped |= callers.iter().skip(12).any(|c| {
+            c.chain
+                .last()
+                .is_some_and(|(_, n)| n != name && !seen.contains(n))
+        });
     }
     let no_grammar = if callers.is_empty() {
         no_grammar_matches(o, name)?
@@ -1025,7 +1050,10 @@ pub fn callers(o: &Options, name: &str, depth: usize) -> Result<CallersResult> {
         None
     };
     Ok(CallersResult {
-        outcome: Outcome::of_search(&r, 0).with_no_grammar(no_grammar),
+        outcome: Outcome {
+            capped: capped.then_some("called by: first 12 callers, 12 names each"),
+            ..Outcome::of_search(&r, 0).with_no_grammar(no_grammar)
+        },
         name: name.to_string(),
         files: r.files.len(),
         callers,
@@ -2176,7 +2204,10 @@ pub fn impact(o: &Options, name: &str) -> Result<ImpactResult> {
     co.matching = crate::MatchingPolicy::Exact;
     let callers = callers(&co, name, 2)?;
     Ok(ImpactResult {
-        outcome: Outcome::of_search(&r.scan, 0),
+        outcome: Outcome {
+            capped: callers.outcome.capped,
+            ..Outcome::of_search(&r.scan, 0)
+        },
         name: name.to_string(),
         defs: r.defs,
         defs_total: r.defs_total,
@@ -2434,6 +2465,61 @@ mod tests {
             r.items[1].body.clipped,
             "the second body pays for the first"
         );
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    /// A depth-2 search stops refining once a 13th caller name turns up,
+    /// and keeps the same first 12 names a full refinement would give.
+    #[test]
+    fn called_by_names_stop_at_the_thirteenth_name_without_changing_the_first_twelve() {
+        let base = std::env::temp_dir().join(format!("greeg-called-by-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        let root = base.join("tree");
+        fs::create_dir_all(root.join("src")).unwrap();
+        for i in 0..200 {
+            fs::write(
+                root.join(format!("src/f{i:03}.rs")),
+                format!("fn f{i:03}() {{ hub(); }}\n"),
+            )
+            .unwrap();
+        }
+        let o = Options {
+            root: root.clone(),
+            use_index: false,
+            pattern: "hub".to_string(),
+            fixed_strings: true,
+            word: true,
+            kinds: vec![HitKind::Call, HitKind::Member],
+            matching: crate::MatchingPolicy::Exact,
+            ..Default::default()
+        };
+        let mut r = scan(&o).unwrap();
+        assert_eq!(r.files.len(), 200);
+
+        let (names, more) = called_by_names(&mut r, "hub");
+        assert_eq!(names.len(), 12);
+        assert!(more, "a 13th distinct name exists");
+        assert!(
+            r.files.iter().any(|f| !f.refined),
+            "files past the batch with the 13th name stay unrefined"
+        );
+
+        let idxs: Vec<usize> = (0..r.files.len()).collect();
+        crate::refine(&mut r, &idxs);
+        let mut all: Vec<String> = Vec::new();
+        for f in &r.files {
+            for h in &f.hits {
+                if (h.kind == HitKind::Call || h.kind == HitKind::Member)
+                    && let Some((_, n)) = h.chain.last()
+                    && n != "hub"
+                    && !all.contains(n)
+                {
+                    all.push(n.clone());
+                }
+            }
+        }
+        assert_eq!(all.len(), 200);
+        assert_eq!(&all[..12], &names[..]);
         let _ = fs::remove_dir_all(&base);
     }
 }
