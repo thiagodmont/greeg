@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
+repository.workspace = true
 description = "Scan, classify, rank and shape search results for greeg"
 
 [dependencies]

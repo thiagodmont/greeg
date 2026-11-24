@@ -8,6 +8,9 @@ version = "0.14.1"
 edition = "2024"
 license = "MIT"
 rust-version = "1.90"
+repository = "https://github.com/thiagodmont/greeg"
+keywords = ["grep", "search", "code-search", "ripgrep", "ai-agents"]
+categories = ["command-line-utilities", "development-tools", "text-processing"]
 
 [workspace.dependencies]
 anyhow = "1"
