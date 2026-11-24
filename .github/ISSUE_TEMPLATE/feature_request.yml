@@ -1,0 +1,23 @@
+name: Feature request
+description: A flag, verb, language or agent integration you'd like greeg to have
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What you or your agent were trying to do, and where greeg fell short.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: What you'd like greeg to do. Example commands and output help.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives
+      description: How you work around it today, for example with `rg` or another tool.
