@@ -32,7 +32,7 @@ body:
     id: diagnostics
     attributes:
       label: Diagnostics
-      description: Output of `greeg <query> --stats` and `greeg doctor`. Both print absolute paths; replace your home directory and user name before posting.
+      description: Output of `greeg <query> --stats` and `greeg doctor`. `doctor` prints absolute paths; replace your home directory and user name before posting.
       render: text
   - type: textarea
     id: repro
