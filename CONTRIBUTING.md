@@ -21,7 +21,8 @@ Security problems go through private reporting instead; see
    [ARCHITECTURE.md](references/ARCHITECTURE.md) before changing behavior.
 2. Keep one focused change per pull request. Name the branch
    `<type>/<short-slug>`, where the type is `feature`, `bugfix`, `hotfix` or
-   `chore` (for example `bugfix/glob-precedence`).
+   `chore` and the slug is lowercase kebab-case (for example
+   `bugfix/glob-precedence`).
 3. For a bug fix, add a regression test that fails before the fix. Check scan
    and index parity, and stdout, stderr and exit status when they matter. A
    defect you reproduce but don't fix goes in
