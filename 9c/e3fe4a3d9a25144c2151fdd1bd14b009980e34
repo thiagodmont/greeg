@@ -1,0 +1,23 @@
+.github/ISSUE_TEMPLATE/bug_report.yml
+  s_5b09f6d023368e::t_11cb77caba2b71 35
+CODE_OF_CONDUCT.md
+  s_5b09f6d023368e::t_1c668e5279e060 14-16
+CONTRIBUTING.md
+  s_5b09f6d023368e::t_1d5b0949efc958 24-25
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "9ce3fe4a3d9a25144c2151fdd1bd14b009980e34",
+  "prompts": {},
+  "sessions": {
+    "s_5b09f6d023368e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ad57632b-8be5-415d-8be0-c92a21337db0",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
