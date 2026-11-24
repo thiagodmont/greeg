@@ -1,0 +1,33 @@
+.github/ISSUE_TEMPLATE/bug_report.yml
+  s_5b09f6d023368e::t_3e6a6076500e94 1-41
+.github/ISSUE_TEMPLATE/config.yml
+  s_5b09f6d023368e::t_042bf4751ef396 1-5
+CONTRIBUTING.md
+  s_5b09f6d023368e::t_d3d09d99566a6a 1-51
+.github/SECURITY.md
+  s_5b09f6d023368e::t_d5857c58753814 1-27
+.github/pull_request_template.md
+  s_5b09f6d023368e::t_8f836dee28f94c 1-11
+.github/ISSUE_TEMPLATE/feature_request.yml
+  s_5b09f6d023368e::t_3014f74617844b 1-23
+CODE_OF_CONDUCT.md
+  s_5b09f6d023368e::t_1478951fc62646 1-18
+README.md
+  s_5b09f6d023368e::t_6243db1d5fbdfd 222-225
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "1fb879e5583b0b040c566fbf67ffc8cd9461a09d",
+  "prompts": {},
+  "sessions": {
+    "s_5b09f6d023368e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ad57632b-8be5-415d-8be0-c92a21337db0",
+        "model": "unknown"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
