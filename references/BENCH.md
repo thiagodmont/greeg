@@ -3967,34 +3967,34 @@ Context@500 reads the first 500 lines each tool prints for the bare name. Useful
 
 Treat it as the stricter measure of ranking. Un-adjudicable lines still cost tokens, and the token columns keep counting them.
 
-Runs: `TypeScript-5.9` 2026-09-06 with greeg 0.3.0; `django` 2026-09-06 with greeg 0.3.0; `tokio` 2026-09-06 with greeg 0.3.0. A corpus is only re-measured when it's re-run, so rows carrying different dates can straddle a change to the shaper. Compare the answer shape across corpora within one date, never across two.
+Runs: `TypeScript-5.9` 2026-11-24 with greeg 0.14.1; `django` 2026-11-24 with greeg 0.14.1; `tokio` 2026-11-24 with greeg 0.14.1. A corpus is only re-measured when it's re-run, so rows carrying different dates can straddle a change to the shaper. Compare the answer shape across corpora within one date, never across two.
 
 | corpus | indexer | n | greeg Acc@1/5/10 | rg -nw Acc@1/5/10 | rg-def Acc@1/5/10 | grep Acc@1/5/10 | ref recall | def precision (spans / precise) | noncode precision | SCIP density |
 |---|---|---:|---|---|---|---|---:|---|---:|---:|
-| TypeScript-5.9 | scip-typescript 0.4.0 | 75 | 96 %/100 %/100 % [91–100] | 28 %/49 %/65 % [19–39] | 37 %/45 %/51 % [27–48] | 47 %/61 %/71 % [35–59] | 97 % | 96 % / 88 % | 100 % | 86 % |
-| django | scip-python 0.6.6 | 75 | 100 %/100 %/100 % [100–100] | 24 %/45 %/60 % [15–33] | 75 %/76 %/77 % [64–84] | 29 %/45 %/51 % [20–40] | 99 % | 99 % / 99 % | 100 % | 43 % |
-| tokio | rust-analyzer 1.94.0 (4a4ef493 2026-03-02) | 75 | 96 %/100 %/100 % [91–100] | 17 %/45 %/57 % [9–27] | 68 %/81 %/83 % [57–79] | 19 %/39 %/52 % [11–28] | 98 % | 95 % / 95 % | 100 % | 55 % |
+| TypeScript-5.9 | scip-typescript 0.4.0 | 75 | 96 %/100 %/100 % [91–100] | 28 %/56 %/72 % [17–39] | 37 %/45 %/51 % [27–48] | 47 %/61 %/71 % [35–59] | 97 % | 96 % / 88 % | 100 % | 86 % |
+| django | scip-python 0.6.6 | 75 | 100 %/100 %/100 % [100–100] | 29 %/45 %/56 % [19–40] | 75 %/76 %/77 % [64–84] | 29 %/45 %/51 % [20–40] | 99 % | 99 % / 99 % | 100 % | 43 % |
+| tokio | rust-analyzer 1.94.0 (4a4ef493 2026-03-02) | 75 | 96 %/100 %/100 % [91–100] | 16 %/44 %/60 % [8–25] | 68 %/81 %/83 % [57–79] | 19 %/39 %/52 % [11–28] | 98 % | 95 % / 95 % | 100 % | 55 % |
 
 **SCIP density** is the share of greeg's code hits on the sampled names that the indexer marks as an occurrence at all. It's a measure of what the ground truth can see, and it swings far more per indexer than per tool (scip-typescript ≈ 86 %, rust-analyzer ≈ 55 %, scip-python ≈ 43 %). So the SCIP-covered useful-line ratio below is a per-indexer number. Compare it within a corpus, never across.
 
 
 | corpus | ambiguity 1 | ambiguity 2–5 | ambiguity 6+ | zero-reference names: greeg / rg -nw / rg-def Acc@1/5/10 |
 |---|---|---|---|---|
-| TypeScript-5.9 | 100 %/100 %/100 % (n=25) | 96 %/100 %/100 % (n=25) | 92 %/100 %/100 % (n=25) | 80 %/100 %/100 % [50–100] / 50 %/90 %/100 % [20–80] / 0 %/50 %/60 % [0–0] (n=10) |
+| TypeScript-5.9 | 100 %/100 %/100 % (n=25) | 96 %/100 %/100 % (n=25) | 92 %/100 %/100 % (n=25) | 80 %/100 %/100 % [50–100] / 70 %/90 %/90 % [40–100] / 0 %/50 %/60 % [0–0] (n=10) |
 | django | 100 %/100 %/100 % (n=25) | 100 %/100 %/100 % (n=25) | 100 %/100 %/100 % (n=25) | 100 %/100 %/100 % [100–100] / 80 %/90 %/100 % [50–100] / 80 %/80 %/80 % [50–100] (n=10) |
 | tokio | 100 %/100 %/100 % (n=25) | 100 %/100 %/100 % (n=25) | 88 %/100 %/100 % (n=25) | 100 %/100 %/100 % [100–100] / 100 %/100 %/100 % [100–100] / 100 %/100 %/100 % [100–100] (n=10) |
 
 | corpus | tool | useful lines | useful lines, SCIP-covered [95 % CI] | neutral lines | coverage | tokens/query mean | tokens/query median [95 % CI] | distinct true locations per 1k tokens | tokens to first def (median) | def reached | tokens until all defs covered (median) | all defs reached |
 |---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| TypeScript-5.9 | greeg | 77 % | 93 % [90–96] | 51 % | 64 % | 524 | 509 [434–562] | 22.6 | 29 | 100 % | 30 | 45 % |
-| TypeScript-5.9 | greeg6k | 71 % | 91 % [88–95] | 50 % | 67 % | 706 | 558 [469–679] | 21.3 | 29 | 100 % | 33 | 49 % |
-| TypeScript-5.9 | rg | 55 % | 84 % [78–89] | 0 % | 94 % | 7,034 | 1519 [653–2,259] | 20.3 | 134 | 100 % | 167 | 57 % |
+| TypeScript-5.9 | greeg | 77 % | 93 % [90–96] | 51 % | 64 % | 527 | 505 [429–551] | 23.4 | 29 | 100 % | 30 | 45 % |
+| TypeScript-5.9 | greeg6k | 69 % | 91 % [87–94] | 49 % | 67 % | 746 | 540 [496–680] | 21.6 | 29 | 100 % | 33 | 52 % |
+| TypeScript-5.9 | rg | 55 % | 84 % [77–89] | 0 % | 94 % | 7,036 | 1519 [653–2,258] | 20.3 | 102 | 100 % | 178 | 56 % |
 | TypeScript-5.9 | grep | 35 % | 83 % [76–89] | 0 % | 91 % | 7,616 | 2060 [1,350–3,155] | 12.8 | 53 | 97 % | 506 | 87 % |
-| django | greeg | 74 % | 84 % [79–88] | 51 % | 55 % | 555 | 487 [446–538] | 25.3 | 25 | 100 % | 38 | 69 % |
-| django | greeg6k | 72 % | 79 % [73–85] | 50 % | 60 % | 776 | 533 [486–636] | 25.2 | 24 | 100 % | 42 | 73 % |
-| django | rg | 57 % | 63 % [55–72] | 0 % | 86 % | 5,795 | 1253 [844–2,589] | 26.0 | 103 | 95 % | 505 | 81 % |
+| django | greeg | 75 % | 84 % [79–89] | 51 % | 55 % | 555 | 486 [446–538] | 26.1 | 25 | 100 % | 38 | 69 % |
+| django | greeg6k | 72 % | 79 % [73–85] | 49 % | 60 % | 821 | 533 [483–636] | 25.7 | 24 | 100 % | 42 | 75 % |
+| django | rg | 58 % | 65 % [56–73] | 0 % | 88 % | 5,832 | 1253 [844–2,589] | 26.3 | 104 | 93 % | 602 | 83 % |
 | django | grep | 59 % | 64 % [56–72] | 0 % | 91 % | 5,686 | 1253 [844–2,588] | 26.8 | 195 | 97 % | 558 | 81 % |
-| tokio | greeg | 75 % | 80 % [74–85] | 50 % | 60 % | 618 | 525 [448–589] | 25.5 | 30 | 99 % | 60 | 72 % |
-| tokio | greeg6k | 72 % | 77 % [72–83] | 49 % | 67 % | 844 | 699 [523–773] | 25.5 | 29 | 99 % | 97 | 77 % |
-| tokio | rg | 62 % | 66 % [60–73] | 0 % | 92 % | 3,382 | 1097 [725–1,632] | 24.9 | 194 | 99 % | 399 | 79 % |
+| tokio | greeg | 76 % | 81 % [76–85] | 50 % | 61 % | 631 | 525 [434–608] | 26.5 | 30 | 99 % | 68 | 75 % |
+| tokio | greeg6k | 73 % | 78 % [73–83] | 49 % | 67 % | 836 | 627 [504–756] | 26.2 | 29 | 99 % | 98 | 80 % |
+| tokio | rg | 62 % | 66 % [60–73] | 0 % | 92 % | 3,385 | 1097 [725–1,632] | 24.8 | 194 | 99 % | 350 | 79 % |
 | tokio | grep | 60 % | 66 % [60–73] | 0 % | 92 % | 8,045 | 1398 [741–2,506] | 21.6 | 250 | 97 % | 597 | 79 % |
