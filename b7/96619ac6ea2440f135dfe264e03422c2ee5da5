@@ -1,0 +1,19 @@
+README.md
+  s_5b09f6d023368e::t_3b6fb7403d8618 23,97-98,189-190,203-204
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b796619ac6ea2440f135dfe264e03422c2ee5da5",
+  "prompts": {},
+  "sessions": {
+    "s_5b09f6d023368e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ad57632b-8be5-415d-8be0-c92a21337db0",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Thiago M. Dolabella <thiago.dmont@gmail.com>"
+    }
+  }
+}
