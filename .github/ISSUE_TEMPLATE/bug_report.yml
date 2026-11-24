@@ -1,0 +1,41 @@
+name: Bug report
+description: A wrong or missing result, a crash, or a hook that misbehaves
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Security problems go through private reporting instead (Security tab → Report a vulnerability).
+  - type: input
+    id: version
+    attributes:
+      label: greeg version and OS
+      description: Output of `greeg --version`, plus your OS and architecture.
+      placeholder: greeg 0.14.1, macOS 15 arm64
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: Command
+      description: The exact command you ran. If the hook rewrote it, include the original `rg` or `grep` command too.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected and actual result
+      description: What you expected (for example, what `rg` prints) and what greeg printed, including stderr and the exit status.
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics
+      description: Output of `greeg <query> --stats` and `greeg doctor`.
+      render: text
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction
+      description: A public repository and commit, or a small file, that reproduces it.

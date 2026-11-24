@@ -219,8 +219,10 @@ about the same. More in [`references/STATS.md`](references/STATS.md).
 - [Statistics](references/STATS.md): measuring greeg on your own traffic
 - [Development](references/DEVELOPMENT.md): building, testing and benchmarking
 
-Issues and pull requests are welcome. For a wrong or missing result, include
-the output of `greeg <query> --stats` and `greeg doctor`.
+Issues and pull requests are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md).
+For a wrong or missing result, include the output of `greeg <query> --stats`
+and `greeg doctor`. Report security problems privately, as
+[SECURITY.md](.github/SECURITY.md) describes.
 
 ## License
 
