@@ -1,80 +1,46 @@
 # greeg
 
-**Code search built for coding agents.** It speaks ripgrep's flags, answers
-from an index, puts definitions first, and fits its ranked answers in a token
-budget, so your agent reads the hits that matter instead of a wall of matches.
+**Code search built for coding agents.** Your agent searches with `rg` and
+`grep` and gets a wall of matches. greeg gives it a ranked answer instead:
+definitions first, and small enough to read.
 
 [![CI](https://github.com/thiagodmont/greeg/actions/workflows/ci.yml/badge.svg)](https://github.com/thiagodmont/greeg/actions/workflows/ci.yml)
 [![release](https://img.shields.io/github/v/release/thiagodmont/greeg)](https://github.com/thiagodmont/greeg/releases)
 [![license](https://img.shields.io/badge/license-MIT-blue)](#license)
 
-## The problem
+One search, `isIdentifier` in the TypeScript compiler:
 
-Your agent runs `rg isIdentifier` on the TypeScript compiler. ripgrep does its
-job: **774 lines, 18,987 tokens**. Claude Code truncates tool output at 30,000
-characters, so the agent sees about a third of it, and the definitions it was
-looking for may sit past the cut.
+| command | what the agent gets |
+|---|---|
+| `rg isIdentifier` | 774 lines, **18,987 tokens**. Claude Code cuts Bash output at 30,000 characters, so the agent sees about a third of it. |
+| `greeg isIdentifier` | **548 tokens**, 35× fewer: the definitions first, then a summary of every other hit. |
 
-greeg answers the same question in **666 tokens** (o200k; its footer shows
-greeg's own estimate), definitions first:
+- **Fewer tokens.** A broad search fits a token budget instead of flooding the
+  context. A narrow one-file search costs about the same as grep.
+- **Definitions first.** Ask where a symbol is defined (`greeg def NAME`) and
+  the first result is right 96 % to 100 % of the time on three open-source
+  repositories, against 37 % to 75 % for the `rg` search an agent would type
+  (samples of about 75 names each, ±10 points; [benchmarks](#benchmarks)).
+- **Fast.** It answers from an index it builds and keeps fresh by itself. On
+  the TypeScript compiler (74k files), a search takes tens of milliseconds
+  where `rg` takes over a second ([benchmarks](#benchmarks)).
+- **Nothing hidden.** Every answer ends by saying what was left out and which
+  flag brings it back.
+- **More than grep.** Callers, implementations, the impact of a change, and
+  questions in plain words ([examples](#use-it)).
 
-```console
-$ greeg isIdentifier
-definitions (4 of 6)
-src/compiler/factory/nodeTests.ts
-  318  export function isIdentifier(node: Node): node is Identifier {
-src/compiler/parser.ts
-  2318  function isIdentifier(): boolean {  ‹ Parser
-src/compiler/scanner.ts
-  71  isIdentifier(): boolean;  ‹ Scanner
-tests/cases/compiler/reverseMappedUnionInference.ts  [test]
-  24  declare function isIdentifier(node: unknown): node is Identifier;
-  +2 test definitions (--all)
-…
-14/767 hits · 8/105 files · 4 files demoted (17) · skipped 2 huge · ~708 tokens
-```
-
-Between the definitions and the footer, greeg summarizes the other 753 hits:
-their kinds, where they live, the top call sites with the function each sits
-in, 122 imports folded into one line, and similar names. The footer says what
-was left out and which flag brings it back. Nothing is silently dropped.
-
-## Why use it
-
-**Faster.** The index means a query opens only the files that could match.
-On TypeScript 5.9 (74k files, 368 MB):
-
-| query | `grep` | `rg` | `rg -j4` | **greeg** |
-|---|---:|---:|---:|---:|
-| `createSourceFile` | 4.29 s | 2.42 s | 672 ms | **30 ms** |
-| `node` (30,445 matches) | 4.52 s | 2.33 s | 882 ms | **43 ms** |
-
-**Right more often.** Asked "where is this symbol defined?", greeg's first
-result is correct far more often, scored against SCIP ground truth from
-`rust-analyzer`, `scip-python` and `scip-typescript`:
-
-| corpus | **greeg** | `rg -nw` | `grep` |
-|---|---:|---:|---:|
-| TypeScript 5.9 | **96 %** | 28 % | 47 % |
-| django | **100 %** | 24 % | 29 % |
-| tokio | **96 %** | 17 % | 19 % |
-
-**Fewer tokens.** The broader the search, the bigger the saving: 28× on the
-search above. A narrow one-file search costs about the same as grep, a few
-tokens more for the path and symbol context. You can
-[measure it on your own work](#is-it-actually-helping).
-
-The speed and accuracy tables were measured with greeg 0.3.0. Protocols, raw
-data and caveats: [`references/BENCH.md`](references/BENCH.md).
+Works with Claude Code and Codex through a hook, and with any agent that can
+run a command. Python, TypeScript/JavaScript, Rust and Kotlin get full syntax
+support; other languages get text search, ranking and budgets.
 
 ## Install
-
-macOS (arm64, x86_64) or Linux (x86_64, aarch64; glibc 2.35+). ripgrep is not
-required.
 
 ```bash
 brew install thiagodmont/greeg/greeg
 ```
+
+macOS (arm64, x86_64) or Linux (x86_64, aarch64; glibc 2.35+). ripgrep is not
+required.
 
 <details>
 <summary>Other ways to install</summary>
@@ -99,29 +65,94 @@ cargo install --git https://github.com/thiagodmont/greeg greeg
 ## Connect your agent
 
 ```bash
-greeg hook claude       # Claude Code   (--dry-run to preview, --uninstall to remove)
+greeg hook claude       # Claude Code
 greeg hook codex        # Codex 0.131+  (then run /hooks in Codex to trust it)
 ```
 
-This installs a hook and a skill file; run it again after upgrading greeg, to
-update the skill (`greeg doctor` says when it is outdated; a skill you edited is kept as it is). The agent keeps writing `rg` or
-`grep -r`; the hook sends those searches to greeg (also inside `;`/`&&`
-lists, before `| head`, and a `grep -rn` or `grep -rl` before other readers such as `| sort`), and the skill teaches the agent greeg's symbol commands. **You don't
-change how you prompt.** A rewritten `grep -r` searches hidden files, as grep
-does, but not version-control data (`.git/` and the like); it skips ignored
-and binary files, which grep searches, and says so on stderr. Commands the hook can't translate exactly (most pipelines,
-redirections, grep without `-r`, …) run with the original tool, and so does
-every search while a nonempty `RIPGREP_CONFIG_PATH` is set;
-`greeg hook explain 'grep -rn foo src'` shows what it would do.
+This installs two things, and **you don't change how you prompt**:
 
-> If you use `Bash(rg:*)` allow rules, add `Bash(greeg:*)` next to them. If
-> another hook also rewrites `rg` (RTK, for example), only one can win; for
-> RTK, add `exclude_commands = ["grep", "rg"]` under `[hooks]` in its config.
+- a **hook** that sends the `rg` and `grep -r` shell commands your agent runs
+  to greeg; a command it can't translate exactly runs with the original tool.
+- a **skill file** that teaches the agent greeg's symbol commands.
 
-Any other agent can call `greeg` directly: it prints to stdout and exits `0` on
-exact hits, `1` when there are none (it may still print relaxed, discovery-only
-results), `2` on error. When the reader of its output leaves (`| head`), it ends
-quietly by SIGPIPE, as grep does (shell status 141).
+Add `--dry-run` to preview the install, or `--uninstall` to remove it.
+`greeg hook explain 'grep -rn foo src'` shows what the hook would do with a
+command. After you upgrade greeg, run the hook command again to update the
+skill; `greeg doctor` says when it is outdated, and a skill you edited is kept
+as it is.
+
+Two things to check:
+
+- **Allow rules.** If you use `Bash(rg:*)` allow rules, add `Bash(greeg:*)`
+  next to them.
+- **Other rewriting hooks.** If another hook also rewrites `rg` (RTK, for
+  example), only one can win. For RTK, add `exclude_commands = ["grep", "rg"]`
+  under `[hooks]` in its config.
+
+<details>
+<summary>What the hook rewrites, and what it leaves alone</summary>
+
+- **Rewritten:** `rg` and `grep -r`, also inside `;`/`&&` lists and before
+  `| head`. A `grep -rn` or `grep -rl` is also rewritten before other readers
+  such as `| sort`. Codex runs a rewrite without asking, so there a line is
+  rewritten only when every command in it is one the hook rewrites.
+- **Left to the original tool:** most pipelines, redirections, grep without
+  `-r`, and every search while a nonempty `RIPGREP_CONFIG_PATH` is set.
+- **How a rewritten `grep -r` differs from grep:** it searches hidden files,
+  as grep does, but not version-control data (`.git/` and the like). It skips
+  ignored and binary files, which grep searches, and says so on stderr.
+
+The full rules are in the [usage guide](references/USAGE.md#agent-hook-details).
+
+</details>
+
+<details>
+<summary>Other agents and scripts: output and exit codes</summary>
+
+Any other agent can call `greeg` directly. It prints to stdout.
+
+| exit | meaning |
+|---:|---|
+| `0` | exact hits |
+| `1` | no exact hits (it may still print relaxed, discovery-only results) |
+| `2` | error |
+
+When the reader of its output leaves (`| head`), greeg ends quietly by
+SIGPIPE, as grep does (shell status 141).
+
+</details>
+
+## What your agent sees
+
+```console
+$ greeg isIdentifier
+definitions (2 of 4)
+src/compiler/factory/nodeTests.ts
+  318  export function isIdentifier(node: Node): node is Identifier {
+src/compiler/parser.ts
+  2318  function isIdentifier(): boolean {  ‹ Parser
+  +2 test definitions (--all)
+
+isIdentifier  774 hits · 109 files · def 19 call 466 member 2 ident 281 comment 6 · test 19
+areas  src/compiler 322  src/services/codefixes 140  src/compiler/transformers 107  src/services 107  …
+
+top hits
+scripts/dtsBundler.mjs
+  310 call  if (ts.isIdentifier(node) && ts.isPartOfTypeNode(node)) {  ‹ verifyMatchingSymbols
+src/compiler/binder.ts
+  2640 call  return isIdentifier(node) && (node.escapedText === "eval" || node.escapedText === "arguments");  ‹ createBinder.isEvalOrArgumentsIdentifier
+  …
+related  isIdentifierText 16  isIdentifierPart 6  isIdentifierStart 6  isThisIdentifier 5
+
+12/774 hits · 4/109 files · 5 files demoted (19) · skipped 9 binary, 2 huge · ~573 tokens
+next: --kind def | -g 'src/compiler/**' | --no-tests
+```
+
+The definitions come first. Then a summary of all 774 hits: their kinds, where
+they live, the top call sites with the function each sits in, and similar
+names. The footer says what was left out, and `next:` says which flag narrows
+the search. Nothing is silently dropped. (The `~573` in the footer is greeg's
+own token estimate; the o200k tokenizer counts 548.)
 
 ## Use it
 
@@ -135,7 +166,7 @@ greeg respond --budget 0            # every match, in path order
 greeg createSourceFile --json       # typed JSON Lines for tools
 ```
 
-Or ask about symbols, which grep can't:
+Ask about symbols, which grep can't:
 
 ```bash
 greeg def JoinHandle                # where it's defined, with signature and doc
@@ -155,35 +186,59 @@ Or ask in plain words when you don't know the name:
 greeg find where retries back off   # files ranked for the question, with their matching definitions
 ```
 
-Ranked searches and symbol commands fit 2,000 tokens by default. Change it per
-call (`--budget 5000`, `--budget 0` for everything) or once (`greeg budget
-high`); `-l`, `-c` and `--json=rg` are never budgeted. The
-[usage guide](references/USAGE.md) covers every flag, the JSON formats and
+Ranked searches and symbol commands fit 2,000 tokens by default; `-l`, `-c`
+and `--json=rg` are never budgeted. Change it per call (`--budget 5000`,
+`--budget 0` for everything) or once (`greeg budget high`). The
+[usage guide](references/USAGE.md) covers every flag, the JSON formats and the
 matching rules.
+
+## Benchmarks
+
+**Tokens.** The `isIdentifier` example at the top is the TypeScript compiler
+at v5.9.2, counted with the o200k tokenizer, greeg 0.14.1 at its default
+2,000-token budget (2026-11-24).
+
+**Finding the definition.** How often the first result is the definition,
+scored against compiler-grade indexes (SCIP) for each repository, with greeg
+0.14.1 (2026-11-24). `greeg` is `greeg def NAME`; `rg-def` is `rg -n --sort path`
+with the language's definition regex, the search an agent types when it wants the
+definition; `rg -nw` and `grep` are plain word searches. About 75 names per
+repository, so each figure is ±10 points.
+
+| repository | **greeg** | `rg-def` | `rg -nw` | `grep` |
+|---|---:|---:|---:|---:|
+| TypeScript 5.9 | **96 %** | 37 % | 28 % | 47 % |
+| django | **100 %** | 75 % | 29 % | 29 % |
+| tokio | **96 %** | 68 % | 16 % | 19 % |
+
+**Speed** on the TypeScript compiler 5.9 (74k files, 368 MB). `rg` and `grep`
+print every match; `greeg` prints the ranked 2,000-token answer an agent reads,
+and `greeg --budget 0` prints every match, like rg. Measured with greeg 0.3.0
+(2026-09-06) on an Apple M4 Pro, warm page cache.
+
+| query | `grep` | `rg` | `rg -j4` | **greeg** | `greeg --budget 0` |
+|---|---:|---:|---:|---:|---:|
+| `createSourceFile` (97 matches) | 4.29 s | 2.42 s | 672 ms | **30 ms** | 35 ms |
+| `node` (30,445 matches) | 4.52 s | 2.33 s | 882 ms | **43 ms** | 67 ms |
+
+Protocols, raw data and caveats: [speed](references/BENCH.md#speed) and
+[accuracy](references/BENCH.md#quality-scip-oracle) in `references/BENCH.md`.
 
 ## How it works
 
 - **No setup.** The first query scans like ripgrep while an index is built in
   the background. The index lives in your cache directory, never in the repo.
-- **Always fresh.** Each query checks for edits (a `stat` pass, or FSEvents on
-  macOS) and reads changed files directly, so answers include your latest edits.
+- **Always fresh.** Each query checks for edits and reads changed files
+  directly, so answers include your latest edits.
 - **Understands code.** Every hit is classified from syntax (definition, call,
-  import, type, comment, …) and tagged with the symbol it sits in. Python,
-  TypeScript/JavaScript, Rust and Kotlin get full syntax support. Other
-  languages get text search, ranking and budgets, but no definitions or
-  symbol commands, until you add a tree-sitter grammar. When a name matches
-  such files, `refs` says how many. `def`, `callers`, `impls` and
-  `refs --kind` say so only when they found nothing, and suggest plain
-  `greeg NAME`. Only files whose extension names a programming language
-  (`.go`, `.java`, …) count; files without an extension and other text files
-  do not.
+  import, type, comment, …) and tagged with the symbol it sits in. Other
+  languages can be added with a tree-sitter grammar; see the
+  [usage guide](references/USAGE.md#flags-and-output-formats).
 - **Ranks, then budgets.** Definitions outrank calls, source outranks tests,
   central files outrank leaves. Tests and generated files are demoted, never
   hidden, and the footer always says what was cut.
 - **Fails safe.** A damaged or outdated index is rebuilt in the background,
-  and the query is answered by a scan instead. If `--budget 0` has already
-  streamed part of its output, greeg stops with an error instead of a partial
-  answer that looks complete.
+  and the query is answered by a scan instead.
 
 Design and internals: [`references/ARCHITECTURE.md`](references/ARCHITECTURE.md).
 
@@ -200,11 +255,15 @@ greeg stats                     # the comparison
 ```
 
 ```
-savings vs rg/grep · 145 replayed queries · same machine and tree
+savings vs rg/grep · 145 replayed queries · same machine and tree · rg output capped at 30,000 bytes
                               rg/grep        greeg        saved
   tokens, total                86,258       66,310       19,948  23%
-  tokens, typical query           311          318          -30
+  tokens, typical query           311          318          -30  greeg smaller on 37 queries, larger on 108
   time, total                  4.64 s       866 ms       3.77 s  81%
+  time, typical query          3.4 ms       6.1 ms      -2.3 ms  greeg faster on 53 queries, slower on 92
+  typical = median; on those rows `saved` is the median of the per-query differences
+  the 3 largest token wins hold 19,754 tokens; the other 142 queries net 194
+  the 3 largest time wins hold 3.25 s; the other 142 queries net 517 ms
 ```
 
 Most savings come from a few broad searches; a typical one-file search costs
@@ -218,6 +277,8 @@ about the same. More in [`references/STATS.md`](references/STATS.md).
 - [Benchmarks](references/BENCH.md): every measurement, with protocol and raw data
 - [Statistics](references/STATS.md): measuring greeg on your own traffic
 - [Development](references/DEVELOPMENT.md): building, testing and benchmarking
+
+## Contributing
 
 Issues and pull requests are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md).
 For a wrong or missing result, include the output of `greeg <query> --stats`
