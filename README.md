@@ -20,7 +20,7 @@ One search, `isIdentifier` in the TypeScript compiler:
 - **Definitions first.** Ask where a symbol is defined (`greeg def NAME`) and
   the first result is right 96 % to 100 % of the time on three open-source
   repositories, against 37 % to 75 % for the `rg` search an agent would type
-  ([benchmarks](#benchmarks)).
+  (samples of about 75 names each, ±10 points; [benchmarks](#benchmarks)).
 - **Fast.** It answers from an index it builds and keeps fresh by itself. On
   the TypeScript compiler (74k files), a search takes tens of milliseconds
   where `rg` takes over a second ([benchmarks](#benchmarks)).
@@ -94,7 +94,8 @@ Two things to check:
 
 - **Rewritten:** `rg` and `grep -r`, also inside `;`/`&&` lists and before
   `| head`. A `grep -rn` or `grep -rl` is also rewritten before other readers
-  such as `| sort`.
+  such as `| sort`. Codex runs a rewrite without asking, so there a line is
+  rewritten only when every command in it is one the hook rewrites.
 - **Left to the original tool:** most pipelines, redirections, grep without
   `-r`, and every search while a nonempty `RIPGREP_CONFIG_PATH` is set.
 - **How a rewritten `grep -r` differs from grep:** it searches hidden files,
@@ -185,7 +186,8 @@ Or ask in plain words when you don't know the name:
 greeg find where retries back off   # files ranked for the question, with their matching definitions
 ```
 
-Answers fit 2,000 tokens by default. Change it per call (`--budget 5000`,
+Ranked searches and symbol commands fit 2,000 tokens by default; `-l`, `-c`
+and `--json=rg` are never budgeted. Change it per call (`--budget 5000`,
 `--budget 0` for everything) or once (`greeg budget high`). The
 [usage guide](references/USAGE.md) covers every flag, the JSON formats and the
 matching rules.
@@ -198,8 +200,8 @@ at v5.9.2, counted with the o200k tokenizer, greeg 0.14.1 at its default
 
 **Finding the definition.** How often the first result is the definition,
 scored against compiler-grade indexes (SCIP) for each repository, with greeg
-0.14.1 (2026-11-24). `greeg` is `greeg def NAME`; `rg-def` is `rg -n` with
-the language's definition regex, the search an agent types when it wants the
+0.14.1 (2026-11-24). `greeg` is `greeg def NAME`; `rg-def` is `rg -n --sort path`
+with the language's definition regex, the search an agent types when it wants the
 definition; `rg -nw` and `grep` are plain word searches. About 75 names per
 repository, so each figure is ±10 points.
 
